@@ -57,13 +57,10 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    using report_status_callback = std::function<Status(
-            const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
-                            const std::function<void(RuntimeState*, Status*)>& call_back,
-                            report_status_callback report_status_cb);
+                            const std::function<void(RuntimeState*, Status*)>& finish_callback);
 
     ~PipelineFragmentContext() override;
 
@@ -132,7 +129,6 @@ public:
         ins_ids.resize(1);
         ins_ids[0] = print_id(_fragment_instance_id);
     }
-    void refresh_next_report_time();
 
     virtual std::string debug_string();
 
@@ -190,7 +186,7 @@ protected:
     RuntimeProfile::Counter* _start_timer = nullptr;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
 
-    std::function<void(RuntimeState*, Status*)> _call_back;
+    std::function<void(RuntimeState*, Status*)> _finish_callback;
     bool _is_fragment_instance_closed = false;
 
     // If this is set to false, and '_is_report_success' is false as well,
@@ -201,9 +197,6 @@ protected:
     std::atomic_bool _disable_period_report = true;
     std::atomic_uint64_t _previous_report_time = 0;
 
-    // profile reporting-related
-    report_status_callback _report_status_cb;
-
     DescriptorTbl* _desc_tbl = nullptr;
     int _num_instances = 1;
 
@@ -211,6 +204,8 @@ private:
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     uint64_t _create_time;
+
+    void refresh_next_report_time() override;
 };
 } // namespace pipeline
 } // namespace doris

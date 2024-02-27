@@ -44,23 +44,6 @@ namespace pipeline {
 class PipelineFragmentContext;
 } // namespace pipeline
 
-struct ReportStatusRequest {
-    bool is_pipeline_x;
-    const Status status;
-    std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile = nullptr;
-    RuntimeProfile* load_channel_profile = nullptr;
-    bool done;
-    TNetworkAddress coord_addr;
-    TUniqueId query_id;
-    int fragment_id;
-    TUniqueId fragment_instance_id;
-    int backend_num;
-    RuntimeState* runtime_state;
-    std::function<Status(Status)> update_fn;
-    std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
-};
-
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.

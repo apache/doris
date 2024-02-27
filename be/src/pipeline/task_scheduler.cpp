@@ -360,6 +360,7 @@ void TaskScheduler::_do_work(size_t index) {
             _close_task(task, PipelineTaskState::CANCELED, status);
             continue;
         }
+
         fragment_ctx->trigger_report_if_necessary();
 
         if (eos) {

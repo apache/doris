@@ -39,12 +39,12 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
-#include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 class IRuntimeFilter;
+class TaskExecutionContext;
 
 namespace pipeline {
 class PipelineXLocalStateBase;

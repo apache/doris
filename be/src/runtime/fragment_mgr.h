@@ -83,18 +83,16 @@ public:
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params);
 
-    void remove_pipeline_context(
-            std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
-
-    // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
 
+    void remove_pipeline_context(
+            std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
+
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
-    Status trigger_pipeline_context_report(const ReportStatusRequest,
-                                           std::shared_ptr<pipeline::PipelineFragmentContext>&&);
+    Status submit_report_profile_task(std::function<void()> task);
 
     // Cancel instance (pipeline or nonpipeline).
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
@@ -142,8 +140,6 @@ public:
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
     std::string to_http_path(const std::string& file_name);
-
-    void coordinator_callback(const ReportStatusRequest& req);
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 

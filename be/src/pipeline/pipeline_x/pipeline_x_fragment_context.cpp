@@ -87,6 +87,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "runtime/task_execution_context.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/container_util.hpp"
@@ -98,10 +99,9 @@ namespace doris::pipeline {
 
 PipelineXFragmentContext::PipelineXFragmentContext(
         const TUniqueId& query_id, const int fragment_id, std::shared_ptr<QueryContext> query_ctx,
-        ExecEnv* exec_env, const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb)
+        ExecEnv* exec_env, const std::function<void(RuntimeState*, Status*)>& call_back)
         : PipelineFragmentContext(query_id, TUniqueId(), fragment_id, -1, query_ctx, exec_env,
-                                  call_back, report_status_cb) {}
+                                  call_back) {}
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
     auto st = _query_ctx->exec_status();
@@ -109,11 +109,11 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         for (auto& runtime_state : _task_runtime_states) {
-            _call_back(runtime_state.get(), &st);
+            _finish_callback(runtime_state.get(), &st);
             runtime_state.reset();
         }
     } else {
-        _call_back(nullptr, &st);
+        _finish_callback(nullptr, &st);
     }
     _runtime_state.reset();
 }
@@ -1301,15 +1301,18 @@ Status PipelineXFragmentContext::send_report(bool done) {
     for (auto& task_state : _task_runtime_states) {
         runtime_states.push_back(task_state.get());
     }
-    return _report_status_cb(
-            {true, exec_status, runtime_states, nullptr, _runtime_state->load_channel_profile(),
-             done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
-             TUniqueId(), _backend_num, _runtime_state.get(),
-             [this](Status st) { return update_status(st); },
-             [this](const PPlanFragmentCancelReason& reason, const std::string& msg) {
-                 cancel(reason, msg);
-             }},
-            std::dynamic_pointer_cast<PipelineXFragmentContext>(shared_from_this()));
+
+    std::shared_ptr<doris::ReportStatusRequest> request =
+            std::make_shared<doris::ReportStatusRequest>(
+                    true, exec_status, runtime_states, nullptr,
+                    _runtime_state->load_channel_profile(), done || !exec_status.ok(),
+                    _query_ctx->coord_addr, _query_id, _fragment_id, TUniqueId(), _backend_num,
+                    _runtime_state.get(), [this](Status st) { return update_status(st); },
+                    [this](const PPlanFragmentCancelReason& reason, const std::string& msg) {
+                        cancel(reason, msg);
+                    });
+
+    return trigger_profile_report(std::move(request));
 }
 
 std::string PipelineXFragmentContext::debug_string() {

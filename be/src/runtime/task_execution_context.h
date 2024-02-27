@@ -19,7 +19,27 @@
 
 #include <memory>
 
+#include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+
 namespace doris {
+struct ReportStatusRequest {
+    bool is_pipeline_x;
+    const Status status;
+    std::vector<RuntimeState*> runtime_states;
+    RuntimeProfile* profile = nullptr;
+    RuntimeProfile* load_channel_profile = nullptr;
+    bool done;
+    TNetworkAddress coord_addr;
+    TUniqueId query_id;
+    int fragment_id;
+    TUniqueId fragment_instance_id;
+    int backend_num;
+    RuntimeState* runtime_state;
+    std::function<Status(Status)> update_fn;
+    std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+};
 
 // This class act as a super class of all context like things such as
 // plan fragment executor or pipelinefragmentcontext or pipelinexfragmentcontext
@@ -27,6 +47,13 @@ class TaskExecutionContext : public std::enable_shared_from_this<TaskExecutionCo
 public:
     TaskExecutionContext() = default;
     virtual ~TaskExecutionContext() = default;
+
+protected:
+    Status trigger_profile_report(std::shared_ptr<doris::ReportStatusRequest> request);
+
+private:
+    void do_report_profile(std::shared_ptr<doris::ReportStatusRequest> request);
+    virtual void refresh_next_report_time() {};
 };
 
 using TaskExecutionContextSPtr = std::shared_ptr<TaskExecutionContext>;

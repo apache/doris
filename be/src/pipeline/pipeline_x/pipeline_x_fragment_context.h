@@ -65,8 +65,7 @@ public:
     // because they take locks.
     PipelineXFragmentContext(const TUniqueId& query_id, const int fragment_id,
                              std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
-                             const std::function<void(RuntimeState*, Status*)>& call_back,
-                             const report_status_callback& report_status_cb);
+                             const std::function<void(RuntimeState*, Status*)>& call_back);
 
     ~PipelineXFragmentContext() override;
 

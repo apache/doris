@@ -40,6 +40,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/task_execution_context.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug/leakcheck_disabler.h"
 #include "util/proto_util.h"

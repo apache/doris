@@ -30,6 +30,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "concurrentqueue.h"
+#include "runtime/task_execution_context.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/vscanner.h"

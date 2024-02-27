@@ -35,7 +35,6 @@
 #include <stddef.h>
 #include <thrift/Thrift.h>
 #include <thrift/protocol/TDebugProtocol.h>
-#include <thrift/transport/TTransportException.h>
 
 #include <atomic>
 
@@ -43,6 +42,7 @@
 #include "pipeline/pipeline_x/pipeline_x_fragment_context.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -110,9 +110,6 @@ std::string to_load_error_http_path(const std::string& file_name) {
     return url.str();
 }
 
-using apache::thrift::TException;
-using apache::thrift::transport::TTransportException;
-
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
@@ -179,257 +176,14 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
     return url.str();
 }
 
-Status FragmentMgr::trigger_pipeline_context_report(
-        const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
-    return _async_report_thread_pool->submit_func([this, req, ctx]() {
-        coordinator_callback(req);
-        if (!req.done) {
-            ctx->refresh_next_report_time();
-        }
-    });
-}
-
-// There can only be one of these callbacks in-flight at any moment, because
-// it is only invoked from the executor's reporting thread.
-// Also, the reported status will always reflect the most recent execution status,
-// including the final status when execution finishes.
-void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
-    DCHECK(req.status.ok() || req.done); // if !status.ok() => done
-    Status exec_status = req.update_fn(req.status);
-    Status coord_status;
-    FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
-                                    &coord_status);
-    if (!coord_status.ok()) {
-        std::stringstream ss;
-        UniqueId uid(req.query_id.hi, req.query_id.lo);
-        static_cast<void>(req.update_fn(Status::InternalError(
-                "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
-                PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
-        return;
-    }
-
-    TReportExecStatusParams params;
-    params.protocol_version = FrontendServiceVersion::V1;
-    params.__set_query_id(req.query_id);
-    params.__set_backend_num(req.backend_num);
-    params.__set_fragment_instance_id(req.fragment_instance_id);
-    params.__set_fragment_id(req.fragment_id);
-    params.__set_status(exec_status.to_thrift());
-    params.__set_done(req.done);
-    params.__set_query_type(req.runtime_state->query_type());
-    params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
-
-    DCHECK(req.runtime_state != nullptr);
-
-    if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
-        // this is a load plan, and load is not finished, just make a brief report
-        params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
-        params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
-    } else {
-        if (req.runtime_state->query_type() == TQueryType::LOAD) {
-            params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
-            params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
-        }
-        if (req.is_pipeline_x) {
-            params.__isset.detailed_report = true;
-            DCHECK(!req.runtime_states.empty());
-            const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
-            if (enable_profile) {
-                params.__isset.profile = true;
-                params.__isset.loadChannelProfile = false;
-                for (auto* rs : req.runtime_states) {
-                    DCHECK(req.load_channel_profile);
-                    TDetailedReportParams detailed_param;
-                    rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-                    // merge all runtime_states.loadChannelProfile to req.load_channel_profile
-                    req.load_channel_profile->update(detailed_param.loadChannelProfile);
-                }
-                req.load_channel_profile->to_thrift(&params.loadChannelProfile);
-            } else {
-                params.__isset.profile = false;
-            }
-
-            if (enable_profile) {
-                for (auto& pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
-                    TDetailedReportParams detailed_param;
-                    detailed_param.__isset.fragment_instance_id = false;
-                    detailed_param.__isset.profile = true;
-                    detailed_param.__isset.loadChannelProfile = false;
-                    pipeline_profile->to_thrift(&detailed_param.profile);
-                    params.detailed_report.push_back(detailed_param);
-                }
-            }
-        } else {
-            if (req.profile != nullptr) {
-                req.profile->to_thrift(&params.profile);
-                if (req.load_channel_profile) {
-                    req.load_channel_profile->to_thrift(&params.loadChannelProfile);
-                }
-                params.__isset.profile = true;
-                params.__isset.loadChannelProfile = true;
-            } else {
-                params.__isset.profile = false;
-            }
-        }
-
-        if (!req.runtime_state->output_files().empty()) {
-            params.__isset.delta_urls = true;
-            for (auto& it : req.runtime_state->output_files()) {
-                params.delta_urls.push_back(to_http_path(it));
-            }
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                for (auto& it : rs->output_files()) {
-                    params.delta_urls.push_back(to_http_path(it));
-                }
-            }
-            if (!params.delta_urls.empty()) {
-                params.__isset.delta_urls = true;
-            }
-        }
-
-        // load rows
-        static std::string s_dpp_normal_all = "dpp.norm.ALL";
-        static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
-        static std::string s_unselected_rows = "unselected.rows";
-        int64_t num_rows_load_success = 0;
-        int64_t num_rows_load_filtered = 0;
-        int64_t num_rows_load_unselected = 0;
-        if (req.runtime_state->num_rows_load_total() > 0 ||
-            req.runtime_state->num_rows_load_filtered() > 0) {
-            params.__isset.load_counters = true;
-
-            num_rows_load_success = req.runtime_state->num_rows_load_success();
-            num_rows_load_filtered = req.runtime_state->num_rows_load_filtered();
-            num_rows_load_unselected = req.runtime_state->num_rows_load_unselected();
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0) {
-                    params.__isset.load_counters = true;
-                    num_rows_load_success += rs->num_rows_load_success();
-                    num_rows_load_filtered += rs->num_rows_load_filtered();
-                    num_rows_load_unselected += rs->num_rows_load_unselected();
-                }
-            }
-        }
-        params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
-        params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
-        params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
-
-        if (!req.runtime_state->get_error_log_file_path().empty()) {
-            params.__set_tracking_url(
-                    to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->get_error_log_file_path().empty()) {
-                    params.__set_tracking_url(
-                            to_load_error_http_path(rs->get_error_log_file_path()));
-                }
-            }
-        }
-        if (!req.runtime_state->export_output_files().empty()) {
-            params.__isset.export_files = true;
-            params.export_files = req.runtime_state->export_output_files();
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->export_output_files().empty()) {
-                    params.__isset.export_files = true;
-                    params.export_files.insert(params.export_files.end(),
-                                               rs->export_output_files().begin(),
-                                               rs->export_output_files().end());
-                }
-            }
-        }
-        if (!req.runtime_state->tablet_commit_infos().empty()) {
-            params.__isset.commitInfos = true;
-            params.commitInfos.reserve(req.runtime_state->tablet_commit_infos().size());
-            for (auto& info : req.runtime_state->tablet_commit_infos()) {
-                params.commitInfos.push_back(info);
-            }
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->tablet_commit_infos().empty()) {
-                    params.__isset.commitInfos = true;
-                    params.commitInfos.insert(params.commitInfos.end(),
-                                              rs->tablet_commit_infos().begin(),
-                                              rs->tablet_commit_infos().end());
-                }
-            }
-        }
-        if (!req.runtime_state->error_tablet_infos().empty()) {
-            params.__isset.errorTabletInfos = true;
-            params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
-            for (auto& info : req.runtime_state->error_tablet_infos()) {
-                params.errorTabletInfos.push_back(info);
-            }
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->error_tablet_infos().empty()) {
-                    params.__isset.errorTabletInfos = true;
-                    params.errorTabletInfos.insert(params.errorTabletInfos.end(),
-                                                   rs->error_tablet_infos().begin(),
-                                                   rs->error_tablet_infos().end());
-                }
-            }
-        }
-
-        // Send new errors to coordinator
-        req.runtime_state->get_unreported_errors(&(params.error_log));
-        params.__isset.error_log = (params.error_log.size() > 0);
-    }
-
-    if (_exec_env->master_info()->__isset.backend_id) {
-        params.__set_backend_id(_exec_env->master_info()->backend_id);
-    }
-
-    TReportExecStatusResult res;
-    Status rpc_status;
-
-    VLOG_DEBUG << "reportExecStatus params is "
-               << apache::thrift::ThriftDebugString(params).c_str();
-    if (!exec_status.ok()) {
-        LOG(WARNING) << "report error status: " << exec_status.msg()
-                     << " to coordinator: " << req.coord_addr
-                     << ", query id: " << print_id(req.query_id)
-                     << ", instance id: " << print_id(req.fragment_instance_id);
-    }
-    try {
-        try {
-            coord->reportExecStatus(res, params);
-        } catch (TTransportException& e) {
-            LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
-                         << ", instance id: " << print_id(req.fragment_instance_id) << " to "
-                         << req.coord_addr << ", err: " << e.what();
-            rpc_status = coord.reopen();
-
-            if (!rpc_status.ok()) {
-                // we need to cancel the execution of this fragment
-                static_cast<void>(req.update_fn(rpc_status));
-                req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "report rpc fail");
-                return;
-            }
-            coord->reportExecStatus(res, params);
-        }
-
-        rpc_status = Status::create<false>(res.status);
-    } catch (TException& e) {
-        rpc_status = Status::InternalError("ReportExecStatus() to {} failed: {}",
-                                           PrintThriftNetworkAddress(req.coord_addr), e.what());
-    }
-
-    if (!rpc_status.ok()) {
-        LOG_INFO("Going to cancel instance {} since report exec status got rpc failed: {}",
-                 print_id(req.fragment_instance_id), rpc_status.to_string());
-        // we need to cancel the execution of this fragment
-        static_cast<void>(req.update_fn(rpc_status));
-        req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, std::string(rpc_status.msg()));
-    }
+Status FragmentMgr::submit_report_profile_task(std::function<void()> task) {
+    return _async_report_thread_pool->submit_func(task);
 }
 
 static void empty_function(RuntimeState*, Status*) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
-                               const FinishCallback& cb) {
+                               const FinishCallback& finish_callback) {
 #ifndef BE_TEST
     SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif
@@ -465,7 +219,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
 
     // Callback after remove from this id
     auto status = fragment_executor->status();
-    cb(fragment_executor->runtime_state(), &status);
+    finish_callback(fragment_executor->runtime_state(), &status);
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
@@ -666,7 +420,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       const FinishCallback& cb) {
+                                       const FinishCallback& finished_callback) {
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -698,9 +452,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     }
 
     auto fragment_executor = std::make_shared<PlanFragmentExecutor>(
-            _exec_env, query_ctx, params.params.fragment_instance_id, -1, params.backend_num,
-            std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                            std::placeholders::_1));
+            _exec_env, query_ctx, params.params.fragment_instance_id, -1, params.backend_num);
+
     if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
         // set need_wait_execution_trigger means this instance will not actually being executed
         // until the execPlanFragmentStart RPC trigger to start it.
@@ -733,8 +486,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     if (!current_thread_pool) {
         current_thread_pool = _thread_pool.get();
     }
-    auto st = current_thread_pool->submit_func(
-            [this, fragment_executor, cb] { _exec_actual(fragment_executor, cb); });
+    auto st = current_thread_pool->submit_func([this, fragment_executor, finished_callback] {
+        _exec_actual(fragment_executor, finished_callback);
+    });
     if (!st.ok()) {
         {
             // Remove the exec state added
@@ -789,10 +543,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         int64_t duration_ns = 0;
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineXFragmentContext>(
-                        query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
-                        std::bind<Status>(
-                                std::mem_fn(&FragmentMgr::trigger_pipeline_context_report), this,
-                                std::placeholders::_1, std::placeholders::_2));
+                        query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb);
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);
@@ -871,10 +622,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             std::shared_ptr<pipeline::PipelineFragmentContext> context =
                     std::make_shared<pipeline::PipelineFragmentContext>(
                             query_ctx->query_id(), fragment_instance_id, params.fragment_id,
-                            local_params.backend_num, query_ctx, _exec_env, cb,
-                            std::bind<Status>(
-                                    std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
-                                    this, std::placeholders::_1, std::placeholders::_2));
+                            local_params.backend_num, query_ctx, _exec_env, cb);
             {
                 SCOPED_RAW_TIMER(&duration_ns);
                 auto prepare_st = context->prepare(params, i);

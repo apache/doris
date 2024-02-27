@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
+#include "runtime/task_execution_context.h"
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
 

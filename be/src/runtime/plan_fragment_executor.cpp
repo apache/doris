@@ -51,6 +51,7 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "runtime/task_execution_context.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
@@ -76,15 +77,13 @@ using namespace ErrorCode;
 PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
                                            std::shared_ptr<QueryContext> query_ctx,
                                            const TUniqueId& instance_id, int fragment_id,
-                                           int backend_num,
-                                           const report_status_callback& report_status_cb)
+                                           int backend_num)
         : _exec_env(exec_env),
           _plan(nullptr),
           _query_ctx(query_ctx),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
           _backend_num(backend_num),
-          _report_status_cb(report_status_cb),
           _report_thread_active(false),
           _done(false),
           _prepared(false),
@@ -501,7 +500,8 @@ void PlanFragmentExecutor::send_report(bool done) {
     if (!_is_report_success && !_is_report_on_cancel) {
         return;
     }
-    ReportStatusRequest report_req = {
+
+    std::shared_ptr<ReportStatusRequest> report_req {new ReportStatusRequest {
             false,
             status,
             {},
@@ -516,11 +516,12 @@ void PlanFragmentExecutor::send_report(bool done) {
             _runtime_state.get(),
             std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
             std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
-                      std::placeholders::_2)};
+                      std::placeholders::_2)}};
+
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
-    _report_status_cb(report_req);
+    static_cast<void>(trigger_profile_report(std::move(report_req)));
 }
 
 // Update status of this fragment execute

@@ -78,8 +78,7 @@ public:
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
     PlanFragmentExecutor(ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
-                         const TUniqueId& instance_id, int fragment_id, int backend_num,
-                         const report_status_callback& report_status_cb);
+                         const TUniqueId& instance_id, int fragment_id, int backend_num);
 
     // Closes the underlying plan fragment and frees up all resources allocated
     // in open()/get_next().
@@ -156,8 +155,6 @@ private:
     // Used to report to coordinator which backend is over
     int _backend_num;
 
-    // profile reporting-related
-    report_status_callback _report_status_cb;
     std::promise<bool> _report_thread_promise;
     std::future<bool> _report_thread_future;
     std::mutex _report_thread_lock;
