@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("slot_both_appear_in_agg_fun_and_grouping_sets") {
-
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
     sql """
          DROP TABLE IF EXISTS table_10_undef_undef4
         """
