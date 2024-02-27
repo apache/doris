@@ -89,17 +89,15 @@ public class AggStateType extends ScalarType {
     @Override
     public void toThrift(TTypeDesc container) {
         super.toThrift(container);
-        if (subTypes != null) {
-            List<TTypeDesc> types = new ArrayList<TTypeDesc>();
-            for (int i = 0; i < subTypes.size(); i++) {
-                TTypeDesc desc = new TTypeDesc();
-                desc.setTypes(new ArrayList<TTypeNode>());
-                subTypes.get(i).toThrift(desc);
-                desc.setIsNullable(subTypeNullables.get(i));
-                types.add(desc);
-            }
-            container.setSubTypes(types);
+        List<TTypeDesc> types = new ArrayList<TTypeDesc>();
+        for (int i = 0; i < subTypes.size(); i++) {
+            TTypeDesc desc = new TTypeDesc();
+            desc.setTypes(new ArrayList<TTypeNode>());
+            subTypes.get(i).toThrift(desc);
+            desc.setIsNullable(subTypeNullables.get(i));
+            types.add(desc);
         }
+        container.setSubTypes(types);
         container.setResultIsNullable(resultIsNullable);
         container.setFunctionName(functionName);
     }
@@ -110,12 +108,6 @@ public class AggStateType extends ScalarType {
             return false;
         }
         AggStateType other = (AggStateType) o;
-        if ((subTypes == null) != (other.getSubTypes() == null)) {
-            return false;
-        }
-        if (subTypes == null) {
-            return true;
-        }
         int subTypeNumber = subTypeNullables.size();
         if (subTypeNumber != other.subTypeNullables.size()) {
             return false;
