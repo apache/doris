@@ -97,6 +97,7 @@ function start_doris_fe() {
     fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
+    # export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
     "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
 
     if ! mysql --version >/dev/null; then sudo apt update && sudo apt install -y mysql-client; fi
@@ -122,6 +123,10 @@ function start_doris_be() {
     fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
+    ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"
+    export ASAN_SYMBOLIZER_PATH
+    export ASAN_OPTIONS="symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:use_sigaltstack=0:detect_leaks=0:fast_unwind_on_malloc=0"
+    export TCMALLOC_SAMPLE_PARAMETER=524288
     sysctl -w vm.max_map_count=2000000 &&
         ulimit -n 200000 &&
         ulimit -c unlimited &&
@@ -491,7 +496,7 @@ archive_doris_coredump() {
     archive_name="$1"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
     be_pid="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
-    if [[ -z "${be_id}" ]]; then echo "ERROR: can not find be id from ${DORIS_HOME}/be/bin/be.pid" && return 1; fi
+    if [[ -z "${be_pid}" ]]; then echo "ERROR: can not find be id from ${DORIS_HOME}/be/bin/be.pid" && return 1; fi
     if corename=$(find /var/lib/apport/coredump/ -type f -name "core.*${be_pid}.*"); then
         initial_size=$(stat -c %s "${corename}")
         while true; do
