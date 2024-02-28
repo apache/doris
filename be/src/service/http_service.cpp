@@ -32,7 +32,6 @@
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
-#include "http/action/cloud_compaction_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"

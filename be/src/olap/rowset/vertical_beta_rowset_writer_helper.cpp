@@ -43,7 +43,7 @@ using namespace ErrorCode;
 
 VerticalBetaRowsetWriterHelper::VerticalBetaRowsetWriterHelper(
         std::vector<std::unique_ptr<segment_v2::SegmentWriter>>* segment_writers,
-        bool already_built, RowsetMetaSharedPtr& rowset_meta, std::atomic<int32_t>* num_segment,
+        bool& already_built, RowsetMetaSharedPtr& rowset_meta, std::atomic<int32_t>* num_segment,
         RowsetWriterContext& context, std::atomic<int64_t>* num_rows_written,
         std::vector<KeyBoundsPB>* segments_encoded_key_bounds,
         std::vector<uint32_t>* segment_num_rows, std::atomic<int64_t>* total_index_size,

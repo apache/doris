@@ -36,7 +36,7 @@ class VerticalBetaRowsetWriterHelper {
 public:
     VerticalBetaRowsetWriterHelper(
             std::vector<std::unique_ptr<segment_v2::SegmentWriter>>* segment_writers,
-            bool already_built, RowsetMetaSharedPtr& rowset_meta, std::atomic<int32_t>* num_segment,
+            bool& already_built, RowsetMetaSharedPtr& rowset_meta, std::atomic<int32_t>* num_segment,
             RowsetWriterContext& context, std::atomic<int64_t>* _num_rows_written,
             std::vector<KeyBoundsPB>* _segments_encoded_key_bounds,
             std::vector<uint32_t>* _segment_num_rows, std::atomic<int64_t>* _total_index_size,
@@ -66,7 +66,7 @@ private:
     size_t _cur_writer_idx = 0;
     size_t _total_key_group_rows = 0;
 
-    bool _already_built;
+    bool& _already_built;
     RowsetMetaSharedPtr& _rowset_meta;
     std::atomic<int32_t>* _num_segment;
     RowsetWriterContext& _context;
