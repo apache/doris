@@ -73,6 +73,9 @@ message InstanceInfoPB {
     optional RamUserPB ram_user = 11;
     optional RamUserPB iam_user = 12;
     optional bool sse_enabled = 13;
+
+    repeated string resource_ids = 100; // 新加 vault 的 resource id 采用 max_resource_id + 1
+    repeated string storage_vault_names = 101; // 建表时从这里找到 vault name -> resource id 的映射
 }
 
 message StagePB {
@@ -185,6 +188,25 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+}
+
+message StorageVaultPB {
+    optional string id = 1;
+    optional string name = 2;
+    optional HdfsParams hdfs_infos = 3; // HdfsResource
+}
+
+message HdfsParams {
+    optional string fs_name = 1;
+    optional string user = 2;
+    optional string hdfs_kerberos_principal = 3;
+    optional string hdfs_kerberos_keytab = 4;
+    repeated HdfsConf hdfs_confs = 5;
+}
+
+message HdfsConf {
+    optional string key = 1;
+    optional string value = 2;
 }
 
 //==============================================================================
@@ -691,16 +713,24 @@ message GetObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
 };
 
+message AlterHdfsParams {
+        optional string vault_name = 1;
+        optional HdfsParams hdfs = 2;
+    }
+
 message AlterObjStoreInfoRequest {
     enum Operation {
         UNKNOWN         = 0;
         UPDATE_AK_SK    = 1;
         ADD_OBJ_INFO    = 2;
         LEGACY_UPDATE_AK_SK = 3;
+
+        ADD_HDFS_INFO = 100;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
     optional Operation op = 3;
+    optional AlterHdfsParams hdfs = 4;
 }
 
 message AlterObjStoreInfoResponse {
@@ -720,6 +750,7 @@ message UpdateAkSkResponse {
 message GetObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ObjectStoreInfoPB obj_info = 2;
+    repeated HdfsParams hdfs_info = 3;
 };
 
 message CreateTabletsRequest {
@@ -837,6 +868,7 @@ message CreateInstanceRequest {
     optional ObjectStoreInfoPB obj_info = 4;
     optional RamUserPB ram_user = 5;
     optional bool sse_enabled = 6;
+    optional HdfsParams hdfs_info = 7;
 }
 
 message CreateInstanceResponse {

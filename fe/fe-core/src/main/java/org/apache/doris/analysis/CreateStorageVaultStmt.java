@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -38,9 +38,9 @@ public class CreateStorageVaultStmt extends DdlStmt {
     private final boolean ifNotExists;
     private final String vaultName;
     private final Map<String, String> properties;
-    private VaultType vaultType;
+    private StorageVault.StorageVaultType vaultType;
 
-    public CreateResourceStmt(boolean ifNotExists, String vaultName, Map<String, String> properties) {
+    public CreateStorageVaultStmt(boolean ifNotExists, String vaultName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.vaultName = vaultName;
         this.properties = properties;
@@ -51,7 +51,7 @@ public class CreateStorageVaultStmt extends DdlStmt {
         return ifNotExists;
     }
 
-    public String getVaultName() {
+    public String getStorageVaultName() {
         return vaultName;
     }
 
@@ -59,7 +59,7 @@ public class CreateStorageVaultStmt extends DdlStmt {
         return properties;
     }
 
-    public VaultType getVaultType() {
+    public StorageVault.StorageVaultType getStorageVaultType() {
         return vaultType;
     }
 
@@ -73,7 +73,7 @@ public class CreateStorageVaultStmt extends DdlStmt {
         }
 
         // check name
-        FeNameFormat.checkStorageVaultName(resourceName);
+        FeNameFormat.checkStorageVaultName(vaultName);
 
         // check type in properties
         if (properties == null || properties.isEmpty()) {
@@ -83,8 +83,8 @@ public class CreateStorageVaultStmt extends DdlStmt {
         if (type == null) {
             throw new AnalysisException("Storage Vault type can't be null");
         }
-        resourceType = ResourceType.fromString(type);
-        if (resourceType == ResourceType.UNKNOWN) {
+        vaultType = StorageVault.StorageVaultType.fromString(type);
+        if (vaultType == StorageVault.StorageVaultType.UNKNOWN) {
             throw new AnalysisException("Unsupported Storage Vault type: " + type);
         }
     }
