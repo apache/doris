@@ -129,6 +129,7 @@ message RowsetMetaPB {
     // If enable_segments_file_size is false,
     // the segments_file_size maybe is empty or error
     optional bool enable_segments_file_size = 1004;
+    optional bool has_variant_type_in_schema = 1005;
 }
 
 message RowsetMetaCloudPB {
@@ -198,6 +199,7 @@ message RowsetMetaCloudPB {
     // If enable_segments_file_size is false,
     // the segments_file_size maybe is empty or error
     optional bool enable_segments_file_size = 103;
+    optional bool has_variant_type_in_schema = 104;
 }
 
 message SegmentStatisticsPB {

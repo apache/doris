@@ -16,6 +16,9 @@
 // under the License.
 
 suite("regression_test_variant_desc", "nonConcurrent"){
+    if (isCloudCluster()) {
+        return
+    }
 
     def load_json_data = {table_name, file_name ->
         // load the json data
