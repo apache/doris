@@ -39,10 +39,10 @@ import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
-import org.apache.doris.nereids.rules.rewrite.CheckColumnPrivilege;
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
+import org.apache.doris.nereids.rules.rewrite.CheckPrivilege;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
@@ -241,7 +241,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // 2. and then check the column privileges
             // 3. finally, we can eliminate the LogicalView
             topic("Inline view and check column privileges",
-                    custom(RuleType.CHECK_COLUMN_PRIVILEGES, CheckColumnPrivilege::new),
+                    custom(RuleType.CHECK_PRIVILEGES, CheckPrivilege::new),
                     bottomUp(new InlineLogicalView())
             ),
             topic("Eliminate optimization",
