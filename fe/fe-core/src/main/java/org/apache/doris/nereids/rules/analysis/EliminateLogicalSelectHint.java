@@ -108,7 +108,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             }
             throw new AnalysisException("The nereids is disabled in this sql, fallback to original planner");
         }
-        context.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        context.invalidCache(selectHint.getHintName());
     }
 
     private void extractLeading(SelectHintLeading selectHint, CascadesContext context,

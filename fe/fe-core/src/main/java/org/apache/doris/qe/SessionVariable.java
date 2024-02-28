@@ -2612,9 +2612,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public Set<String> getDisableNereidsRuleNames() {
         String checkPrivilege = RuleType.CHECK_PRIVILEGES.name();
+        String checkRowPolicy = RuleType.CHECK_ROW_POLICY.name();
         return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
-                .filter(rule -> !StringUtils.equalsIgnoreCase(rule, checkPrivilege))
+                .filter(rule -> !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
+                        && !StringUtils.equalsIgnoreCase(rule, checkRowPolicy))
                 .collect(ImmutableSet.toImmutableSet());
     }
 
@@ -2623,7 +2625,8 @@ public class SessionVariable implements Serializable, Writable {
                 .filter(rule -> !rule.isEmpty())
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
                 .map(rule -> RuleType.valueOf(rule))
-                .filter(ruleType -> ruleType != RuleType.CHECK_PRIVILEGES)
+                .filter(ruleType -> ruleType != RuleType.CHECK_PRIVILEGES
+                        && ruleType != RuleType.CHECK_ROW_POLICY)
                 .map(RuleType::type)
                 .collect(ImmutableSet.toImmutableSet());
     }

@@ -34,8 +34,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** CheckPrivilege */
-public class CheckPrivilege extends ColumnPruning {
+/** CheckPrivileges */
+public class CheckPrivileges extends ColumnPruning {
     private JobContext jobContext;
 
     @Override

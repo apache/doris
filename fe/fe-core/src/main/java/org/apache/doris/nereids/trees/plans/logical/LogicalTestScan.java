@@ -30,7 +30,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * LogicalTestTable.
+ * LogicalTestScan.
  *
  * only for ut
  */
