@@ -1713,13 +1713,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         auto tablet_id = dp->param<int64>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto miss = dp->param<bool>("version_miss", true);
-            LOG_WARNING("Tablet.build_tablet_report_info.version_miss")
-                    .tag("tablet id", tablet_id)
-                    .tag("version_miss", miss);
             tablet_info->__set_version_miss(miss);
-
-        } else {
-            LOG_WARNING("Tablet.build_tablet_report_info.version_miss").tag("tablet id", tablet_id);
         }
     });
 
