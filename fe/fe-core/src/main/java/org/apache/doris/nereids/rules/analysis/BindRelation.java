@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -27,7 +26,6 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -161,7 +159,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
 
         // TODO: should generate different Scan sub class according to table's type
-        LogicalPlan scan = getAndCheckLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+        LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
         if (cascadesContext.isLeadingJoin()) {
             LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
             leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
@@ -182,7 +180,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
-        return getAndCheckLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
     private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier) {
@@ -238,29 +236,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return scan;
     }
 
-    private LogicalPlan getAndCheckLogicalPlan(TableIf table, UnboundRelation unboundRelation,
+    private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
                                                List<String> tableQualifier, CascadesContext cascadesContext) {
-        // if current context is in the view, we can skip check authentication because
-        // the view already checked authentication
-        if (cascadesContext.shouldCheckRelationAuthentication()) {
-            UserAuthentication.checkPermission(table, cascadesContext.getConnectContext());
-        }
-        return doGetLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
-    }
-
-    private LogicalPlan doGetLogicalPlan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier,
-                                       CascadesContext cascadesContext) {
         switch (table.getType()) {
             case OLAP:
             case MATERIALIZED_VIEW:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
-                String inlineViewDef = ((View) table).getInlineViewDef();
+                View view = (View) table;
+                String inlineViewDef = view.getInlineViewDef();
                 Plan viewBody = parseAndAnalyzeView(inlineViewDef, cascadesContext);
-                DatabaseIf database = table.getDatabase();
-                CatalogIf catalog = database.getCatalog();
-                LogicalView<Plan> logicalView = new LogicalView<>(
-                        catalog.getName(), database.getFullName(), table.getName(), inlineViewDef, viewBody);
+                LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
                 return new LogicalSubQueryAlias<>(tableQualifier, logicalView);
             case HMS_EXTERNAL_TABLE:
                 if (Config.enable_query_hive_views && ((HMSExternalTable) table).isView()) {
@@ -310,7 +296,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (parsedViewPlan instanceof UnboundResultSink) {
             parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
         }
-        CascadesContext viewContext = CascadesContext.initViewContext(
+        CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.newAnalyzer(true, customTableResolver).analyze();
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
