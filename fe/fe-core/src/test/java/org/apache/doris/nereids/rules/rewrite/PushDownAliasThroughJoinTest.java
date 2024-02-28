@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -109,17 +108,13 @@ class PushDownAliasThroughJoinTest implements MemoPatternMatchSupported {
     @Test
     void testNoPushdownMarkJoin() {
         List<NamedExpression> projects =
-                ImmutableList.of(new MarkJoinSlotReference(new ExprId(101), "markSlot1", false),
-                        new Alias(new MarkJoinSlotReference(new ExprId(102), "markSlot2", false),
-                                "markSlot2"));
+                ImmutableList.of(new MarkJoinSlotReference(new ExprId(4), "fake", false));
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)).projectExprs(projects).build();
+                .markJoin(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)).projectExprs(projects).build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushDownAliasThroughJoin())
                 .matches(logicalProject(logicalJoin(logicalOlapScan(), logicalOlapScan()))
-                        .when(project -> project.getProjects().get(0).toSql().equals("markSlot1")
-                                && project.getProjects().get(1).toSql()
-                                        .equals("markSlot2 AS `markSlot2`")));
+                        .when(project -> project.getProjects().get(0).toSql().equals("fake")));
     }
 }
