@@ -409,7 +409,8 @@ void TaskScheduler::_do_work(size_t index) {
             break;
         case PipelineTaskState::RUNNABLE:
             task->set_running(false);
-            static_cast<void>(_task_queue->push_back(task, index));
+            static_cast<void>(task->query_context()->get_task_scheduler()->task_queue()->push_back(
+                    task, index));
             break;
         default:
             DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state)

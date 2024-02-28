@@ -170,7 +170,18 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         List<WorkloadActionMeta> originActions = createStmt.getActions();
         List<WorkloadAction> policyActionList = new ArrayList<>();
         for (WorkloadActionMeta workloadActionMeta : originActions) {
-            // todo(wb) support move action
+            WorkloadActionType actionName = workloadActionMeta.action;
+            String actionArgs = workloadActionMeta.actionArgs;
+
+            if (WorkloadActionType.MOVE_QUERY_TO_GROUP.equals(actionName)) {
+                Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroupIdByName(actionArgs);
+                if (wgId == null) {
+                    throw new UserException(
+                            "can not find workload group " + actionArgs + " when set workload sched policy");
+                }
+                workloadActionMeta.actionArgs = wgId.toString();
+            }
+
             WorkloadAction ret = WorkloadAction.createWorkloadAction(workloadActionMeta);
             policyActionList.add(ret);
         }

@@ -104,7 +104,9 @@ QueryContext::~QueryContext() {
     if (_task_group) {
         group_id = _task_group->id(); // before remove
         _task_group->remove_mem_tracker_limiter(query_mem_tracker);
-        _task_group->remove_query(_query_id);
+        for (auto iter = _used_tg_map.begin(); iter != _used_tg_map.end(); iter++) {
+            iter->second->remove_query(_query_id);
+        }
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
@@ -221,14 +223,48 @@ ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
 }
 
 Status QueryContext::set_task_group(taskgroup::TaskGroupPtr& tg) {
-    _task_group = tg;
     // Should add query first, then the task group will not be deleted.
     // see task_group_manager::delete_task_group_by_ids
-    RETURN_IF_ERROR(_task_group->add_query(_query_id));
+    RETURN_IF_ERROR(tg->add_query(_query_id));
+    std::unique_lock<std::shared_mutex> w_lock(_task_group_lock);
+    _task_group = tg;
+    _used_tg_map[tg->id()] = tg;
     _task_group->add_mem_tracker_limiter(query_mem_tracker);
     _task_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
                                      &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
     return Status::OK();
+}
+
+Status QueryContext::move_to_group(uint64_t dst_group_id) {
+    std::unique_lock<std::shared_mutex> w_lock(_task_group_lock);
+    std::shared_ptr<taskgroup::TaskGroup> src_group = _task_group;
+    std::shared_ptr<taskgroup::TaskGroup> dst_group =
+            ExecEnv::GetInstance()->task_group_manager()->get_task_group_by_id(dst_group_id);
+    if (!dst_group) {
+        // note(wb) maybe we can cancel query when dst group not exists
+        return Status::InternalError<false>("can not find dst group {} when move group ",
+                                            dst_group_id);
+    }
+
+    if (dst_group->id() != src_group->id()) {
+        RETURN_IF_ERROR(dst_group->add_query(_query_id));
+        _task_group = dst_group;
+        _used_tg_map[dst_group->id()] = dst_group;
+        _task_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
+                                         &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
+        src_group->remove_mem_tracker_limiter(query_mem_tracker);
+        _task_group->add_mem_tracker_limiter(query_mem_tracker);
+    }
+    return Status::OK();
+}
+
+pipeline::TaskScheduler* QueryContext::get_task_scheduler() {
+    std::shared_lock<std::shared_mutex> r_lock(_task_group_lock);
+    if (_task_scheduler) {
+        return _task_scheduler;
+    } else {
+        return ExecEnv::GetInstance()->pipeline_task_scheduler();
+    }
 }
 
 } // namespace doris

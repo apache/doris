@@ -32,6 +32,8 @@ public interface WorkloadAction {
             return WorkloadActionCancelQuery.createWorkloadAction();
         } else if (WorkloadActionType.SET_SESSION_VARIABLE.equals(workloadActionMeta.action)) {
             return WorkloadActionSetSessionVar.createWorkloadAction(workloadActionMeta.actionArgs);
+        } else if (WorkloadActionType.MOVE_QUERY_TO_GROUP.equals(workloadActionMeta.action)) {
+            return WorkloadActionMoveQueryToGroup.createWorkloadAction(workloadActionMeta.actionArgs);
         }
         throw new UserException("invalid action type " + workloadActionMeta.action);
     }

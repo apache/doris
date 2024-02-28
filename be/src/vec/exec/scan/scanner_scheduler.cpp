@@ -157,7 +157,7 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
         bool ret = false;
         if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-            if (auto* scan_sched = ctx->get_simple_scan_scheduler()) {
+            if (auto* scan_sched = ctx->get_local_scan_scheduler()) {
                 auto work_func = [this, scanner_ref = scan_task, ctx]() {
                     this->_scanner_scan(ctx, scanner_ref);
                 };
@@ -217,7 +217,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     VScannerSPtr& scanner = scanner_delegate->_scanner;
     SCOPED_ATTACH_TASK(scanner->runtime_state());
-    // for cpu hard limit, thread name should not be reset
     if (ctx->_should_reset_thread_name) {
         Thread::set_self_name("_scanner_scan");
     }

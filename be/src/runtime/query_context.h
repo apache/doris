@@ -152,6 +152,22 @@ public:
 
     Status set_task_group(taskgroup::TaskGroupPtr& tg);
 
+    taskgroup::TaskGroupPtr get_task_group() {
+        std::shared_lock<std::shared_mutex> r_lock(_task_group_lock);
+        return _task_group;
+    }
+    pipeline::TaskScheduler* get_task_scheduler();
+    vectorized::SimplifiedScanScheduler* get_scan_task_scheduler() {
+        std::shared_lock<std::shared_mutex> r_lock(_task_group_lock);
+        return _scan_task_scheduler;
+    };
+    vectorized::SimplifiedScanScheduler* get_remote_scan_task_scheduler() {
+        std::shared_lock<std::shared_mutex> r_lock(_task_group_lock);
+        return _remote_scan_task_scheduler;
+    }
+
+    Status move_to_group(uint64_t dst_group_id);
+
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
                                                         : _query_options.query_timeout;
@@ -276,7 +292,6 @@ private:
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     vectorized::RuntimePredicate _runtime_predicate;
 
-    taskgroup::TaskGroupPtr _task_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 
@@ -285,10 +300,15 @@ private:
     // to report the real message if failed.
     Status _exec_status = Status::OK();
 
+    // workload group
+    std::shared_mutex _task_group_lock;
+    std::map<uint64_t, taskgroup::TaskGroupPtr> _used_tg_map;
+    taskgroup::TaskGroupPtr _task_group = nullptr;
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
     ThreadPool* _non_pipe_thread_pool = nullptr;
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
+
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;

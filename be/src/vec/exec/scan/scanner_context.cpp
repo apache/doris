@@ -124,11 +124,9 @@ Status ScannerContext::init() {
     // 3. get thread token
     if (_state->get_query_ctx()) {
         thread_token = _state->get_query_ctx()->get_token();
-        _simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
-        if (_simple_scan_scheduler) {
+        if (_state->get_query_ctx()->get_scan_scheduler()) {
             _should_reset_thread_name = false;
         }
-        _remote_scan_task_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
     }
 #endif
 
@@ -449,6 +447,14 @@ std::string ScannerContext::debug_string() {
             ctx_id, _all_scanners.size(), _blocks_queue.size(), _should_stop, _is_finished,
             _free_blocks.size_approx(), limit, _num_scheduled_scanners, _max_thread_num,
             _max_bytes_in_queue, print_id(_query_id));
+}
+
+SimplifiedScanScheduler* ScannerContext::get_local_scan_scheduler() {
+    return _state->get_query_ctx()->get_scan_scheduler();
+}
+
+SimplifiedScanScheduler* ScannerContext::get_remote_scan_scheduler() {
+    return _state->get_query_ctx()->get_remote_scan_scheduler();
 }
 
 } // namespace doris::vectorized
