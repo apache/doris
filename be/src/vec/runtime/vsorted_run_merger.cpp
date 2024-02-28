@@ -106,6 +106,10 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         MutableColumns merged_columns =
                 mem_reuse ? output_block->mutate_columns() : _empty_block.clone_empty_columns();
 
+        if (merged_columns.size() != num_columns) {
+            return Status::Error(ErrorCode::INTERNAL_ERROR);
+        }
+
         /// Take rows from queue in right order and push to 'merged'.
         size_t merged_rows = 0;
         while (!_priority_queue.empty()) {
