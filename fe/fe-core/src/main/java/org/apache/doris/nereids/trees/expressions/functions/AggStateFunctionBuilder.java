@@ -18,11 +18,15 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
 import java.util.Objects;
@@ -36,10 +40,12 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
     public static final String STATE = "state";
     public static final String MERGE = "merge";
     public static final String UNION = "union";
+    public static final String FOREACH = "foreach";
 
     public static final String STATE_SUFFIX = COMBINATOR_LINKER + STATE;
     public static final String MERGE_SUFFIX = COMBINATOR_LINKER + MERGE;
     public static final String UNION_SUFFIX = COMBINATOR_LINKER + UNION;
+    public static final String FOREACH_SUFFIX = COMBINATOR_LINKER + FOREACH;
 
     private final FunctionBuilder nestedBuilder;
 
@@ -52,7 +58,7 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
 
     @Override
     public boolean canApply(List<? extends Object> arguments) {
-        if (combinatorSuffix.equals(STATE)) {
+        if (combinatorSuffix.equals(STATE) || combinatorSuffix.equals(FOREACH)) {
             return nestedBuilder.canApply(arguments);
         } else {
             if (arguments.size() != 1) {
@@ -69,6 +75,23 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
 
     private AggregateFunction buildState(String nestedName, List<? extends Object> arguments) {
         return (AggregateFunction) nestedBuilder.build(nestedName, arguments);
+    }
+
+    private AggregateFunction buildForEach(String nestedName, List<? extends Object> arguments) {
+        List<Expression> forEachargs = arguments.stream().map(expr -> {
+            if (!(expr instanceof SlotReference)) {
+                throw new IllegalStateException(
+                        "Can not build foreach nested function: '" + nestedName);
+            }
+            DataType arrayType = (((Expression) expr).getDataType());
+            if (!(arrayType instanceof ArrayType)) {
+                throw new IllegalStateException(
+                        "foreach must be input array type: '" + nestedName);
+            }
+            DataType itemType = ((ArrayType) arrayType).getItemType();
+            return new SlotReference("mocked", itemType, itemType.isNullType());
+        }).collect(Collectors.toList());
+        return (AggregateFunction) nestedBuilder.build(nestedName, forEachargs);
     }
 
     private AggregateFunction buildMergeOrUnion(String nestedName, List<? extends Object> arguments) {
@@ -105,13 +128,16 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
         } else if (combinatorSuffix.equals(UNION)) {
             AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
             return new UnionCombinator((List<Expression>) arguments, nestedFunction);
+        } else if (combinatorSuffix.equals(FOREACH)) {
+            AggregateFunction nestedFunction = buildForEach(nestedName, arguments);
+            return new ForEachCombinator((List<Expression>) arguments, nestedFunction);
         }
         return null;
     }
 
     public static boolean isAggStateCombinator(String name) {
         return name.toLowerCase().endsWith(STATE_SUFFIX) || name.toLowerCase().endsWith(MERGE_SUFFIX)
-                || name.toLowerCase().endsWith(UNION_SUFFIX);
+                || name.toLowerCase().endsWith(UNION_SUFFIX) || name.toLowerCase().endsWith(FOREACH_SUFFIX);
     }
 
     public static String getNestedName(String name) {

@@ -72,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -302,6 +303,10 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitUnionCombinator(UnionCombinator combinator, C context) {
+        return visitAggregateFunction(combinator, context);
+    }
+
+    default R visitForEachCombinator(ForEachCombinator combinator, C context) {
         return visitAggregateFunction(combinator, context);
     }
 
