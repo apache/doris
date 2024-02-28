@@ -2934,7 +2934,6 @@ public:
         block.get_by_position(result).column = std::move(res);
 
         return Status::OK();
-
     }
 };
 
