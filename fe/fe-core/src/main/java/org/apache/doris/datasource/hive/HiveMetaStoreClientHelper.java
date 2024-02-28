@@ -71,7 +71,6 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
@@ -79,7 +78,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TException;
 
-import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -828,39 +826,14 @@ public class HiveMetaStoreClientHelper {
                     AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
                     AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
         }
-        UserGroupInformation ugi = HadoopUGI.loginWithUGI(krbConfig);
-        try {
-            if (ugi != null) {
-                ugi.checkTGTAndReloginFromKeytab();
-                return ugi.doAs(action);
-            } else {
-                return action.run();
-            }
-        } catch (Exception e) {
-            throw new RuntimeException(e.getMessage(), e);
-        }
+        return HadoopUGI.ugiDoAs(krbConfig, action);
     }
 
     public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
-
         Configuration conf = getConfiguration(table);
-        UserGroupInformation ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(conf));
-        HoodieTableMetaClient metaClient;
-        if (ugi != null) {
-            try {
-                metaClient = ugi.doAs(
-                        (PrivilegedExceptionAction<HoodieTableMetaClient>) () -> HoodieTableMetaClient.builder()
-                                .setConf(conf).setBasePath(hudiBasePath).build());
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } catch (InterruptedException e) {
-                throw new RuntimeException("Cannot get hudi client.", e);
-            }
-        } else {
-            metaClient = HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build();
-        }
-        return metaClient;
+        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf),
+                () -> HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build());
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
