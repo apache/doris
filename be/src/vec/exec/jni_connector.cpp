@@ -356,6 +356,7 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
 
     // This judgment is necessary, otherwise the following statement `offsets[num_rows - 1]` out of bounds
     // What's more, This judgment must be placed after `address.next_meta_as_ptr()`
+    // because `address.next_meta_as_ptr` will make `address._meta_index` plus 1
     if (num_rows == 0) {
         return Status::OK();
     }
