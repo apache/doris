@@ -254,6 +254,10 @@ public class CreateTableStmt extends DdlStmt {
         return engineName;
     }
 
+    public String getCatalogName() {
+        return tableName.getCtl();
+    }
+
     public String getDbName() {
         return tableName.getDb();
     }
