@@ -28,6 +28,7 @@ namespace doris::vectorized {
 
 void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
@@ -81,6 +82,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_group_concat(instance);
         register_aggregate_function_quantile_state(instance);
         register_aggregate_function_combinator_distinct(instance);
+        register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_reader_load(
                 instance); // register aggregate function for agg reader
         register_aggregate_function_window_rank(instance);

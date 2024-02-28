@@ -37,6 +37,14 @@ using DataTypes = std::vector<DataTypePtr>;
 using AggregateFunctionCreator =
         std::function<AggregateFunctionPtr(const std::string&, const DataTypes&, const bool)>;
 
+inline std::string types_name(const DataTypes& types) {
+    std::string name;
+    for (auto&& type : types) {
+        name += type->get_name();
+    }
+    return name;
+}
+
 class AggregateFunctionSimpleFactory {
 public:
     using Creator = AggregateFunctionCreator;
@@ -78,6 +86,21 @@ public:
         }
     }
 
+    void register_foreach_function_combinator(const Creator& creator, const std::string& suffix,
+                                              bool nullable = false) {
+        auto& functions = nullable ? nullable_aggregate_functions : aggregate_functions;
+        std::vector<std::string> need_insert;
+        for (const auto& entity : aggregate_functions) {
+            std::string target_value = entity.first + suffix;
+            if (functions.find(target_value) == functions.end()) {
+                need_insert.emplace_back(std::move(target_value));
+            }
+        }
+        for (const auto& function_name : need_insert) {
+            register_function(function_name, creator, nullable);
+        }
+    }
+
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
                              const bool result_is_nullable = false,
                              int be_version = BeExecVersionManager::get_newest_version(),
@@ -97,7 +120,7 @@ public:
         }
         temporary_function_update(be_version, name_str);
 
-        if (function_alias.count(name)) {
+        if (function_alias.contains(name)) {
             name_str = function_alias[name];
         }
 
@@ -148,7 +171,6 @@ public:
         }
     }
 
-public:
     static AggregateFunctionSimpleFactory& instance();
 };
 }; // namespace doris::vectorized

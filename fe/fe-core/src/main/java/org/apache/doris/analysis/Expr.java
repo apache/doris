@@ -88,6 +88,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_STATE_SUFFIX = "_state";
     public static final String AGG_UNION_SUFFIX = "_union";
     public static final String AGG_MERGE_SUFFIX = "_merge";
+    public static final String AGG_FOREACH_SUFFIX = "_foreach";
     public static final String DEFAULT_EXPR_NAME = "expr";
 
     protected boolean disableTableName = false;
@@ -1941,7 +1942,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         boolean isUnion = name.toLowerCase().endsWith(AGG_UNION_SUFFIX);
         boolean isMerge = name.toLowerCase().endsWith(AGG_MERGE_SUFFIX);
         boolean isState = name.toLowerCase().endsWith(AGG_STATE_SUFFIX);
-        if (isUnion || isMerge || isState) {
+        boolean isForeach = name.toLowerCase().endsWith(AGG_FOREACH_SUFFIX);
+        if (isUnion || isMerge || isState || isForeach) {
             if (isUnion) {
                 name = name.substring(0, name.length() - AGG_UNION_SUFFIX.length());
             }
@@ -1952,10 +1954,20 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 name = name.substring(0, name.length() - AGG_STATE_SUFFIX.length());
             }
 
+            if (isForeach) {
+                name = name.substring(0, name.length() - AGG_FOREACH_SUFFIX.length());
+            }
+
             List<Type> argList = Arrays.asList(getActualArgTypes(argTypes));
             List<Type> nestedArgList;
+
             if (isState) {
                 nestedArgList = argList;
+            } else if (isForeach) {
+                nestedArgList = new ArrayList<Type>();
+                for (Type t : argList) {
+                    nestedArgList.add(((ArrayType) t).getItemType());
+                }
             } else {
                 if (argList.size() != 1 || !argList.get(0).isAggStateType()) {
                     throw new AnalysisException("merge/union function must input one agg_state");
@@ -1991,8 +2003,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     f.setNullableMode(NullableMode.CUSTOM);
                     f.setNestedFunction(original);
                 }
+                if (isForeach) {
+                    f.setName(new FunctionName(name + AGG_FOREACH_SUFFIX));
+                    f.setNullableMode(NullableMode.ALWAYS_NULLABLE);
+                    f.setReturnType(new ArrayType(f.getReturnType()));
+                }
             }
-            f.setBinaryType(TFunctionBinaryType.AGG_STATE);
+            if (isForeach) {
+                f.setBinaryType(f.getBinaryType());
+            } else {
+                f.setBinaryType(TFunctionBinaryType.AGG_STATE);
+            }
         }
 
         return f;
