@@ -17,33 +17,18 @@
 
 #pragma once
 
-#include <cstddef>
+#include "http/http_handler.h"
 
-#include "common/status.h"
-#include "io/fs/file_system.h"
-#include "io/fs/file_writer.h"
-#include "io/fs/path.h"
-#include "util/slice.h"
+namespace doris {
 
-namespace doris::io {
+class HttpRequest;
 
-class LocalFileWriter final : public FileWriter {
+class AdjustTracingDump : public HttpHandler {
 public:
-    LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data = true);
-    LocalFileWriter(Path path, int fd);
-    ~LocalFileWriter() override;
+    AdjustTracingDump() = default;
 
-    Status close() override;
-    Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
+    ~AdjustTracingDump() override = default;
 
-private:
-    void _abort();
-    Status _close(bool sync);
-
-    int _fd; // owned
-    bool _dirty = false;
-    const bool _sync_data = false;
+    void handle(HttpRequest* req) override;
 };
-
-} // namespace doris::io
+} // namespace doris

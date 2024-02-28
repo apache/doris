@@ -33,7 +33,6 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "task_group/task_group.h"
-#include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -61,6 +60,7 @@ struct ReportStatusRequest {
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -70,7 +70,7 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options, TNetworkAddress coord_addr);
+                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline);
 
     ~QueryContext();
 
@@ -216,7 +216,7 @@ public:
 
     ThreadPool* get_non_pipe_exec_thread_pool();
 
-    int64_t mem_limit() { return _bytes_limit; }
+    int64_t mem_limit() const { return _bytes_limit; }
 
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
@@ -256,6 +256,7 @@ private:
     ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
     int64_t _bytes_limit = 0;
+    bool _is_pipeline = false;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.

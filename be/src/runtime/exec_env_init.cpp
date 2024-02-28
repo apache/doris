@@ -50,6 +50,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
+#include "pipeline/pipeline_tracing.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
@@ -201,6 +202,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
     init_file_cache_factory();
+    _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
