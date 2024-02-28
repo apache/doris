@@ -54,6 +54,6 @@ public class EliminateMarkJoin extends OneRewriteRuleFactory {
         newHashConjuncts.addAll(join.getHashJoinConjuncts());
         newHashConjuncts.addAll(join.getMarkJoinConjuncts());
         return join.withJoinConjuncts(newHashConjuncts.build(), join.getOtherJoinConjuncts(),
-                ExpressionUtils.EMPTY_CONDITION);
+                ExpressionUtils.EMPTY_CONDITION, join.getJoinReorderContext());
     }
 }

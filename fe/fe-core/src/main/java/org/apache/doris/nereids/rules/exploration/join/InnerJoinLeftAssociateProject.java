@@ -77,7 +77,7 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
 
                     // new join.
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(
-                            newBottomHashConjuncts, newBottomOtherConjuncts, a, b);
+                            newBottomHashConjuncts, newBottomOtherConjuncts, a, b, null);
 
                     // new Project.
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
@@ -87,7 +87,7 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
                     Plan right = CBOUtils.newProject(topUsedExprIds, c);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
-                            newTopHashConjuncts, newTopOtherConjuncts, left, right);
+                            newTopHashConjuncts, newTopOtherConjuncts, left, right, null);
                     newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);

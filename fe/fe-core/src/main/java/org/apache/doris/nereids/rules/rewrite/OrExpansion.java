@@ -178,7 +178,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
         hashCond = hashCond.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s);
         Plan newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
                 otherConditions, originJoin.getDistributeHint(),
-                originJoin.getMarkJoinSlotReference(), left, right);
+                originJoin.getMarkJoinSlotReference(), left, right, null);
         if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
             Plan normalizedPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
                     (LogicalJoin<? extends Plan, ? extends Plan>) newPlan);
@@ -195,7 +195,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
             hashCond = hashCond.rewriteUp(s -> newReplaced.containsKey(s) ? newReplaced.get(s) : s);
             newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
                     new ArrayList<>(), originJoin.getDistributeHint(),
-                    originJoin.getMarkJoinSlotReference(), newPlan, newRight);
+                    originJoin.getMarkJoinSlotReference(), newPlan, newRight, null);
             if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
                 newPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
                         (LogicalJoin<? extends Plan, ? extends Plan>) newPlan);
@@ -255,7 +255,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
 
             LogicalJoin<? extends Plan, ? extends Plan> newJoin = new LogicalJoin<>(
                     JoinType.INNER_JOIN, hashCond, otherCond, join.getDistributeHint(),
-                    join.getMarkJoinSlotReference(), left, right);
+                    join.getMarkJoinSlotReference(), left, right, null);
             if (newJoin.getHashJoinConjuncts().stream()
                     .anyMatch(equalTo -> equalTo.children().stream().anyMatch(e -> !(e instanceof Slot)))) {
                 Plan plan = PushDownExpressionsInHashCondition.pushDownHashExpression(newJoin);
