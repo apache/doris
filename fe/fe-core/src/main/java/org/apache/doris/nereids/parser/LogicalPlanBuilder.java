@@ -2911,7 +2911,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         distributeHint,
                         Optional.empty(),
                         last,
-                        plan(join.relationPrimary()));
+                        plan(join.relationPrimary()), null);
             } else {
                 last = new UsingJoin<>(joinType, last,
                         plan(join.relationPrimary()), ImmutableList.of(), ids, distributeHint);
@@ -3029,7 +3029,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             new DistributeHint(DistributeType.NONE),
                             Optional.empty(),
                             left,
-                            right);
+                            right, null);
             // TODO: pivot and lateral view
         }
         return left;

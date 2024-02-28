@@ -162,8 +162,8 @@ class GroupExpressionMatchingTest {
     void testInnerLogicalJoinMatch() {
         Plan root = new LogicalJoin(JoinType.INNER_JOIN,
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("a")),
-                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b"))
-        );
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b")),
+                null);
 
         Memo memo = new Memo(null, root);
 
@@ -184,8 +184,8 @@ class GroupExpressionMatchingTest {
     void testInnerLogicalJoinMismatch() {
         Plan root = new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("a")),
-                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b"))
-        );
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b")),
+                null);
 
         Memo memo = new Memo(null, root);
 
@@ -201,8 +201,8 @@ class GroupExpressionMatchingTest {
     void testTopMatchButChildrenNotMatch() {
         Plan root = new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("a")),
-                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b"))
-        );
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b")),
+                null);
 
         Memo memo = new Memo(null, root);
 
@@ -223,8 +223,8 @@ class GroupExpressionMatchingTest {
                         new LogicalJoin<>(JoinType.INNER_JOIN,
                                 new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                                         new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("a")),
-                                        new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b"))),
-                                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("c")))
+                                        new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b")), null),
+                                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("c")), null)
                 );
         Pattern p1 = patterns().logicalFilter(patterns().subTree(LogicalFilter.class, LogicalJoin.class)).pattern;
         Iterator<Plan> matchResult1 = match(root, p1);
