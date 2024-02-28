@@ -2903,7 +2903,7 @@ public:
 
         ColumnPtr argument_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto* length_col = check_and_get_column<ColumnUInt64>(argument_column.get());
+        const auto* length_col = check_and_get_column<ColumnInt32>(argument_column.get());
 
         if (!length_col) {
             return Status::InternalError("Not supported input argument type");
@@ -2927,13 +2927,14 @@ public:
                 oss << std::setw(2) << std::setfill('0') << std::hex << static_cast<int>(byte);
             }
 
-            StringOP::push_value_string(oss.str(), i, res_chars, res_offsets);
+            StringOP::push_value_string("0x" + oss.str(), i, res_chars, res_offsets);
             random_bytes.clear();
         }
 
         block.get_by_position(result).column = std::move(res);
 
         return Status::OK();
+
     }
 };
 
