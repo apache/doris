@@ -1258,6 +1258,8 @@ struct TCreatePartitionRequest {
     3: optional i64 table_id
     // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
     4: optional list<list<Exprs.TStringLiteral>> partitionValues
+    // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
+    5: optional string be_endpoint
 }
 
 struct TCreatePartitionResult {

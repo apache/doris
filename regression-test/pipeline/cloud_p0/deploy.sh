@@ -46,7 +46,7 @@ exit_flag=0
     cd "${teamcity_build_checkoutDir}"
     export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
     if download_oss_file "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"; then
-        rm -rf "${teamcity_build_checkoutDir}"/output/*
+        rm -rf "${teamcity_build_checkoutDir}"/output
         tar -I pigz -xf "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"
     else exit 1; fi
 
