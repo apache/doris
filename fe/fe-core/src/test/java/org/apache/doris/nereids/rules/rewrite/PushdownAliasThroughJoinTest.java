@@ -18,9 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -32,8 +29,6 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 class PushdownAliasThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -107,14 +102,12 @@ class PushdownAliasThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testNoPushdownMarkJoin() {
-        List<NamedExpression> projects =
-                ImmutableList.of(new MarkJoinSlotReference(new ExprId(4), "fake", false));
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .markJoin(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)).projectExprs(projects).build();
+                .markJoin(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .alias(ImmutableList.of(2), ImmutableList.of("fake")).build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushdownAliasThroughJoin())
-                .matches(logicalProject(logicalJoin(logicalOlapScan(), logicalOlapScan()))
-                        .when(project -> project.getProjects().get(0).toSql().equals("fake")));
+                .matches(logicalProject(logicalJoin(logicalOlapScan(), logicalOlapScan())));
     }
 }
