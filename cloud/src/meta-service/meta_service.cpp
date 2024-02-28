@@ -1257,10 +1257,10 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
 }
 
 static bool try_fetch_and_parse_schema(
-            const std::unique_ptr<Transaction>& txn, RowsetMetaCloudPB& rowset_meta,
+            Transaction* txn, RowsetMetaCloudPB& rowset_meta,
             const std::string& key, MetaServiceCode& code, std::string& msg) {
     ValueBuf val_buf;
-    TxnErrorCode err = cloud::get(txn.get(), key, &val_buf);
+    TxnErrorCode err = cloud::get(txn, key, &val_buf);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get schema, schema_version={}, rowset_version=[{}-{}]: {}",
@@ -1385,7 +1385,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         if (rowset_meta.has_variant_type_in_schema()) {
             // get rowset schema kv
             auto key = meta_rowset_schema_key({instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
-            if (!try_fetch_and_parse_schema(txn, rowset_meta, key, code, msg)) {
+            if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
             continue;
@@ -1399,7 +1399,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             }
         } else {
             auto key = meta_schema_key({instance_id, idx.index_id(), rowset_meta.schema_version()});
-            if (!try_fetch_and_parse_schema(txn, rowset_meta, key, code, msg)) {
+            if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
             version_to_schema.emplace(rowset_meta.schema_version(), rowset_meta.mutable_tablet_schema());

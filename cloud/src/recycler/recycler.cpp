@@ -1288,6 +1288,7 @@ int InstanceRecycler::recycle_rowsets() {
     });
 
     std::vector<std::string> rowset_keys;
+    std::vector<std::string> rowset_schema_keys;
     std::vector<doris::RowsetMetaCloudPB> rowsets;
 
     // Store keys of rowset recycled by background workers
@@ -1413,6 +1414,8 @@ int InstanceRecycler::recycle_rowsets() {
                 return -1;
             }
         } else {
+            auto schema_key = meta_rowset_schema_key({instance_id_, rowset_meta->tablet_id(), rowset_meta->rowset_id_v2()});
+            rowset_schema_keys.push_back(std::move(schema_key));
             rowset_keys.push_back(std::string(k));
             if (rowset_meta->num_segments() > 0) { // Skip empty rowset
                 rowsets.push_back(std::move(*rowset_meta));
@@ -1423,13 +1426,20 @@ int InstanceRecycler::recycle_rowsets() {
 
     auto loop_done = [&]() -> int {
         std::vector<std::string> rowset_keys_to_delete;
+        std::vector<std::string> rowset_schema_keys_to_delete;
         std::vector<doris::RowsetMetaCloudPB> rowsets_to_delete;
         rowset_keys_to_delete.swap(rowset_keys);
+        rowset_schema_keys_to_delete.swap(rowset_schema_keys);
         rowsets_to_delete.swap(rowsets);
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
-                             rowsets_to_delete = std::move(rowsets_to_delete)]() {
+                             rowsets_to_delete = std::move(rowsets_to_delete),
+                             rowset_schema_keys_to_delete = std::move(rowset_schema_keys_to_delete)]() {
             if (delete_rowset_data(rowsets_to_delete) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
+                return;
+            }
+            if (txn_remove(txn_kv_.get(), rowset_schema_keys_to_delete) != 0) {
+                LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;
                 return;
             }
             if (txn_remove(txn_kv_.get(), rowset_keys_to_delete) != 0) {
@@ -1550,12 +1560,12 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
             return -1;
         }
-        if (txn_remove(txn_kv_.get(), tmp_rowset_keys) != 0) {
-            LOG(WARNING) << "failed to delete tmp rowset kv, instance_id=" << instance_id_;
-            return -1;
-        }
         if (txn_remove(txn_kv_.get(), tmp_rowset_schema_keys) != 0) {
             LOG(WARNING) << "failed to delete tmp rowset schema kv, instance_id=" << instance_id_;
+            return -1;
+        }
+        if (txn_remove(txn_kv_.get(), tmp_rowset_keys) != 0) {
+            LOG(WARNING) << "failed to delete tmp rowset kv, instance_id=" << instance_id_;
             return -1;
         }
         num_recycled += tmp_rowset_keys.size();
