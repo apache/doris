@@ -166,7 +166,7 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
-    LOG(INFO) << "unexpected instruction fail: " << fail;
+    LOG(INFO) << "unexpected instruction fail: " << static_cast<int>(fail);
     ret("UNKNOWN INSTRUCTION FAIL");
 }
 
