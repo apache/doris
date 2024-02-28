@@ -65,12 +65,12 @@ import java.util.stream.Collectors;
  * a in (1,2,3) and a in (4,5,6) => false
  * The logic is as follows:
  * 1. for `And` expression.
- *    1. extract conjunctions then build `ValueDesc` for each conjunction
- *    2. grouping according to `reference`, `ValueDesc` in the same group can perform intersect
- *    for example:
- *    a > 1 and a > 2
- *    1. a > 1 => RangeValueDesc((1...+∞)), a > 2 => RangeValueDesc((2...+∞))
- *    2. (1...+∞) intersect (2...+∞) => (2...+∞)
+ * 1. extract conjunctions then build `ValueDesc` for each conjunction
+ * 2. grouping according to `reference`, `ValueDesc` in the same group can perform intersect
+ * for example:
+ * a > 1 and a > 2
+ * 1. a > 1 => RangeValueDesc((1...+∞)), a > 2 => RangeValueDesc((2...+∞))
+ * 2. (1...+∞) intersect (2...+∞) => (2...+∞)
  * 2. for `Or` expression (similar to `And`).
  * todo: support a > 10 and (a < 10 or a > 20 ) => a > 20
  */
@@ -98,8 +98,8 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         private ValueDesc buildRange(ComparisonPredicate predicate) {
             Expression rewrite = ExpressionRuleExecutor.normalize(predicate);
             Expression right = rewrite.child(1);
-            // only handle `NumericType`
-            if (right.isLiteral() && right.getDataType().isNumericType()) {
+            // only handle `NumericType` and `DateLikeType`
+            if (right.isLiteral() && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())) {
                 return ValueDesc.range((ComparisonPredicate) rewrite);
             }
             return new UnknownValue(predicate);
@@ -132,9 +132,10 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
         @Override
         public ValueDesc visitInPredicate(InPredicate inPredicate, Void context) {
-            // only handle `NumericType`
+            // only handle `NumericType` and `DateLikeType`
             if (ExpressionUtils.isAllLiteral(inPredicate.getOptions())
-                    && ExpressionUtils.matchNumericType(inPredicate.getOptions())) {
+                    && (ExpressionUtils.matchNumericType(inPredicate.getOptions())
+                    || ExpressionUtils.matchDateLikeType(inPredicate.getOptions()))) {
                 return ValueDesc.discrete(inPredicate);
             }
             return new UnknownValue(inPredicate);
