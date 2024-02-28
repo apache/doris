@@ -111,7 +111,7 @@ public:
     void close() {
         if (_index_writer) {
             _index_writer->close();
-            if (config::enable_write_index_searcher_cache) {
+            if (0) {
                 // open index searcher into cache
                 auto mem_tracker =
                         std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");

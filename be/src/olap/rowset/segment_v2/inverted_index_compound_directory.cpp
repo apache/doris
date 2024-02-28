@@ -920,7 +920,7 @@ DorisCompoundDirectory* DorisCompoundDirectoryFactory::getDirectory(
     // Write by RAM directory
     // 1. only write separated index files, which is can_use_ram_dir = true.
     // 2. config::inverted_index_ram_dir_enable = true
-    if (config::inverted_index_ram_dir_enable && can_use_ram_dir) {
+    if (can_use_ram_dir) {
         dir = _CLNEW DorisRAMCompoundDirectory();
     } else {
         bool exists = false;
