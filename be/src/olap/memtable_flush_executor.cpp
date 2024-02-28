@@ -259,11 +259,17 @@ void MemTableFlushExecutor::_register_metrics() {
                          [this]() { return _flush_pool->get_queue_size(); });
     REGISTER_HOOK_METRIC(flush_thread_pool_thread_num,
                          [this]() { return _flush_pool->num_threads(); })
+    DORIS_REGISTER_HOOK_METRIC(g_adder_flush_thread_pool_queue_size,
+                               [this]() { return _flush_pool->get_queue_size(); })
+    DORIS_REGISTER_HOOK_METRIC(g_adder_flush_thread_pool_thread_num,
+                               [this]() { return _flush_pool->num_threads(); })
 }
 
 void MemTableFlushExecutor::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(flush_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(flush_thread_pool_thread_num);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_flush_thread_pool_queue_size);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_flush_thread_pool_thread_num);
 }
 
 } // namespace doris

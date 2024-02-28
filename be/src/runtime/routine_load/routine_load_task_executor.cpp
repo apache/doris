@@ -50,6 +50,7 @@
 #include "runtime/stream_load/stream_load_executor.h"
 #include "service/backend_options.h"
 #include "util/defer_op.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/slice.h"
@@ -70,7 +71,10 @@ RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
         // std::lock_guard<std::mutex> l(_lock);
         return _task_map.size();
     });
-
+    DORIS_REGISTER_HOOK_METRIC(g_adder_routine_load_task_count, [this]() {
+        // std::lock_guard<std::mutex> l(_lock);
+        return _task_map.size();
+    })
     static_cast<void>(_data_consumer_pool.start_bg_worker());
 }
 
@@ -81,6 +85,7 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
 
 void RoutineLoadTaskExecutor::stop() {
     DEREGISTER_HOOK_METRIC(routine_load_task_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_routine_load_task_count);
     _thread_pool.shutdown();
     _thread_pool.join();
     _data_consumer_pool.stop();

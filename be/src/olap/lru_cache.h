@@ -21,9 +21,9 @@
 
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/bvar_metrics.h"
 #include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
-#include "util/bvar_metrics.h"
 #include "util/metrics.h"
 #include "util/slice.h"
 

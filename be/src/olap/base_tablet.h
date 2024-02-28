@@ -239,7 +239,6 @@ protected:
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;
     std::shared_ptr<BvarMetricEntity> metric_entity_;
-    
 
 public:
     IntCounter* query_scan_bytes = nullptr;

@@ -31,6 +31,15 @@
 #include "util/system_bvar_metrics.h"
 namespace doris {
 
+#define DORIS_REGISTER_HOOK_METRIC(metric, func)                                     \
+    DorisBvarMetrics::instance()->server_entity()->register_metric(#metric, metric); \
+    DorisBvarMetrics::instance()->server_entity()->register_hook(                    \
+            #metric, [&]() { metric.set_value(func()); });
+
+#define DORIS_DEREGISTER_HOOK_METRIC(name)                                   \
+    DorisBvarMetrics::instance()->server_entity()->deregister_metric(#name); \
+    DorisBvarMetrics::instance()->server_entity()->deregister_hook(#name);
+
 class DorisBvarMetrics {
 public:
     static DorisBvarMetrics* instance() {
@@ -246,5 +255,10 @@ extern BvarAdderMetric<uint64_t> g_adder_limited_scan_thread_pool_queue_size;
 extern BvarAdderMetric<uint64_t> g_adder_limited_scan_thread_pool_thread_num;
 extern BvarAdderMetric<uint64_t> g_adder_group_local_scan_thread_pool_queue_size;
 extern BvarAdderMetric<uint64_t> g_adder_group_local_scan_thread_pool_thread_num;
+
+extern BvarAdderMetric<uint64_t> g_adder_flush_thread_pool_queue_size;
+extern BvarAdderMetric<uint64_t> g_adder_flush_thread_pool_thread_num;
+
+extern BvarAdderMetric<uint64_t> g_adder_memtable_memory_limiter_mem_consumption;
 
 } // namespace doris

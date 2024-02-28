@@ -303,8 +303,13 @@ ThriftServer::ThriftServer(const std::string& name,
 
     thrift_server_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             std::string("thrift_server.") + name, {{"name", name}});
-    REGISTER_INIT_INT64_BVAR_METRIC(thrift_server_metric_entity_, thrift_current_connections_, BvarMetricType::GAUGE, BvarMetricUnit::CONNECTIONS, "Number of currently active connections", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(thrift_server_metric_entity_, thrift_connections_total_, BvarMetricType::COUNTER, BvarMetricUnit::CONNECTIONS, "Total connections made over the lifetime of this server", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_server_metric_entity_, thrift_current_connections_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::CONNECTIONS,
+                                    "Number of currently active connections", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_server_metric_entity_, thrift_connections_total_,
+                                    BvarMetricType::COUNTER, BvarMetricUnit::CONNECTIONS,
+                                    "Total connections made over the lifetime of this server", "",
+                                    Labels(), false)
 }
 
 ThriftServer::~ThriftServer() {

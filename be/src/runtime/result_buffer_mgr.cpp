@@ -33,6 +33,7 @@
 #include "arrow/record_batch.h"
 #include "arrow/type_fwd.h"
 #include "runtime/buffer_control_block.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/thread.h"
@@ -49,10 +50,15 @@ ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
         // std::lock_guard<std::mutex> l(_buffer_map_lock);
         return _buffer_map.size();
     });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_result_buffer_block_count, [this]() {
+        // std::lock_guard<std::mutex> l(_buffer_map_lock);
+        return _buffer_map.size();
+    })
 }
 
 void ResultBufferMgr::stop() {
     DEREGISTER_HOOK_METRIC(result_buffer_block_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_result_buffer_block_count);
     _stop_background_threads_latch.count_down();
     if (_clean_thread) {
         _clean_thread->join();

@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/record_batch_queue.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
 #include "util/metrics.h"
@@ -39,10 +40,15 @@ ResultQueueMgr::ResultQueueMgr() {
         // std::lock_guard<std::mutex> l(_lock);
         return _fragment_queue_map.size();
     });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_result_block_queue_count, [this]() {
+        // std::lock_guard<std::mutex> l(_lock);
+        return _fragment_queue_map.size();
+    });
 }
 
 ResultQueueMgr::~ResultQueueMgr() {
     DEREGISTER_HOOK_METRIC(result_block_queue_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_result_block_queue_count)
 }
 
 Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id,
