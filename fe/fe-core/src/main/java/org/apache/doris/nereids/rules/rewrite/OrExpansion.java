@@ -22,6 +22,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -178,7 +179,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
         hashCond = hashCond.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s);
         Plan newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
                 newOtherConditions, originJoin.getDistributeHint(),
-                originJoin.getMarkJoinSlotReference(), left, right);
+                originJoin.getMarkJoinSlotReference(), left, right, JoinReorderContext.EMPTY);
         if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
             Plan normalizedPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
                     (LogicalJoin<? extends Plan, ? extends Plan>) newPlan);
@@ -198,7 +199,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
             hashCond = hashCond.rewriteUp(s -> newReplaced.containsKey(s) ? newReplaced.get(s) : s);
             newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
                     newOtherConditions, originJoin.getDistributeHint(),
-                    originJoin.getMarkJoinSlotReference(), newPlan, newRight);
+                    originJoin.getMarkJoinSlotReference(), newPlan, newRight, JoinReorderContext.EMPTY);
             if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
                 newPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
                         (LogicalJoin<? extends Plan, ? extends Plan>) newPlan);
