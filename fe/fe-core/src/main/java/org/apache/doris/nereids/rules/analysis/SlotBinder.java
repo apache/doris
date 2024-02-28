@@ -307,7 +307,9 @@ public class SlotBinder extends SubExprAnalyzer {
             //TODO: handle name parts more than three.
             throw new AnalysisException("Not supported name: "
                     + StringUtils.join(nameParts, "."));
-        }).collect(Collectors.toList());
+        })
+                .map(s -> s.withName(unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)))
+                .collect(Collectors.toList());
     }
 
     public static boolean compareDbName(String boundedDbName, String unBoundDbName) {

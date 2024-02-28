@@ -107,9 +107,9 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 .collect(Collectors.toSet());
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
-            if (plan.child(0) instanceof LogicalAggregate) {
+            if (plan.arity() != 0 && plan.child(0) instanceof LogicalAggregate) {
                 throw new AnalysisException(String.format("%s not in agg's output", notFromChildren
-                        .stream().map(slot -> slot.getName()).collect(Collectors.joining(", "))));
+                        .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
             } else {
                 throw new AnalysisException(String.format(
                         "Input slot(s) not in child's output: %s in plan: %s,"
