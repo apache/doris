@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.InternalQueryExecutionException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -27,18 +26,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy;
 
 public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<ColumnStatistic>> {
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatisticsCacheLoader.class);
-
-    private static final ThreadPoolExecutor singleThreadPool = ThreadPoolManager.newDaemonFixedThreadPool(
-            StatisticConstants.RETRY_LOAD_THREAD_POOL_SIZE,
-            StatisticConstants.RETRY_LOAD_QUEUE_SIZE, "STATS_RELOAD",
-            true,
-            new DiscardOldestPolicy());
 
     @Override
     protected Optional<ColumnStatistic> doLoad(StatisticsCacheKey key) {

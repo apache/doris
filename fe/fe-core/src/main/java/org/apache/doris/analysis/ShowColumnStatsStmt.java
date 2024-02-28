@@ -179,4 +179,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
     public boolean isCached() {
         return cached;
     }
+
+    public boolean isAllColumns() {
+        return columnNames == null;
+    }
 }

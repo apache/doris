@@ -135,7 +135,7 @@ public abstract class DataType implements AbstractDataType {
                 if (Config.enable_decimal_conversion && tryConvert) {
                     switch (types.size()) {
                         case 1:
-                            return DecimalV3Type.SYSTEM_DEFAULT;
+                            return DecimalV3Type.CATALOG_DEFAULT;
                         case 2:
                             return DecimalV3Type
                                     .createDecimalV3Type(Integer.parseInt(types.get(1)));
@@ -148,7 +148,7 @@ public abstract class DataType implements AbstractDataType {
                 } else {
                     switch (types.size()) {
                         case 1:
-                            return DecimalV2Type.SYSTEM_DEFAULT;
+                            return DecimalV2Type.CATALOG_DEFAULT;
                         case 2:
                             return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
                                     0);
@@ -162,7 +162,7 @@ public abstract class DataType implements AbstractDataType {
             case "decimalv2":
                 switch (types.size()) {
                     case 1:
-                        return DecimalV2Type.SYSTEM_DEFAULT;
+                        return DecimalV2Type.CATALOG_DEFAULT;
                     case 2:
                         return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)), 0);
                     case 3:
@@ -174,7 +174,7 @@ public abstract class DataType implements AbstractDataType {
             case "decimalv3":
                 switch (types.size()) {
                     case 1:
-                        return DecimalV3Type.SYSTEM_DEFAULT;
+                        return DecimalV3Type.CATALOG_DEFAULT;
                     case 2:
                         return DecimalV3Type.createDecimalV3Type(Integer.parseInt(types.get(1)));
                     case 3:

@@ -501,6 +501,12 @@ public class FunctionSet<T> {
                 return false;
             }
         }
+        if (FunctionCallExpr.STRING_SEARCH_FUNCTION_SET.contains(desc.functionName())) {
+            if (descArgTypes[1].isStringType() && candicateArgTypes[1].isArrayType()) {
+                // The needles arg of search functions should not be allowed to cast from string.
+                return false;
+            }
+        }
         // If set `roundPreciseDecimalV2Value`, only use decimalv3 as target type to execute round function
         if (ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value

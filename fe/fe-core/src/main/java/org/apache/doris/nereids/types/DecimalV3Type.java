@@ -42,6 +42,8 @@ public class DecimalV3Type extends FractionalType {
     public static final DecimalV3Type WILDCARD = new DecimalV3Type(-1, -1);
     public static final DecimalV3Type SYSTEM_DEFAULT = new DecimalV3Type(MAX_DECIMAL128_PRECISION, DEFAULT_SCALE);
 
+    public static final DecimalV3Type CATALOG_DEFAULT = new DecimalV3Type(MAX_DECIMAL32_PRECISION, DEFAULT_SCALE);
+
     private static final DecimalV3Type BOOLEAN_DECIMAL = new DecimalV3Type(1, 0);
     private static final DecimalV3Type TINYINT_DECIMAL = new DecimalV3Type(3, 0);
     private static final DecimalV3Type SMALLINT_DECIMAL = new DecimalV3Type(5, 0);

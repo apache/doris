@@ -94,4 +94,6 @@ suite("test_cast") {
         sql "select cast(true as date);"
         result([[null]])
     }
+
+    qt_select """select 1.1*1.1 + cast(1.1 as decimal);"""
 }
