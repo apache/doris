@@ -85,6 +85,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -108,15 +109,12 @@ public class AnalysisManager implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
-    /**
-     * Mem only.
-     */
-    public final Queue<HighPriorityColumn> predicateColumns = new ArrayBlockingQueue<>(100);
-
-    /**
-     * Mem only.
-     */
-    public final Queue<HighPriorityColumn> queryColumns = new ArrayBlockingQueue<>(100);
+    private static final int COLUMN_QUEUE_SIZE = 1000;
+    public final Queue<HighPriorityColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
+    public final Queue<HighPriorityColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
+    public final Map<TableIf, Set<String>> highPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableIf, Set<String>> midPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableIf, Set<String>> lowPriorityJobs = new LinkedHashMap<>();
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -167,11 +165,6 @@ public class AnalysisManager implements Writable {
 
     public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException, AnalysisException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
-        // Using auto analyzer if user specifies.
-        if (analyzeDBStmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
-            Env.getCurrentEnv().getStatisticsAutoCollector().analyzeDb(db);
-            return;
-        }
         List<AnalysisInfo> analysisInfos = buildAnalysisInfosForDB(db, analyzeDBStmt.getAnalyzeProperties());
         if (!analyzeDBStmt.isSync()) {
             sendJobId(analysisInfos, proxy);
@@ -219,6 +212,11 @@ public class AnalysisManager implements Writable {
 
     // Each analyze stmt corresponding to an analysis job.
     public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException {
+        // Using auto analyzer if user specifies.
+        if (stmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
+            Env.getCurrentEnv().getStatisticsAutoCollector().processOneJob(stmt.getTable(), stmt.getColumnNames());
+            return;
+        }
         AnalysisInfo jobInfo = buildAndAssignJob(stmt);
         if (jobInfo == null) {
             return;
@@ -1143,11 +1141,11 @@ public class AnalysisManager implements Writable {
 
 
     public void updateColumnUsedInPredicate(Set<Slot> slotReferences) {
-        updateColumn(slotReferences, predicateColumns);
+        updateColumn(slotReferences, highPriorityColumns);
     }
 
     public void updateQueriedColumn(Collection<Slot> slotReferences) {
-        updateColumn(slotReferences, queryColumns);
+        updateColumn(slotReferences, midPriorityColumns);
     }
 
     protected void updateColumn(Collection<Slot> slotReferences, Queue<HighPriorityColumn> queue) {
@@ -1157,7 +1155,8 @@ public class AnalysisManager implements Writable {
             }
             Optional<Column> optionalColumn = ((SlotReference) s).getColumn();
             Optional<TableIf> optionalTable = ((SlotReference) s).getTable();
-            if (optionalColumn.isPresent() && optionalTable.isPresent()) {
+            if (optionalColumn.isPresent() && optionalTable.isPresent()
+                    && !StatisticsUtil.isUnsupportedType(optionalColumn.get().getType())) {
                 TableIf table = optionalTable.get();
                 DatabaseIf database = table.getDatabase();
                 if (database != null) {
