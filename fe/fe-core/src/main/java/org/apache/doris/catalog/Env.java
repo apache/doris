@@ -4527,9 +4527,11 @@ public class Env {
                 colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             }
 
-            // set this group as unstable
-            colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
-                    false /* edit log is along with modify table log */);
+            if (Config.isNotCloudMode()) {
+                // set this group as unstable
+                colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
+                        false /* edit log is along with modify table log */);
+            }
             table.setColocateGroup(assignedGroup);
         } else {
             // unset colocation group
