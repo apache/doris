@@ -47,6 +47,8 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -89,9 +91,11 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.TreeMap;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
@@ -103,6 +107,16 @@ import java.util.stream.Collectors;
 public class AnalysisManager implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
+
+    /**
+     * Mem only.
+     */
+    public final Queue<HighPriorityColumn> predicateColumns = new ArrayBlockingQueue<>(100);
+
+    /**
+     * Mem only.
+     */
+    public final Queue<HighPriorityColumn> queryColumns = new ArrayBlockingQueue<>(100);
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -1140,5 +1154,35 @@ public class AnalysisManager implements Writable {
             return true;
         }
         return false;
+    }
+
+
+    public void updateColumnUsedInPredicate(Set<Slot> slotReferences) {
+        updateColumn(slotReferences, predicateColumns);
+    }
+
+    public void updateQueriedColumn(Collection<Slot> slotReferences) {
+        updateColumn(slotReferences, queryColumns);
+    }
+
+    protected void updateColumn(Collection<Slot> slotReferences, Queue<HighPriorityColumn> queue) {
+        for (Slot s : slotReferences) {
+            if (!(s instanceof SlotReference)) {
+                return;
+            }
+            Optional<Column> optionalColumn = ((SlotReference) s).getColumn();
+            Optional<TableIf> optionalTable = ((SlotReference) s).getTable();
+            if (optionalColumn.isPresent() && optionalTable.isPresent()) {
+                TableIf table = optionalTable.get();
+                DatabaseIf database = table.getDatabase();
+                if (database != null) {
+                    CatalogIf catalog = database.getCatalog();
+                    if (catalog != null) {
+                        queue.offer(new HighPriorityColumn(catalog.getId(), database.getId(),
+                                table.getId(), optionalColumn.get().getName()));
+                    }
+                }
+            }
+        }
     }
 }
