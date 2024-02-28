@@ -61,7 +61,7 @@ PROPERTIES ("key" = "value", ...)
 
 `driver_url` can be specified in three ways:
 
-1. File name. For example, `mysql-connector-java-8.0.25.jar`. Place the the JAR file in a directory `jdbc_drivers` under the Doris `fe` and `be` installation directories. I.e. create two directories `/fe/jdbc_drivers` and `/be/jdbc_drivers` and place a JAR file in each of them. You may have to create the `jdbc_drivers` directories manually. Make sure the directories are readable and preferably owned by the Doris user. You can change the location of the files by modifying the `jdbc_drivers_dir` property in the `fe.conf` and `be.conf` configuration files.
+1. File name. For example, `mysql-connector-java-8.0.25.jar`. Place the the JAR file in a directory `jdbc_drivers` under the Doris `fe` and `be` installation directories. I.e. create two directories `/fe/jdbc_drivers` and `/be/jdbc_drivers` and place a JAR file in each of them. You may have to create the `jdbc_drivers` directories manually. Make sure the directories are readable and preferably owned by the Doris user. You can change the location of the driver files by modifying the `jdbc_drivers_dir` property in the `fe.conf` and `be.conf` configuration files.
 
 2. Local absolute path. For example, `file:///path/to/mysql-connector-java-8.0.25.jar`. Please place the JAR file in the specified paths of FE/BE node.
 
