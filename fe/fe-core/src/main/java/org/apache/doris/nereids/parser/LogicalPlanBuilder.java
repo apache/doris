@@ -1225,6 +1225,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 relation = visitFromClause(ctx.fromClause());
             }
+            if (ctx.intoClause() != null && !ConnectContext.get().isRunProcedure()) {
+                throw new ParseException("Only procedure supports insert into variables", selectCtx);
+            }
             selectPlan = withSelectQuerySpecification(
                     ctx, relation,
                     selectCtx,
