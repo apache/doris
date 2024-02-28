@@ -127,11 +127,6 @@ public class TopNScanOpt extends PlanPostProcessor {
         if (!firstKey.isColumnFromTable()) {
             return topN;
         }
-        if (firstKey.getDataType().isStringLikeType()
-                || firstKey.getDataType().isFloatType()
-                || firstKey.getDataType().isDoubleType()) {
-            return topN;
-        }
 
         OlapScan olapScan;
         while (child instanceof Project || child instanceof Filter) {
