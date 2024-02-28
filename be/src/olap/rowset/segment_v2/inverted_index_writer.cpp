@@ -32,11 +32,15 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
+
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
+
 #include "common/config.h"
+#include "io/fs/local_file_system.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
@@ -209,8 +213,13 @@ public:
             return Status::InternalError("init_fulltext_index directory already exists");
         }
 
-        dir = std::unique_ptr<DorisCompoundDirectory>(DorisCompoundDirectoryFactory::getDirectory(
-                _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir));
+        _lfs = io::global_local_filesystem();
+        auto lfs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
+                config::tmp_file_dir + "/" + _segment_file_name, _index_meta->index_id(),
+                _index_meta->get_index_suffix());
+        _dir = std::unique_ptr<DorisCompoundDirectory>(DorisCompoundDirectoryFactory::getDirectory(
+                _lfs, lfs_index_path.c_str(), use_compound_file_writer, can_use_ram_dir, nullptr,
+                _fs, index_path.c_str()));
         return Status::OK();
     }
 
@@ -451,6 +460,7 @@ public:
         }
         return Status::OK();
     }
+
     Status add_array_values(size_t field_size, const CollectionValue* values,
                             size_t count) override {
         if constexpr (field_is_slice_type(field_type)) {
@@ -620,6 +630,7 @@ private:
     std::string _segment_file_name;
     std::string _directory;
     io::FileSystemSPtr _fs;
+    io::FileSystemSPtr _lfs;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
     InvertedIndexParserType _parser_type;
