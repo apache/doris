@@ -82,7 +82,7 @@ suite("test_stream_stub_fault_injection", "nonConcurrent") {
     }
 
     // StreamSinkFileWriter appendv write segment failed all replica
-    load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "failed to write any replicas")
+    load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "failed to send segment data to any replicas")
     // StreamSinkFileWriter finalize failed
     load_with_injection("StreamSinkFileWriter.finalize.finalize_failed", "failed to finalize any replicas")
     // LoadStreams stream wait failed
