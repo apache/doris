@@ -1892,21 +1892,21 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
---------------PhysicalDistribute[DistributionSpecHash]
+----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalProject
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
+----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t4]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
+--------------------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t4]
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: leading(t4 t3 )

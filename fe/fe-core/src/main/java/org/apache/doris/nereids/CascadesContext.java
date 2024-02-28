@@ -120,6 +120,8 @@ public class CascadesContext implements ScheduleContext {
     private final List<MaterializationContext> materializationContexts;
     private boolean isLeadingJoin = false;
 
+    private boolean isLeadingDisableJoinReorder = false;
+
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
     private final boolean shouldCheckRelationAuthentication;
     private final ThreadLocal<Boolean> showPlanProcess = new ThreadLocal<>();
@@ -655,6 +657,14 @@ public class CascadesContext implements ScheduleContext {
 
     public boolean shouldCheckRelationAuthentication() {
         return shouldCheckRelationAuthentication;
+    }
+
+    public boolean isLeadingDisableJoinReorder() {
+        return isLeadingDisableJoinReorder;
+    }
+
+    public void setLeadingDisableJoinReorder(boolean leadingDisableJoinReorder) {
+        isLeadingDisableJoinReorder = leadingDisableJoinReorder;
     }
 
     public Map<String, Hint> getHintMap() {
