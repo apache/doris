@@ -17,26 +17,17 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.exception.UdfRuntimeException;
+import org.apache.doris.thrift.TOdbcTableType;
 
-import java.util.Map;
-
-public interface JdbcExecutor {
-    int read() throws UdfRuntimeException;
-
-    int write(Map<String, String> params) throws UdfRuntimeException;
-
-    long getBlockAddress(int batchSize, Map<String, String> outputParams) throws UdfRuntimeException;
-
-    void close() throws UdfRuntimeException, Exception;
-
-    void openTrans() throws UdfRuntimeException;
-
-    void commitTrans() throws UdfRuntimeException;
-
-    void rollbackTrans() throws UdfRuntimeException;
-
-    int getCurBlockRows();
-
-    boolean hasNext() throws UdfRuntimeException;
+public class JdbcExecutorFactory {
+    public static String getExecutorClass(TOdbcTableType type) {
+        switch (type) {
+            case MYSQL:
+                return "org/apache/doris/jdbc/MySQLJdbcExecutor";
+            case ORACLE:
+                return "org/apache/doris/jdbc/OracleJdbcExecutor";
+            default:
+                return "org/apache/doris/jdbc/DefaultJdbcExecutor";
+        }
+    }
 }
