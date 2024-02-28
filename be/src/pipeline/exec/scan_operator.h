@@ -373,11 +373,10 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
     Status open(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
-                                    SourceState& source_state) override {
-        return get_block(state, block, source_state);
+                                    bool* eos) override {
+        return get_block(state, block, eos);
     }
     [[nodiscard]] bool is_source() const override { return true; }
 

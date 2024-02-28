@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog.authorizer.ranger.doris;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
@@ -154,6 +155,12 @@ public class RangerDorisAccessController extends RangerAccessController {
         }
 
         checkPrivileges(currentUser, DorisAccessType.toAccessType(wanted), resources);
+    }
+
+    @Override
+    public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
+                                  PrivPredicate wanted, ResourceTypeEnum type) {
+        return false;
     }
 
     @Override

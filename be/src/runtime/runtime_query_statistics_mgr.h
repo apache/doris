@@ -21,6 +21,8 @@
 #include <string>
 
 #include "runtime/query_statistics.h"
+#include "runtime/workload_management/workload_condition.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -29,6 +31,7 @@ public:
     QueryStatisticsCtx(TNetworkAddress fe_addr) : _fe_addr(fe_addr) {
         this->_is_query_finished = false;
         this->_wg_id = -1;
+        this->_query_start_time = MonotonicMillis();
     }
     ~QueryStatisticsCtx() = default;
 
@@ -40,6 +43,7 @@ public:
     TNetworkAddress _fe_addr;
     int64_t _query_finish_time;
     int64_t _wg_id;
+    int64_t _query_start_time;
 };
 
 class RuntimeQueryStatiticsMgr {
@@ -57,6 +61,10 @@ public:
     std::shared_ptr<QueryStatistics> get_runtime_query_statistics(std::string query_id);
 
     void set_workload_group_id(std::string query_id, int64_t wg_id);
+
+    // used for workload scheduler policy
+    void get_metric_map(std::string query_id,
+                        std::map<WorkloadMetricType, std::string>& metric_map);
 
 private:
     std::shared_mutex _qs_ctx_map_lock;

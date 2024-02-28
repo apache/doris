@@ -55,8 +55,8 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             GroupPlan c = topJoin.right();
 
                             // Discard this project, because it is useless.
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c);
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b, null);
                             return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
                                     newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_LEFT_PROJECT),
@@ -76,8 +76,8 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             GroupPlan c = bottomJoin.right();
 
                             // Discard this project, because it is useless.
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b);
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, c);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b, null);
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, c, null);
                             return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
                                     newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_RIGHT_PROJECT)

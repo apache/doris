@@ -58,6 +58,7 @@ public:
     int32_t schema_hash() const { return _tablet_meta->schema_hash(); }
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
+    std::mutex& get_schema_change_lock() { return _schema_change_lock; }
     bool enable_unique_key_merge_on_write() const {
 #ifdef BE_TEST
         if (_tablet_meta == nullptr) {
@@ -237,6 +238,9 @@ protected:
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;
+
+protected:
+    std::mutex _schema_change_lock;
 
 public:
     IntCounter* query_scan_bytes = nullptr;

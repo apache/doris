@@ -58,8 +58,7 @@ public:
                             const DescriptorTbl& descs)
             : OperatorX<EmptySetLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
 };

@@ -2216,6 +2216,21 @@ public class Config extends ConfigBase {
         "Sample size for hive row count estimation."})
     public static int hive_stats_partition_sample_size = 3000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Hive创建外部表默认指定的input format",
+            "Default hive input format for creating table."})
+    public static String hive_default_input_format = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Hive创建外部表默认指定的output format",
+            "Default hive output format for creating table."})
+    public static String hive_default_output_format = "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Hive创建外部表默认指定的SerDe类",
+            "Default hive serde class for creating table."})
+    public static String hive_default_serde = "org.apache.hadoop.hive.ql.io.orc.OrcSerde";
+
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
 
@@ -2390,9 +2405,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int workload_sched_policy_interval_ms = 10000; // 10s
-
-    @ConfField(mutable = true)
-    public static int workload_action_interval_ms = 10000; // 10s
 
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_max_policy_num = 25;

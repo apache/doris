@@ -196,6 +196,10 @@ public:
 
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
+    vectorized::SimplifiedScanScheduler* get_remote_scan_scheduler() {
+        return _remote_scan_task_scheduler;
+    }
+
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
     void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
@@ -284,6 +288,7 @@ private:
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
     ThreadPool* _non_pipe_thread_pool = nullptr;
+    vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;

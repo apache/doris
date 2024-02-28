@@ -78,7 +78,6 @@ StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBas
           _agg_data(std::make_unique<vectorized::AggregatedDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
-          _child_source_state(SourceState::DEPEND_ON_SOURCE),
           _pre_aggregated_block(vectorized::Block::create_unique()) {}
 
 Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
@@ -760,7 +759,7 @@ Status StreamingAggLocalState::_create_agg_status(vectorized::AggregateDataPtr d
 
 Status StreamingAggLocalState::_get_with_serialized_key_result(RuntimeState* state,
                                                                vectorized::Block* block,
-                                                               SourceState& source_state) {
+                                                               bool* eos) {
     auto& p = _parent->cast<StreamingAggOperatorX>();
     // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
     bool mem_reuse = p._make_nullable_keys.empty() && block->mem_reuse();
@@ -838,10 +837,10 @@ Status StreamingAggLocalState::_get_with_serialized_key_result(RuntimeState* sta
                                 _aggregate_evaluators[i]->insert_result_info(
                                         mapped + p._offsets_of_aggregate_states[i],
                                         value_columns[i].get());
-                            source_state = SourceState::FINISHED;
+                            *eos = true;
                         }
                     } else {
-                        source_state = SourceState::FINISHED;
+                        *eos = true;
                     }
                 }
             },
@@ -864,13 +863,13 @@ Status StreamingAggLocalState::_get_with_serialized_key_result(RuntimeState* sta
 }
 
 Status StreamingAggLocalState::_serialize_without_key(RuntimeState* state, vectorized::Block* block,
-                                                      SourceState& source_state) {
+                                                      bool* eos) {
     // 1. `child(0)->rows_returned() == 0` mean not data from child
     // in level two aggregation node should return NULL result
     //    level one aggregation node set `eos = true` return directly
     SCOPED_TIMER(_serialize_result_timer);
     if (UNLIKELY(_input_num_rows == 0)) {
-        source_state = SourceState::FINISHED;
+        *eos = true;
         return Status::OK();
     }
     block->clear();
@@ -903,13 +902,13 @@ Status StreamingAggLocalState::_serialize_without_key(RuntimeState* state, vecto
     }
 
     block->set_columns(std::move(value_columns));
-    source_state = SourceState::FINISHED;
+    *eos = true;
     return Status::OK();
 }
 
 Status StreamingAggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
                                                                      vectorized::Block* block,
-                                                                     SourceState& source_state) {
+                                                                     bool* eos) {
     SCOPED_TIMER(_serialize_result_timer);
     auto& p = _parent->cast<StreamingAggOperatorX>();
     int key_size = _probe_expr_ctxs.size();
@@ -972,10 +971,10 @@ Status StreamingAggLocalState::_serialize_with_serialized_key_result(RuntimeStat
                             _values[num_rows] = agg_method.hash_table->template get_null_key_data<
                                     vectorized::AggregateDataPtr>();
                             ++num_rows;
-                            source_state = SourceState::FINISHED;
+                            *eos = true;
                         }
                     } else {
-                        source_state = SourceState::FINISHED;
+                        *eos = true;
                     }
                 }
 
@@ -1026,8 +1025,7 @@ void StreamingAggLocalState::make_nullable_output_key(vectorized::Block* block) 
 }
 
 Status StreamingAggLocalState::_get_without_key_result(RuntimeState* state,
-                                                       vectorized::Block* block,
-                                                       SourceState& source_state) {
+                                                       vectorized::Block* block, bool* eos) {
     DCHECK(_agg_data->without_key != nullptr);
     block->clear();
 
@@ -1074,7 +1072,7 @@ Status StreamingAggLocalState::_get_without_key_result(RuntimeState* state,
     }
 
     block->set_columns(std::move(columns));
-    source_state = SourceState::FINISHED;
+    *eos = true;
     return Status::OK();
 }
 
@@ -1264,26 +1262,24 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
-Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block,
-                                   SourceState& source_state) const {
+Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block, bool* eos) const {
     auto& local_state = get_local_state(state);
     if (!local_state._pre_aggregated_block->empty()) {
         local_state._pre_aggregated_block->swap(*block);
     } else {
-        RETURN_IF_ERROR(
-                local_state._executor->get_result(&local_state, state, block, source_state));
+        RETURN_IF_ERROR(local_state._executor->get_result(&local_state, state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(
                 vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
     }
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
 
     return Status::OK();
 }
 
 Status StreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_block,
-                                   SourceState source_state) const {
+                                   bool eos) const {
     auto& local_state = get_local_state(state);
     local_state._input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
@@ -1295,8 +1291,7 @@ Status StreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_bl
 
 bool StreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    return local_state._pre_aggregated_block->empty() &&
-           local_state._child_source_state != SourceState::FINISHED;
+    return local_state._pre_aggregated_block->empty() && !local_state._child_eos;
 }
 
 } // namespace doris::pipeline
