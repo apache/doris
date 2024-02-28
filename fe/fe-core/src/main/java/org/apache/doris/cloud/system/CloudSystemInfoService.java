@@ -322,6 +322,15 @@ public class CloudSystemInfoService extends SystemInfoService {
         return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>());
     }
 
+    public String getClusterIdByBeAddr(String beEndpoint) {
+        for (Map.Entry<String, List<Backend>> idBe : clusterIdToBackend.entrySet()) {
+            if (idBe.getValue().stream().anyMatch(be -> be.getAddress().equals(beEndpoint))) {
+                return getClusterNameByClusterId(idBe.getKey());
+            }
+        }
+        return null;
+    }
+
     public List<String> getCloudClusterIds() {
         return new ArrayList<>(clusterIdToBackend.keySet());
     }
