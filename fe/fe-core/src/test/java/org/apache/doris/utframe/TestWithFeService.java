@@ -196,7 +196,7 @@ public abstract class TestWithFeService {
 
     // Help to create a mocked ConnectContext.
     public static ConnectContext createDefaultCtx() throws IOException {
-        return createCtx(UserIdentity.ROOT, "127.0.0.1");
+        return createCtx(UserIdentity.ROOT, "%");
     }
 
     protected StatementContext createStatementCtx(String sql) {

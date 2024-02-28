@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.View;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
@@ -39,18 +40,12 @@ import java.util.function.Supplier;
 
 /** LogicalView */
 public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
-    private final String catalog;
-    private final String db;
-    private final String name;
-    private final String viewString;
+    private final View view;
 
     /** LogicalView */
-    public LogicalView(String catalog, String db, String name, String viewString, BODY body) {
+    public LogicalView(View view, BODY body) {
         super(PlanType.LOGICAL_VIEW, Optional.empty(), Optional.empty(), body);
-        this.catalog = Objects.requireNonNull(catalog, "catalog can not be null");
-        this.db = Objects.requireNonNull(db, "db can not be null");
-        this.name = Objects.requireNonNull(name, "view name can not be null");
-        this.viewString = Objects.requireNonNull(viewString, "view string can not be null");
+        this.view = Objects.requireNonNull(view, "catalog can not be null");
         Preconditions.checkArgument(body instanceof LogicalPlan);
     }
 
@@ -65,19 +60,23 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
     }
 
     public String getCatalog() {
-        return catalog;
+        return view.getDatabase().getCatalog().getName();
     }
 
     public String getDb() {
-        return db;
+        return view.getDatabase().getFullName();
     }
 
     public String getName() {
-        return name;
+        return view.getName();
     }
 
     public String getViewString() {
-        return viewString;
+        return view.getInlineViewDef();
+    }
+
+    public View getView() {
+        return view;
     }
 
     @Override
@@ -87,13 +86,13 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalView(catalog, db, name, viewString, child());
+        return new LogicalView(view, child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalView(catalog, db, name, viewString, child());
+        return new LogicalView(view, child());
     }
 
     @Override
@@ -105,21 +104,21 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
             return false;
         }
         LogicalView that = (LogicalView) o;
-        return Objects.equals(catalog, that.catalog) && Objects.equals(db, that.db) && Objects.equals(name, that.name);
+        return Objects.equals(view, that.view);
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalView",
-                "catalog", catalog,
-                "db", db,
-                "name", name
+                "catalog", getCatalog(),
+                "db", getDb(),
+                "name", getName()
         );
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(catalog, db, name);
+        return Objects.hash(getCatalog(), getDb(), getName());
     }
 
     @Override
@@ -139,6 +138,6 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new LogicalView<>(catalog, db, name, viewString, (LogicalPlan) children.get(0));
+        return new LogicalView<>(view, (LogicalPlan) children.get(0));
     }
 }

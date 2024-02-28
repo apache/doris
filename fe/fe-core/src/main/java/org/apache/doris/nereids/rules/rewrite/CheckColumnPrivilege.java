@@ -17,16 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -34,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -44,12 +41,15 @@ public class CheckColumnPrivilege extends ColumnPruning {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         this.jobContext = jobContext;
-        return super.rewriteRoot(plan, jobContext);
+        super.rewriteRoot(plan, jobContext);
+
+        // don't rewrite plan
+        return plan;
     }
 
     @Override
     public Plan visitLogicalView(LogicalView<? extends Plan> view, PruneContext context) {
-        checkColumnPrivileges(view.getCatalog(), view.getDb(), view.getName(), context.requiredSlots);
+        checkColumnPrivileges(view.getView(), computeUsedColumns(view, context.requiredSlots));
 
         // stop check privilege in the view
         return view;
@@ -58,27 +58,30 @@ public class CheckColumnPrivilege extends ColumnPruning {
     @Override
     public Plan visitLogicalRelation(LogicalRelation relation, PruneContext context) {
         if (relation instanceof LogicalCatalogRelation) {
-            DatabaseIf database = ((LogicalCatalogRelation) relation).getDatabase();
-            CatalogIf catalog = database.getCatalog();
             TableIf table = ((LogicalCatalogRelation) relation).getTable();
-            checkColumnPrivileges(catalog.getName(), database.getFullName(), table.getName(), context.requiredSlots);
+            checkColumnPrivileges(table, computeUsedColumns(relation, context.requiredSlots));
         }
         return super.visitLogicalRelation(relation, context);
     }
 
-    private void checkColumnPrivileges(String catalog, String db, String name, Set<Slot> requiredSlots) {
+    private Set<String> computeUsedColumns(Plan plan, Set<Slot> requiredSlots) {
+        Map<Integer, Slot> idToSlot = plan.getOutputSet()
+                .stream()
+                .collect(Collectors.toMap(slot -> slot.getExprId().asInt(), slot -> slot));
+        return requiredSlots
+                .stream()
+                .map(slot -> idToSlot.get(slot.getExprId().asInt()))
+                .filter(slot -> slot != null)
+                .map(NamedExpression::getName)
+                .collect(Collectors.toSet());
+    }
+
+    private void checkColumnPrivileges(TableIf table, Set<String> usedColumns) {
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
-        if (connectContext != null) {
-            Env env = connectContext.getEnv();
-            AccessControllerManager accessManager = env.getAccessManager();
-            UserIdentity user = connectContext.getCurrentUserIdentity();
-            Set<String> usedColumns = requiredSlots.stream()
-                    .map(Slot::getName).collect(Collectors.toSet());
-            try {
-                accessManager.checkColumnsPriv(user, catalog, db, name, usedColumns, PrivPredicate.SELECT);
-            } catch (UserException e) {
-                throw new AnalysisException(e.getMessage(), e);
-            }
+        try {
+            UserAuthentication.checkColumnPermission(table, connectContext, usedColumns);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 }

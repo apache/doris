@@ -20,10 +20,13 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+
+import java.util.Set;
 
 /**
  * Check whether a user is permitted to scan specific tables.
@@ -40,7 +43,7 @@ public class UserAuthentication {
         }
         String tableName = table.getName();
         DatabaseIf db = table.getDatabase();
-        // when table inatanceof FunctionGenTable,db will be null
+        // when table instanceof FunctionGenTable,db will be null
         if (db == null) {
             return;
         }
@@ -58,5 +61,31 @@ public class UserAuthentication {
                     ctlName + ": " + dbName + ": " + tableName);
             throw new AnalysisException(message);
         }
+    }
+
+    /** checkColumnPermission. */
+    public static void checkColumnPermission(TableIf table, ConnectContext connectContext, Set<String> columns)
+            throws UserException {
+        if (table == null) {
+            return;
+        }
+        // do not check priv when replaying dump file
+        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
+            return;
+        }
+        String tableName = table.getName();
+        DatabaseIf db = table.getDatabase();
+        // when table instanceof FunctionGenTable,db will be null
+        if (db == null) {
+            return;
+        }
+        String dbName = db.getFullName();
+        CatalogIf catalog = db.getCatalog();
+        if (catalog == null) {
+            return;
+        }
+        String ctlName = catalog.getName();
+        connectContext.getEnv().getAccessManager().checkColumnsPriv(
+                connectContext.getCurrentUserIdentity(), ctlName, dbName, tableName, columns, PrivPredicate.SELECT);
     }
 }
