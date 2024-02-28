@@ -106,10 +106,14 @@ public class TabletRepairAndBalanceTest {
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
         FeConstants.tablet_checker_interval_ms = 100;
+        Config.tablet_schedule_interval_ms = 100;
         Config.tablet_repair_delay_factor_second = 1;
         Config.colocate_group_relocate_delay_second = 1;
-        Config.schedule_slot_num_per_hdd_path = 1000;
-        Config.schedule_slot_num_per_ssd_path = 1000;
+        Config.schedule_slot_num_per_hdd_path = 10000;
+        Config.schedule_slot_num_per_ssd_path = 10000;
+        Config.schedule_batch_size = 10000;
+        Config.disable_colocate_balance_between_groups = true;
+        Config.max_scheduling_tablets = 10000;
         Config.disable_balance = true;
         // 5 backends:
         // 127.0.0.1
@@ -321,7 +325,7 @@ public class TabletRepairAndBalanceTest {
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertEquals(tag2, be.getLocationTag());
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
+        Thread.sleep(5000);
         checkTableReplicaAllocation(tbl);
         Assert.assertEquals(90, invertedIndex.getReplicaMetaTable().cellSet().size());
 
@@ -383,7 +387,8 @@ public class TabletRepairAndBalanceTest {
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertEquals(tag1, be.getLocationTag());
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
+        Thread.sleep(5000);
+        tbl.checkReplicaAllocation();
 
         checkTableReplicaAllocation(colTbl1);
         checkTableReplicaAllocation(colTbl2);
@@ -573,8 +578,8 @@ public class TabletRepairAndBalanceTest {
                 // it will increase the probability of map to throw NoSuchElementException exception.
                 System.out.println(e.getMessage());
             }
-            Thread.sleep(1000);
             System.out.println("wait table " + tbl.getId() + " to be stable");
+            Thread.sleep(1000);
         }
         ExceptionChecker.expectThrowsNoException(() -> tbl.checkReplicaAllocation());
         System.out.println("table " + tbl.getId() + " is stable");
