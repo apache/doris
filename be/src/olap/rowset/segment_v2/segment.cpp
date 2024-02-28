@@ -37,6 +37,7 @@
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
@@ -124,16 +125,24 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (_tablet_schema->num_columns() <= column_id) {
             continue;
         }
-        // TODO handle var path
-        int32_t uid = read_options.tablet_schema->column(column_id).unique_id();
-        if (_column_readers.count(uid) < 1 || !_column_readers.at(uid)->has_zone_map()) {
+        const TabletColumn& col = read_options.tablet_schema->column(column_id);
+        ColumnReader* reader = nullptr;
+        if (col.is_extracted_column()) {
+            const auto* node = _sub_column_tree.find_exact(col.path_info());
+            reader = node != nullptr ? node->data.reader.get() : nullptr;
+        } else {
+            reader = _column_readers.contains(col.unique_id())
+                             ? _column_readers[col.unique_id()].get()
+                             : nullptr;
+        }
+        if (!reader || !reader->has_zone_map()) {
             continue;
         }
-        if (read_options.col_id_to_predicates.count(column_id) > 0 &&
+        if (read_options.col_id_to_predicates.contains(column_id) &&
             can_apply_predicate_safely(column_id,
                                        read_options.col_id_to_predicates.at(column_id).get(),
                                        *schema, read_options.io_ctx.reader_type) &&
-            !_column_readers.at(uid)->match_condition(entry.second.get())) {
+            !reader->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
             iter->reset(new EmptySegmentIterator(*schema));
             read_options.stats->filtered_segment_number++;
