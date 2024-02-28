@@ -71,12 +71,12 @@ public class CloudSystemInfoService extends SystemInfoService {
     private InstanceInfoPB.Status instanceStatus;
 
     @Override
-    public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
+    public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
             TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
             throws DdlException {
-        return Maps.newHashMap();
+        return Pair.of(Maps.newHashMap(), storageMedium);
     }
 
     /**

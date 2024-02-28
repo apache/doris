@@ -39,12 +39,12 @@ public class ConvertInnerOrCrossJoin implements RewriteRuleFactory {
             innerLogicalJoin()
                 .when(join -> join.getHashJoinConjuncts().isEmpty() && join.getOtherJoinConjuncts().isEmpty()
                         && join.getMarkJoinConjuncts().isEmpty())
-                .then(join -> join.withJoinType(JoinType.CROSS_JOIN))
+                .then(join -> join.withJoinType(JoinType.CROSS_JOIN, join.getJoinReorderContext()))
                 .toRule(RuleType.INNER_TO_CROSS_JOIN),
             crossLogicalJoin()
                 .when(join -> !join.getHashJoinConjuncts().isEmpty() || !join.getOtherJoinConjuncts().isEmpty()
                         || !join.getMarkJoinConjuncts().isEmpty())
-                .then(join -> join.withJoinType(JoinType.INNER_JOIN))
+                .then(join -> join.withJoinType(JoinType.INNER_JOIN, join.getJoinReorderContext()))
                 .toRule(RuleType.CROSS_TO_INNER_JOIN)
         );
     }

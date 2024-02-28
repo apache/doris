@@ -1,5 +1,5 @@
 set exec_mem_limit=8G;
-set enable_two_phase_read_opt = true;
+set exec_mem_limit = 8G;
 set topn_opt_limit_threshold = 1024; 
 SELECT count() from ghdata;
 SELECT cast(v["repo"]["name"] as string) as repo_name, count() AS stars FROM ghdata WHERE cast(v["type"] as string) = 'WatchEvent' GROUP BY repo_name  ORDER BY stars DESC, repo_name LIMIT 5;

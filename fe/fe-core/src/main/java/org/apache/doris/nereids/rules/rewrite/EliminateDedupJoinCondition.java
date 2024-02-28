@@ -44,7 +44,8 @@ public class EliminateDedupJoinCondition extends OneRewriteRuleFactory {
                     && dedupMarkJoinConjuncts.size() == join.getMarkJoinConjuncts().size()) {
                 return null;
             }
-            return join.withJoinConjuncts(dedupHashJoinConjuncts, dedupOtherJoinConjuncts, dedupMarkJoinConjuncts);
+            return join.withJoinConjuncts(dedupHashJoinConjuncts, dedupOtherJoinConjuncts, dedupMarkJoinConjuncts,
+                        join.getJoinReorderContext());
         }).toRule(RuleType.ELIMINATE_DEDUP_JOIN_CONDITION);
     }
 }

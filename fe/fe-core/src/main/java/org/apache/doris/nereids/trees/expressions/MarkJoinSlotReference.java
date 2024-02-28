@@ -73,4 +73,9 @@ public class MarkJoinSlotReference extends SlotReference implements SlotNotFromC
     public MarkJoinSlotReference withExprId(ExprId exprId) {
         return new MarkJoinSlotReference(exprId, name, existsHasAgg);
     }
+
+    @Override
+    public SlotReference withName(String name) {
+        return new MarkJoinSlotReference(exprId, name, existsHasAgg);
+    }
 }

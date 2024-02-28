@@ -458,7 +458,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.bitmap_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "No matching function with signature"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -507,7 +507,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.hll_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "No matching function with signature"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -650,7 +650,7 @@ public class QueryPlanTest extends TestWithFeService {
         ConnectContext.get().getSessionVariable().setRewriteCountDistinct(false);
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ count(distinct id2) from test.bitmap_table";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains(Type.OnlyMetricTypeErrorMsg));
+        Assert.assertTrue(explainString.contains("No matching function with signature"));
     }
 
     @Test

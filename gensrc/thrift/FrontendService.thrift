@@ -480,7 +480,7 @@ struct TReportExecStatusParams {
 
   24: optional TQueryStatistics query_statistics // deprecated
 
-  25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
+  25: optional TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
 
 struct TFeResult {
@@ -1160,16 +1160,17 @@ struct TRestoreSnapshotResult {
 
 struct TPlsqlStoredProcedure {
     1: optional string name
-    2: optional string catalogName
-    3: optional string dbName
-    4: optional string ownerName
-    5: optional string source
+    2: optional i64 catalogId
+    3: optional i64 dbId
+    4: optional string packageName
+    5: optional string ownerName
+    6: optional string source
 }
 
 struct TPlsqlPackage {
     1: optional string name
-    2: optional string catalogName
-    3: optional string dbName
+    2: optional i64 catalogId
+    3: optional i64 dbId
     4: optional string ownerName
     5: optional string header
     6: optional string body
@@ -1177,8 +1178,8 @@ struct TPlsqlPackage {
 
 struct TPlsqlProcedureKey {
     1: optional string name
-    2: optional string catalogName
-    3: optional string dbName
+    2: optional i64 catalogId
+    3: optional i64 dbId
 }
 
 struct TAddPlsqlStoredProcedureRequest {

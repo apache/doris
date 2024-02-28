@@ -35,6 +35,7 @@ echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
 if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
+if [[ -z "${oss_ak}" || -z "${oss_sk}" ]]; then echo "ERROR: env oss_ak or oss_sk not set." && exit 1; fi
 
 echo "#### Deploy Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
@@ -60,6 +61,8 @@ exit_flag=0
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
     fdb_cluster="$(cat /etc/foundationdb/fdb.cluster)"
     sed -i "s/^fdb_cluster = .*/fdb_cluster = ${fdb_cluster}/" "${DORIS_HOME}"/ms/conf/doris_cloud.conf
+    # this is a temporary config, need to replace in cloud_p0/conf/doris_cloud.conf
+    echo "meta_schema_value_version = 1" >>"${DORIS_HOME}"/ms/conf/doris_cloud.conf
     sed -i "s/^fdb_cluster = .*/fdb_cluster = ${fdb_cluster}/" "${DORIS_HOME}"/recycler/conf/doris_cloud.conf
     sed -i "s/^brpc_listen_port = .*/fbrpc_listen_port = 6000/" "${DORIS_HOME}"/recycler/conf/doris_cloud.conf
     print_doris_conf
