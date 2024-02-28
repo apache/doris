@@ -25,7 +25,6 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -87,7 +86,8 @@ public class SimplifyRangeTest {
         assertRewrite("(TA > 10 or TA > 20) and (TB > 10 and TB > 20)", "TA > 10 and TB > 20");
         assertRewrite("((TB > 30 and TA > 40) and TA > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA > 40");
         assertRewrite("(TA > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA > 10 and TB > 10 or TB > 20");
-        assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
+        assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))",
+                "(TA > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
         assertRewrite("TA in (1,2,3) and TA > 10", "FALSE");
         assertRewrite("TA in (1,2,3) and TA >= 1", "TA in (1,2,3)");
         assertRewrite("TA in (1,2,3) and TA > 1", "((TA = 2) OR (TA = 3))");
@@ -107,10 +107,12 @@ public class SimplifyRangeTest {
         assertRewrite("TA in (1) and TA in (1)", "TA = 1");
         assertRewrite("(TA > 3 and TA < 1) and TB < 5", "FALSE");
         assertRewrite("(TA > 3 and TA < 1) or TB < 5", "TB < 5");
-        assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
+        assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1",
+                "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
 
         assertRewrite("TA + TC", "TA + TC");
-        assertRewrite("(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)", "(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)");
+        assertRewrite("(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)",
+                "(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or (TA + TC > 7 and TA + TC < 5)", "FALSE");
         assertRewrite("TA + TC > 3 and TA + TC < 1", "FALSE");
         assertRewrite("TA + TC >= 3 and TA + TC < 3", "TA + TC >= 3 and TA + TC < 3");
@@ -130,11 +132,14 @@ public class SimplifyRangeTest {
         assertRewrite("(TA + TC > 1 or TA + TC > 10) and TA + TC > 20", "TA + TC > 20");
         assertRewrite("(TA + TC + TB > 1 or TA + TC + TB > 10) and TA + TC + TB > 20", "TA + TC + TB > 20");
         assertRewrite("TA + TC > 10 or TA + TC > 10", "TA + TC > 10");
-        assertRewrite("(TA + TC > 10 or TA + TC > 20) and (TB > 10 and TB < 20)", "TA + TC > 10 and (TB > 10 and TB < 20) ");
+        assertRewrite("(TA + TC > 10 or TA + TC > 20) and (TB > 10 and TB < 20)",
+                "TA + TC > 10 and (TB > 10 and TB < 20) ");
         assertRewrite("(TA + TC > 10 or TA + TC > 20) and (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 20");
-        assertRewrite("((TB > 30 and TA + TC > 40) and TA + TC > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA + TC > 40");
+        assertRewrite("((TB > 30 and TA + TC > 40) and TA + TC > 20) and (TB > 10 and TB > 20)",
+                "TB > 30 and TA + TC > 40");
         assertRewrite("(TA + TC > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 10 or TB > 20");
-        assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA + TC > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
+        assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))",
+                "(TA + TC > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
         assertRewrite("TA + TC in (1,2,3) and TA + TC > 10", "FALSE");
         assertRewrite("TA + TC in (1,2,3) and TA + TC >= 1", "TA + TC in (1,2,3)");
         assertRewrite("TA + TC in (1,2,3) and TA + TC > 1", "((TA + TC = 2) OR (TA + TC = 3))");
@@ -163,42 +168,66 @@ public class SimplifyRangeTest {
     public void testSimplifyDate() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyRange.INSTANCE));
         // assertRewrite("TA", "TA");
-        assertRewrite("(TA >= date '2024-01-01' and TA <= date '2024-01-03') or (TA > date '2024-01-05' and TA < date '2024-01-07')",
+        assertRewrite(
+                "(TA >= date '2024-01-01' and TA <= date '2024-01-03') or (TA > date '2024-01-05' and TA < date '2024-01-07')",
                 "(TA >= date '2024-01-01' and TA <= date '2024-01-03') or (TA > date '2024-01-05' and TA < date '2024-01-07')");
-        assertRewrite("(TA > date '2024-01-03' and TA < date '2024-01-01') or (TA > date '2024-01-07'and TA < date '2024-01-05')", "FALSE");
+        assertRewrite(
+                "(TA > date '2024-01-03' and TA < date '2024-01-01') or (TA > date '2024-01-07'and TA < date '2024-01-05')",
+                "FALSE");
         assertRewrite("TA > date '2024-01-03' and TA < date '2024-01-01'", "FALSE");
-        assertRewrite("TA >= date '2024-01-01' and TA < date '2024-01-01'", "TA >= date '2024-01-01' and TA < date '2024-01-01'");
+        assertRewrite("TA >= date '2024-01-01' and TA < date '2024-01-01'",
+                "TA >= date '2024-01-01' and TA < date '2024-01-01'");
         assertRewrite("TA = date '2024-01-01' and TA > date '2024-01-10'", "FALSE");
-        assertRewrite("TA > date '2024-01-05' or TA < date '2024-01-01'", "TA > date '2024-01-05' or TA < date '2024-01-01'");
-        assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-01' or TA > date '2024-01-10'", "TA > date '2024-01-01'");
+        assertRewrite("TA > date '2024-01-05' or TA < date '2024-01-01'",
+                "TA > date '2024-01-05' or TA < date '2024-01-01'");
+        assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-01' or TA > date '2024-01-10'",
+                "TA > date '2024-01-01'");
         assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-01' or TA < date '2024-01-10'", "TA IS NOT NULL");
         assertRewriteNotNull("TA > date '2024-01-05' or TA > date '2024-01-01' or TA < date '2024-01-10'", "TRUE");
-        assertRewrite("TA > date '2024-01-05' and TA > date '2024-01-01' and TA > date '2024-01-10'", "TA > date '2024-01-10'");
-        assertRewrite("TA > date '2024-01-05' and TA > date '2024-01-01' and TA < date '2024-01-10'", "TA > date '2024-01-05' and TA < date '2024-01-10'");
-        assertRewrite("TA > date '2024-01-05' or TA < date '2024-01-05'", "TA > date '2024-01-05' or TA < date '2024-01-05'");
+        assertRewrite("TA > date '2024-01-05' and TA > date '2024-01-01' and TA > date '2024-01-10'",
+                "TA > date '2024-01-10'");
+        assertRewrite("TA > date '2024-01-05' and TA > date '2024-01-01' and TA < date '2024-01-10'",
+                "TA > date '2024-01-05' and TA < date '2024-01-10'");
+        assertRewrite("TA > date '2024-01-05' or TA < date '2024-01-05'",
+                "TA > date '2024-01-05' or TA < date '2024-01-05'");
         assertRewrite("TA > date '2024-01-01' or TA < date '2024-01-10'", "TA IS NOT NULL");
         assertRewriteNotNull("TA > date '2024-01-01' or TA < date '2024-01-10'", "TRUE");
-        assertRewrite("TA > date '2024-01-05' and TA < date '2024-01-10'", "TA > date '2024-01-05' and TA < date '2024-01-10'");
+        assertRewrite("TA > date '2024-01-05' and TA < date '2024-01-10'",
+                "TA > date '2024-01-05' and TA < date '2024-01-10'");
         assertRewrite("TA > date '2024-01-05' and TA > date '2024-01-10'", "TA > date '2024-01-10'");
-        assertRewrite("(TA > date '2024-01-01' and TA > date '2024-01-10') or TA > date '2024-01-20'", "TA > date '2024-01-10'");
-        assertRewrite("(TA > date '2024-01-01' or TA > date '2024-01-10') and TA > date '2024-01-20'", "TA > date '2024-01-20'");
+        assertRewrite("(TA > date '2024-01-01' and TA > date '2024-01-10') or TA > date '2024-01-20'",
+                "TA > date '2024-01-10'");
+        assertRewrite("(TA > date '2024-01-01' or TA > date '2024-01-10') and TA > date '2024-01-20'",
+                "TA > date '2024-01-20'");
         assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-05'", "TA > date '2024-01-05'");
-        assertRewrite("(TA > date '2024-01-10' or TA > date '2024-01-20') and (TB > date '2024-01-10' and TB < date '2024-01-20')", "TA > date '2024-01-10' and (TB > date '2024-01-10' and TB < date '2024-01-20') ");
-        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA > date '2024-01-10'", "FALSE");
-        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA >= date '2024-01-01'", "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
-        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA > date '2024-01-01'", "((TA = date '2024-01-02') OR (TA = date '2024-01-03'))");
-        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA >= date '2024-01-01'", "TA >= date '2024-01-01'");
+        assertRewrite(
+                "(TA > date '2024-01-10' or TA > date '2024-01-20') and (TB > date '2024-01-10' and TB < date '2024-01-20')",
+                "TA > date '2024-01-10' and (TB > date '2024-01-10' and TB < date '2024-01-20') ");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA > date '2024-01-10'",
+                "FALSE");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA >= date '2024-01-01'",
+                "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA > date '2024-01-01'",
+                "((TA = date '2024-01-02') OR (TA = date '2024-01-03'))");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA >= date '2024-01-01'",
+                "TA >= date '2024-01-01'");
         assertRewrite("TA in (date '2024-01-01')", "TA in (date '2024-01-01')");
-        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA < date '2024-01-10'", "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
-        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA < date '2024-01-01'", "FALSE");
-        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA < date '2024-01-01'", "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA < date '2024-01-01'");
-        assertRewrite("TA in (date '2024-01-01',date '2024-01-02') or TA in (date '2024-01-02', date '2024-01-03')", "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
-        assertRewrite("TA in (date '2024-01-01',date '2024-01-02') and TA in (date '2024-01-03', date '2024-01-04')", "FALSE");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA < date '2024-01-10'",
+                "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA < date '2024-01-01'",
+                "FALSE");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA < date '2024-01-01'",
+                "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA < date '2024-01-01'");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02') or TA in (date '2024-01-02', date '2024-01-03')",
+                "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02') and TA in (date '2024-01-03', date '2024-01-04')",
+                "FALSE");
         assertRewrite("TA = date '2024-01-03' and TA = date '2024-01-01'", "FALSE");
         assertRewrite("TA in (date '2024-01-01') and TA in (date '2024-01-03')", "FALSE");
         assertRewrite("TA in (date '2024-01-03') and TA in (date '2024-01-03')", "TA = date '2024-01-03'");
         assertRewrite("(TA > date '2024-01-03' and TA < date '2024-01-01') and TB < date '2024-01-05'", "FALSE");
-        assertRewrite("(TA > date '2024-01-03' and TA < date '2024-01-01') or TB < date '2024-01-05'", "TB < date '2024-01-05'");
+        assertRewrite("(TA > date '2024-01-03' and TA < date '2024-01-01') or TB < date '2024-01-05'",
+                "TB < date '2024-01-05'");
     }
 
     private void assertRewrite(String expression, String expected) {
@@ -231,9 +260,6 @@ public class SimplifyRangeTest {
             String name = ((UnboundSlot) expression).getName();
             mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0))));
             return mem.get(name);
-        }
-        if (expression instanceof VarcharLiteral) {
-            expression.isLiteral();
         }
         return hasNewChildren ? expression.withChildren(children) : expression;
     }

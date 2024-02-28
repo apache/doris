@@ -161,7 +161,6 @@ public class StructInfo {
                 // Record this, will be used in top level expression shuttle later, see the method
                 // ExpressionLineageReplacer#visitGroupPlan
                 namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
-                // record hash condition
             });
             List<Expression> otherJoinConjuncts = edge.getOtherJoinConjuncts();
             if (!otherJoinConjuncts.isEmpty()) {
