@@ -38,7 +38,7 @@ AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode
 }
 
 Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Block* block,
-                                    SourceState& source_state) {
+                                    bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     local_state.add_num_rows_returned(block->rows());

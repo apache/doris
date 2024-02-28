@@ -33,6 +33,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "olap/base_tablet.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowid_conversion.h"

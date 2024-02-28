@@ -33,6 +33,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
+import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob.RootRewriteJobContext;
 import org.apache.doris.nereids.jobs.scheduler.JobPool;
 import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
 import org.apache.doris.nereids.jobs.scheduler.JobStack;
@@ -93,6 +94,7 @@ public class CascadesContext implements ScheduleContext {
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
+    private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
     private final StatementContext statementContext;
@@ -118,8 +120,15 @@ public class CascadesContext implements ScheduleContext {
     private final List<MaterializationContext> materializationContexts;
     private boolean isLeadingJoin = false;
 
+    private boolean isLeadingDisableJoinReorder = false;
+
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
     private final boolean shouldCheckRelationAuthentication;
+    private final ThreadLocal<Boolean> showPlanProcess = new ThreadLocal<>();
+
+    // This list is used to listen the change event of the plan which
+    // trigger by rule and show by `explain plan process` statement
+    private final List<PlanProcess> planProcesses = new ArrayList<>();
 
     /**
      * Constructor of OptimizerContext.
@@ -650,7 +659,51 @@ public class CascadesContext implements ScheduleContext {
         return shouldCheckRelationAuthentication;
     }
 
+    public boolean isLeadingDisableJoinReorder() {
+        return isLeadingDisableJoinReorder;
+    }
+
+    public void setLeadingDisableJoinReorder(boolean leadingDisableJoinReorder) {
+        isLeadingDisableJoinReorder = leadingDisableJoinReorder;
+    }
+
     public Map<String, Hint> getHintMap() {
         return hintMap;
+    }
+
+    public void addPlanProcess(PlanProcess planProcess) {
+        planProcesses.add(planProcess);
+    }
+
+    public List<PlanProcess> getPlanProcesses() {
+        return planProcesses;
+    }
+
+    public Optional<RootRewriteJobContext> getCurrentRootRewriteJobContext() {
+        return currentRootRewriteJobContext;
+    }
+
+    public void setCurrentRootRewriteJobContext(RootRewriteJobContext currentRootRewriteJobContext) {
+        this.currentRootRewriteJobContext = Optional.ofNullable(currentRootRewriteJobContext);
+    }
+
+    public boolean showPlanProcess() {
+        Boolean show = showPlanProcess.get();
+        return show != null && show;
+    }
+
+    /** set showPlanProcess in task scope */
+    public void withPlanProcess(boolean showPlanProcess, Runnable task) {
+        Boolean originSetting = this.showPlanProcess.get();
+        try {
+            this.showPlanProcess.set(showPlanProcess);
+            task.run();
+        } finally {
+            if (originSetting == null) {
+                this.showPlanProcess.remove();
+            } else {
+                this.showPlanProcess.set(originSetting);
+            }
+        }
     }
 }

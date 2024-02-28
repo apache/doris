@@ -229,8 +229,8 @@ Status PipelineXTask::execute(bool* eos) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
-    // The status must be runnable
     *eos = false;
+    // The status must be runnable
     if (!_opened) {
         {
             SCOPED_RAW_TIMER(&time_spent);
@@ -257,7 +257,7 @@ Status PipelineXTask::execute(bool* eos) {
     Status status = Status::OK();
     set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
-        if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
+        if (_root->need_data_from_children(_state) && !source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;
         }
@@ -269,7 +269,6 @@ Status PipelineXTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
-        // TODO llj: Pipeline entity should_yield
         SCOPED_RAW_TIMER(&time_spent);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
@@ -278,15 +277,14 @@ Status PipelineXTask::execute(bool* eos) {
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, _data_state));
+            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
         } else {
-            _data_state = SourceState::FINISHED;
+            *eos = true;
         }
 
-        *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            status = _sink->sink(_state, block, _data_state);
+            status = _sink->sink(_state, block, *eos);
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -350,9 +348,9 @@ std::string PipelineXTask::debug_string() {
                    print_id(_state->fragment_instance_id()));
 
     fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, state = {}, data state = {}, dry run = {}, elapse time "
+                   "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
                    "= {}ns], block dependency = {}, is running = {}\noperators: ",
-                   (void*)this, get_state_name(_cur_state), (int)_data_state, _dry_run,
+                   (void*)this, get_state_name(_cur_state), _dry_run,
                    MonotonicNanos() - _fragment_context->create_time(),
                    _blocked_dep ? _blocked_dep->debug_string() : "NULL", is_running());
     for (size_t i = 0; i < _operators.size(); i++) {

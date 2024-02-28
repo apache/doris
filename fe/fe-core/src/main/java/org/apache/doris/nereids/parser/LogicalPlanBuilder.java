@@ -2717,14 +2717,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
 
+            boolean showPlanProcess = false;
             if (ctx.level != null) {
                 if (!ctx.level.getText().equalsIgnoreCase("plan")) {
                     explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
                 } else {
                     explainLevel = parseExplainPlanType(ctx.planType());
+
+                    if (ctx.PROCESS() != null) {
+                        showPlanProcess = true;
+                    }
                 }
             }
-            return new ExplainCommand(explainLevel, inputPlan);
+            return new ExplainCommand(explainLevel, inputPlan, showPlanProcess);
         });
     }
 
@@ -2906,7 +2911,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         distributeHint,
                         Optional.empty(),
                         last,
-                        plan(join.relationPrimary()));
+                        plan(join.relationPrimary()), null);
             } else {
                 last = new UsingJoin<>(joinType, last,
                         plan(join.relationPrimary()), ImmutableList.of(), ids, distributeHint);
@@ -3024,7 +3029,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             new DistributeHint(DistributeType.NONE),
                             Optional.empty(),
                             left,
-                            right);
+                            right, null);
             // TODO: pivot and lateral view
         }
         return left;
@@ -3334,7 +3339,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
-        UnboundFunction unboundFunction = new UnboundFunction(procedureName.getDb(), procedureName.getName(),
+        UnboundFunction unboundFunction = new UnboundFunction(procedureName.getDbName(), procedureName.getName(),
                 true, arguments);
         return new CallCommand(unboundFunction, getOriginSql(ctx));
     }

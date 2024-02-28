@@ -92,6 +92,10 @@ public class EnvFactory {
         return new Replica();
     }
 
+    public Replica createReplica(Replica.ReplicaContext context) {
+        return new Replica(context);
+    }
+
     public ReplicaAllocation createDefReplicaAllocation() {
         return new ReplicaAllocation((short) 3);
     }

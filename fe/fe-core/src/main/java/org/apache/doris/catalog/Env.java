@@ -1976,7 +1976,8 @@ public class Env {
         return checksum;
     }
 
-    public long loadAlterJob(DataInputStream dis, long checksum) throws IOException {
+    public long loadAlterJob(DataInputStream dis, long checksum)
+            throws IOException, AnalysisException {
         long newChecksum = checksum;
         for (JobType type : JobType.values()) {
             newChecksum = loadAlterJob(dis, newChecksum, type);
@@ -1985,7 +1986,8 @@ public class Env {
         return newChecksum;
     }
 
-    public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
+    public long loadAlterJob(DataInputStream dis, long checksum, JobType type)
+            throws IOException, AnalysisException {
         // alter jobs
         int size = dis.readInt();
         long newChecksum = checksum ^ size;

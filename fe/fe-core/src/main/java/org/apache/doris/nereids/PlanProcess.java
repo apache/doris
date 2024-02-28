@@ -15,31 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids;
 
-#include <memory>
+/** PlanProcess */
+public class PlanProcess {
+    public final String ruleName;
+    public final String beforeShape;
+    public final String afterShape;
 
-#include "common/status.h"
-#include "olap/task/engine_task.h"
-
-namespace doris {
-class MemTrackerLimiter;
-class TAlterInvertedIndexReq;
-class TAlterTabletReqV2;
-
-// base class for storage engine
-// add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineAlterTabletTask final : public EngineTask {
-public:
-    Status execute() override;
-
-    EngineAlterTabletTask(const TAlterTabletReqV2& alter_tablet_request);
-    ~EngineAlterTabletTask() override = default;
-
-private:
-    const TAlterTabletReqV2& _alter_tablet_req;
-
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-}; // EngineTask
-
-} // namespace doris
+    public PlanProcess(String ruleName, String beforeShape, String afterShape) {
+        this.ruleName = ruleName;
+        this.beforeShape = beforeShape;
+        this.afterShape = afterShape;
+    }
+}

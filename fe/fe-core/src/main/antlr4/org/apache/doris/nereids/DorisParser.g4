@@ -189,6 +189,7 @@ userIdentify
 explain
     : (EXPLAIN planType? | DESC | DESCRIBE)
           level=(VERBOSE | TREE | GRAPH | PLAN)?
+          PROCESS?
     ;
 
 planType
@@ -1112,6 +1113,7 @@ nonReserved
     | PERMISSIVE
     | PHYSICAL
     | PLAN
+    | PROCESS
     | PLUGIN
     | PLUGINS
     | POLICY

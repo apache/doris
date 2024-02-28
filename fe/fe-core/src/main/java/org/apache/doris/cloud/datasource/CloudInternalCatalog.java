@@ -20,6 +20,7 @@ package org.apache.doris.cloud.datasource;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
@@ -51,7 +52,6 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TSortType;
-import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
@@ -79,7 +79,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     @Override
     protected Partition createPartitionWithIndices(long dbId, OlapTable tbl, long partitionId,
                                                    String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
-                                                   DistributionInfo distributionInfo, TStorageMedium storageMedium,
+                                                   DistributionInfo distributionInfo, DataProperty dataProperty,
                                                    ReplicaAllocation replicaAlloc,
                                                    Long versionInfo, Set<String> bfColumns, Set<Long> tabletIdSet,
                                                    boolean isInMemory,
@@ -126,7 +126,8 @@ public class CloudInternalCatalog extends InternalCatalog {
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
-            TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId, indexId, schemaHash, storageMedium);
+            TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId,
+                    indexId, schemaHash, dataProperty.getStorageMedium());
             createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
                     tabletMeta, tabletIdSet);
 
@@ -161,7 +162,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         return partition;
     }
 
-    private OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(long tableId, long indexId,
+    public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(long tableId, long indexId,
             long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
             short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
@@ -333,7 +334,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     protected void beforeCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
         if (partitionIds == null) {
-            prepareMaterializedIndex(tableId, indexIds);
+            prepareMaterializedIndex(tableId, indexIds, 0);
         } else {
             preparePartition(dbId, tableId, partitionIds, indexIds);
         }
@@ -416,12 +417,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void prepareMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    // if `expiration` = 0, recycler will delete uncommitted indexes in `retention_seconds`
+    public void prepareMaterializedIndex(Long tableId, List<Long> indexIds, long expiration) throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
         indexRequestBuilder.setTableId(tableId);
-        indexRequestBuilder.setExpiration(0);
+        indexRequestBuilder.setExpiration(expiration);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         Cloud.IndexResponse response = null;
@@ -447,7 +449,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void commitMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    public void commitMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
@@ -477,7 +479,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
+    public void sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
 
@@ -624,7 +626,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void dropMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    public void dropMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
