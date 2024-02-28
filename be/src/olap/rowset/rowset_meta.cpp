@@ -19,6 +19,7 @@
 
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
@@ -132,7 +133,8 @@ void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
-    auto pair = TabletSchemaCache::instance()->insert(tablet_schema.SerializeAsString());
+    auto pair = TabletSchemaCache::instance()->insert(
+            TabletSchema::deterministic_string_serialize(tablet_schema));
     _handle = pair.first;
     _schema = pair.second;
 }

@@ -234,14 +234,6 @@ PhysicalResultSink
 ----PhysicalAssertNumRows
 ------PhysicalOlapScan[t2]
 
--- !pushdown_left_anti_join_subquery_outer --
-PhysicalResultSink
---hashJoin[NULL_AWARE_LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----filter((t1.id > 1))
-------PhysicalOlapScan[t1]
-----filter((t2.id > 1))
-------PhysicalOlapScan[t2]
-
 -- !pushdown_cross_join_subquery_outer --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]

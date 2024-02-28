@@ -93,7 +93,7 @@ public class JdbcExecutor {
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
     private DruidDataSource druidDataSource = null;
-    private byte[] druidDataSourceLock = new byte[0];
+    private final byte[] druidDataSourceLock = new byte[0];
     private TOdbcTableType tableType;
     private JdbcDataSourceConfig config;
 
@@ -107,6 +107,7 @@ public class JdbcExecutor {
         }
         tableType = request.table_type;
         this.config = new JdbcDataSourceConfig()
+                .setCatalogId(request.catalog_id)
                 .setJdbcUser(request.jdbc_user)
                 .setJdbcPassword(request.jdbc_password)
                 .setJdbcUrl(request.jdbc_url)
@@ -115,52 +116,72 @@ public class JdbcExecutor {
                 .setBatchSize(request.batch_size)
                 .setOp(request.op)
                 .setTableType(request.table_type)
-                .setMinPoolSize(request.min_pool_size)
-                .setMaxPoolSize(request.max_pool_size)
-                .setMaxIdleTime(request.max_idle_time)
-                .setMaxWaitTime(request.max_wait_time)
-                .setMinIdleSize(request.min_pool_size > 0 ? 1 : 0)
-                .setKeepAlive(request.keep_alive);
+                .setConnectionPoolMinSize(request.connection_pool_min_size)
+                .setConnectionPoolMaxSize(request.connection_pool_max_size)
+                .setConnectionPoolMaxWaitTime(request.connection_pool_max_wait_time)
+                .setConnectionPoolMaxLifeTime(request.connection_pool_max_life_time)
+                .setConnectionPoolKeepAlive(request.connection_pool_keep_alive);
+        JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
         init(config, request.statement);
     }
 
     public void close() throws Exception {
         try {
             if (stmt != null) {
-                stmt.cancel();
+                try {
+                    stmt.cancel();
+                } catch (SQLException e) {
+                    LOG.error("Error cancelling statement", e);
+                }
             }
-            if (conn != null && resultSet != null) {
-                abortReadConnection(conn, resultSet, tableType);
+
+            boolean shouldAbort = conn != null && resultSet != null
+                    && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER);
+            boolean aborted = false; // Used to record whether the abort operation is performed
+            if (shouldAbort) {
+                aborted = abortReadConnection(conn, resultSet, tableType);
             }
-            if (config.getMinIdleSize() == 0) {
-                // it can be immediately closed if there is no need to maintain the cache of datasource
-                druidDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().clear();
-                druidDataSource = null;
+
+            // If no abort operation is performed, the resource needs to be closed manually
+            if (!aborted) {
+                closeResources(resultSet, stmt, conn);
             }
         } finally {
-            if (stmt != null) {
-                stmt.close();
+            if (config.getConnectionPoolMinSize() == 0 && druidDataSource != null) {
+                druidDataSource.close();
+                JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+                druidDataSource = null;
             }
-            if (resultSet != null) {
-                resultSet.close();
-            }
-            if (conn != null) {
-                conn.close();
-            }
-            resultSet = null;
-            stmt = null;
-            conn = null;
         }
     }
 
-    public void abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
+    private void closeResources(AutoCloseable... closeables) {
+        for (AutoCloseable closeable : closeables) {
+            if (closeable != null) {
+                try {
+                    if (closeable instanceof Connection) {
+                        if (!((Connection) closeable).isClosed()) {
+                            closeable.close();
+                        }
+                    } else {
+                        closeable.close();
+                    }
+                } catch (Exception e) {
+                    LOG.error("Cannot close resource: ", e);
+                }
+            }
+        }
+    }
+
+    public boolean abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
             throws SQLException {
         if (!resultSet.isAfterLast() && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER)) {
-            // Abort connection before closing. Without this, the MySQL driver
+            // Abort connection before closing. Without this, the MySQL/SQLServer driver
             // attempts to drain the connection by reading all the results.
             connection.abort(MoreExecutors.directExecutor());
+            return true;
         }
+        return false;
     }
 
     public int read() throws UdfRuntimeException {
@@ -322,26 +343,30 @@ public class JdbcExecutor {
                             ds.setUrl(config.getJdbcUrl());
                             ds.setUsername(config.getJdbcUser());
                             ds.setPassword(config.getJdbcPassword());
-                            ds.setMinIdle(config.getMinIdleSize());
-                            ds.setInitialSize(config.getMinPoolSize());
-                            ds.setMaxActive(config.getMaxPoolSize());
-                            ds.setMaxWait(config.getMaxWaitTime());
+                            ds.setMinIdle(config.getConnectionPoolMinSize()); // default 1
+                            ds.setInitialSize(config.getConnectionPoolMinSize()); // default 1
+                            ds.setMaxActive(config.getConnectionPoolMaxSize()); // default 10
+                            ds.setMaxWait(config.getConnectionPoolMaxWaitTime()); // default 5000
                             ds.setTestWhileIdle(true);
                             ds.setTestOnBorrow(false);
                             setValidationQuery(ds, config.getTableType());
-                            ds.setTimeBetweenEvictionRunsMillis(config.getMaxIdleTime() / 5);
-                            ds.setMinEvictableIdleTimeMillis(config.getMaxIdleTime());
-                            ds.setKeepAlive(config.isKeepAlive());
+                            // default 3 min
+                            ds.setTimeBetweenEvictionRunsMillis(config.getConnectionPoolMaxLifeTime() / 10L);
+                            // default 15 min
+                            ds.setMinEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime() / 2L);
+                            // default 30 min
+                            ds.setMaxEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime());
+                            ds.setKeepAlive(config.isConnectionPoolKeepAlive());
+                            // default 6 min
+                            ds.setKeepAliveBetweenTimeMillis(config.getConnectionPoolMaxLifeTime() / 5L);
                             druidDataSource = ds;
-                            // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
-                            // time greater than 10 minutes. then connection will be retrieved.
                             JdbcDataSource.getDataSource().putSource(druidDataSourceKey, ds);
-                            LOG.info("JdbcExecutor set minPoolSize = " + config.getMinPoolSize()
-                                    + ", maxPoolSize = " + config.getMaxPoolSize()
-                                    + ", maxIdleTime = " + config.getMaxIdleTime()
-                                    + ", maxWaitTime = " + config.getMaxWaitTime()
-                                    + ", minIdleSize = " + config.getMinIdleSize()
-                                    + ", keepAlive = " + config.isKeepAlive());
+                            LOG.info("JdbcClient set"
+                                    + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
+                                    + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
+                                    + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
+                                    + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime()
+                                    + ", ConnectionPoolKeepAlive = " + config.isConnectionPoolKeepAlive());
                             LOG.info("init datasource [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
                                     System.currentTimeMillis() - start) + " ms");
                         }

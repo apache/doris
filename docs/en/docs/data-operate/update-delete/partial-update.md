@@ -124,7 +124,7 @@ If you are using the Flink Connector, you need to add the following configuratio
 'sink.properties.partial_columns' = 'true',
 ```
 
-Also, specify the columns to be loaded in `sink.properties.column` (it must include all key columns, or else updates cannot be performed).
+Also, specify the columns to be loaded in `sink.properties.columns` (it must include all key columns, or else updates cannot be performed).
 
 #### INSERT INTO
 
@@ -224,9 +224,7 @@ INSERT INTO order_tbl (order_id, order_status) values (1,'Pending Delivery');
 
 ### Unique Key Merge-on-Write Implementation
 
-In version 2.0, all rows in the same batch of data write tasks (whether load tasks or `INSERT INTO`) can only update the same columns. If you need to update different columns of data, you will need to write them in separate batches.
-
-In version 2.1, we will support more flexible column updates, allowing users to update different columns for each row within the same batch load.
+All rows in the same batch of data write tasks (whether load tasks or `INSERT INTO`) can only update the same columns. If you need to update different columns of data, you will need to write them in separate batches.
 
 ### Aggregate Key Model
 

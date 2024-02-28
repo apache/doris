@@ -71,6 +71,10 @@ public:
 
     void set_tablet_id(int64_t tablet_id) { _rowset_meta_pb.set_tablet_id(tablet_id); }
 
+    int64_t index_id() const { return _rowset_meta_pb.index_id(); }
+
+    void set_index_id(int64_t index_id) { _rowset_meta_pb.set_index_id(index_id); }
+
     TabletUid tablet_uid() const { return _rowset_meta_pb.tablet_uid(); }
 
     void set_tablet_uid(TabletUid tablet_uid) {
@@ -305,6 +309,8 @@ public:
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
 
     const TabletSchemaSPtr& tablet_schema() const { return _schema; }
+
+    void set_txn_expiration(int64_t expiration) { _rowset_meta_pb.set_txn_expiration(expiration); }
 
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;

@@ -273,6 +273,7 @@ namespace ErrorCode {
     E(INVERTED_INDEX_BUILD_WAITTING, -6008, false);          \
     E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
+    E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
@@ -317,6 +318,15 @@ extern ErrorCodeInitializer error_code_init;
 class [[nodiscard]] Status {
 public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
+
+    // used to convert Exception to Status
+    Status(int code, std::string msg, std::string stack) : _code(code) {
+        _err_msg = std::make_unique<ErrMsg>();
+        _err_msg->_msg = msg;
+#ifdef ENABLE_STACKTRACE
+        _err_msg->_stack = stack;
+#endif
+    }
 
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& rhs) { *this = rhs; }
@@ -485,7 +495,7 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
-    std::string msg() const { return _err_msg ? _err_msg->_msg : ""; }
+    std::string_view msg() const { return _err_msg ? _err_msg->_msg : std::string_view(""); }
 
 private:
     int _code;

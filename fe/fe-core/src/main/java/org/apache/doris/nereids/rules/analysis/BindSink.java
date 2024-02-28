@@ -128,17 +128,20 @@ public class BindSink implements AnalysisRuleFactory {
                             Optional<Column> seqColInTable = Optional.empty();
                             if (table.getSequenceMapCol() != null) {
                                 if (!sink.getColNames().isEmpty()) {
-                                    if (sink.getColNames().contains(table.getSequenceMapCol())) {
+                                    if (sink.getColNames().stream()
+                                            .anyMatch(c -> c.equalsIgnoreCase(table.getSequenceMapCol()))) {
                                         haveInputSeqCol = true; // case1.a
                                     }
                                 } else {
                                     haveInputSeqCol = true; // case1.b
                                 }
                                 seqColInTable = table.getFullSchema().stream()
-                                        .filter(col -> col.getName().equals(table.getSequenceMapCol())).findFirst();
+                                        .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
+                                        .findFirst();
                             } else {
                                 if (!sink.getColNames().isEmpty()) {
-                                    if (sink.getColNames().contains(Column.SEQUENCE_COL)) {
+                                    if (sink.getColNames().stream()
+                                            .anyMatch(c -> c.equalsIgnoreCase(Column.SEQUENCE_COL))) {
                                         haveInputSeqCol = true; // case2.a
                                     } // else case2.b
                                 }
@@ -153,7 +156,7 @@ public class BindSink implements AnalysisRuleFactory {
                                             && boundSink.getDmlCommandType() != DMLCommandType.DELETE)) {
                                 if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                                         || !seqColInTable.get().getDefaultValue()
-                                        .equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                                        .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
                                     throw new org.apache.doris.common.AnalysisException("Table " + table.getName()
                                             + " has sequence column, need to specify the sequence column");
                                 }
@@ -213,7 +216,14 @@ public class BindSink implements AnalysisRuleFactory {
                                             + " target table " + table.getName());
                                 }
                                 if (columnToOutput.get(seqCol.get().getName()) != null) {
-                                    columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
+                                    // should generate diff exprId for seq column
+                                    NamedExpression seqColumn = columnToOutput.get(seqCol.get().getName());
+                                    if (seqColumn instanceof Alias) {
+                                        seqColumn = new Alias(((Alias) seqColumn).child(), column.getName());
+                                    } else {
+                                        seqColumn = new Alias(seqColumn, column.getName());
+                                    }
+                                    columnToOutput.put(column.getName(), seqColumn);
                                 }
                             } else if (isPartialUpdate) {
                                 // If the current load is a partial update, the values of unmentioned

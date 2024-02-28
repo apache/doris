@@ -18,6 +18,9 @@
 
 #include <brpc/channel.h>
 #include <brpc/controller.h>
+#include <bthread/bthread.h>
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <glog/logging.h>
 
 #include <atomic>
@@ -48,9 +51,74 @@
 namespace doris::cloud {
 using namespace ErrorCode;
 
-static bvar::LatencyRecorder g_get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
+namespace {
+constexpr int kBrpcRetryTimes = 3;
 
-static constexpr int BRPC_RETRY_TIMES = 3;
+static bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
+} // namespace
+
+Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
+    if (tasks.empty()) {
+        return Status::OK();
+    }
+
+    bthread::Mutex lock;
+    bthread::ConditionVariable cond;
+    Status status; // Guard by lock
+    int count = 0; // Guard by lock
+
+    auto* run_bthread_work = +[](void* arg) -> void* {
+        auto* f = reinterpret_cast<std::function<void()>*>(arg);
+        (*f)();
+        delete f;
+        return nullptr;
+    };
+
+    std::vector<bthread_t> bthread_ids;
+    bthread_ids.resize(tasks.size());
+    for (int task_idx = 0; task_idx < tasks.size(); ++task_idx) {
+        auto* task = &(tasks[task_idx]);
+        {
+            std::unique_lock lk(lock);
+            // Wait until there are available slots
+            while (status.ok() && count >= concurrency) {
+                cond.wait(lk);
+            }
+            if (!status.ok()) {
+                break;
+            }
+
+            // Increase running task count
+            ++count;
+        }
+
+        // dispatch task into bthreads
+        auto* fn = new std::function<void()>([&, task] {
+            auto st = (*task)();
+            {
+                std::lock_guard lk(lock);
+                --count;
+                if (!st.ok()) {
+                    std::swap(st, status);
+                }
+                cond.notify_one();
+            }
+        });
+        if (bthread_start_background(&bthread_ids[task_idx], nullptr, run_bthread_work, fn) != 0) {
+            run_bthread_work(fn);
+        }
+    }
+
+    // Wait until all running tasks have done
+    {
+        std::unique_lock lk(lock);
+        while (count > 0) {
+            cond.wait(lk);
+        }
+    }
+
+    return status;
+}
 
 class MetaServiceProxy {
 public:
@@ -224,7 +292,7 @@ static Status retry_rpc(std::string_view op_name, const Request& req, Response* 
     while (true) {
         brpc::Controller cntl;
         cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
-        cntl.set_max_retry(BRPC_RETRY_TIMES);
+        cntl.set_max_retry(kBrpcRetryTimes);
         res->Clear();
         (stub.get()->*method)(&cntl, &req, res, nullptr);
         if (cntl.Failed()) [[unlikely]] {
@@ -299,7 +367,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         idx->set_partition_id(tablet->partition_id());
         {
             std::shared_lock rlock(tablet->get_header_lock());
-            req.set_start_version(tablet->local_max_version() + 1);
+            req.set_start_version(tablet->max_version_unlocked() + 1);
             req.set_base_compaction_cnt(tablet->base_compaction_cnt());
             req.set_cumulative_compaction_cnt(tablet->cumulative_compaction_cnt());
             req.set_cumulative_point(tablet->cumulative_layer_point());
@@ -309,7 +377,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
 
         stub->get_rowset(&cntl, &req, &resp, nullptr);
         int64_t latency = cntl.latency_us();
-        g_get_rowset_latency << latency;
+        _get_rowset_latency << latency;
         int retry_times = config::meta_service_rpc_retry_times;
         if (cntl.Failed()) {
             if (tried++ < retry_times) {
@@ -434,7 +502,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 //   BE has [0-1][2-11][12-12], [12-12] is delete predicate, cp is 2;
                 //   after doing EMPTY_CUMULATIVE compaction, MS cp is 13, get_rowset will return [2-11][12-12].
                 bool version_overlap =
-                        tablet->local_max_version() >= rowsets.front()->start_version();
+                        tablet->max_version_unlocked() >= rowsets.front()->start_version();
                 tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
@@ -552,7 +620,6 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
     req.set_temporary(is_tmp);
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
-    rs_meta.to_rowset_pb(&doris_rs_meta, true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
 
     Status st = retry_rpc("prepare rowset", req, &resp, &MetaService_Stub::prepare_rowset);

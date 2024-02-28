@@ -47,9 +47,10 @@ JDK1.8+, IntelliJ IDEA
     
     - MacOS: 
 
-        1. `brew tap-new $USER/local-tap`
-        2. `brew extract --version='0.16.0' thrift $USER/local-tap`
-        3. `brew install thrift@0.16.0`
+        1. `brew tap homebrew/core --force`
+        2. `brew tap-new $USER/local-tap`
+        3. `brew extract --version='0.16.0' thrift $USER/local-tap`
+        4. `brew install thrift@0.16.0`
 
         如有下载相关的报错，可修改如下文件：
 

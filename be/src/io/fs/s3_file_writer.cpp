@@ -52,19 +52,16 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
+#include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/s3_util.h"
 
-namespace Aws {
-namespace S3 {
-namespace Model {
+namespace Aws::S3::Model {
 class DeleteObjectRequest;
-} // namespace Model
-} // namespace S3
-} // namespace Aws
+} // namespace Aws::S3::Model
 
 using Aws::S3::Model::AbortMultipartUploadRequest;
 using Aws::S3::Model::CompletedPart;
@@ -74,8 +71,7 @@ using Aws::S3::Model::CreateMultipartUploadRequest;
 using Aws::S3::Model::UploadPartRequest;
 using Aws::S3::Model::UploadPartOutcome;
 
-namespace doris {
-namespace io {
+namespace doris::io {
 using namespace Aws::S3::Model;
 using Aws::S3::S3Client;
 
@@ -102,6 +98,8 @@ S3FileWriter::S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs,
         _cache_key = IFileCache::hash(_path.filename().native());
         _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
     }
+
+    _create_empty_file = opts ? opts->create_empty_file : true;
 }
 
 S3FileWriter::~S3FileWriter() {
@@ -126,8 +124,8 @@ Status S3FileWriter::_create_multi_upload_request() {
                 _bucket, _path.native(), _upload_id);
     });
 
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
     auto outcome = _client->CreateMultipartUpload(create_request);
-    s3_bvar::s3_multi_part_upload_total << 1;
 
     if (outcome.IsSuccess()) {
         _upload_id = outcome.GetResult().GetUploadId();
@@ -175,8 +173,8 @@ Status S3FileWriter::_abort() {
     _wait_until_finish("Abort");
     AbortMultipartUploadRequest request;
     request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
     auto outcome = _client->AbortMultipartUpload(request);
-    s3_bvar::s3_multi_part_upload_total << 1;
     if (outcome.IsSuccess() ||
         outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_UPLOAD ||
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
@@ -202,17 +200,46 @@ Status S3FileWriter::close() {
         return _st;
     }
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();
-    // it might be one file less than 5MB, we do upload here
-    if (_pending_buf != nullptr) {
-        if (_upload_id.empty()) {
+
+    if (_upload_id.empty()) {
+        if (_pending_buf != nullptr) {
+            // it might be one file less than 5MB, we do upload here
             auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
             DCHECK(buf != nullptr);
             buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
+        } else if (_create_empty_file) {
+            // if there is no pending buffer, we need to create an empty file
+            auto builder = FileBufferBuilder();
+            builder.set_type(BufferType::UPLOAD)
+                    .set_upload_callback([this](UploadFileBuffer& buf) { _put_object(buf); })
+                    .set_sync_after_complete_task([this](Status s) {
+                        bool ret = false;
+                        if (!s.ok()) [[unlikely]] {
+                            VLOG_NOTICE << "failed at key: " << _key
+                                        << ", status: " << s.to_string();
+                            std::unique_lock<std::mutex> _lck {_completed_lock};
+                            _failed = true;
+                            ret = true;
+                            this->_st = std::move(s);
+                        }
+                        // After the signal, there is a scenario where the previous invocation of _wait_until_finish
+                        // returns to the caller, and subsequently, the S3 file writer is destructed.
+                        // This means that accessing _failed afterwards would result in a heap use after free vulnerability.
+                        _countdown_event.signal();
+                        return ret;
+                    })
+                    .set_is_cancelled([this]() { return _failed.load(); });
+            RETURN_IF_ERROR(builder.build(&_pending_buf));
+            auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+            DCHECK(buf != nullptr);
         }
+    }
+    if (_pending_buf != nullptr) {
         _countdown_event.add_count();
         RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
         _pending_buf = nullptr;
     }
+
     DBUG_EXECUTE_IF("s3_file_writer::close", {
         RETURN_IF_ERROR(_complete());
         return Status::InternalError("failed to close s3 file writer");
@@ -324,10 +351,11 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
     upload_request.SetContentLength(buf.get_size());
     upload_request.SetContentType("application/octet-stream");
 
-    auto upload_part_callable = _client->UploadPartCallable(upload_request);
-    s3_bvar::s3_multi_part_upload_total << 1;
-
-    UploadPartOutcome upload_part_outcome = upload_part_callable.get();
+    UploadPartOutcome upload_part_outcome;
+    {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
+        upload_part_outcome = _client->UploadPart(upload_request);
+    }
     DBUG_EXECUTE_IF("s3_file_writer::_upload_one_part", {
         if (part_num > 1) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -413,8 +441,8 @@ Status S3FileWriter::_complete() {
         LOG_WARNING(s.to_string());
         return s;
     });
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
     auto complete_outcome = _client->CompleteMultipartUpload(complete_request);
-    s3_bvar::s3_multi_part_upload_total << 1;
 
     if (!complete_outcome.IsSuccess()) {
         _st = s3fs_error(complete_outcome.GetError(),
@@ -464,8 +492,8 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         LOG(WARNING) << _st;
         return;
     });
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
     auto response = _client->PutObject(request);
-    s3_bvar::s3_put_total << 1;
     if (!response.IsSuccess()) {
         _st = s3fs_error(response.GetError(), fmt::format("failed to put object {}, upload_id={}",
                                                           _path.native(), _upload_id));
@@ -477,5 +505,4 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     s3_file_created_total << 1;
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

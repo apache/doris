@@ -522,7 +522,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         AggregateFunctionPtr function = _agg_functions[i];
         AggregateDataPtr place = _agg_places[i];
-        auto column_ptr = _stored_data_columns[idx].get();
+        auto* column_ptr = _stored_data_columns[idx].get();
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
@@ -535,13 +535,16 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
             function->reset(place);
         }
     }
+    if (is_close) {
+        _arena.clear();
+    }
 }
 
 bool BlockReader::_get_next_row_same() {
     if (_next_row.is_same) {
         return true;
     } else {
-        auto block = _next_row.block.get();
+        auto* block = _next_row.block.get();
         return block->get_same_bit(_next_row.row_pos);
     }
 }

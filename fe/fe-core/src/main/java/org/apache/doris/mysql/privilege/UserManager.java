@@ -39,6 +39,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.util.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -327,10 +328,33 @@ public class UserManager implements Writable, GsonPostProcessable {
             String user = entry.getKey();
             newNameToUsers.put(ClusterNamespace.getNameFromFullName(user), entry.getValue());
         }
+        this.nameToUsers = newNameToUsers;
     }
 
     @Override
     public void gsonPostProcess() throws IOException {
         removeClusterPrefix();
     }
+
+    // ====== CLOUD ======
+    public Set<String> getAllUsers() {
+        return nameToUsers.keySet();
+    }
+
+    public String getUserId(String userName) {
+        if (!nameToUsers.containsKey(userName)) {
+            LOG.warn("can't find userName {} 's userId, nameToUsers {}", userName, nameToUsers);
+            return "";
+        }
+        List<User> users = nameToUsers.get(userName);
+        if (users.isEmpty()) {
+            LOG.warn("userName {}  empty users in map {}", userName, nameToUsers);
+        }
+        // here, all the users has same userid, just return one
+        String userId = users.stream().map(User::getUserId).filter(Strings::isNotEmpty).findFirst().orElse("");
+        LOG.debug("userName {}, userId {}, map {}", userName, userId, nameToUsers);
+        return userId;
+    }
+
+    // ====== CLOUD =====
 }

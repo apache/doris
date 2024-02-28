@@ -216,7 +216,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public void setNameWithLock(String newName) {
         writeLock();
         try {
-            this.fullQualifiedName = newName;
+            // ClusterNamespace.getNameFromFullName should be removed in 3.0
+            this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
             for (Table table : idToTable.values()) {
                 table.setQualifiedDbName(fullQualifiedName);
             }
@@ -271,10 +272,19 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public long getUsedDataQuotaWithLock() {
-        long usedDataQuota = 0;
+        return getUsedDataSize().first;
+    }
+
+    public Pair<Long, Long> getUsedDataSize() {
+        long usedDataSize = 0;
+        long usedRemoteDataSize = 0;
+        List<Table> tables = new ArrayList<>();
         readLock();
-        List<Table> tables = new ArrayList<>(this.idToTable.values());
-        readUnlock();
+        try {
+            tables.addAll(this.idToTable.values());
+        } finally {
+            readUnlock();
+        }
 
         for (Table table : tables) {
             if (table.getType() != TableType.OLAP) {
@@ -284,12 +294,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             OlapTable olapTable = (OlapTable) table;
             olapTable.readLock();
             try {
-                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+                usedDataSize = usedDataSize + olapTable.getDataSize();
+                usedRemoteDataSize = usedRemoteDataSize + olapTable.getRemoteDataSize();
             } finally {
                 olapTable.readUnlock();
             }
         }
-        return usedDataQuota;
+        return Pair.of(usedDataSize, usedRemoteDataSize);
     }
 
     public long getReplicaCountWithLock() {
@@ -405,25 +416,26 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
-    public boolean createTable(Table table) {
+    public boolean registerTable(TableIf table) {
         boolean result = true;
-        table.setQualifiedDbName(fullQualifiedName);
-        String tableName = table.getName();
+        Table olapTable = (Table) table;
+        olapTable.setQualifiedDbName(fullQualifiedName);
+        String tableName = olapTable.getName();
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         if (isTableExist(tableName)) {
             result = false;
         } else {
-            idToTable.put(table.getId(), table);
-            nameToTable.put(table.getName(), table);
+            idToTable.put(olapTable.getId(), olapTable);
+            nameToTable.put(olapTable.getName(), olapTable);
             lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
         }
-        table.unmarkDropped();
+        olapTable.unmarkDropped();
         return result;
     }
 
-    public void dropTable(String tableName) {
+    public void unregisterTable(String tableName) {
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
@@ -567,7 +579,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         StringBuilder sb = new StringBuilder(signatureVersion);
         sb.append(fullQualifiedName);
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of database {}: {}. signature string: {}", fullQualifiedName, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of database {}: {}. signature string: {}", fullQualifiedName, md5, sb.toString());
+        }
         return md5;
     }
 

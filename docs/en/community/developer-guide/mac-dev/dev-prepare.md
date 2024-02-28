@@ -28,10 +28,11 @@ under the License.
 
 ```shell
 brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@11 npm
+python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@17 npm
 ```
 
-*The version of jdk installed using brew is 11, because on macOS, the arm64 version of brew does not have version 8 of jdk by default*
+*The version of jdk installed using brew is 17, because on macOS, the arm64 version of brew does not have version 8 of jdk by default*
+*Currently, Doris only supports jdk8 and jdk17*
 
 **Dependency description:**
 1. Java, Maven, etc. can be downloaded separately for easy management
@@ -59,9 +60,10 @@ MacOS:
         `ln -s /usr/local/Cellar/thrift@0.16.0/0.16.0/bin/thrift ./thirdparty/installed/bin/thrift`
     
 Note：macOS implement `brew install thrift@0.16.0` it may report an error that the version cannot be found. The solution is as follows, execute in the terminal:
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.16.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.16.0`
+    1. `brew tap homebrew/core --force`
+    2. `brew tap-new $USER/local-tap`
+    3. `brew extract --version='0.16.0' thrift $USER/local-tap`
+    4. `brew install thrift@0.16.0`
 reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
 ```
 

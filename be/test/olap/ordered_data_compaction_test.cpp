@@ -234,10 +234,9 @@ protected:
         create_rowset_writer_context(tablet_schema, tablet->tablet_path(), overlap, UINT32_MAX,
                                      &writer_context);
 
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true,
-                                                       &rowset_writer);
-        EXPECT_TRUE(s.ok());
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
@@ -255,7 +254,7 @@ protected:
                 }
                 num_rows++;
             }
-            s = rowset_writer->add_block(&block);
+            auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_TRUE(s.ok());
@@ -433,14 +432,11 @@ TEST_F(OrderedDataCompactionTest, test_01) {
         input_rowsets.push_back(rowset);
     }
     //auto end_version = input_rowsets.back()->end_version();
-    CumulativeCompaction cu_compaction(tablet);
-    cu_compaction.set_input_rowset(input_rowsets);
+    CumulativeCompaction cu_compaction(*engine_ref, tablet);
+    cu_compaction._input_rowsets = std::move(input_rowsets);
     EXPECT_EQ(cu_compaction.handle_ordered_data_compaction(), true);
-    for (int i = 0; i < 100; ++i) {
-        LOG(INFO) << "stop";
-    }
 
-    RowsetSharedPtr out_rowset = cu_compaction.output_rowset();
+    auto& out_rowset = cu_compaction._output_rowset;
 
     // create output rowset reader
     RowsetReaderContext reader_context;

@@ -287,6 +287,39 @@ file_changed_cloud_ut() {
     echo "return no need" && return 1
 }
 
+file_changed_cloud_p0() {
+    local all_files
+    all_files=$(cat all_files)
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
+    if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
+    for af in ${all_files}; do
+        if [[ "${af}" == 'be'* ]] ||
+            [[ "${af}" == 'bin'* ]] ||
+            [[ "${af}" == 'conf'* ]] ||
+            [[ "${af}" == 'contrib'* ]] ||
+            [[ "${af}" == 'fe'* ]] ||
+            [[ "${af}" == 'fe_plugins'* ]] ||
+            [[ "${af}" == 'gensrc'* ]] ||
+            [[ "${af}" == 'regression-test'* ]] ||
+            [[ "${af}" == 'thirdparty'* ]] ||
+            [[ "${af}" == 'docker'* ]] ||
+            [[ "${af}" == 'ui'* ]] ||
+            [[ "${af}" == 'webroot'* ]] ||
+            [[ "${af}" == 'build.sh' ]] ||
+            [[ "${af}" == 'env.sh' ]] ||
+            [[ "${af}" == 'run-regression-test.sh' ]] ||
+            [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/test/'* ]]; then
+            echo "cloud-p0 related file changed, return need" && return 0
+        fi
+    done
+    echo "return no need" && return 1
+}
+
+file_changed_cloud_p1() {
+    file_changed_cloud_p0
+}
+
 file_changed_regression_p0() {
     local all_files
     all_files=$(cat all_files)

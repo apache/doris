@@ -34,6 +34,7 @@
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/tablet_fwd.h"
+#include "pipeline/pipeline_tracing.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
@@ -139,7 +140,7 @@ public:
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
-    doris::vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
+    vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
     ResultBufferMgr* result_mgr() { return _result_mgr; }
     ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
@@ -147,7 +148,6 @@ public:
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
-    pipeline::TaskScheduler* pipeline_task_group_scheduler() { return _with_group_task_scheduler; }
     taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
     RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
@@ -203,7 +203,7 @@ public:
     std::shared_ptr<StreamLoadExecutor> stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
-    doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
+    vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
     WalManager* wal_mgr() { return _wal_manager.get(); }
@@ -260,12 +260,16 @@ public:
     }
     std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
-    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
+    std::shared_ptr<pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
         return _global_block_scheduler;
     }
 
-    doris::pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
+    pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
         return _runtime_filter_timer_queue;
+    }
+
+    pipeline::PipelineTracerContext* pipeline_tracer_context() {
+        return _pipeline_tracer_ctx.get();
     }
 
 private:
@@ -287,7 +291,7 @@ private:
     UserFunctionCache* _user_function_cache = nullptr;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
-    doris::vectorized::VDataStreamMgr* _vstream_mgr = nullptr;
+    vectorized::VDataStreamMgr* _vstream_mgr = nullptr;
     ResultBufferMgr* _result_mgr = nullptr;
     ResultQueueMgr* _result_queue_mgr = nullptr;
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
@@ -320,7 +324,6 @@ private:
 
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
-    pipeline::TaskScheduler* _with_group_task_scheduler = nullptr;
     taskgroup::TaskGroupManager* _task_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
@@ -339,7 +342,7 @@ private:
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
-    doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
+    vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
@@ -371,17 +374,17 @@ private:
     std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
 
     // used for query with group cpu hard limit
-    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;
+    std::shared_ptr<pipeline::BlockedTaskScheduler> _global_block_scheduler;
     // used for query without workload group
-    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
-    // used for query with workload group cpu soft limit
-    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
+    std::shared_ptr<pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
 
-    doris::pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
+    pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 
     RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
+
+    std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
 };
 
 template <>

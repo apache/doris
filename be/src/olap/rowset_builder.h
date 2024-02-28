@@ -61,11 +61,9 @@ public:
 
     Status build_rowset();
 
-    virtual Status submit_calc_delete_bitmap_task() = 0;
+    Status submit_calc_delete_bitmap_task();
 
     Status wait_calc_delete_bitmap();
-
-    virtual Status commit_txn() = 0;
 
     Status cancel();
 
@@ -80,7 +78,7 @@ public:
     // For UT
     const DeleteBitmapPtr& get_delete_bitmap() { return _delete_bitmap; }
 
-    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() const {
+    const std::shared_ptr<PartialUpdateInfo>& get_partial_update_info() const {
         return _partial_update_info;
     }
 
@@ -89,11 +87,10 @@ protected:
                                       const OlapTableSchemaParam* table_schema_param,
                                       const TabletSchema& ori_tablet_schema);
 
-    void _init_profile(RuntimeProfile* profile);
+    virtual void _init_profile(RuntimeProfile* profile);
 
     bool _is_init = false;
     bool _is_cancelled = false;
-    bool _is_committed = false;
     WriteRequest _req;
     BaseTabletSPtr _tablet;
     RowsetSharedPtr _rowset;
@@ -114,7 +111,6 @@ protected:
     RuntimeProfile::Counter* _build_rowset_timer = nullptr;
     RuntimeProfile::Counter* _submit_delete_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _wait_delete_bitmap_timer = nullptr;
-    RuntimeProfile::Counter* _commit_txn_timer = nullptr;
 };
 
 // `StorageEngine` mixin for `BaseRowsetBuilder`
@@ -126,11 +122,11 @@ public:
 
     Status init() override;
 
-    Status commit_txn() override;
-
-    Status submit_calc_delete_bitmap_task() override;
+    Status commit_txn();
 
 private:
+    void _init_profile(RuntimeProfile* profile) override;
+
     Status check_tablet_version_count();
 
     Status prepare_txn();
@@ -144,6 +140,8 @@ private:
     TabletSharedPtr tablet_sptr();
 
     StorageEngine& _engine;
+    RuntimeProfile::Counter* _commit_txn_timer = nullptr;
+    bool _is_committed = false;
 };
 
 } // namespace doris

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -183,12 +182,6 @@ public class AnalysisJobTest {
 
             @Mock
             protected void syncLoadStats() {
-            }
-        };
-        new Expectations() {
-            {
-                job.syncLoadStats();
-                times = 1;
             }
         };
         job.writeBuf();

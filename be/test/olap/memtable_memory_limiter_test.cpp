@@ -100,7 +100,6 @@ protected:
         // So we must do this before storage engine's other operation.
         exec_env->set_storage_engine(std::move(engine));
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-        static_cast<void>(_engine_ref->start_bg_threads());
     }
 
     void TearDown() override {
@@ -146,7 +145,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*_engine_ref, &write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*_engine_ref, write_req, profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
     auto mem_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
 

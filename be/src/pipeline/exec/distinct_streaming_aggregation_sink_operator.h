@@ -75,51 +75,5 @@ private:
     std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
 };
 
-class DistinctStreamingAggSinkOperatorX;
-
-class DistinctStreamingAggSinkLocalState final
-        : public AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState> {
-public:
-    using Parent = DistinctStreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
-    ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
-    DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-
-    Status close(RuntimeState* state, Status exec_status) override;
-    Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,
-                                                 vectorized::Block* out_block);
-
-private:
-    friend class DistinctStreamingAggSinkOperatorX;
-    void _emplace_into_hash_table_to_distinct(vectorized::IColumn::Selector& distinct_row,
-                                              vectorized::ColumnRawPtrs& key_columns,
-                                              const size_t num_rows);
-
-    std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
-    std::shared_ptr<char> dummy_mapped_data;
-    vectorized::IColumn::Selector _distinct_row;
-    vectorized::Arena _arena;
-    int64_t _output_distinct_rows = 0;
-};
-
-class DistinctStreamingAggSinkOperatorX final
-        : public AggSinkOperatorX<DistinctStreamingAggSinkLocalState> {
-public:
-    DistinctStreamingAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                      const DescriptorTbl& descs);
-    Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
-
-    DataDistribution required_data_distribution() const override {
-        if (_needs_finalize) {
-            return _is_colocate
-                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
-        }
-        return DataSinkOperatorX<DistinctStreamingAggSinkLocalState>::required_data_distribution();
-    }
-};
-
 } // namespace pipeline
 } // namespace doris

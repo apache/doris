@@ -21,18 +21,11 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "pipeline/task_queue.h"
-#include "pipeline/task_scheduler.h"
 #include "task_group.h"
 
 namespace doris {
-class ExecEnv;
-class QueryContext;
-class CgroupCpuCtl;
 
-namespace vectorized {
-class SimplifiedScanScheduler;
-}
+class CgroupCpuCtl;
 
 namespace pipeline {
 class TaskScheduler;
@@ -48,10 +41,8 @@ public:
 
     TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
 
-    void get_resource_groups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
-                             std::vector<TaskGroupPtr>* task_groups);
-
-    Status upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
+    void get_related_taskgroups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
+                                std::vector<TaskGroupPtr>* task_groups);
 
     void delete_task_group_by_ids(std::set<uint64_t> id_set);
 
@@ -65,21 +56,9 @@ public:
 
     bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
 
-    void get_query_scheduler(uint64_t tg_id, doris::pipeline::TaskScheduler** exec_sched,
-                             vectorized::SimplifiedScanScheduler** scan_sched,
-                             ThreadPool** non_pipe_thread_pool);
-
 private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
-
-    // map for workload group id and task scheduler pool
-    // used for cpu hard limit
-    std::shared_mutex _task_scheduler_lock;
-    std::map<uint64_t, std::unique_ptr<doris::pipeline::TaskScheduler>> _tg_sche_map;
-    std::map<uint64_t, std::unique_ptr<vectorized::SimplifiedScanScheduler>> _tg_scan_sche_map;
-    std::map<uint64_t, std::unique_ptr<CgroupCpuCtl>> _cgroup_ctl_map;
-    std::map<uint64_t, std::unique_ptr<ThreadPool>> _non_pipe_thread_pool_map;
 
     std::shared_mutex _init_cg_ctl_lock;
     std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;

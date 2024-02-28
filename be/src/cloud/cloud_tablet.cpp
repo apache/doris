@@ -28,7 +28,10 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "io/cache/block/block_file_cache_factory.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 
@@ -36,12 +39,31 @@ namespace doris {
 using namespace ErrorCode;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
-        : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
+        : BaseTablet(std::move(tablet_meta)), _engine(engine) {
+    _tablet_path = remote_tablet_path(_tablet_meta->tablet_id());
+}
 
 CloudTablet::~CloudTablet() = default;
 
 bool CloudTablet::exceed_version_limit(int32_t limit) {
     return _approximate_num_rowsets.load(std::memory_order_relaxed) > limit;
+}
+
+Status CloudTablet::capture_consistent_rowsets_unlocked(
+        const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const {
+    Versions version_path;
+    auto st = _timestamped_version_tracker.capture_consistent_versions(spec_version, &version_path);
+    if (!st.ok()) {
+        // Check no missed versions or req version is merged
+        auto missed_versions = get_missed_versions(spec_version.second);
+        if (missed_versions.empty()) {
+            st.set_code(VERSION_ALREADY_MERGED); // Reset error code
+        }
+        st.append(" tablet_id=" + std::to_string(tablet_id()));
+        return st;
+    }
+    VLOG_DEBUG << "capture consitent versions: " << version_path;
+    return _capture_consistent_rowsets_unlocked(version_path, rowsets);
 }
 
 Status CloudTablet::capture_rs_readers(const Version& spec_version,
@@ -319,8 +341,14 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
 
 Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
         RowsetWriterContext& context, bool vertical) {
-    return ResultError(
-            Status::NotSupported("CloudTablet::create_rowset_writer is not implemented"));
+    context.rowset_id = _engine.next_rowset_id();
+    // FIXME(plat1ko): Seems `tablet_id` and `index_id` has been set repeatedly
+    context.tablet_id = tablet_id();
+    context.index_id = index_id();
+    context.partition_id = partition_id();
+    context.rowset_dir = remote_tablet_path(tablet_id());
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
 int64_t CloudTablet::get_cloud_base_compaction_score() const {

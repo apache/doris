@@ -20,6 +20,15 @@
 0
 
 -- !sql --
+2130706433
+
+-- !sql --
+0
+
+-- !sql --
+0
+
+-- !sql --
 3232235521
 
 -- !sql --
@@ -204,3 +213,18 @@ true
 
 -- !sql --
 \N
+
+-- !sql --
+::ffff:192.168.0.1
+
+-- !sql --
+::ffff:10.0.5.9
+
+-- !sql --
+::ffff:192.168.0.1
+
+-- !sql --
+::
+
+-- !sql --
+ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff

@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] Inverted Index
+# Inverted Index
 
 <version since="2.0.0">
  
@@ -35,7 +35,7 @@ From version 2.0.0, Doris implemented inverted index to support fulltext search 
 
 ## Glossary
 
-- [inverted index](https://en.wikipedia.org/wiki/Inverted_index) is a index techlogy used in information retirval commonly. It split text into word terms and construct a term to doc index. This index is called inverted index and can be used to find the docs where a specific term appears.
+- [inverted index](https://en.wikipedia.org/wiki/Inverted_index) is a index techlogy used in information retrieval commonly. It split text into word terms and construct a term to doc index. This index is called inverted index and can be used to find the docs where a specific term appears.
 
 
 ## Basic Principles
@@ -56,7 +56,7 @@ The features for inverted index is as follows:
   - support regexp query MATCH_REGEXP
   - support fulltext on array of text field
   - support english, chinese and mixed unicode word parser
-- accelerate normal equal, range query, replacing bitmap index in the future
+- accelerate normal equal, range query, replacing bitmap index
   - suport =, !=, >, >=, <, <= on text, numeric, datetime types
   - suport =, !=, >, >=, <, <= on array of text, numeric, datetime types
 - complete suport for logic combination
@@ -353,7 +353,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ANY 'OLAP';
 1 row in set (0.02 sec)
 ```
 
-- Semilarly, count on 'OLTP' shows 0.07s vs 0.01s. Due to the cache in Doris, both LIKE and MATCH_ANY is faster, but there is still 7x speedup.
+- Similarly, count on 'OLTP' shows 0.07s vs 0.01s. Due to the cache in Doris, both LIKE and MATCH_ANY is faster, but there is still 7x speedup.
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE comment LIKE '%OLTP%';
 +---------+
@@ -394,7 +394,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ALL 'OLAP OLTP';
 ```
 
 - search for at least one of 'OLAP' or 'OLTP', 0.12s vs 0.01s，12x speedup
-  - using MATCH_ALL if you only need at least one of the keywords appears
+  - using MATCH_ANY if you only need at least one of the keywords appears
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE comment LIKE '%OLAP%' OR comment LIKE '%OLTP%';
 +---------+

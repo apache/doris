@@ -22,24 +22,15 @@
 
 namespace doris::pipeline {
 
-struct LocalExchangeSinkDependency final : public Dependency {
-public:
-    using SharedState = LocalExchangeSharedState;
-    LocalExchangeSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "LocalExchangeSinkDependency", true, query_ctx) {}
-    ~LocalExchangeSinkDependency() override = default;
-};
-
 class Exchanger;
 class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
 class LocalExchangeSinkOperatorX;
-class LocalExchangeSinkLocalState final
-        : public PipelineXSinkLocalState<LocalExchangeSinkDependency> {
+class LocalExchangeSinkLocalState final : public PipelineXSinkLocalState<LocalExchangeSharedState> {
 public:
-    using Base = PipelineXSinkLocalState<LocalExchangeSinkDependency>;
+    using Base = PipelineXSinkLocalState<LocalExchangeSharedState>;
     ENABLE_FACTORY_CREATOR(LocalExchangeSinkLocalState);
 
     LocalExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -149,8 +140,7 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
     friend class LocalExchangeSinkLocalState;

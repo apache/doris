@@ -479,7 +479,7 @@ public class SelectStmtTest {
 
                 + "character_set_name,\n"
 
-                + "is_default collate utf8_general_ci = 'Yes' as is_default\n"
+                + "is_default collate utf8mb4_0900_bin = 'Yes' as is_default\n"
                 + "from information_schema.collations";
         dorisAssert.query(sql).explainQuery();
     }

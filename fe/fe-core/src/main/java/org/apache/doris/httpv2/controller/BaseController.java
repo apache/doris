@@ -17,7 +17,6 @@
 
 package org.apache.doris.httpv2.controller;
 
-import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -27,9 +26,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
-import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 
@@ -71,8 +68,7 @@ public class BaseController {
             UserIdentity currentUser = checkPassword(authInfo);
 
             if (checkAuth) {
-                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR));
+                checkGlobalAuth(currentUser, PrivPredicate.ADMIN);
             }
 
             SessionValue value = new SessionValue();
@@ -86,8 +82,10 @@ public class BaseController {
             ctx.setCurrentUserIdentity(currentUser);
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
-            LOG.debug("check auth without cookie success for user: {}, thread: {}",
-                    currentUser, Thread.currentThread().getId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("check auth without cookie success for user: {}, thread: {}",
+                        currentUser, Thread.currentThread().getId());
+            }
             return authInfo;
         }
 
@@ -111,7 +109,9 @@ public class BaseController {
         cookie.setPath("/");
         cookie.setHttpOnly(true);
         response.addCookie(cookie);
-        LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
+        }
         HttpAuthManager.getInstance().addSessionValue(key, value);
     }
 
@@ -129,8 +129,7 @@ public class BaseController {
         }
 
         if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
-                PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
+                PrivPredicate.ADMIN)) {
             // need to check auth and check auth failed
             return null;
         }
@@ -143,8 +142,10 @@ public class BaseController {
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
-        LOG.debug("check cookie success for user: {}, thread: {}",
-                sessionValue.currentUser, Thread.currentThread().getId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("check cookie success for user: {}, thread: {}",
+                    sessionValue.currentUser, Thread.currentThread().getId());
+        }
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
         authInfo.remoteIp = request.getRemoteHost();
@@ -243,7 +244,9 @@ public class BaseController {
                     request.getHeader("Authorization"), request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
         }
-        LOG.debug("get auth info: {}", authInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get auth info: {}", authInfo);
+        }
         return authInfo;
     }
 

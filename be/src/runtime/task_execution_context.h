@@ -45,6 +45,8 @@ struct HasTaskExecutionCtx {
     template <typename T>
     HasTaskExecutionCtx(T* state) : task_exec_ctx_(state->get_task_execution_context()) {}
 
+    virtual ~HasTaskExecutionCtx() = default;
+
 public:
     inline TaskExecutionContextSPtr task_exec_ctx() const { return task_exec_ctx_.lock(); }
     inline Weak weak_task_exec_ctx() const { return task_exec_ctx_; }

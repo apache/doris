@@ -86,7 +86,6 @@ static void set_up() {
     engine_ref = engine.get();
     Status s = engine->open();
     ASSERT_TRUE(s.ok()) << s;
-    s = engine->start_bg_threads();
     ASSERT_TRUE(s.ok()) << s;
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
@@ -510,7 +509,7 @@ TEST_F(TestDeltaWriter, open) {
     // test vec delta writer
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
@@ -554,7 +553,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -717,7 +716,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -835,9 +834,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     std::unique_ptr<RuntimeProfile> profile2;
     profile2 = std::make_unique<RuntimeProfile>("LoadChannels2");
     auto delta_writer1 =
-            std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile1.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile1.get(), TUniqueId {});
     auto delta_writer2 =
-            std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile2.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile2.get(), TUniqueId {});
 
     // write data in delta writer 1
     {
