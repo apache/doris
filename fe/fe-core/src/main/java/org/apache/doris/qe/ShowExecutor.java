@@ -35,7 +35,6 @@ import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCharsetStmt;
-import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
