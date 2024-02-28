@@ -1073,7 +1073,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public List<Long> getPartitionIds() {
-        return new ArrayList<>(idToPartition.keySet());
+        readLock();
+        try {
+            return new ArrayList<>(idToPartition.keySet());
+        } finally {
+            readUnlock();
+        }
     }
 
     public Set<String> getCopiedBfColumns() {

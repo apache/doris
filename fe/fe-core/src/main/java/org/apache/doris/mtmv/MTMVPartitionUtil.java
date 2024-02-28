@@ -215,8 +215,8 @@ public class MTMVPartitionUtil {
     public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables, Set<String> excludeTables,
             Map<Long, Set<Long>> partitionMappings)
             throws AnalysisException {
-        Map<Long, PartitionItem> partitionItems = mtmv.getAndCopyPartitionItems();
-        for (Long partitionId : partitionItems.keySet()) {
+        List<Long> partitionIds = mtmv.getPartitionIds();
+        for (Long partitionId : partitionIds) {
             if (!isMTMVPartitionSync(mtmv, partitionId, partitionMappings.get(partitionId), tables,
                     excludeTables)) {
                 return false;
@@ -283,9 +283,9 @@ public class MTMVPartitionUtil {
      */
     public static List<Long> getMTMVNeedRefreshPartitions(MTMV mtmv, Set<BaseTableInfo> baseTables,
             Map<Long, Set<Long>> partitionMappings) {
-        Map<Long, PartitionItem> partitionItems = mtmv.getAndCopyPartitionItems();
+        List<Long> partitionIds = mtmv.getPartitionIds();
         List<Long> res = Lists.newArrayList();
-        for (Long partitionId : partitionItems.keySet()) {
+        for (Long partitionId : partitionIds) {
             try {
                 if (!isMTMVPartitionSync(mtmv, partitionId, partitionMappings.get(partitionId), baseTables,
                         mtmv.getExcludedTriggerTables())) {
