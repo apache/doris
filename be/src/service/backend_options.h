@@ -33,6 +33,7 @@ class BackendOptions {
 public:
     static bool init();
     static const std::string& get_localhost();
+    static std::string get_be_endpoint();
     static TBackend get_local_backend();
     static void set_backend_id(int64_t backend_id);
     static void set_localhost(const std::string& host);
