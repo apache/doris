@@ -205,8 +205,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        AggregateFunctionForEachData& state =
-                (data(const_cast<AggregateDataPtr __restrict>(place)));
+        const AggregateFunctionForEachData& state = data(place);
 
         auto& arr_to = assert_cast<ColumnArray&>(to);
         auto& offsets_to = arr_to.get_offsets();
