@@ -524,6 +524,7 @@ archive_doris_coredump() {
     pids['be']="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
     pids['ms']="$(cat "${DORIS_HOME}"/ms/bin/doris_cloud.pid)"
     pids['recycler']="$(cat "${DORIS_HOME}"/recycler/bin/doris_cloud.pid)"
+    local has_core=false
     for p in "${!pids[@]}"; do
         pid="${pids[${p}]}"
         if [[ -z "${pid}" ]]; then continue; fi
@@ -540,11 +541,12 @@ archive_doris_coredump() {
                     mv "${DORIS_HOME}"/recycler/lib/doris_cloud "${DORIS_HOME}/${archive_dir}/${p}"
                 fi
                 mv "${coredump_file}" "${DORIS_HOME}/${archive_dir}/${p}"
+                has_core=true
             fi
         fi
     done
 
-    if tar -I pigz \
+    if ${has_core} && tar -I pigz \
         --directory "${DORIS_HOME}" \
         -cf "${DORIS_HOME}/${archive_name}" \
         "${archive_dir}"; then
