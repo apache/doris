@@ -812,4 +812,6 @@ if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
     eval "${DORIS_POST_BUILD_HOOK}"
 fi
 
+#Test
+echo "Test..."
 exit 0
