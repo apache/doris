@@ -61,9 +61,9 @@ public class PartitionInfo implements Writable {
     // partition columns for list and range partitions
     protected List<Column> partitionColumns = Lists.newArrayList();
     // formal partition id -> partition item
-    protected Map<Long, PartitionItem> idToItem = Maps.newConcurrentMap();
+    protected Map<Long, PartitionItem> idToItem = Maps.newHashMap();
     // temp partition id -> partition item
-    protected Map<Long, PartitionItem> idToTempItem = Maps.newConcurrentMap();
+    protected Map<Long, PartitionItem> idToTempItem = Maps.newHashMap();
     // partition id -> data property
     @SerializedName("IdToDataProperty")
     protected Map<Long, DataProperty> idToDataProperty;
@@ -133,7 +133,7 @@ public class PartitionInfo implements Writable {
      * @return both normal partition and temp partition
      */
     public Map<Long, PartitionItem> getAllPartitions() {
-        Map all = Maps.newConcurrentMap();
+        HashMap all = new HashMap<>();
         all.putAll(idToTempItem);
         all.putAll(idToItem);
         return all;
