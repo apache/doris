@@ -20,6 +20,7 @@
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
@@ -30,6 +31,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 #include <ostream>
 #include <utility>
 
@@ -174,6 +176,8 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
+    aws_config.retryStrategy =
+            std::make_shared<Aws::Client::DefaultRetryStrategy>(config::max_s3_client_retry);
     std::shared_ptr<Aws::S3::S3Client> new_client;
     if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
         Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
