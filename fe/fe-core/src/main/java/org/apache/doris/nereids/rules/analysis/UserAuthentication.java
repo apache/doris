@@ -19,11 +19,9 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Set;
@@ -33,38 +31,7 @@ import java.util.Set;
  */
 public class UserAuthentication {
     /** checkPermission. */
-    public static void checkPermission(TableIf table, ConnectContext connectContext) {
-        if (table == null) {
-            return;
-        }
-        // do not check priv when replaying dump file
-        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
-            return;
-        }
-        String tableName = table.getName();
-        DatabaseIf db = table.getDatabase();
-        // when table instanceof FunctionGenTable,db will be null
-        if (db == null) {
-            return;
-        }
-        String dbName = db.getFullName();
-        CatalogIf catalog = db.getCatalog();
-        if (catalog == null) {
-            return;
-        }
-        String ctlName = catalog.getName();
-        // TODO: 2023/7/19 checkColumnsPriv
-        if (!connectContext.getEnv().getAccessManager().checkTblPriv(connectContext, ctlName, dbName,
-                tableName, PrivPredicate.SELECT)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SELECT",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    ctlName + ": " + dbName + ": " + tableName);
-            throw new AnalysisException(message);
-        }
-    }
-
-    /** checkColumnPermission. */
-    public static void checkColumnPermission(TableIf table, ConnectContext connectContext, Set<String> columns)
+    public static void checkPermission(TableIf table, ConnectContext connectContext, Set<String> columns)
             throws UserException {
         if (table == null) {
             return;

@@ -79,7 +79,7 @@ public class CheckPrivileges extends ColumnPruning {
     private void checkColumnPrivileges(TableIf table, Set<String> usedColumns) {
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
         try {
-            UserAuthentication.checkColumnPermission(table, connectContext, usedColumns);
+            UserAuthentication.checkPermission(table, connectContext, usedColumns);
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage(), e);
         }

@@ -196,7 +196,7 @@ public abstract class TestWithFeService {
 
     // Help to create a mocked ConnectContext.
     public static ConnectContext createDefaultCtx() throws IOException {
-        return createCtx(UserIdentity.ROOT, "%");
+        return createCtx(UserIdentity.ROOT, "127.0.0.1");
     }
 
     protected StatementContext createStatementCtx(String sql) {
@@ -756,7 +756,11 @@ public abstract class TestWithFeService {
     }
 
     protected void useUser(String userName) throws AnalysisException {
-        UserIdentity user = new UserIdentity(userName, "%");
+        useUser(userName, "%");
+    }
+
+    protected void useUser(String userName, String host) throws AnalysisException {
+        UserIdentity user = new UserIdentity(userName, host);
         user.analyze();
         connectContext.setCurrentUserIdentity(user);
         connectContext.setQualifiedUser(userName);

@@ -663,6 +663,10 @@ public class CascadesContext implements ScheduleContext {
         planProcesses.add(planProcess);
     }
 
+    public void addPlanProcesses(List<PlanProcess> planProcesses) {
+        this.planProcesses.addAll(planProcesses);
+    }
+
     public List<PlanProcess> getPlanProcesses() {
         return planProcesses;
     }
@@ -692,6 +696,15 @@ public class CascadesContext implements ScheduleContext {
             } else {
                 this.showPlanProcess.set(originSetting);
             }
+        }
+    }
+
+    /** keepOrShowPlanProcess */
+    public void keepOrShowPlanProcess(boolean showPlanProcess, Runnable task) {
+        if (showPlanProcess) {
+            withPlanProcess(showPlanProcess, task);
+        } else {
+            task.run();
         }
     }
 }
