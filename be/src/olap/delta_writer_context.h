@@ -33,6 +33,7 @@ struct WriteRequest {
     int64_t tablet_id = 0;
     int32_t schema_hash = 0;
     int64_t txn_id = 0;
+    int64_t txn_expiration = 0; // For cloud mode
     int64_t index_id = 0;
     int64_t partition_id = 0;
     PUniqueId load_id;

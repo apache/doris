@@ -40,6 +40,7 @@ private:
     const TupleDescriptor* _tuple_descriptor = nullptr;
     // column_id, column_pos
     std::map<int64_t, int64_t> _column_pos_map;
+    int64_t _column_id_count;
 };
 } // namespace vectorized
 } // namespace doris

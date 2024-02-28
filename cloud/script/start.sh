@@ -45,7 +45,7 @@ process=doris_cloud
 if [[ -f "${DORIS_HOME}/bin/${process}.pid" ]]; then
     pid=$(cat "${DORIS_HOME}/bin/${process}.pid")
     if [[ "${pid}" != "" ]]; then
-        if ! pgrep -f "${pid}" 2>&1 | grep doris_cloud >/dev/null 2>&1; then
+        if kill -0 "$(cat "${DORIS_HOME}/bin/${process}.pid")" >/dev/null 2>&1; then
             echo "pid file existed, ${process} have already started, pid=${pid}"
             exit 1
         fi
@@ -64,6 +64,8 @@ if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
     patchelf --set-rpath "${lib_path}" "${bin}"
     ldd "${bin}"
 fi
+
+chmod 550 "${DORIS_HOME}/lib/doris_cloud"
 
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof:true,prof_prefix:jeprof.out"
 

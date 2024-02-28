@@ -124,7 +124,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             "");
     _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
     _local_bytes_send_counter = ADD_COUNTER(_profile, "LocalBytesSent", TUnit::BYTES);
-    _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
     _wait_queue_timer =
@@ -172,8 +171,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     register_channels(_sink_buffer.get());
     auto* _exchange_sink_dependency = _dependency;
-    _queue_dependency = ExchangeSinkQueueDependency::create_shared(
-            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
+    _queue_dependency =
+            Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                      "ExchangeSinkQueueDependency", true, state->get_query_ctx());
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     _exchange_sink_dependency->add_child(_queue_dependency);
     if ((p._part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
@@ -300,8 +300,7 @@ void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrT
     static_cast<void>(channel->close(state, Status::OK()));
 }
 
-Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
-                                   SourceState source_state) {
+Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     COUNTER_UPDATE(local_state.rows_sent_counter(), (int64_t)block->rows());
@@ -340,7 +339,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 bool serialized = false;
                 RETURN_IF_ERROR(local_state._serializer.next_serialized_block(
                         block, block_holder->get_block(), local_state.channels.size(), &serialized,
-                        source_state == SourceState::FINISHED));
+                        eos));
                 if (serialized) {
                     auto cur_block = local_state._serializer.get_block()->to_block();
                     if (!cur_block.empty()) {
@@ -357,8 +356,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                status = channel->send_broadcast_block(
-                                        block_holder, source_state == SourceState::FINISHED);
+                                status = channel->send_broadcast_block(block_holder, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
@@ -382,8 +380,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(local_state._serializer.serialize_block(
                         block, current_channel->ch_cur_pb_block()));
-                auto status = current_channel->send_remote_block(
-                        current_channel->ch_cur_pb_block(), source_state == SourceState::FINISHED);
+                auto status =
+                        current_channel->send_remote_block(current_channel->ch_cur_pb_block(), eos);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
                 current_channel->ch_roll_pb_block();
             }
@@ -399,15 +397,13 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     local_state._partitioner->do_partitioning(state, block, _mem_tracker.get()));
         }
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
-            RETURN_IF_ERROR(channel_add_rows(state, local_state.channels,
-                                             local_state._partition_count,
-                                             (uint32_t*)local_state._partitioner->get_channel_ids(),
-                                             rows, block, source_state == SourceState::FINISHED));
+            RETURN_IF_ERROR(channel_add_rows(
+                    state, local_state.channels, local_state._partition_count,
+                    (uint32_t*)local_state._partitioner->get_channel_ids(), rows, block, eos));
         } else {
-            RETURN_IF_ERROR(channel_add_rows(state, local_state.channel_shared_ptrs,
-                                             local_state._partition_count,
-                                             (uint32_t*)local_state._partitioner->get_channel_ids(),
-                                             rows, block, source_state == SourceState::FINISHED));
+            RETURN_IF_ERROR(channel_add_rows(
+                    state, local_state.channel_shared_ptrs, local_state._partition_count,
+                    (uint32_t*)local_state._partitioner->get_channel_ids(), rows, block, eos));
         }
     } else {
         // Range partition
@@ -416,7 +412,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     }
 
     Status final_st = Status::OK();
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         local_state._serializer.reset_block();
         for (int i = 0; i < local_state.channels.size(); ++i) {
             Status st = local_state.channels[i]->close(state, Status::OK());

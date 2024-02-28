@@ -101,6 +101,10 @@ extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>&
                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
+namespace {
+bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
+};
+
 BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
         : _type(type),
           _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
@@ -148,7 +152,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
-          _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _stream_load_recorder(nullptr),
           _create_tablet_idx_lru_cache(
@@ -256,7 +259,7 @@ Status StorageEngine::_init_store_map() {
 Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_record_path) {
     LOG(INFO) << "stream load record path: " << stream_load_record_path;
     // init stream load record rocksdb
-    _stream_load_recorder = StreamLoadRecorder::create_unique(stream_load_record_path);
+    _stream_load_recorder = StreamLoadRecorder::create_shared(stream_load_record_path);
     if (_stream_load_recorder == nullptr) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::MemoryAllocFailed("allocate memory for StreamLoadRecorder failed"),
@@ -456,16 +459,6 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
-StorageEngine::DiskRemainingLevel get_available_level(double disk_usage_percent) {
-    assert(disk_usage_percent <= 1);
-    if (disk_usage_percent < 0.7) {
-        return StorageEngine::DiskRemainingLevel::LOW;
-    } else if (disk_usage_percent < 0.85) {
-        return StorageEngine::DiskRemainingLevel::MID;
-    }
-    return StorageEngine::DiskRemainingLevel::HIGH;
-}
-
 int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
                                                 TStorageMedium::type storage_medium) {
     auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
@@ -481,17 +474,60 @@ int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
 
 void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
                                           std::vector<DirInfo>& dir_infos) {
+    std::vector<double> usages;
     for (auto& it : _store_map) {
         DataDir* data_dir = it.second.get();
         if (data_dir->is_used()) {
             if ((_available_storage_medium_type_count == 1 ||
                  data_dir->storage_medium() == storage_medium) &&
                 !data_dir->reach_capacity_limit(0)) {
+                double usage = data_dir->get_usage(0);
                 DirInfo dir_info;
                 dir_info.data_dir = data_dir;
-                dir_info.available_level = get_available_level(data_dir->get_usage(0));
+                dir_info.usage = usage;
+                dir_info.available_level = 0;
+                usages.push_back(usage);
                 dir_infos.push_back(dir_info);
             }
+        }
+    }
+
+    if (dir_infos.size() <= 1) {
+        return;
+    }
+
+    std::sort(usages.begin(), usages.end());
+    if (usages.back() < 0.7) {
+        return;
+    }
+
+    std::vector<double> level_min_usages;
+    level_min_usages.push_back(usages[0]);
+    for (auto usage : usages) {
+        // usage < 0.7 consider as one level, give a small skew
+        if (usage < 0.7 - (config::high_disk_avail_level_diff_usages / 2.0)) {
+            continue;
+        }
+
+        // at high usages,  default 15% is one level
+        // for example: there disk usages are:   0.66,  0.72,  0.83
+        // then level_min_usages = [0.66, 0.83], divide disks into 2 levels:  [0.66, 0.72], [0.83]
+        if (usage >= level_min_usages.back() + config::high_disk_avail_level_diff_usages) {
+            level_min_usages.push_back(usage);
+        }
+    }
+    for (auto& dir_info : dir_infos) {
+        double usage = dir_info.usage;
+        for (size_t i = 1; i < level_min_usages.size() && usage >= level_min_usages[i]; i++) {
+            dir_info.available_level++;
+        }
+
+        // when usage is too high, no matter consider balance now,
+        // make it a higher level.
+        // for example, two disks and usages are: 0.85 and 0.92, then let tablets fall on the first disk.
+        // by default, storage_flood_stage_usage_percent = 90
+        if (usage > config::storage_flood_stage_usage_percent / 100.0) {
+            dir_info.available_level++;
         }
     }
 }
@@ -1036,27 +1072,43 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
+    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size();
     std::vector<RowsetSharedPtr> unused_rowsets_copy;
     unused_rowsets_copy.reserve(_unused_rowsets.size());
+    auto due_to_use_count = 0;
+    auto due_to_not_delete_file = 0;
+    auto due_to_delayed_expired_ts = 0;
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             uint64_t now = UnixSeconds();
             auto&& rs = it->second;
-            if (rs.use_count() == 1 && rs->need_delete_file() &&
+            if (now > rs->delayed_expired_timestamp()) {
                 // We delay the GC time of this rowset since it's maybe still needed, see #20732
-                now > rs->delayed_expired_timestamp()) {
                 evict_querying_rowset(it->second->rowset_id());
+            }
+            if (rs.use_count() == 1 && rs->need_delete_file()) {
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
                 if (rs->is_local()) {
                     unused_rowsets_copy.push_back(std::move(rs));
                 }
                 it = _unused_rowsets.erase(it);
             } else {
+                if (rs.use_count() != 1) {
+                    ++due_to_use_count;
+                } else if (!rs->need_delete_file()) {
+                    ++due_to_not_delete_file;
+                } else {
+                    ++due_to_delayed_expired_ts;
+                }
                 ++it;
             }
         }
     }
+    LOG(INFO) << "collected " << unused_rowsets_copy.size() << " unused rowsets to remove, skipped "
+              << due_to_use_count << " rowsets due to use count > 1, skipped "
+              << due_to_not_delete_file << " rowsets due to don't need to delete file, skipped "
+              << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp.";
     for (auto&& rs : unused_rowsets_copy) {
         VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
                     << ", version:" << rs->version();
@@ -1067,8 +1119,10 @@ void StorageEngine::start_delete_unused_rowset() {
                                                           {rs->rowset_id(), UINT32_MAX, 0});
         }
         Status status = rs->remove();
+        unused_rowsets_counter << -1;
         VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
     }
+    LOG(INFO) << "removed all collected unused rowsets";
 }
 
 void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
@@ -1083,6 +1137,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
         rowset->set_need_delete_file();
         rowset->close();
         _unused_rowsets[rowset->rowset_id()] = std::move(rowset);
+        unused_rowsets_counter << 1;
     }
 }
 
@@ -1418,7 +1473,6 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
     if (lru_handle) {
         Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
         auto value = (CacheValue*)cache()->value(lru_handle);
-        value->last_visit_time = UnixMillis();
         VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
         return value->idx;
     }
@@ -1428,7 +1482,6 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
 void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
     assert(next_idx >= 0);
     CacheValue* value = new CacheValue;
-    value->last_visit_time = UnixMillis();
     value->idx = next_idx;
     auto deleter = [](const doris::CacheKey& key, void* value) {
         CacheValue* cache_value = (CacheValue*)value;

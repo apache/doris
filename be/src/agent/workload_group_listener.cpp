@@ -26,7 +26,6 @@ namespace doris {
 
 void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topic_info_list) {
     std::set<uint64_t> current_wg_ids;
-    bool is_set_cgroup_path = config::doris_cgroup_cpu_path != "";
     for (const TopicInfo& topic_info : topic_info_list) {
         if (!topic_info.__isset.workload_group_info) {
             continue;
@@ -51,12 +50,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
                 task_group_info.enable_cpu_hard_limit);
 
         // 4 create and update task scheduler
-        Status ret2 = _exec_env->task_group_manager()->upsert_cg_task_scheduler(&task_group_info,
-                                                                                _exec_env);
-        if (is_set_cgroup_path && !ret2.ok()) {
-            LOG(INFO) << "upsert task sche failed, tg_id=" << task_group_info.id
-                      << ", reason=" << ret2.to_string();
-        }
+        tg->upsert_task_scheduler(&task_group_info, _exec_env);
 
         LOG(INFO) << "update task group finish, tg info=" << tg->debug_string()
                   << ", enable_cpu_hard_limit="
@@ -65,7 +59,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
                   << ", cgroup cpu_hard_limit=" << task_group_info.cgroup_cpu_hard_limit
                   << ", enable_cgroup_cpu_soft_limit="
                   << (config::enable_cgroup_cpu_soft_limit ? "true" : "false")
-                  << ", is set cgroup path=" << (is_set_cgroup_path ? "true" : "flase");
+                  << ", cgroup home path=" << config::doris_cgroup_cpu_path;
     }
 
     _exec_env->task_group_manager()->delete_task_group_by_ids(current_wg_ids);

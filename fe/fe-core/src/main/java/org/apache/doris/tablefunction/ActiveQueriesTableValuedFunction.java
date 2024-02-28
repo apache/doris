@@ -46,6 +46,8 @@ public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunctio
             new Column("ScanBytes", PrimitiveType.BIGINT),
             new Column("BePeakMemoryBytes", PrimitiveType.BIGINT),
             new Column("CurrentUsedMemoryBytes", PrimitiveType.BIGINT),
+            new Column("ShuffleSendBytes", PrimitiveType.BIGINT),
+            new Column("ShuffleSendRows", PrimitiveType.BIGINT),
             new Column("Database", ScalarType.createStringType()),
             new Column("FrontendInstance", ScalarType.createStringType()),
             new Column("Sql", ScalarType.createStringType()));

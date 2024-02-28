@@ -253,12 +253,12 @@ doriscluster-sample-be-service    NodePort    10.152.183.24    <none>        906
 
 ## Doris 数据交互
 ### Stream load
-[Stream load](https://doris.apache.org/zh-CN/docs/data-operate/import/import-way/stream-load-manual) 是一个同步的导入方式，用户通过发送 HTTP 协议发送请求将本地文件或数据流导入到 Doris 中。
+[Stream load](https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way/stream-load-manual) 是一个同步的导入方式，用户通过发送 HTTP 协议发送请求将本地文件或数据流导入到 Doris 中。
 在常规部署中，用户通过 HTTP 协议提交导入命令。一般用户会将请求提交到 FE，则 FE 会通过 HTTP redirect 指令将请求转发给某一个 BE。但是，在基于 Kubernetes 部署的场景下，推荐用户 **直接提交导入命令 BE 的 Srevice** ，再由 Service 依据 Kubernetes 规则负载均衡到某一 BE 的 pod 上。
 这两种操作效果的实际效果都是一样的，在 Flink 或 Spark 使用官方 connecter 提交的时候，也可以将写入请求提交给 BE Service。
 
 ### ErrorURL 查看
-诸如 [Stream load](https://doris.apache.org/zh-CN/docs/data-operate/import/import-way/stream-load-manual) ，[Routine load](https://doris.apache.org/zh-CN/docs/data-operate/import/import-way/routine-load-manual)
+诸如 [Stream load](https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way/stream-load-manual) ，[Routine load](https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way/routine-load-manual)
 这些导入方式，在遇到像数据格式有误等错误的时候，会在返回结构体或者日志中打印 `errorURL` 或 `tracking_url`。 通过访问此链接可以定位导入错误原因。
 但是此 URL 是仅在 Kubernetes 部署的集群中某一个特定的 BE 节点容器内部环境可访问。
 

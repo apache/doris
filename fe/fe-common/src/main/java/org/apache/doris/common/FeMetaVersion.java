@@ -76,9 +76,13 @@ public final class FeMetaVersion {
     public static final int VERSION_127 = 127;
     // For statistics. Update rows, new partition loaded, AnalysisJobInfo and AnalysisTaskInfo
     public static final int VERSION_128 = 128;
+    // For table version
+    public static final int VERSION_129 = 129;
+
+    public static final int VERSION_130 = 130;
 
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_128;
+    public static final int VERSION_CURRENT = VERSION_130;
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ...

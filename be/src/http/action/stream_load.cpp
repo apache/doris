@@ -78,6 +78,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
+bvar::LatencyRecorder g_stream_load_receive_data_latency_ms("stream_load_receive_data_latency_ms");
+
 static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
 static const string CHUNK = "chunked";
 
@@ -196,9 +198,11 @@ int StreamLoadAction::on_header(HttpRequest* req) {
 
     LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
               << ", tbl=" << ctx->table << ", group_commit=" << ctx->group_commit;
+    ctx->begin_receive_and_read_data_cost_nanos = MonotonicNanos();
 
     if (st.ok()) {
         st = _on_header(req, ctx);
+        LOG(INFO) << "finished to handle HTTP header, " << ctx->brief();
     }
     if (!st.ok()) {
         ctx->status = std::move(st);
@@ -351,7 +355,15 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         }
         ctx->receive_bytes += remove_bytes;
     }
-    ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
+    int64_t read_data_time = MonotonicNanos() - start_read_data_time;
+    int64_t last_receive_and_read_data_cost_nanos = ctx->receive_and_read_data_cost_nanos;
+    ctx->read_data_cost_nanos += read_data_time;
+    ctx->receive_and_read_data_cost_nanos =
+            MonotonicNanos() - ctx->begin_receive_and_read_data_cost_nanos;
+    g_stream_load_receive_data_latency_ms
+            << (ctx->receive_and_read_data_cost_nanos - last_receive_and_read_data_cost_nanos -
+                read_data_time) /
+                       1000000;
 }
 
 void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
@@ -700,7 +712,17 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
     }
-    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode")) {
+    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                     ? 0
+                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    if (content_length < 0) {
+        std::stringstream ss;
+        ss << "This stream load content length <0 (" << content_length
+           << "), please check your content length.";
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode") || content_length == 0) {
         // off_mode and empty
         ctx->group_commit = false;
         return Status::OK();
@@ -716,20 +738,14 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
         }
         ctx->group_commit = true;
         if (iequal(group_commit_mode, "async_mode")) {
-            group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
-            if (iequal(group_commit_mode, "sync_mode")) {
-                size_t max_available_size =
-                        ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
-                LOG(INFO) << "When enable group commit, the data size can't be too large or "
-                             "unknown. The data size for this stream load("
-                          << (req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                      ? 0
-                                      : req->header(HttpHeaders::CONTENT_LENGTH))
-                          << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
-                          << max_available_size
-                          << " Bytes). So we set this load to \"group commit\"=sync_mode\" "
-                             "automatically.";
-                return Status::Error<EXCEEDED_LIMIT>("Stream load size too large.");
+            if (!load_size_smaller_than_wal_limit(content_length)) {
+                std::stringstream ss;
+                ss << "There is no space for group commit stream load async WAL. This stream load "
+                      "size is "
+                   << content_length << ". WAL dir info: "
+                   << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
+                LOG(WARNING) << ss.str();
+                return Status::Error<EXCEEDED_LIMIT>(ss.str());
             }
         }
     }

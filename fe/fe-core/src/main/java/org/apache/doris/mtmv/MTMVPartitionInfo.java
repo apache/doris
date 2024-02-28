@@ -17,6 +17,8 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.common.AnalysisException;
+
 import com.google.gson.annotations.SerializedName;
 
 /**
@@ -59,8 +61,12 @@ public class MTMVPartitionInfo {
         this.partitionType = partitionType;
     }
 
-    public BaseTableInfo getRelatedTable() {
+    public BaseTableInfo getRelatedTableInfo() {
         return relatedTable;
+    }
+
+    public MTMVRelatedTableIf getRelatedTable() throws AnalysisException {
+        return (MTMVRelatedTableIf) MTMVUtil.getTable(relatedTable);
     }
 
     public void setRelatedTable(BaseTableInfo relatedTable) {
@@ -81,6 +87,19 @@ public class MTMVPartitionInfo {
 
     public void setPartitionCol(String partitionCol) {
         this.partitionCol = partitionCol;
+    }
+
+    /**
+     * Get the position of relatedCol in the relatedTable partition column
+     *
+     * @return
+     * @throws AnalysisException
+     */
+    public int getRelatedColPos() throws AnalysisException {
+        if (partitionType == MTMVPartitionType.SELF_MANAGE) {
+            throw new AnalysisException("partitionType is: " + partitionType);
+        }
+        return MTMVPartitionUtil.getPos(getRelatedTable(), relatedCol);
     }
 
     @Override

@@ -107,8 +107,7 @@ Status Channel<Parent>::init(RuntimeState* state) {
 }
 
 template <typename Parent>
-std::shared_ptr<pipeline::LocalExchangeChannelDependency>
-PipChannel<Parent>::get_local_channel_dependency() {
+std::shared_ptr<pipeline::Dependency> PipChannel<Parent>::get_local_channel_dependency() {
     if (!Channel<Parent>::_local_recvr) {
         if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -765,6 +764,9 @@ Status BlockSerializer<Parent>::serialize_block(const Block* src, PBlock* dest, 
         COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
         COUNTER_UPDATE(_parent->_compress_timer, src->get_compress_time());
+        _parent->get_query_statistics_ptr()->add_shuffle_send_bytes(compressed_bytes *
+                                                                    num_receivers);
+        _parent->get_query_statistics_ptr()->add_shuffle_send_rows(src->rows() * num_receivers);
     }
 
     return Status::OK();

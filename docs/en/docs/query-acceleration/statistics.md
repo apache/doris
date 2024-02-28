@@ -305,7 +305,7 @@ mysql> KILL ANALYZE 52357;
 |huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Tables with sizes greater than `huge_table_lower_bound_size_in_bytes * 5` will be ANALYZEed only once within this time interval.|0|
 |table_stats_health_threshold|Ranges from 0 to 100. If data updates since the last statistics collection exceed `(100 - table_stats_health_threshold)%`, the table's statistics are considered outdated.|60|
 |analyze_timeout|Controls the timeout for synchronous ANALYZE in seconds|43200|
-|auto_analyze_table_width_threshold|Controls the maximum width of table that will be auto analyzed. Table with more columns than this value will not be auto analyzed.|70|
+|auto_analyze_table_width_threshold|Controls the maximum width of table that will be auto analyzed. Table with more columns than this value will not be auto analyzed.|100|
 
 <br/>
 

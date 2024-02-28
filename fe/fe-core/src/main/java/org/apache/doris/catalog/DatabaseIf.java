@@ -84,8 +84,6 @@ public interface DatabaseIf<T extends TableIf> {
         }
     }
 
-    List<T> getTablesOnIdOrder();
-
     List<T> getViews();
 
     default List<T> getViewsOrEmpty() {
@@ -265,7 +263,18 @@ public interface DatabaseIf<T extends TableIf> {
         return (OlapTable) table;
     }
 
-    void dropTable(String tableName);
+    /**
+     * register table to memory
+     * @param table created table
+     * @return true if add to memory
+     */
+    boolean registerTable(TableIf table);
+
+    /**
+     * unregister table from memory
+     * @param tableName table name
+     */
+    void unregisterTable(String tableName);
 
     CatalogIf getCatalog();
 

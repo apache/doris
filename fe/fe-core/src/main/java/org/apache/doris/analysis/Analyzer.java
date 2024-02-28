@@ -32,7 +32,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -41,6 +40,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
@@ -192,6 +192,8 @@ public class Analyzer {
 
     private boolean isReAnalyze = false;
 
+    private boolean isReplay = false;
+
     public void setIsSubquery() {
         isSubquery = true;
         isFirstScopeInSubquery = true;
@@ -264,6 +266,14 @@ public class Analyzer {
 
     public long getAutoBroadcastJoinThreshold() {
         return globalState.autoBroadcastJoinThreshold;
+    }
+
+    public void setReplay() {
+        isReplay = true;
+    }
+
+    public boolean isReplay() {
+        return isReplay;
     }
 
     private static class InferPredicateState {
@@ -1027,8 +1037,15 @@ public class Analyzer {
                                                 newTblName == null ? d.getTable().getName() : newTblName.toString());
         }
 
-        LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
+        }
         if (col.getType().isVariantType() || (subColNames != null && !subColNames.isEmpty())) {
+            if (getContext() != null && !getContext().getSessionVariable().enableVariantAccessInOriginalPlanner
+                    && (subColNames != null && !subColNames.isEmpty())) {
+                ErrorReport.reportAnalysisException("Variant sub-column access is disabled in original planner,"
+                        + "set enable_variant_access_in_original_planner = true in session variable");
+            }
             if (!col.getType().isVariantType()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR,
                         Joiner.on(".").join(tblName.getTbl(), colName));
@@ -1060,7 +1077,9 @@ public class Analyzer {
                 return result;
             }
             result = globalState.descTbl.addSlotDescriptor(d);
-            LOG.debug("register slot descriptor {}", result);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("register slot descriptor {}", result);
+            }
             result.setSubColLables(subColNames);
             result.setColumn(col);
             if (!subColNames.isEmpty()) {

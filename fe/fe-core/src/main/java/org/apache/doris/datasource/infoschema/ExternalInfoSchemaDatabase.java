@@ -19,9 +19,9 @@ package org.apache.doris.datasource.infoschema;
 
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.SchemaTable;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitDatabaseLog.Type;
 
 import com.google.common.collect.Lists;
@@ -44,7 +44,7 @@ public class ExternalInfoSchemaDatabase extends ExternalDatabase {
     }
 
     @Override
-    protected ExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected ExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new ExternalInfoSchemaTable(tblId, tableName, catalog);
     }
 

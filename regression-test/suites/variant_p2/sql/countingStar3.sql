@@ -1,1 +1,1 @@
- SELECT count() FROM github_events WHERE type = 'WatchEvent' AND cast(repo:name as string) IN ('apache/spark', 'GunZi200/Memory-Colour', 'isohuntto/openbay', 'wasabeef/awesome-android-ui') GROUP BY cast(payload:action as string)
+ SELECT count() FROM github_events WHERE type = 'WatchEvent' AND cast(repo["name"] as string) IN ('apache/spark', 'GunZi200/Memory-Colour', 'isohuntto/openbay', 'wasabeef/awesome-android-ui') GROUP BY cast(payload["action"] as string)

@@ -183,7 +183,8 @@ public class SlotBinder extends SubExprAnalyzer {
         List<Slot> slots = getScope().getSlots()
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
-                || (((SlotReference) slot).isVisible()) || showHidden)
+                        || (((SlotReference) slot).isVisible()) || showHidden)
+                .filter(slot -> !(((SlotReference) slot).hasSubColPath()))
                 .collect(Collectors.toList());
         switch (qualifier.size()) {
             case 0: // select *
@@ -259,11 +260,19 @@ public class SlotBinder extends SubExprAnalyzer {
             }
         }).collect(Collectors.toList());
 
+        if (slots.isEmpty()) {
+            throw new AnalysisException("unknown qualifier: " + StringUtils.join(qualifierStar, ".") + ".*");
+        }
         return new BoundStar(slots);
     }
 
     private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
         return boundSlots.stream().distinct().filter(boundSlot -> {
+            if (boundSlot instanceof SlotReference
+                    && ((SlotReference) boundSlot).hasSubColPath()) {
+                // already bounded
+                return false;
+            }
             List<String> nameParts = unboundSlot.getNameParts();
             int qualifierSize = boundSlot.getQualifier().size();
             int namePartsSize = nameParts.size();

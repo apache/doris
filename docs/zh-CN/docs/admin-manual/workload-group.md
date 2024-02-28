@@ -30,6 +30,21 @@ under the License.
 
 workload group 可限制组内任务在单个be节点上的计算资源和内存资源的使用。当前支持query绑定到workload group。
 
+## 版本说明
+Workload Group是从2.0版本开始支持的功能，Workload Group在2.0版本和2.1版本的主要区别在于，2.0版本的Workload Group不依赖CGroup，而2.1版本的Workload Group依赖CGroup，因此使用2.1版本的Workload Group时要配置CGroup的环境。
+
+#### 升级到2.0版本
+1 如果是从1.2版本升级到2.0版本时，建议Doris集群整体升级完成后，再开启WorkloadGroup功能。因为如果只升级单台Follower就开启此功能，由于Master的FE代码还没有更新，此时Doris集群中并没有Workload Group的元数据信息，这可能导致已升级的Follower节点的查询失败。建议的升级流程如下：
+* 先把Doris集群整体代码升级到2.0版本。
+* 再根据下文中***workload group使用***的章节开始使用该功能。
+
+#### 升级到2.1版本
+2 如果代码版本是从2.0升级到2.1的，分为以下两种情况：
+
+情况1：在2.1版本如果已经使用了Workload Group功能，那么只需要参考下文中配置cgroup v1的流程即可使用新版本的Workload Group功能。
+
+情况2：如果在2.0版本没有使用Workload Group功能，那么也需要先把Doris集群整体升级到2.1版本后，再根据下文的***workload group使用***的章节开始使用该功能。
+
 ## workload group属性
 
 * cpu_share: 可选，默认值为1024，取值范围是正整数。用于设置workload group获取cpu时间的多少，可以实现cpu资源软隔离。cpu_share 是相对值，表示正在运行的workload group可获取cpu资源的权重。例如，用户创建了3个workload group g-a、g-b和g-c，cpu_share 分别为 10、30、40，某一时刻g-a和g-b正在跑任务，而g-c没有任务，此时g-a可获得 25% (10 / (10 + 30))的cpu资源，而g-b可获得75%的cpu资源。如果系统只有一个workload group正在运行，则不管其cpu_share的值为多少，它都可获取全部的cpu资源。
@@ -43,6 +58,7 @@ workload group 可限制组内任务在单个be节点上的计算资源和内存
 * max_concurrency：可选，最大查询并发数，默认值为整型最大值，也就是不做并发的限制。运行中的查询数量达到该值时，新来的查询会进入排队的逻辑。
 * max_queue_size：可选，查询排队队列的长度，当排队队列已满时，新来的查询会被拒绝。默认值为0，含义是不排队。
 * queue_timeout：可选，查询在排队队列中的超时时间，单位为毫秒，如果查询在队列中的排队时间超过这个值，那么就会直接抛出异常给客户端。默认值为0，含义是不排队。
+* scan_thread_num：可选，当前workload group用于scan的线程个数，默认值为-1，含义是不生效，此时以be配置中的scan线程数为准。取值为大于0的整数。
 
 注意事项：
 
@@ -53,9 +69,11 @@ workload group 可限制组内任务在单个be节点上的计算资源和内存
 ## 配置cgroup v1的环境
 Doris的2.0版本使用基于Doris的调度实现CPU资源的限制，但是从2.1版本起，Doris默认使用基于CGroup v1版本对CPU资源进行限制（暂不支持CGroup v2），因此如果期望在2.1版本对CPU资源进行约束，那么需要BE所在的节点上已经安装好CGroup v1的环境。
 
-用户如果在2.0版本使用了Workload Group的软限并升级到了2.1版本，那么也需要配置CGroup。
+用户如果在2.0版本使用了Workload Group的软限并升级到了2.1版本，那么也需要配置CGroup，否则可能导致软限失效。
 
-1 首先确认BE所在节点已经安装好CGroup v1版本，确认存在路径```/sys/fs/cgroup/cpu/```即可。
+在不配置cgroup的情况下，用户可以使用workload group除CPU限制外的所有功能。
+
+1 首先确认BE所在节点已经安装好CGroup v1版本，确认存在路径```/sys/fs/cgroup/cpu/```即可
 
 2 在cgroup的cpu路径下新建一个名为doris的目录，这个目录名用户可以自行指定
 
@@ -72,28 +90,36 @@ chonw -R doris:doris /sys/fs/cgroup/cpu/doris
 
 4 修改BE的配置，指定cgroup的路径
 ```
-方法1：修改be.conf然后重启BE
 doris_cgroup_cpu_path = /sys/fs/cgroup/cpu/doris
-
-方法2：可以通过动态修改内存的方式
-curl -X POST http://{be_ip}:{be_http_port}/api/update_config?doris_cgroup_cpu_path=/sys/fs/cgroup/cpu/doris
 ```
+
+5 重启BE，在日志（be.INFO）可以看到"add thread xxx to group"的字样代表配置成功
 
 需要注意的是，目前的workload group暂时不支持一个机器多个BE的部署方式。
 
 ## workload group使用
 
-1. 开启 experimental_enable_workload_group 配置项，在fe.conf中设置：
+1. 手动创建一个名为normal的Workload Group，这个Workload Group为系统默认的Workload Group，不可删除。
+```
+create workload group if not exists normal 
+properties (
+	'cpu_share'='1024',
+	'memory_limit'='30%',
+	'enable_memory_overcommit'='true'
+);
+```
+normal Group的作用在于，当你不为查询指定Workload Group时，查询会默认使用该Group，从而避免查询失败。
+
+2. 开启 experimental_enable_workload_group 配置项，在fe.conf中设置：
 ```
 experimental_enable_workload_group=true
 ```
-在开启该配置后系统会自动创建名为`normal`的默认workload group。
 
-2. 创建workload group：
+3. 如果期望使用其他group进行测试，那么可以创建一个自定义的workload group，
 ```
 create workload group if not exists g1
 properties (
-    "cpu_share"="10",
+    "cpu_share"="1024",
     "memory_limit"="30%",
     "enable_memory_overcommit"="true"
 );
@@ -102,12 +128,12 @@ properties (
 
 创建workload group详细可参考：[CREATE-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-WORKLOAD-GROUP.md)，另删除workload group可参考[DROP-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP.md)；修改workload group可参考：[ALTER-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP.md)；查看workload group可参考：[WORKLOAD_GROUPS()](../sql-manual/sql-functions/table-functions/workload-group.md)和[SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md)。
 
-3. 开启pipeline执行引擎，workload group cpu隔离基于pipeline执行引擎实现，因此需开启session变量：
+4. 开启pipeline执行引擎，workload group cpu隔离基于pipeline执行引擎实现，因此需开启session变量：
 ```
 set experimental_enable_pipeline_engine = true;
 ```
 
-4. 绑定workload group。
+5. 绑定workload group。
 * 通过设置user property 将user默认绑定到workload group，默认为`normal`:
 ```
 set property 'default_workload_group' = 'g1';
@@ -119,9 +145,9 @@ set workload_group = 'g2';
 ```
 session变量`workload_group`优先于 user property `default_workload_group`, 在`workload_group`为空时，查询将绑定到`default_workload_group`, 在session变量`workload_group`不为空时，查询将绑定到`workload_group`。
 
-如果是非admin用户，需要先执行[SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md) 确认下当前用户能否看到该workload group，不能看到的workload group可能不存在或者当前用户没有权限，执行查询时会报错。给worklaod group授权参考：[grant语句](../sql-manual/sql-reference/Account-Management-Statements/GRANT.md)。
+如果是非admin用户，需要先执行[SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md) 确认下当前用户能否看到该 workload group，不能看到的 workload group 可能不存在或者当前用户没有权限，执行查询时会报错。给 workload group 授权参考：[grant语句](../sql-manual/sql-reference/Account-Management-Statements/GRANT.md)。
 
-5. 执行查询，查询将关联到指定的 workload group。
+6. 执行查询，查询将关联到指定的 workload group。
 
 ### 查询排队功能
 ```

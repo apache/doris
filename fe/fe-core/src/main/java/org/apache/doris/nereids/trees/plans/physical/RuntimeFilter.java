@@ -51,22 +51,27 @@ public class RuntimeFilter {
 
     private final List<PhysicalRelation> targetScans = Lists.newArrayList();
 
+    private final boolean bloomFilterSizeCalculatedByNdv;
+
     /**
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
                          TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
+                         boolean bloomFilterSizeCalculatedByNdv,
                          PhysicalRelation scan) {
         this(id, src, targets, targetExpressions, type, exprOrder,
-                builderNode, false, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX, scan);
+                builderNode, false, buildSideNdv, bloomFilterSizeCalculatedByNdv,
+                TMinMaxRuntimeFilterType.MIN_MAX, scan);
     }
 
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
                          TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
-                         boolean bitmapFilterNotIn, long buildSideNdv,
+                         boolean bitmapFilterNotIn, long buildSideNdv, boolean bloomFilterSizeCalculatedByNdv,
                          PhysicalRelation scan) {
         this(id, src, targets, targetExpressions, type, exprOrder,
-                builderNode, bitmapFilterNotIn, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX, scan);
+                builderNode, bitmapFilterNotIn, buildSideNdv, bloomFilterSizeCalculatedByNdv,
+                TMinMaxRuntimeFilterType.MIN_MAX, scan);
     }
 
     /**
@@ -74,7 +79,8 @@ public class RuntimeFilter {
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
                          TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
-                         boolean bitmapFilterNotIn, long buildSideNdv, TMinMaxRuntimeFilterType tMinMaxType,
+                         boolean bitmapFilterNotIn, long buildSideNdv, boolean bloomFilterSizeCalculatedByNdv,
+                         TMinMaxRuntimeFilterType tMinMaxType,
                          PhysicalRelation scan) {
         this.id = id;
         this.srcSlot = src;
@@ -84,6 +90,7 @@ public class RuntimeFilter {
         this.exprOrder = exprOrder;
         this.builderNode = builderNode;
         this.bitmapFilterNotIn = bitmapFilterNotIn;
+        this.bloomFilterSizeCalculatedByNdv = bloomFilterSizeCalculatedByNdv;
         this.buildSideNdv = buildSideNdv <= 0 ? -1L : buildSideNdv;
         this.tMinMaxType = tMinMaxType;
         builderNode.addRuntimeFilter(this);
@@ -166,5 +173,9 @@ public class RuntimeFilter {
                         targetExpressions.stream().map(expr -> expr.toSql()).collect(Collectors.joining(",")))
                 .append("]");
         return sb.toString();
+    }
+
+    public boolean isBloomFilterSizeCalculatedByNdv() {
+        return bloomFilterSizeCalculatedByNdv;
     }
 }

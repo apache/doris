@@ -87,8 +87,6 @@ static void set_up() {
     engine_ref = engine.get();
     Status s = engine->open();
     EXPECT_TRUE(s.ok()) << s;
-    s = engine->start_bg_threads();
-    EXPECT_TRUE(s.ok()) << s;
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     exec_env->set_storage_engine(std::move(engine));
@@ -207,7 +205,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
 
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);

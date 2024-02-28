@@ -532,7 +532,7 @@ public class PlanChecker {
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
-        adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN));
+        adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
         nereidsPlanner.plan(adapter);
         consumer.accept(nereidsPlanner);
         return this;

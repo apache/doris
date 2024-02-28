@@ -41,25 +41,15 @@ class HashJoinBuildSink final : public StreamingOperator<vectorized::HashJoinNod
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return _node->can_sink_write(); }
-    bool is_pending_finish() const override { return !_node->ready_for_finish(); }
 };
 
 class HashJoinBuildSinkOperatorX;
 
-class SharedHashTableDependency final : public Dependency {
-public:
-    using SharedState = HashJoinSharedState;
-    ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
-    SharedHashTableDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SharedHashTableBuildDependency", true, query_ctx) {}
-    ~SharedHashTableDependency() override = default;
-};
-
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
-    using Base = JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState>;
+    using Base = JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState>;
     using Parent = HashJoinBuildSinkOperatorX;
     HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~HashJoinBuildSinkLocalState() override = default;
@@ -71,7 +61,6 @@ public:
     void init_short_circuit_for_probe();
 
     bool build_unique() const;
-    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const;
     std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
 
     void add_hash_buckets_info(const std::string& info) const {
@@ -102,15 +91,20 @@ protected:
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
 
-    std::vector<IRuntimeFilter*> _runtime_filters;
     bool _should_build_hash_table = true;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
     bool _has_set_need_null_map_for_build = false;
+
+    /*
+     * The comparison result of a null value with any other value is null,
+     * which means that for most join(exclude: null aware join, null equal safe join),
+     * the result of an equality condition involving null should be false,
+     * so null does not need to be added to the hash table.
+     */
     bool _build_side_ignore_null = false;
-    std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
     std::vector<int> _build_col_ids;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
@@ -121,7 +115,6 @@ protected:
 
     RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
 
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;
@@ -142,11 +135,10 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     bool should_dry_run(RuntimeState* state) override {
-        return _is_broadcast_join && !state->get_sink_local_state(operator_id())
+        return _is_broadcast_join && !state->get_sink_local_state()
                                               ->cast<HashJoinBuildSinkLocalState>()
                                               ._should_build_hash_table;
     }
@@ -185,10 +177,9 @@ private:
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     const std::vector<TExpr> _partition_exprs;
 
-    const bool _use_global_rf;
+    const bool _need_local_merge;
 };
 
 } // namespace pipeline

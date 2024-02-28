@@ -17,11 +17,10 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
+#include <string_view>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -196,8 +195,6 @@ public:
 
     virtual std::string debug_string();
 
-    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
-
     void set_task_queue(TaskQueue* task_queue);
     TaskQueue* get_task_queue() { return _task_queue; }
 
@@ -268,7 +265,7 @@ public:
         }
         // If enable_debug_log_timeout_secs <= 0, then disable the log
         if (_pipeline_task_watcher.elapsed_time() >
-            config::enable_debug_log_timeout_secs * 1000l * 1000l * 1000l) {
+            config::enable_debug_log_timeout_secs * 1000L * 1000L * 1000L) {
             _has_exceed_timeout = true;
             return true;
         }
@@ -287,6 +284,10 @@ public:
                       << get_state_name(get_state()) << "/n task detail:" << debug_string();
         }
     }
+
+    RuntimeState* runtime_state() const { return _state; }
+
+    std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
 protected:
     void _finish_p_dependency() {
@@ -324,6 +325,7 @@ protected:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
     int _core_id = 0;
+    Status _open_status = Status::OK();
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;

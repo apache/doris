@@ -28,6 +28,7 @@
 #include <string>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -212,7 +213,8 @@ Status LoadStreamWriter::close() {
     RETURN_IF_ERROR(_rowset_builder->build_rowset());
     RETURN_IF_ERROR(_rowset_builder->submit_calc_delete_bitmap_task());
     RETURN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap());
-    RETURN_IF_ERROR(_rowset_builder->commit_txn());
+    // FIXME(plat1ko): No `commit_txn` operation in cloud mode, need better abstractions
+    RETURN_IF_ERROR(static_cast<RowsetBuilder*>(_rowset_builder.get())->commit_txn());
 
     return Status::OK();
 }

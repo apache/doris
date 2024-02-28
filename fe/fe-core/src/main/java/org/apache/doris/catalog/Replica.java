@@ -74,6 +74,19 @@ public class Replica implements Writable {
         DROP,  // user force drop replica on this backend
     }
 
+    public static class ReplicaContext {
+        public long replicaId;
+        public long backendId;
+        public ReplicaState state;
+        public long version;
+        public int schemaHash;
+        public long dbId;
+        public long tableId;
+        public long partitionId;
+        public long indexId;
+        public Replica originReplica;
+    }
+
     @SerializedName(value = "id")
     private long id;
     @SerializedName(value = "backendId")
@@ -163,6 +176,10 @@ public class Replica implements Writable {
     private long userDropTime = -1;
 
     public Replica() {
+    }
+
+    public Replica(ReplicaContext context) {
+        this(context.replicaId, context.backendId, context.state, context.version, context.schemaHash);
     }
 
     // for rollup
@@ -448,9 +465,11 @@ public class Replica implements Writable {
 
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
-            LOG.debug("current version {} is larger than last failed version {}, "
-                        + "maybe a fatal error or be report version, print a stack here ",
-                    this.version, lastFailedVersion, new Exception());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("current version {} is larger than last failed version {}, "
+                            + "maybe a fatal error or be report version, print a stack here ",
+                        this.version, lastFailedVersion, new Exception());
+            }
         }
 
         if (lastFailedVersion != this.lastFailedVersion) {
@@ -519,8 +538,10 @@ public class Replica implements Writable {
         }
 
         if (this.version < expectedVersion) {
-            LOG.debug("replica version does not catch up with version: {}. replica: {}",
-                      expectedVersion, this);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replica version does not catch up with version: {}. replica: {}",
+                          expectedVersion, this);
+            }
             return false;
         }
         return true;

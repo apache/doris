@@ -337,9 +337,6 @@ fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
 fi
-if [[ -z "${WITH_LZO}" ]]; then
-    WITH_LZO='OFF'
-fi
 if [[ -z "${USE_LIBCPP}" ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
         USE_LIBCPP='OFF'
@@ -436,7 +433,6 @@ echo "Get params:
     PARALLEL                    -- ${PARALLEL}
     CLEAN                       -- ${CLEAN}
     WITH_MYSQL                  -- ${WITH_MYSQL}
-    WITH_LZO                    -- ${WITH_LZO}
     GLIBC_COMPATIBILITY         -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                    -- ${USE_AVX2}
     USE_LIBCPP                  -- ${USE_LIBCPP}
@@ -525,7 +521,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
-        -DWITH_LZO="${WITH_LZO}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
@@ -722,8 +717,10 @@ EOF
 
     # Fix Killed: 9 error on MacOS (arm64).
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
-    rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
-    cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    if [[ -f "${DORIS_HOME}/be/output/lib/doris_be" ]]; then
+        rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
+        cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    fi
     if [[ -d "${DORIS_HOME}/be/output/lib/doris_be.dSYM" ]]; then
         rm -rf "${DORIS_OUTPUT}/be/lib/doris_be.dSYM"
         cp -r "${DORIS_HOME}/be/output/lib/doris_be.dSYM" "${DORIS_OUTPUT}/be/lib"/
@@ -777,6 +774,7 @@ EOF
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
+    mkdir -p "${DORIS_OUTPUT}/be/log/tracing"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
 fi
 

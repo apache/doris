@@ -22,10 +22,6 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_load") {
-    def dbName = "test_load"
-    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
-    sql "USE $dbName"
-
     def tableName = "test_decimal_load"
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -41,16 +37,23 @@ suite("test_load") {
         );
         """
 
-        StringBuilder commandBuilder = new StringBuilder()
-        commandBuilder.append("""curl --max-time 5 --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
-        commandBuilder.append(""" -H format:csv -T ${context.file.parent}/test_data/test.csv http://${context.config.feHttpAddress}/api/""" + dbName + "/" + tableName + "/_stream_load")
-        command = commandBuilder.toString()
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-        out = process.getText()
-        logger.info("Run command: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
+        streamLoad {
+            table "${tableName}"
+
+            file 'test.csv'
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(3, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
         sql """sync"""
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY a; """

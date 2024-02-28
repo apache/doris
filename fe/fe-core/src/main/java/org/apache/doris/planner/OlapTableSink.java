@@ -51,6 +51,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -120,7 +121,7 @@ public class OlapTableSink extends DataSink {
     }
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
-            boolean loadToSingleTablet, boolean isStrictMode) throws AnalysisException {
+            boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS) throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);
@@ -134,6 +135,7 @@ public class OlapTableSink extends DataSink {
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
+        tSink.setTxnTimeoutS(txnExpirationS);
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
 
@@ -493,10 +495,14 @@ public class OlapTableSink extends DataSink {
                 for (Tablet tablet : index.getTablets()) {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
-                        throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
-                                "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
-                                        + " < load required replica num " + loadRequiredReplicaNum
-                                        + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]");
+                        String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
+                                + " < quorum replica num " + loadRequiredReplicaNum
+                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]";
+                        errMsg += " or you may not have permission to access the current cluster";
+                        if (ConnectContext.get() != null) {
+                            errMsg += " clusterName=" + ConnectContext.get().getCloudCluster();
+                        }
+                        throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }
 
                     debugWriteRandomChooseSink(tablet, partition.getVisibleVersion(), bePathsMap);

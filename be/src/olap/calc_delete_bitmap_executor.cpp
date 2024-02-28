@@ -23,14 +23,14 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "olap/base_tablet.h"
 #include "olap/memtable.h"
-#include "olap/tablet.h"
 #include "util/time.h"
 
 namespace doris {
 using namespace ErrorCode;
 
-Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
+Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
                                      const segment_v2::SegmentSharedPtr& cur_segment,
                                      const std::vector<RowsetSharedPtr>& target_rowsets,
                                      int64_t end_version, DeleteBitmapPtr delete_bitmap,

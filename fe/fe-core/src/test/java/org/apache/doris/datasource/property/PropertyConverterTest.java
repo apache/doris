@@ -34,9 +34,9 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -55,6 +55,7 @@ import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -76,7 +77,7 @@ public class PropertyConverterTest extends TestWithFeService {
 
         List<String> withoutPrefix = ImmutableList.of("endpoint", "access_key", "secret_key");
         checkSet.addAll(withoutPrefix);
-        checkSet.addAll(S3Properties.Env.REQUIRED_FIELDS);
+        checkSet.addAll(Arrays.asList(S3Properties.ENDPOINT, S3Properties.ACCESS_KEY, S3Properties.SECRET_KEY));
         expectedCredential.put("access_key", "akk");
         expectedCredential.put("secret_key", "skk");
     }

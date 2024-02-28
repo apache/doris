@@ -39,8 +39,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -98,7 +97,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("broker");
     }
 
-    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
+    // if auto bucket enable, rewrite distribution bucket num &&
     // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
     private static Map<String, String> maybeRewriteByAutoBucket(DistributionDesc distributionDesc,
             Map<String, String> properties) throws AnalysisException {
@@ -277,6 +276,11 @@ public class CreateTableStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (Config.isCloudMode() && properties != null
+                && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
+            // FIXME: MOW is not supported in cloud mode yet.
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
+        }
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
         }
@@ -284,8 +288,6 @@ public class CreateTableStmt extends DdlStmt {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {

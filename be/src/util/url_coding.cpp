@@ -91,7 +91,7 @@ static void encode_base64_internal(const std::string& in, std::string* out,
     size_t len = in.size();
     // Every 3 source bytes will be encoded into 4 bytes.
     std::unique_ptr<unsigned char[]> buf(new unsigned char[(((len + 2) / 3) * 4)]);
-    const unsigned char* s = reinterpret_cast<const unsigned char*>(in.data());
+    const auto* s = reinterpret_cast<const unsigned char*>(in.data());
     unsigned char* d = buf.get();
     while (len > 2) {
         *d++ = basis[(s[0] >> 2) & 0x3f];
@@ -157,7 +157,7 @@ static short decoding_table[256] = {
 static int mod_table[] = {0, 2, 1};
 
 size_t base64_encode(const unsigned char* data, size_t length, unsigned char* encoded_data) {
-    size_t output_length = (size_t)(4.0 * ceil((double)length / 3.0));
+    auto output_length = (size_t)(4.0 * ceil((double)length / 3.0));
 
     if (encoded_data == nullptr) {
         return 0;
@@ -267,7 +267,7 @@ bool base64_decode(const std::string& in, std::string* out) {
 }
 
 void escape_for_html(const std::string& in, std::stringstream* out) {
-    for (auto& c : in) {
+    for (const auto& c : in) {
         switch (c) {
         case '<':
             (*out) << "&lt;";

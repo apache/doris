@@ -121,6 +121,9 @@ public:
     RowsetId next_rowset_id();
 
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
+        return _calc_delete_bitmap_executor.get();
+    }
 
     const std::shared_ptr<MemTracker>& segment_meta_mem_tracker() {
         return _segment_meta_mem_tracker;
@@ -136,6 +139,7 @@ protected:
 
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
+    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
 
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.
@@ -149,8 +153,6 @@ class StorageEngine final : public BaseStorageEngine {
 public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine() override;
-
-    enum class DiskRemainingLevel { LOW, MID, HIGH };
 
     Status open() override;
 
@@ -205,10 +207,6 @@ public:
     TxnManager* txn_manager() { return _txn_manager.get(); }
     SnapshotManager* snapshot_mgr() { return _snapshot_mgr.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
-    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
-        return _calc_delete_bitmap_executor.get();
-    }
-
     // Rowset garbage collection helpers
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
     PendingRowsetSet& pending_local_rowsets() { return _pending_local_rowsets; }
@@ -441,8 +439,6 @@ private:
     std::unique_ptr<TabletManager> _tablet_manager;
     std::unique_ptr<TxnManager> _txn_manager;
 
-    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
-
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
@@ -502,6 +498,7 @@ private:
     std::shared_mutex _async_publish_lock;
 
     bool _clear_segment_cache = false;
+    bool _clear_page_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
 
@@ -528,7 +525,7 @@ public:
 
     void set_index(const std::string& key, int next_idx);
 
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         int idx = 0;
     };
 
@@ -541,7 +538,8 @@ public:
 struct DirInfo {
     DataDir* data_dir;
 
-    StorageEngine::DiskRemainingLevel available_level;
+    double usage = 0;
+    int available_level = 0;
 
     bool operator<(const DirInfo& other) const {
         if (available_level != other.available_level) {

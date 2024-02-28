@@ -21,6 +21,8 @@ suite("nereids_scalar_fn_T") {
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_tan_Double "select tan(kdbl) from fn_test order by kdbl"
 	qt_sql_tan_Double_notnull "select tan(kdbl) from fn_test_not_nullable order by kdbl"
+	qt_sql_tanh_Double "select tanh(kdbl) from fn_test order by kdbl"
+	qt_sql_tanh_Double_notnull "select tanh(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_timediff_DateTime_DateTime "select timediff(kdtm, kdtm) from fn_test order by kdtm, kdtm"
 	qt_sql_timediff_DateTime_DateTime_notnull "select timediff(kdtm, kdtm) from fn_test_not_nullable order by kdtm, kdtm"
 	qt_sql_timediff_DateTimeV2_DateTimeV2 "select timediff(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"

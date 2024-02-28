@@ -18,6 +18,8 @@
 package org.apache.doris.persist.gson;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.CloudRollupJobV2;
+import org.apache.doris.alter.CloudSchemaChangeJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.AggStateType;
@@ -50,32 +52,23 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
-import org.apache.doris.catalog.external.EsExternalDatabase;
-import org.apache.doris.catalog.external.EsExternalTable;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.catalog.external.IcebergExternalDatabase;
-import org.apache.doris.catalog.external.IcebergExternalTable;
-import org.apache.doris.catalog.external.JdbcExternalDatabase;
-import org.apache.doris.catalog.external.JdbcExternalTable;
-import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
-import org.apache.doris.catalog.external.MaxComputeExternalTable;
-import org.apache.doris.catalog.external.PaimonExternalDatabase;
-import org.apache.doris.catalog.external.PaimonExternalTable;
-import org.apache.doris.catalog.external.TestExternalDatabase;
-import org.apache.doris.catalog.external.TestExternalTable;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.EsExternalCatalog;
-import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.es.EsExternalCatalog;
+import org.apache.doris.datasource.es.EsExternalDatabase;
+import org.apache.doris.datasource.es.EsExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
@@ -83,10 +76,19 @@ import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonHMSExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.datasource.test.TestExternalDatabase;
+import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
@@ -96,6 +98,10 @@ import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
@@ -126,6 +132,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
+import com.google.gson.ReflectionAccessFilter;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
@@ -193,7 +200,9 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(AlterJobV2.class, "clazz")
             .registerSubtype(RollupJobV2.class, RollupJobV2.class.getSimpleName())
-            .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName());
+            .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName())
+            .registerSubtype(CloudSchemaChangeJobV2.class, CloudSchemaChangeJobV2.class.getSimpleName())
+            .registerSubtype(CloudRollupJobV2.class, CloudRollupJobV2.class.getSimpleName());
 
     // runtime adapter for class "SyncJob"
     private static RuntimeTypeAdapterFactory<SyncJob> syncJobTypeAdapterFactory = RuntimeTypeAdapterFactory
@@ -243,6 +252,12 @@ public class GsonUtils {
             RuntimeTypeAdapterFactory.of(AbstractJob.class, "clazz")
                     .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
                     .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<MTMVSnapshotIf> mtmvSnapshotTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(MTMVSnapshotIf.class, "clazz")
+                    .registerSubtype(MTMVMaxTimestampSnapshot.class, MTMVMaxTimestampSnapshot.class.getSimpleName())
+                    .registerSubtype(MTMVTimestampSnapshot.class, MTMVTimestampSnapshot.class.getSimpleName())
+                    .registerSubtype(MTMVVersionSnapshot.class, MTMVVersionSnapshot.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
@@ -300,6 +315,7 @@ public class GsonUtils {
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
+            .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
@@ -317,6 +333,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
+            .registerTypeAdapterFactory(mtmvSnapshotTypeAdapterFactory)
             .registerTypeAdapterFactory(constraintTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
@@ -598,4 +615,3 @@ public class GsonUtils {
     }
 
 }
-

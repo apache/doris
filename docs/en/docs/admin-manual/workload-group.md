@@ -30,6 +30,21 @@ under the License.
 
 The workload group can limit the use of compute and memory resources on a single be node for tasks within the group. Currently, query binding to workload groups is supported.
 
+## Version Description
+Workload Group is a feature that has been supported since version 2.0. The main difference between version 2.0 and 2.1 is that the 2.0 version of Workload Group does not rely on CGroup, while the 2.1 version of Workload Group depends on CGroup. Therefore, when using the 2.1 version of Workload Group, the environment of CGroup needs to be configured.
+
+#### Upgrade to version 2.0
+If upgrading from version 1.2 to version 2.0, it is recommended to enable the WorkloadGroup after the overall upgrade of the Doris cluster is completed. Because if you only upgrade a single Follower and enable this feature, as the FE code of the Master has not been updated yet, there is no metadata information for Workload Group in the Doris cluster, which may cause queries for the upgraded Follower nodes to fail. The recommended upgrade process is as follows:
+* First, upgrade the overall code of the Doris cluster to version 2.0.
+* Start using this feature according to the section ***Workload group usage*** in the following text.
+
+#### Upgrade to version 2.1
+If the code version is upgraded from 2.0 to 2.1, there are two situations:
+
+Scenario 1: In version 2.1, if the Workload Group has already been used, you only need to refer to the process of configuring cgroup v1 in the following text to use the new version of the Workload Group.
+
+Scenario 2: If the Workload Group is not used in version 2.0, it is also necessary to upgrade the Doris cluster as a whole to version 2.1, and then start using this feature according to the section ***Workload group usage*** in the following text.
+
 ## Workload group properties
 
 * cpu_share: Optional, The default value is 1024, with a range of positive integers. used to set how much cpu time the workload group can acquire, which can achieve soft isolation of cpu resources. cpu_share is a relative value indicating the weight of cpu resources available to the running workload group. For example, if a user creates 3 workload groups rg-a, rg-b and rg-c with cpu_share of 10, 30 and 40 respectively, and at a certain moment rg-a and rg-b are running tasks while rg-c has no tasks, then rg-a can get 25% (10 / (10 + 30)) of the cpu resources while workload group rg-b can get 75% of the cpu resources. If the system has only one workload group running, it gets all the cpu resources regardless of the value of its cpu_share.
@@ -43,6 +58,7 @@ The workload group can limit the use of compute and memory resources on a single
 * max_concurrency: Optional, maximum query concurrency, default value is the maximum integer value, which means there is no concurrency limit. When the number of running queries reaches this value, new queries will being queued.
 * max_queue_size: Optional, length of the query queue. When the queue is full, new queries will be rejected. The default value is 0, which means no queuing.
 * queue_timeout: Optional, query the timeout time in the queue, measured in milliseconds. If the query exceeds this value, an exception will be thrown directly to the client. The default value is 0, which means no queuing.
+* scan_thread_num: Optional, the number of threads used for scanning in the current workload group. The default value is -1, which means it does not take effect, the number of scan threads in the be configuration shall prevail. The value is an integer greater than 0.
 
 Notes:
 
@@ -55,7 +71,9 @@ Notes:
 
 Doris 2.0 version uses Doris scheduling to limit CPU resources, but since version 2.1, Doris defaults to using CGgroup v1 to limit CPU resources (CGgroup v2 is currently not supported). Therefore, if CPU resources are expected to be limited in version 2.1, it is necessary to have CGgroup v1 installed on the node where BE is located.
 
-If users use the Workload Group software limit in version 2.0 and upgrade to version 2.1, they also need to configure CGroup.
+If users use the Workload Group software limit in version 2.0 and upgrade to version 2.1, they also need to configure CGroup, Otherwise, cpu soft limit may not work.
+
+Without configuring cgroup, users can use all functions of the workload group except for CPU limitations.
 
 1 Firstly, confirm that the CGgroup v1 version has been installed on the node where BE is located, and the path ```/sys/fs/cgroup/cpu/``` exists.
 
@@ -74,28 +92,37 @@ chonw -R doris:doris /sys/fs/cgroup/cpu/doris
 
 4 Modify the configuration of BE and specify the path to cgroup
 ```
-1：modify be.conf in disk
 doris_cgroup_cpu_path = /sys/fs/cgroup/cpu/doris
-
-2 modify be conf in memory
-curl -X POST http://{be_ip}:{be_http_port}/api/update_config?doris_cgroup_cpu_path=/sys/fs/cgroup/cpu/doris
 ```
+
+5 restart BE, in the log (be. INFO), you can see the words "add thread xxx to group" indicating successful configuration.
 
 It should be noted that the current workload group does not support the deployment of multiple BE on same machine.
 
 ## Workload group usage
 
-1. Enable the experimental_enable_workload_group configuration, set in fe.conf to
+1. Manually create a workload group named normal, which is the default workload group in the system and cannot be deleted.
+```
+create workload group if not exists normal 
+properties (
+	'cpu_share'='1024',
+	'memory_limit'='30%',
+	'enable_memory_overcommit'='true'
+);
+```
+The function of a normal group is that when you do not specify a Workload Group for a query, the query will use normal Group, thus avoiding query failures.
+
+2. Enable the experimental_enable_workload_group configuration, set in fe.conf to
 ```
 experimental_enable_workload_group=true
 ```
 The system will automatically create a default workload group named ``normal`` after this configuration is enabled. 
 
-2. To create a workload group:
+3. If you expect to use other groups for testing, you can create a custom workload group,
 ```
 create workload group if not exists g1
 properties (
-    "cpu_share"="10".
+    "cpu_share"="1024".
     "memory_limit"="30%".
     "enable_memory_overcommit"="true"
 ).
@@ -105,12 +132,12 @@ This configured CPU limit to the soft limit.
 For details on creating a workload group, see [CREATE-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-WORKLOAD-GROUP.md), and to delete a workload group, refer to [DROP-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP.md); to modify a workload group, refer to [ALTER-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP.md); to view the workload group, refer to: [WORKLOAD_GROUPS()](../sql-manual/sql-functions/table-functions/workload-group.md) and [SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md).
 
 
-3. turn on the pipeline execution engine, the workload group cpu isolation is based on the implementation of the pipeline execution engine, so you need to turn on the session variable:
+4. turn on the pipeline execution engine, the workload group cpu isolation is based on the implementation of the pipeline execution engine, so you need to turn on the session variable:
 ```
 set experimental_enable_pipeline_engine = true.
 ```
 
-4. Bind the workload group.
+5. Bind the workload group.
 * Bind the user to the workload group by default by setting the user property to ``normal``.
 ```
 set property 'default_workload_group' = 'g1'.
@@ -124,7 +151,7 @@ session variable `workload_group` takes precedence over user property `default_w
 
 If you are a non-admin user, you need to execute [SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md) to check if the current user can see the workload group, if not, the workload group may not exist or the current user does not have permission to execute the query. If you cannot see the workload group, the workload group may not exist or the current user does not have privileges. To authorize the workload group, refer to: [grant statement](../sql-manual/sql-reference/Account-Management-Statements/GRANT.md).
 
-5. Execute the query, which will be associated with the g1 workload group.
+6. Execute the query, which will be associated with the g1 workload group.
 
 ### Query Queue
 ```

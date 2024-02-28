@@ -206,7 +206,7 @@ static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;
 static constexpr uint32_t DATETIMEV2_MONTH_WIDTH = 4;
 
-static RE2 time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
+static RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)");
 
 uint8_t mysql_week_mode(uint32_t mode);
 

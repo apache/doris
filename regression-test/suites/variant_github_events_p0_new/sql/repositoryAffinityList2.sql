@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
   repo_name,
   total_stars,
   round(spark_stars / total_stars, 2) AS ratio

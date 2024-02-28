@@ -35,6 +35,7 @@ JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink
 
     JdbcConnectorParam jdbc_param;
 
+    jdbc_param.catalog_id = t_jdbc_sink.jdbc_table.catalog_id;
     jdbc_param.jdbc_url = t_jdbc_sink.jdbc_table.jdbc_url;
     jdbc_param.user = t_jdbc_sink.jdbc_table.jdbc_user;
     jdbc_param.passwd = t_jdbc_sink.jdbc_table.jdbc_password;
@@ -46,11 +47,11 @@ JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink
     jdbc_param.query_string = t_jdbc_sink.insert_sql;
     jdbc_param.table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
     jdbc_param.use_transaction = t_jdbc_sink.use_transaction;
-    jdbc_param.min_pool_size = t_jdbc_sink.jdbc_table.jdbc_min_pool_size;
-    jdbc_param.max_pool_size = t_jdbc_sink.jdbc_table.jdbc_max_pool_size;
-    jdbc_param.max_idle_time = t_jdbc_sink.jdbc_table.jdbc_max_idle_time;
-    jdbc_param.max_wait_time = t_jdbc_sink.jdbc_table.jdbc_max_wait_time;
-    jdbc_param.keep_alive = t_jdbc_sink.jdbc_table.jdbc_keep_alive;
+    jdbc_param.connection_pool_min_size = t_jdbc_sink.jdbc_table.connection_pool_min_size;
+    jdbc_param.connection_pool_max_size = t_jdbc_sink.jdbc_table.connection_pool_max_size;
+    jdbc_param.connection_pool_max_wait_time = t_jdbc_sink.jdbc_table.connection_pool_max_wait_time;
+    jdbc_param.connection_pool_max_life_time = t_jdbc_sink.jdbc_table.connection_pool_max_life_time;
+    jdbc_param.connection_pool_keep_alive = t_jdbc_sink.jdbc_table.connection_pool_keep_alive;
 
     return jdbc_param;
 }

@@ -254,4 +254,74 @@ suite("test_auto_partition_behavior") {
         """
         exception "The auto partition column must be NOT NULL"
     }
+
+    // PROHIBIT different timeunit of interval when use both auto & dynamic partition
+    test{
+        sql "set experimental_enable_nereids_planner=true;"
+        sql """
+            CREATE TABLE tbl3
+            (
+                k1 DATETIME NOT NULL,
+                col1 int 
+            )
+            auto PARTITION BY RANGE date_trunc(`k1`, 'year') ()
+            DISTRIBUTED BY HASH(k1)
+            PROPERTIES
+            (
+                "replication_num" = "1",
+                "dynamic_partition.create_history_partition"="true",
+                "dynamic_partition.enable" = "true",
+                "dynamic_partition.time_unit" = "HOUR",
+                "dynamic_partition.start" = "-2",
+                "dynamic_partition.end" = "2",
+                "dynamic_partition.prefix" = "p",
+                "dynamic_partition.buckets" = "8"
+            ); 
+        """
+        exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
+    }
+    test{
+        sql "set experimental_enable_nereids_planner=false;"
+        sql """
+            CREATE TABLE tbl3
+            (
+                k1 DATETIME NOT NULL,
+                col1 int 
+            )
+            auto PARTITION BY RANGE date_trunc(`k1`, 'year') ()
+            DISTRIBUTED BY HASH(k1)
+            PROPERTIES
+            (
+                "replication_num" = "1",
+                "dynamic_partition.create_history_partition"="true",
+                "dynamic_partition.enable" = "true",
+                "dynamic_partition.time_unit" = "HOUR",
+                "dynamic_partition.start" = "-2",
+                "dynamic_partition.end" = "2",
+                "dynamic_partition.prefix" = "p",
+                "dynamic_partition.buckets" = "8"
+            ); 
+        """
+        exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
+    }
+
+    // prohibit too long value for partition column
+    sql "drop table if exists `long_value`"
+    sql """
+        CREATE TABLE `long_value` (
+            `str` varchar not null
+        )
+        DUPLICATE KEY(`str`)
+        AUTO PARTITION BY LIST (`str`)
+        ()
+        DISTRIBUTED BY HASH(`str`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    test{
+        sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
+
+        exception "Partition name's length is over limit of 50."
+    }
 }

@@ -18,16 +18,17 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.EsExternalTable;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.es.EsExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Unbound;
@@ -156,7 +157,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
 
         // TODO: should generate different Scan sub class according to table's type
-        LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+        LogicalPlan scan = getAndCheckLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
         if (cascadesContext.isLeadingJoin()) {
             LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
             leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
@@ -177,7 +178,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
-        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+        return getAndCheckLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
     private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier) {
@@ -197,9 +198,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     throw new AnalysisException("Table " + olapTable.getName()
                         + " doesn't have materialized view " + indexName.get());
                 }
+                PreAggStatus preAggStatus
+                        = olapTable.getIndexMetaByIndexId(indexId).getKeysType().equals(KeysType.DUP_KEYS)
+                        ? PreAggStatus.on()
+                        : PreAggStatus.off("For direct index scan.");
+
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, indexId,
-                    unboundRelation.getHints(), unboundRelation.getTableSample());
+                    preAggStatus, unboundRelation.getHints(), unboundRelation.getTableSample());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, unboundRelation.getHints(),
@@ -228,7 +234,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return scan;
     }
 
-    private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier,
+    private LogicalPlan getAndCheckLogicalPlan(TableIf table, UnboundRelation unboundRelation,
+                                               List<String> tableQualifier, CascadesContext cascadesContext) {
+        // if current context is in the view, we can skip check authentication because
+        // the view already checked authentication
+        if (cascadesContext.shouldCheckRelationAuthentication()) {
+            UserAuthentication.checkPermission(table, cascadesContext.getConnectContext());
+        }
+        return doGetLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+    }
+
+    private LogicalPlan doGetLogicalPlan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier,
                                        CascadesContext cascadesContext) {
         switch (table.getType()) {
             case OLAP:
@@ -283,7 +299,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (parsedViewPlan instanceof UnboundResultSink) {
             parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
         }
-        CascadesContext viewContext = CascadesContext.initContext(
+        CascadesContext viewContext = CascadesContext.initViewContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.newAnalyzer(true, customTableResolver).analyze();
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict

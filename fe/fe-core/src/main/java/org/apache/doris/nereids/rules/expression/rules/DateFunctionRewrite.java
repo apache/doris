@@ -58,8 +58,10 @@ public class DateFunctionRewrite extends AbstractExpressionRewriteRule {
             // V2
             if (equalTo.left().child(0).getDataType() instanceof DateTimeV2Type
                     && equalTo.right() instanceof DateV2Literal) {
-                DateTimeV2Literal lowerBound = ((DateV2Literal) equalTo.right()).toBeginOfTheDay();
-                DateTimeV2Literal upperBound = ((DateV2Literal) equalTo.right()).toEndOfTheDay();
+                DateTimeV2Literal lowerBound = ((DateV2Literal) equalTo.right()).toBeginOfTheDay(
+                        (DateTimeV2Type) equalTo.left().child(0).getDataType());
+                DateTimeV2Literal upperBound = ((DateV2Literal) equalTo.right()).toEndOfTheDay(
+                        (DateTimeV2Type) equalTo.left().child(0).getDataType());
                 Expression newLeft = equalTo.left().child(0);
                 return new And(new GreaterThanEqual(newLeft, lowerBound),
                         new LessThanEqual(newLeft, upperBound));
@@ -96,14 +98,14 @@ public class DateFunctionRewrite extends AbstractExpressionRewriteRule {
             if (greaterThanEqual.left().child(0).getDataType() instanceof DateTimeType
                     && greaterThanEqual.right() instanceof DateLiteral) {
                 DateTimeLiteral newLiteral = ((DateLiteral) greaterThanEqual.right()).toBeginOfTheDay();
-                return new GreaterThan(greaterThanEqual.left().child(0), newLiteral);
+                return new GreaterThanEqual(greaterThanEqual.left().child(0), newLiteral);
             }
 
             // V2
             if (greaterThanEqual.left().child(0).getDataType() instanceof DateTimeV2Type
                     && greaterThanEqual.right() instanceof DateV2Literal) {
                 DateTimeV2Literal newLiteral = ((DateV2Literal) greaterThanEqual.right()).toBeginOfTheDay();
-                return new GreaterThan(greaterThanEqual.left().child(0), newLiteral);
+                return new GreaterThanEqual(greaterThanEqual.left().child(0), newLiteral);
             }
         }
         return greaterThanEqual;
@@ -142,7 +144,8 @@ public class DateFunctionRewrite extends AbstractExpressionRewriteRule {
             // V2
             if (lessThanEqual.left().child(0).getDataType() instanceof DateTimeV2Type
                     && lessThanEqual.right() instanceof DateV2Literal) {
-                DateTimeV2Literal newLiteral = ((DateV2Literal) lessThanEqual.right()).toEndOfTheDay();
+                DateTimeV2Literal newLiteral = ((DateV2Literal) lessThanEqual.right()).toEndOfTheDay(
+                            (DateTimeV2Type) lessThanEqual.left().child(0).getDataType());
                 return new LessThanEqual(lessThanEqual.left().child(0), newLiteral);
             }
         }

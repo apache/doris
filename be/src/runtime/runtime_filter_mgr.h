@@ -53,6 +53,12 @@ class QueryContext;
 struct RuntimeFilterParamsContext;
 class ExecEnv;
 
+struct LocalMergeFilters {
+    std::unique_ptr<std::mutex> lock = std::make_unique<std::mutex>();
+    int merge_time = 0;
+    std::vector<IRuntimeFilter*> filters;
+};
+
 /// producer:
 /// Filter filter;
 /// get_filter(filter_id, &filter);
@@ -71,22 +77,23 @@ public:
 
     ~RuntimeFilterMgr() = default;
 
-    Status init();
-
-    Status get_consume_filter(const int filter_id, const int node_id,
-                              IRuntimeFilter** consumer_filter);
-
     Status get_consume_filters(const int filter_id, std::vector<IRuntimeFilter*>& consumer_filters);
-
-    Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
 
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    int node_id, bool build_bf_exactly = false,
-                                    bool is_global = false);
+                                    int node_id, IRuntimeFilter** consumer_filter,
+                                    bool build_bf_exactly = false, bool need_local_merge = false);
+
+    Status register_local_merge_producer_filter(const TRuntimeFilterDesc& desc,
+                                                const TQueryOptions& options,
+                                                IRuntimeFilter** producer_filter,
+                                                bool build_bf_exactly = false);
+
+    Status get_local_merge_producer_filters(int filter_id, LocalMergeFilters** local_merge_filters);
+
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    bool build_bf_exactly = false, bool is_global = false,
-                                    int parallel_tasks = 0);
+                                    IRuntimeFilter** producer_filter,
+                                    bool build_bf_exactly = false);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,
@@ -107,6 +114,7 @@ private:
     /// TODO: should it need protected by a mutex?
     std::map<int32_t, std::vector<ConsumerFilterHolder>> _consumer_map;
     std::map<int32_t, IRuntimeFilter*> _producer_map;
+    std::map<int32_t, LocalMergeFilters> _local_merge_producer_map;
 
     RuntimeFilterParamsContext* _state = nullptr;
     std::unique_ptr<MemTracker> _tracker;
@@ -114,7 +122,7 @@ private:
 
     TNetworkAddress _merge_addr;
 
-    bool _has_merge_addr;
+    bool _has_merge_addr = false;
     std::mutex _lock;
 };
 
@@ -125,11 +133,10 @@ private:
 class RuntimeFilterMergeControllerEntity {
 public:
     RuntimeFilterMergeControllerEntity(RuntimeFilterParamsContext* state)
-            : _query_id(0, 0), _fragment_instance_id(0, 0), _state(state) {}
+            : _query_id(0, 0), _state(state) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
-    Status init(UniqueId query_id, UniqueId fragment_instance_id,
-                const TRuntimeFilterParams& runtime_filter_params,
+    Status init(UniqueId query_id, const TRuntimeFilterParams& runtime_filter_params,
                 const TQueryOptions& query_options);
 
     // handle merge rpc
@@ -137,8 +144,6 @@ public:
                  bool opt_remote_rf);
 
     UniqueId query_id() const { return _query_id; }
-
-    UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
         int64_t merge_time;
@@ -150,9 +155,6 @@ public:
         std::unordered_set<UniqueId> arrive_id; // fragment_instance_id ?
         std::shared_ptr<ObjectPool> pool;
     };
-
-public:
-    RuntimeFilterCntlVal* get_filter(int id) { return _filter_map[id].first.get(); }
 
 private:
     Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
@@ -166,7 +168,6 @@ private:
                            const int producer_size);
 
     UniqueId _query_id;
-    UniqueId _fragment_instance_id;
     // protect _filter_map
     std::shared_mutex _filter_map_mutex;
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -174,7 +175,6 @@ private:
             std::pair<std::shared_ptr<RuntimeFilterCntlVal>, std::unique_ptr<std::mutex>>;
     std::map<int, CntlValwithLock> _filter_map;
     RuntimeFilterParamsContext* _state = nullptr;
-    bool _opt_remote_rf = true;
 };
 
 // RuntimeFilterMergeController has a map query-id -> entity
@@ -187,13 +187,34 @@ public:
     // add a query-id -> entity
     // If a query-id -> entity already exists
     // add_entity will return a exists entity
-    Status add_entity(const TExecPlanFragmentParams& params,
+    Status add_entity(const auto& params, UniqueId query_id, const TQueryOptions& query_options,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeFilterParamsContext* state);
-    Status add_entity(const TPipelineFragmentParams& params,
-                      const TPipelineInstanceParams& local_params,
-                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeFilterParamsContext* state);
+                      RuntimeFilterParamsContext* state) {
+        if (!params.__isset.runtime_filter_params ||
+            params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
+            return Status::OK();
+        }
+
+        // TODO: why we need string, direct use UniqueId
+        uint32_t shard = _get_controller_shard_idx(query_id);
+        std::lock_guard<std::mutex> guard(_controller_mutex[shard]);
+        auto iter = _filter_controller_map[shard].find(query_id);
+        if (iter == _filter_controller_map[shard].end()) {
+            *handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
+                    new RuntimeFilterMergeControllerEntity(state),
+                    [this](RuntimeFilterMergeControllerEntity* entity) {
+                        remove_entity(entity->query_id());
+                        delete entity;
+                    });
+            _filter_controller_map[shard][query_id] = *handle;
+            const TRuntimeFilterParams& filter_params = params.runtime_filter_params;
+            RETURN_IF_ERROR(handle->get()->init(query_id, filter_params, query_options));
+        } else {
+            *handle = _filter_controller_map[shard][query_id].lock();
+        }
+        return Status::OK();
+    }
+
     // thread safe
     // increase a reference count
     // if a query-id is not exist
@@ -203,7 +224,7 @@ public:
     // thread safe
     // remove a entity by query-id
     // remove_entity will be called automatically by entity when entity is destroyed
-    Status remove_entity(UniqueId query_id);
+    void remove_entity(UniqueId query_id);
 
     static const int kShardNum = 128;
 
@@ -216,23 +237,16 @@ private:
     // We store the weak pointer here.
     // When the external object is destroyed, we need to clear this record
     using FilterControllerMap =
-            std::unordered_map<std::string, std::weak_ptr<RuntimeFilterMergeControllerEntity>>;
+            std::unordered_map<UniqueId, std::weak_ptr<RuntimeFilterMergeControllerEntity>>;
     // str(query-id) -> entity
     FilterControllerMap _filter_controller_map[kShardNum];
 };
-
-using runtime_filter_merge_entity_closer = std::function<void(RuntimeFilterMergeControllerEntity*)>;
-
-void runtime_filter_merge_entity_close(RuntimeFilterMergeController* controller,
-                                       RuntimeFilterMergeControllerEntity* entity);
 
 //There are two types of runtime filters:
 // one is global, originating from QueryContext,
 // and the other is local, originating from RuntimeState.
 // In practice, we have already distinguished between them through UpdateRuntimeFilterParamsV2/V1.
 // RuntimeState/QueryContext is only used to store runtime_filter_wait_time_ms and enable_pipeline_exec...
-
-/// TODO: Consider adding checks for global/local.
 struct RuntimeFilterParamsContext {
     RuntimeFilterParamsContext() = default;
     static RuntimeFilterParamsContext* create(RuntimeState* state);
@@ -245,19 +259,8 @@ struct RuntimeFilterParamsContext {
     RuntimeFilterMgr* runtime_filter_mgr;
     ExecEnv* exec_env;
     PUniqueId query_id;
-    PUniqueId _fragment_instance_id;
     int be_exec_version;
     QueryContext* query_ctx;
     QueryContext* get_query_ctx() const { return query_ctx; }
-    ObjectPool* _obj_pool;
-    bool _is_global = false;
-    PUniqueId fragment_instance_id() const {
-        DCHECK(!_is_global);
-        return _fragment_instance_id;
-    }
-    ObjectPool* obj_pool() const {
-        DCHECK(_is_global);
-        return _obj_pool;
-    }
 };
 } // namespace doris
