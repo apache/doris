@@ -2608,8 +2608,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public Map<Long, PartitionItem> getPartitionItems() {
-        return getPartitionInfo().getIdToItem(false);
+    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
+        readLock();
+        try {
+            return Maps.newHashMap(getPartitionInfo().getIdToItem(false));
+        } finally {
+            readUnlock();
+        }
     }
 
     @Override
@@ -2631,7 +2636,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     @Override
     public String getPartitionName(long partitionId) throws AnalysisException {
-        return getPartitionOrAnalysisException(partitionId).getName();
+        readLock();
+        try {
+            return getPartitionOrAnalysisException(partitionId).getName();
+        } finally {
+            readUnlock();
+        }
     }
 
     @Override
