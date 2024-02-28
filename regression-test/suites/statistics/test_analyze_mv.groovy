@@ -34,16 +34,35 @@ suite("test_analyze_mv") {
         }
     }
 
-    def wait_row_count_reported = { table, expected ->
-        for (int i = 0; i < 120; i++) {
-            Thread.sleep(5000)
-            def result = sql """SHOW DATA FROM ${table};"""
-            logger.info("result " + result)
-            if (result[3][4] == expected) {
-                return;
+    def wait_row_count_reported = { db, table, expected ->
+        def result = sql """show frontends;"""
+        logger.info("show frontends result origin: " + result)
+        def host
+        def port
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][8] == "true") {
+                host = result[i][1]
+                port = result[i][4]
             }
         }
-        throw new Exception("Row count report timeout.")
+        def tokens = context.config.jdbcUrl.split('/')
+        def url=tokens[0] + "//" + host + ":" + port
+        logger.info("Master url is " + url)
+        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url) {
+            sql """use ${db}"""
+            result = sql """show frontends;"""
+            logger.info("show frontends result master: " + result)
+            for (int i = 0; i < 120; i++) {
+                Thread.sleep(5000)
+                result = sql """SHOW DATA FROM ${table};"""
+                logger.info("result " + result)
+                if (result[3][4] == expected) {
+                    return;
+                }
+            }
+            throw new Exception("Row count report timeout.")
+        }
+
     }
 
     def wait_analyze_finish = { table ->
@@ -340,7 +359,7 @@ suite("test_analyze_mv") {
     assertEquals(0, result_sample.size())
 
     // Test sample
-    wait_row_count_reported("mvTestDup", "6")
+    wait_row_count_reported("test_analyze_mv", "mvTestDup", "6")
     sql """analyze table mvTestDup with sample rows 4000000"""
     wait_analyze_finish("mvTestDup")
     result_sample = sql """SHOW ANALYZE mvTestDup;"""
