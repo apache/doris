@@ -474,8 +474,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-            String fsNmae = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
-            tHdfsParams.setFsName(fsNmae);
+            String fsName = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
+            tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
