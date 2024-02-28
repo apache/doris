@@ -1101,3 +1101,9 @@ string3
 string3
 string3
 
+-- !sql_random_bytes --
+0x84b729ce8c0f49
+
+-- !sql_random_bytes --
+\N
+
