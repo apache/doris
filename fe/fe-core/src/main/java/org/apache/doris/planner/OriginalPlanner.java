@@ -530,8 +530,7 @@ public class OriginalPlanner extends Planner {
                     && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                     && sortNode.getSortInfo().getOrigOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getOrigOrderingExprs().get(0);
-                if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isStringType()
-                        && !firstSortExpr.getType().isFloatingPointType()) {
+                if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isFloatingPointType()) {
                     OlapScanNode scanNode = (OlapScanNode) child;
                     if (scanNode.isDupKeysOrMergeOnWrite()) {
                         sortNode.setUseTopnOpt(true);

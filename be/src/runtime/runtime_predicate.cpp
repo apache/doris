@@ -76,6 +76,8 @@ Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) 
         _get_value_fn = get_double_value;
         break;
     }
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING: {
         _get_value_fn = get_string_value;
         break;

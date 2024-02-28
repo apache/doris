@@ -127,8 +127,7 @@ public class TopNScanOpt extends PlanPostProcessor {
         if (!firstKey.isColumnFromTable()) {
             return topN;
         }
-        if (firstKey.getDataType().isStringLikeType()
-                || firstKey.getDataType().isFloatType()
+        if (firstKey.getDataType().isFloatType()
                 || firstKey.getDataType().isDoubleType()) {
             return topN;
         }
