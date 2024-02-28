@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Writable;
 
 import java.util.Comparator;
 import java.util.Map;
+import java.util.Optional;
 
 public abstract class PartitionItem implements Comparable<PartitionItem>, Writable {
     public static final Comparator<Map.Entry<Long, PartitionItem>> ITEM_MAP_ENTRY_COMPARATOR =
@@ -46,4 +47,7 @@ public abstract class PartitionItem implements Comparable<PartitionItem>, Writab
      * @throws AnalysisException
      */
     public abstract PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException;
+
+    public abstract boolean isSatisfyConfig(int pos, Optional<String> dateFormatOptional, int nowTruncSubMill)
+            throws AnalysisException;
 }

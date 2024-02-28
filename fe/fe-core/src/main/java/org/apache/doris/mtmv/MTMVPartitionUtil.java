@@ -19,7 +19,9 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
@@ -31,7 +33,16 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -47,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -122,10 +134,12 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMVRelatedTableIf relatedTable,
-            Map<String, String> tableProperties, String relatedCol) throws AnalysisException {
+            Map<String, String> tableProperties, String relatedCol, Map<String, String> mvProperties)
+            throws AnalysisException {
         HashMap<String, String> partitionProperties = Maps.newHashMap();
         List<AllPartitionDesc> res = Lists.newArrayList();
-        Set<PartitionKeyDesc> relatedPartitionDescs = getRelatedPartitionDescs(relatedTable, relatedCol);
+        Set<PartitionKeyDesc> relatedPartitionDescs = getRelatedPartitionDescs(relatedTable, relatedCol,
+                generateMTMVPartitionSyncConfigByProperties(mvProperties));
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
                     generatePartitionName(partitionKeyDesc),
@@ -137,15 +151,28 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    private static Set<PartitionKeyDesc> getRelatedPartitionDescs(MTMVRelatedTableIf relatedTable, String relatedCol)
+    private static Set<PartitionKeyDesc> getRelatedPartitionDescs(MTMVRelatedTableIf relatedTable, String relatedCol,
+            MTMVPartitionSyncConfig config)
             throws AnalysisException {
         int pos = getPos(relatedTable, relatedCol);
         Set<PartitionKeyDesc> res = Sets.newHashSet();
-        for (Entry<Long, PartitionItem> entry : relatedTable.getPartitionItems().entrySet()) {
+        for (Entry<Long, PartitionItem> entry : relatedTable.getPartitionItems(pos, config).entrySet()) {
             PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(pos);
             res.add(partitionKeyDesc);
         }
         return res;
+    }
+
+    public static MTMVPartitionSyncConfig generateMTMVPartitionSyncConfigByProperties(
+            Map<String, String> mvProperties) {
+        int syncLimit = mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT) ? Integer
+                .parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) : -1;
+        MTMVPartitionSyncTimeUnit timeUnit = mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT)
+                ? MTMVPartitionSyncTimeUnit.valueOf(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT.toUpperCase())
+                : MTMVPartitionSyncTimeUnit.DAY;
+        Optional<String> dateFormat = mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT)
+                ? Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT)) : Optional.empty();
+        return new MTMVPartitionSyncConfig(syncLimit, timeUnit, dateFormat);
     }
 
     public static int getPos(MTMVRelatedTableIf relatedTable, String relatedCol) throws AnalysisException {
@@ -480,5 +507,63 @@ public class MTMVPartitionUtil {
             refreshPartitionSnapshot.getTables().put(table.getId(), ((MTMVRelatedTableIf) table).getTableSnapshot());
         }
         return refreshPartitionSnapshot;
+    }
+
+    public static int getExprTimeSec(LiteralExpr expr, Optional<String> dateFormatOptional) throws AnalysisException {
+        if (expr instanceof DateLiteral) {
+            return (int) (((DateLiteral) expr).unixTimestamp(TimeUtils.getTimeZone()) / 1000);
+        }
+        if (!dateFormatOptional.isPresent()) {
+            throw new AnalysisException("expr is not DateLiteral and DateFormat is not present.");
+        }
+        String dateFormat = dateFormatOptional.get();
+        Expression strToDate = DateTimeExtractAndTransform
+                .strToDate(new VarcharLiteral(expr.getStringValue()), new VarcharLiteral(dateFormat));
+        if (!(strToDate instanceof DateTimeLiteral)) {
+            throw new AnalysisException(
+                    String.format("strToDate failed, stringValue: %s, dateFormat: %s", expr.getStringValue(),
+                            dateFormat));
+        }
+        return ((IntegerLiteral) DateTimeExtractAndTransform.unixTimestamp((DateTimeLiteral) strToDate)).getValue();
+    }
+
+    public static int getNowTruncSubSec(MTMVPartitionSyncTimeUnit timeUnit, int syncLimit)
+            throws AnalysisException {
+        Expression now = DateTimeAcquire.now();
+        if (!(now instanceof DateTimeLiteral)) {
+            throw new AnalysisException("Obtaining current time does not meet expectations, now: " + now);
+        }
+        DateTimeLiteral nowDateLiteral = (DateTimeLiteral) now;
+        Expression nowTrunc = DateTimeExtractAndTransform
+                .dateTrunc(nowDateLiteral, new VarcharLiteral(timeUnit.name()));
+        if (!(nowTrunc instanceof DateTimeLiteral)) {
+            throw new AnalysisException("date trunc not meet expectations, nowTrunc: " + nowTrunc);
+        }
+        DateTimeLiteral nowTruncDateLiteral = (DateTimeLiteral) nowTrunc;
+
+        IntegerLiteral integerLiteral = new IntegerLiteral(syncLimit);
+        Expression nowTruncSub;
+        switch (timeUnit) {
+            case DAY:
+                nowTruncSub = DateTimeArithmetic.dateSub(nowTruncDateLiteral, integerLiteral);
+                break;
+            case YEAR:
+                nowTruncSub = DateTimeArithmetic.yearsSub(nowTruncDateLiteral, integerLiteral);
+                break;
+            case MONTH:
+                nowTruncSub = DateTimeArithmetic.monthsSub(nowTruncDateLiteral, integerLiteral);
+                break;
+            default:
+                throw new AnalysisException("not support timeUnit: " + timeUnit.name());
+        }
+        if (!(nowTruncSub instanceof DateTimeLiteral)) {
+            throw new AnalysisException("date sub not meet expectations, nowTruncSub: " + nowTruncSub);
+        }
+        // TODO: 2024/2/28 remove code
+        // LocalDateTime localDateTime = ((DateTimeLiteral) nowTruncSub).toJavaDateType();
+        // ZoneId zoneId = ZoneId.systemDefault();
+        // ZonedDateTime zonedDateTime = localDateTime.atZone(zoneId);
+        // return zonedDateTime.toInstant().toEpochMilli();
+        return ((IntegerLiteral) DateTimeExtractAndTransform.unixTimestamp((DateTimeLiteral) nowTruncSub)).getValue();
     }
 }

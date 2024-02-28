@@ -39,6 +39,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionSyncTimeUnit;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
@@ -200,6 +201,35 @@ public class CreateMTMVInfo {
             mvProperties.put(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM, refreshPartitionNum);
             properties.remove(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM);
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) {
+            String partitionSyncLimit = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT);
+            try {
+                Integer.parseInt(partitionSyncLimit);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException(
+                        "valid partition_sync_limit: " + properties
+                                .get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
+            }
+            mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT, partitionSyncLimit);
+            properties.remove(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT);
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT)) {
+            String partitionTimeUnit = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT);
+            Optional<MTMVPartitionSyncTimeUnit> mtmvPartitionSyncTimeUnit = MTMVPartitionSyncTimeUnit
+                    .fromString(partitionTimeUnit);
+            if (!mtmvPartitionSyncTimeUnit.isPresent()) {
+                throw new AnalysisException(
+                        "valid partition_sync_time_unit: " + properties
+                                .get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT));
+            }
+            mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT, partitionTimeUnit);
+            properties.remove(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT);
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT)) {
+            String partitionDateFormat = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT);
+            mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT, partitionDateFormat);
+            properties.remove(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT);
+        }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
             String excludedTriggerTables = properties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
             mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, excludedTriggerTables);
@@ -324,7 +354,8 @@ public class CreateMTMVInfo {
         List<AllPartitionDesc> allPartitionDescs = null;
         try {
             allPartitionDescs = MTMVPartitionUtil
-                    .getPartitionDescsByRelatedTable(relatedTable, properties, mvPartitionInfo.getRelatedCol());
+                    .getPartitionDescsByRelatedTable(relatedTable, properties, mvPartitionInfo.getRelatedCol(),
+                            mvProperties);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException("getPartitionDescsByRelatedTable failed", e);
         }

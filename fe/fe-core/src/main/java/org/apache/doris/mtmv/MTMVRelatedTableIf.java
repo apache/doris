@@ -24,8 +24,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
+import com.google.common.collect.Maps;
+
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -39,6 +43,23 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return partitionId->PartitionItem
      */
     Map<Long, PartitionItem> getPartitionItems();
+
+    default Map<Long, PartitionItem> getPartitionItems(int pos, MTMVPartitionSyncConfig config)
+            throws AnalysisException {
+        Map<Long, PartitionItem> partitionItems = getPartitionItems();
+        if (config.getSyncLimit() <= 0) {
+            return partitionItems;
+        }
+        int nowTruncSubSec = MTMVPartitionUtil.getNowTruncSubSec(config.getTimeUnit(), config.getSyncLimit());
+        Optional<String> dateFormat = config.getDateFormat();
+        Map<Long, PartitionItem> res = Maps.newHashMap();
+        for (Entry<Long, PartitionItem> entry : partitionItems.entrySet()) {
+            if (entry.getValue().isSatisfyConfig(pos, dateFormat, nowTruncSubSec)) {
+                res.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return res;
+    }
 
     /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
