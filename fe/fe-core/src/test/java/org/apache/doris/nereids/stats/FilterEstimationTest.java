@@ -134,6 +134,8 @@ class FilterEstimationTest {
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
+                .setMaxValue(0)
+                .setMinValue(0)
                 .setIsUnknown(false);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
