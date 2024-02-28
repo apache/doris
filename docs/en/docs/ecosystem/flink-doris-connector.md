@@ -785,6 +785,6 @@ This problem is mainly caused by the conditional varchar/string type, which need
 
 The issue may have occurred due to configuring the IP address of `be`, which is not reachable by the external Flink cluster.This is mainly because when connecting to `fe`, the address of `be` is resolved through fe. For instance, if you add a be address as '127.0.0.1', the be address obtained by the Flink cluster through fe will be '127.0.0.1:webserver_port', and Flink will connect to that address. When this issue arises, you can resolve it by adding the actual corresponding external IP address of the be to the "with" attribute:`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`.For the entire database synchronization, the following properties are available`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`.
 
-16. **If there is a time gap of several hours between the timestamp type and the source data when synchronizing MySQL data to Doris**
+16. **When using Flink-connector to synchronize MySQL data to Doris, there is a time difference of several hours between the timestamp.**
 
-Firstly, you can set the corresponding time zone using `server-time-zone`, for example: `server-time-zone = "Asia/Shanghai"`. If the time is still incorrect after setting this, you can try the following configuration: `--mysql-conf debezium.date.format.timestamp.zone="UTC+8"` to resolve the issue.
+Flink  Connector synchronizes the entire database from MySQL with a default timezone of UTC+8. If your data resides in a different timezone, you can adjust it using the following configuration, for example: `--mysql-conf debezium.date.format.timestamp.zone="UTC+3"`.
