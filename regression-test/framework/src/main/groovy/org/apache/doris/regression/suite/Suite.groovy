@@ -642,9 +642,9 @@ class Suite implements GroovyInterceptable {
     }
 
     void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
-        String cmd = "scp -r ${username}@${host}:${files} ${filePath}"
+        String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
-            cmd = "scp -r ${files} ${username}@${host}:${filePath}"
+            cmd = "scp -o StrictHostKeyChecking=no -r ${files} ${username}@${host}:${filePath}"
         }
         logger.info("Execute: ${cmd}".toString())
         Process process = cmd.execute()

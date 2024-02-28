@@ -124,6 +124,7 @@ function start_doris_be() {
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"
+    if [[ -z "${ASAN_SYMBOLIZER_PATH}" ]]; then ASAN_SYMBOLIZER_PATH='/var/local/ldb-toolchain/bin/llvm-symbolizer'; fi
     export ASAN_SYMBOLIZER_PATH
     export ASAN_OPTIONS="symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:use_sigaltstack=0:detect_leaks=0:fast_unwind_on_malloc=0"
     export TCMALLOC_SAMPLE_PARAMETER=524288
@@ -524,6 +525,7 @@ archive_doris_coredump() {
     pids['be']="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
     pids['ms']="$(cat "${DORIS_HOME}"/ms/bin/doris_cloud.pid)"
     pids['recycler']="$(cat "${DORIS_HOME}"/recycler/bin/doris_cloud.pid)"
+    local has_core=false
     for p in "${!pids[@]}"; do
         pid="${pids[${p}]}"
         if [[ -z "${pid}" ]]; then continue; fi
@@ -540,11 +542,12 @@ archive_doris_coredump() {
                     mv "${DORIS_HOME}"/recycler/lib/doris_cloud "${DORIS_HOME}/${archive_dir}/${p}"
                 fi
                 mv "${coredump_file}" "${DORIS_HOME}/${archive_dir}/${p}"
+                has_core=true
             fi
         fi
     done
 
-    if tar -I pigz \
+    if ${has_core} && tar -I pigz \
         --directory "${DORIS_HOME}" \
         -cf "${DORIS_HOME}/${archive_name}" \
         "${archive_dir}"; then
