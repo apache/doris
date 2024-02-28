@@ -20,6 +20,7 @@ package org.apache.doris.cloud.datasource;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
@@ -51,7 +52,6 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TSortType;
-import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
@@ -79,7 +79,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     @Override
     protected Partition createPartitionWithIndices(long dbId, OlapTable tbl, long partitionId,
                                                    String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
-                                                   DistributionInfo distributionInfo, TStorageMedium storageMedium,
+                                                   DistributionInfo distributionInfo, DataProperty dataProperty,
                                                    ReplicaAllocation replicaAlloc,
                                                    Long versionInfo, Set<String> bfColumns, Set<Long> tabletIdSet,
                                                    boolean isInMemory,
@@ -126,7 +126,8 @@ public class CloudInternalCatalog extends InternalCatalog {
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
-            TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId, indexId, schemaHash, storageMedium);
+            TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId,
+                    indexId, schemaHash, dataProperty.getStorageMedium());
             createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
                     tabletMeta, tabletIdSet);
 
