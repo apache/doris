@@ -211,9 +211,15 @@ void ClientCacheHelper::init_metrics(const std::string& name) {
 
     thrift_client_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             std::string("thrift_client.") + name, {{"name", name}});
-    REGISTER_INIT_INT64_BVAR_METRIC(thrift_client_metric_entity_, thrift_used_clients_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "Number of clients 'checked-out' from the cache", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(thrift_client_metric_entity_, thrift_opened_clients_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "Total clients in the cache, including those in use", "", Labels(), false)
-    
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_client_metric_entity_, thrift_used_clients_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                                    "Number of clients 'checked-out' from the cache", "", Labels(),
+                                    false)
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_client_metric_entity_, thrift_opened_clients_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                                    "Total clients in the cache, including those in use", "",
+                                    Labels(), false)
+
     _metrics_enabled = true;
 }
 

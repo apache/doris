@@ -77,6 +77,8 @@
 #include "olap/txn_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
@@ -161,7 +163,10 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
-
+    DORIS_REGISTER_HOOK_METRIC(g_adder_unused_rowsets_count, [this]() {
+        // std::lock_guard<std::mutex> lock(_gc_mutex);
+        return _unused_rowsets.size();
+    });
     _broken_paths = options.broken_paths;
 }
 

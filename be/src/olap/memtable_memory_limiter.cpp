@@ -54,6 +54,7 @@ MemTableMemoryLimiter::MemTableMemoryLimiter() {}
 
 MemTableMemoryLimiter::~MemTableMemoryLimiter() {
     DEREGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_memtable_memory_limiter_mem_consumption)
 }
 
 Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
@@ -67,6 +68,8 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
                                                        "MemTableMemoryLimiter");
     REGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_memtable_memory_limiter_mem_consumption,
+                               [this]() { return _mem_tracker->consumption(); })
     _log_timer.start();
     return Status::OK();
 }

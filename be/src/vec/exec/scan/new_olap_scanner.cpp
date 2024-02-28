@@ -668,7 +668,6 @@ void NewOlapScanner::_update_counters_before_close() {
     tablet->query_scan_bytes_->increment(_compressed_bytes_read);
     tablet->query_scan_rows_->increment(_raw_rows_read);
     tablet->query_scan_count_->increment(1);
-    
 }
 
 } // namespace doris::vectorized

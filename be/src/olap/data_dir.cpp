@@ -137,15 +137,29 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
     data_dir_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             std::string("data_dir.") + path, {{"path", path}});
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_total_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_avail_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_local_used_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_remote_used_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_trash_used_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_state_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_score_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_num_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false)
-    
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_total_capacity_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                    false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_avail_capacity_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                    false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_local_used_capacity_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                    false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_remote_used_capacity_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                    false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_trash_used_capacity_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                    false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_state_, BvarMetricType::GAUGE,
+                                    BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_score_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(),
+                                    false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_num_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(),
+                                    false)
 }
 
 DataDir::~DataDir() {

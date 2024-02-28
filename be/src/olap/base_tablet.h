@@ -275,7 +275,6 @@ protected:
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;
     std::shared_ptr<BvarMetricEntity> metric_entity_;
-    
 
 protected:
     std::mutex _schema_change_lock;

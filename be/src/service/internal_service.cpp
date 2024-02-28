@@ -106,6 +106,7 @@
 #include "util/arrow/row_batch.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/md5.h"
 #include "util/metrics.h"
@@ -219,6 +220,23 @@ PInternalService::PInternalService(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(light_work_max_threads,
                          []() { return config::brpc_light_work_pool_threads; });
 
+    DORIS_REGISTER_HOOK_METRIC(g_adder_heavy_work_pool_queue_size,
+                               [this]() { return _heavy_work_pool.get_queue_size(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_light_work_pool_queue_size,
+                               [this]() { return _light_work_pool.get_queue_size(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_heavy_work_active_threads,
+                               [this]() { return _heavy_work_pool.get_active_threads(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_light_work_active_threads,
+                               [this]() { return _light_work_pool.get_active_threads(); });
+
+    DORIS_REGISTER_HOOK_METRIC(g_adder_heavy_work_pool_max_queue_size,
+                               []() { return config::brpc_heavy_work_pool_max_queue_size; });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_light_work_pool_max_queue_size,
+                               []() { return config::brpc_light_work_pool_max_queue_size; });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_heavy_work_max_threads,
+                               []() { return config::brpc_heavy_work_pool_threads; });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_light_work_max_threads,
+                               []() { return config::brpc_light_work_pool_threads; });
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
@@ -239,6 +257,15 @@ PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
     DEREGISTER_HOOK_METRIC(light_work_max_threads);
 
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_heavy_work_pool_queue_size);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_light_work_pool_queue_size);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_heavy_work_active_threads);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_light_work_active_threads);
+
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_heavy_work_pool_max_queue_size);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_light_work_pool_max_queue_size);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_heavy_work_max_threads);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_light_work_max_threads);
     CHECK_EQ(0, bthread_key_delete(btls_key));
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }

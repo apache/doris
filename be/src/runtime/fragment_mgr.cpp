@@ -120,9 +120,12 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
     REGISTER_HOOK_METRIC(fragment_instance_count,
                          [this]() { return _fragment_instance_map.size(); });
-
+    DORIS_REGISTER_HOOK_METRIC(g_adder_fragment_instance_count,
+                               [this]() { return _fragment_instance_map.size(); });
     entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, timeout_canceled_fragment_count_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, timeout_canceled_fragment_count_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                     Labels(), false)
 
     auto s = Thread::create(
             "FragmentMgr", "cancel_timeout_plan_fragment", [this]() { this->cancel_worker(); },
@@ -139,6 +142,8 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
 
     REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
                          [this]() { return _thread_pool->get_queue_size(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_fragment_thread_pool_queue_size,
+                               [this]() { return _thread_pool->get_queue_size(); });
     CHECK(s.ok()) << s.to_string();
 
     s = ThreadPoolBuilder("FragmentInstanceReportThreadPool")
@@ -154,6 +159,8 @@ FragmentMgr::~FragmentMgr() = default;
 void FragmentMgr::stop() {
     DEREGISTER_HOOK_METRIC(fragment_instance_count);
     DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_fragment_instance_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_fragment_thread_pool_queue_size);
     _stop_background_threads_latch.count_down();
     if (_cancel_thread) {
         _cancel_thread->join();

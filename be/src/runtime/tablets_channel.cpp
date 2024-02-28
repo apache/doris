@@ -70,6 +70,8 @@ BaseTabletsChannel::BaseTabletsChannel(const TabletsChannelKey& key, const Uniqu
     _init_profile(profile);
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
+        DORIS_REGISTER_HOOK_METRIC(g_adder_tablet_writer_count,
+                                   [&]() { return _s_tablet_writer_count.load(); })
     });
 }
 

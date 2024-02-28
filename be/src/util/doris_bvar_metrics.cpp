@@ -474,5 +474,87 @@ INIT_INT64_G_ADDER_BVAR_METRIC(upload_rowset_count, BvarMetricType::COUNTER,
                                BvarMetricUnit::ROWSETS, "", "", BvarMetric::Labels(), false)
 INIT_INT64_G_ADDER_BVAR_METRIC(upload_fail_count, BvarMetricType::COUNTER, BvarMetricUnit::ROWSETS,
                                "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(flush_thread_pool_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(flush_thread_pool_thread_num, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(memtable_memory_limiter_mem_consumption, BvarMetricType::GAUGE,
+                                BvarMetricUnit::BYTES, "",
+                                "memtable_memory_limiter_mem_consumption",
+                                BvarMetric::Labels({{"type", "load"}}), false)
 
+// Size of some global containers
+INIT_UINT64_G_ADDER_BVAR_METRIC(unused_rowsets_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::ROWSETS, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(tablet_meta_mem_consumption, BvarMetricType::GAUGE,
+                                BvarMetricUnit::BYTES, "", "mem_consumption",
+                                BvarMetric::Labels({{"type", "tablet_meta"}}), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(broker_count, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(active_scan_context_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(fragment_instance_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(fragment_thread_pool_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(load_channel_count, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                                "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(result_buffer_block_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(result_block_queue_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(small_file_cache_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(tablet_writer_count, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                                "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(new_stream_load_pipe_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(brpc_endpoint_stub_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(brpc_function_endpoint_stub_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(routine_load_task_count, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+
+INIT_UINT64_G_ADDER_BVAR_METRIC(local_scan_thread_pool_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(local_scan_thread_pool_thread_num, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(remote_scan_thread_pool_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(remote_scan_thread_pool_thread_num, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(limited_scan_thread_pool_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(limited_scan_thread_pool_thread_num, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+
+INIT_UINT64_G_ADDER_BVAR_METRIC(heavy_work_pool_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(light_work_pool_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(heavy_work_active_threads, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(light_work_active_threads, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+
+INIT_UINT64_G_ADDER_BVAR_METRIC(heavy_work_pool_max_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(light_work_pool_max_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(heavy_work_max_threads, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(light_work_max_threads, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+
+INIT_UINT64_G_ADDER_BVAR_METRIC(load_channel_mem_consumption, BvarMetricType::GAUGE,
+                                BvarMetricUnit::BYTES, "", "mem_consumption",
+                                BvarMetric::Labels({{"type", "load"}}), false)
+
+INIT_UINT64_G_ADDER_BVAR_METRIC(scanner_thread_pool_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(send_batch_thread_pool_thread_num, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+INIT_UINT64_G_ADDER_BVAR_METRIC(send_batch_thread_pool_queue_size, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
 } // namespace doris

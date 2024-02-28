@@ -132,7 +132,6 @@ extern MetricPrototype METRIC_query_scan_count;
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
 
-
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move(tablet_meta)) {
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             fmt::format("Tablet.{}", tablet_id()), {{"tablet_id", std::to_string(tablet_id())}},
@@ -142,16 +141,21 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
-    
+
     metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             fmt::format("Tablet.{}", tablet_id()), {{"tablet_id", std::to_string(tablet_id())}},
             BvarMetricEntityType::kTablet);
-    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, query_scan_bytes_, BvarMetricType::COUNTER, BvarMetricUnit::BYTES, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, query_scan_rows_, BvarMetricType::COUNTER, BvarMetricUnit::ROWS, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, query_scan_count_, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, flush_bytes_, BvarMetricType::COUNTER, BvarMetricUnit::BYTES, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, flush_finish_count_, BvarMetricType::COUNTER, BvarMetricUnit::OPERATIONS, "", "", Labels(), false)
-    
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, query_scan_bytes_, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, query_scan_rows_, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::ROWS, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, query_scan_count_, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::NOUNIT, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, flush_bytes_, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, flush_finish_count_, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::OPERATIONS, "", "", Labels(), false)
+
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());

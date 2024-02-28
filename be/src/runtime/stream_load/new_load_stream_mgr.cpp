@@ -17,6 +17,7 @@
 
 #include "runtime/stream_load/new_load_stream_mgr.h"
 
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 
@@ -28,9 +29,12 @@ NewLoadStreamMgr::NewLoadStreamMgr() {
     // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
     // actual size of all StreamLoadPipe.
     REGISTER_HOOK_METRIC(new_stream_load_pipe_count, [this]() { return _stream_map.size(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_new_stream_load_pipe_count,
+                               [this]() { return _stream_map.size(); });
 }
 
 NewLoadStreamMgr::~NewLoadStreamMgr() {
     DEREGISTER_HOOK_METRIC(new_stream_load_pipe_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_new_stream_load_pipe_count);
 }
 } // namespace doris

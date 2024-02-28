@@ -160,7 +160,6 @@ private:
     std::shared_ptr<BvarAdderMetric<int64_t>> thrift_current_connections_;
     // Total connections made over the lifetime of this server
     std::shared_ptr<BvarAdderMetric<int64_t>> thrift_connections_total_;
-    
 };
 
 } // namespace doris

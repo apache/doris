@@ -70,11 +70,17 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
         // std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
     });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_load_channel_count, [this]() {
+        // std::lock_guard<std::mutex> l(_lock);
+        return _load_channels.size();
+    })
 }
 
 void LoadChannelMgr::stop() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
     DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_load_channel_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_load_channel_mem_consumption);
     _stop_background_threads_latch.count_down();
     if (_load_channels_clean_thread) {
         _load_channels_clean_thread->join();
