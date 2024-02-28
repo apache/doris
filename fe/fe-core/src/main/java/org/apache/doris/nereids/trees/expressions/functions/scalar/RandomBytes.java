@@ -22,8 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -39,8 +38,8 @@ public class RandomBytes extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT)).args(SmallIntType.INSTANCE)
+            FunctionSignature.ret(StringType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(IntegerType.INSTANCE)
     );
 
     /**
