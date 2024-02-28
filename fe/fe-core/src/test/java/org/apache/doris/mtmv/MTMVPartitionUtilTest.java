@@ -22,7 +22,6 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
@@ -34,9 +33,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class MTMVPartitionUtilTest {
@@ -44,8 +41,6 @@ public class MTMVPartitionUtilTest {
     private MTMV mtmv;
     @Mocked
     private Partition p1;
-    @Mocked
-    private PartitionItem p1Item;
     @Mocked
     private MTMVRelation relation;
     @Mocked
@@ -66,8 +61,6 @@ public class MTMVPartitionUtilTest {
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
         baseTables.add(baseTableInfo);
-        Map<Long, PartitionItem> partitionItems = new HashMap<>();
-        partitionItems.put(1L, p1Item);
         new Expectations() {
             {
                 mtmv.getRelation();
@@ -78,9 +71,9 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = Lists.newArrayList(p1);
 
-                mtmv.getAndCopyPartitionItems();
+                mtmv.getPartitionIds();
                 minTimes = 0;
-                result = partitionItems;
+                result = Lists.newArrayList(1L);
 
                 p1.getId();
                 minTimes = 0;
