@@ -61,10 +61,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
     @VisibleForTesting
     protected void createSystemAnalysisJob(AnalysisInfo jobInfo)
             throws DdlException {
-        if (jobInfo.colToPartitions.isEmpty()) {
-            // No statistics need to be collected or updated
-            return;
-        }
         Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
