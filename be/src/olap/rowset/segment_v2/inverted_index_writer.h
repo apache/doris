@@ -21,11 +21,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <array>
 #include <atomic>
 #include <memory>
 #include <string>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "io/fs/file_system.h"
