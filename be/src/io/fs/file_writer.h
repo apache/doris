@@ -64,10 +64,7 @@ public:
 
     const Path& path() const { return _path; }
 
-    size_t bytes_appended() const {
-        DBUG_EXECUTE_IF("FileWriter.bytes_appended.zero_bytes_appended", { return 0; });
-        return _bytes_appended;
-    }
+    size_t bytes_appended() const { return _bytes_appended; }
 
     std::shared_ptr<FileSystem> fs() const { return _fs; }
 
