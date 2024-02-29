@@ -37,7 +37,7 @@ suite("test_nereids_row_policy") {
             sql "set enable_fallback_to_original_planner = false"
             test {
                 sql "SELECT * FROM ${viewName}"
-                exception "SELECT command denied to user"
+                exception "does not have privilege for"
             }
         }
         assertEquals(size, result1.size())
