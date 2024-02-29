@@ -600,8 +600,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                      runtime_predicate.get(), *_schema,
                                                      _opts.io_ctx.reader_type)) {
                 AndBlockColumnPredicate and_predicate;
-                auto* single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
-                and_predicate.add_column_predicate(single_predicate);
+                and_predicate.add_column_predicate(
+                        SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
 
                 RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
                 RETURN_IF_ERROR(_column_iterators[runtime_predicate->column_id()]
