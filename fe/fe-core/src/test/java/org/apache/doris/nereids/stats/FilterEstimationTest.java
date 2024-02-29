@@ -41,10 +41,10 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.math3.util.Precision;
-import org.apache.doris.statistics.StatisticsBuilder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
