@@ -479,8 +479,8 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
     if (start + length > src_concrete.get_offsets().size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Parameter out of bound in ColumnArray::insert_range_from method. "
-                               "[start({}) + length({}) > offsets.size({})]" std::to_string(start),
-                               std::to_string(length),
+                               "[start({}) + length({}) > offsets.size({})]",
+                               std::to_string(start), std::to_string(length),
                                std::to_string(src_concrete.get_offsets().size()));
     }
 
