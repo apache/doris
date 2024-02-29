@@ -878,11 +878,11 @@ struct AsyncRPCContext {
     brpc::CallId cid;
 };
 
-void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
-                                                  const PFetchRemoteSchemaRequest* request,
-                                                  PFetchRemoteSchemaResponse* response,
-                                                  google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                                      const PFetchRemoteSchemaRequest* request,
+                                                      PFetchRemoteSchemaResponse* response,
+                                                      google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         if (request->is_coordinator()) {
@@ -953,11 +953,13 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!target_tablets.empty()) {
                 std::vector<TabletSchemaSPtr> tablet_schemas;
                 for (int64_t tablet_id : target_tablets) {
-                    auto res = ExecEnv::get_tablet(tablet_id);
-                    if (!res.has_value()) {
+                    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id, false);
+                    if (tablet == nullptr) {
+                        // just ignore
+                        LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    tablet_schemas.push_back(res.value()->tablet_schema());
+                    tablet_schemas.push_back(tablet->tablet_schema());
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
