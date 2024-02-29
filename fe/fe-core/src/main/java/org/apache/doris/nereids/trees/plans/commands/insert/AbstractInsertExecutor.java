@@ -144,6 +144,18 @@ public abstract class AbstractInsertExecutor {
         }
     }
 
+    private boolean checkStrictMode() {
+        // if in strict mode, insert will fail if there are filtered rows
+        if (ctx.getSessionVariable().getEnableInsertStrict()) {
+            if (filteredRows > 0) {
+                ctx.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
+                        "Insert has filtered data in strict mode, tracking_url=" + coordinator.getTrackingUrl());
+                return false;
+            }
+        }
+        return true;
+    }
+
     /**
      * execute insert txn for insert into select command.
      */
@@ -151,6 +163,9 @@ public abstract class AbstractInsertExecutor {
         beforeExec();
         try {
             execImpl(executor, jobId);
+            if (!checkStrictMode()) {
+                return;
+            }
             onComplete();
         } catch (Throwable t) {
             onFail(t);
