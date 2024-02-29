@@ -839,28 +839,81 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#mysql) and [Oracle](#oracle)
 :::
 
+### DB2
+
+#### Example
+
+```sql
+CREATE CATALOG `jdbc_db2` PROPERTIES (
+    "user" = "db2inst1",
+    "type" = "jdbc",
+    "password" = "123456",
+    "jdbc_url" = "jdbc:db2://127.0.0.1:50000/doris",
+    "driver_url" = "jcc-11.5.8.0.jar",
+    "driver_class" = "com.ibm.db2.jcc.DB2Driver"
+);
+```
+
+#### Hierarchy Mapping
+
+When mapping DB2, Doris's Database corresponds to a Schema under the specified DataBase in DB2 (such as "doris" in the `jdbc_url` parameter in the example). The Table under Doris' Database corresponds to the Tables under Schema in DB2. That is, the mapping relationship is as follows:
+
+|  Doris   |   DB2    |
+|:--------:|:--------:|
+| Catalog  | DataBase |
+| Database |  Schema  |
+|  Table   |  Table   |
+
+
+#### Type Mapping
+
+| DB2 Type         | Trino Type   | Notes |
+|------------------|--------------|-------|
+| SMALLINT         | SMALLINT     |       |
+| INT              | INT          |       |
+| BIGINT           | BIGINT       |       |
+| DOUBLE           | DOUBLE       |       |
+| DOUBLE PRECISION | DOUBLE       |       |
+| FLOAT            | DOUBLE       |       |
+| REAL             | FLOAT        |       |
+| NUMERIC          | DECIMAL      |       |
+| DECIMAL          | DECIMAL      |       |
+| DECFLOAT         | DECIMAL      |       |
+| DATE             | DATE         |       |
+| TIMESTAMP        | DATETIME     |       |
+| CHAR             | CHAR         |       |
+| CHAR VARYING     | VARCHAR      |       |
+| VARCHAR          | VARCHAR      |       |
+| LONG VARCHAR     | VARCHAR      |       |
+| VARGRAPHIC       | STRING       |       |
+| LONG VARGRAPHIC  | STRING       |       |
+| TIME             | STRING       |       |
+| CLOB             | STRING       |       |
+| OTHER            | UNSUPPORTED  |       |
+
 ## JDBC Drivers
 
 It is recommended to use the following versions of Driver to connect to the corresponding database. Other versions of the Driver have not been tested and may cause unexpected problems.
 
-|  Source | JDBC Driver Version |
-|:--------:|:--------:|
-| MySQL 5.x  | mysql-connector-java-5.1.47.jar |
-| MySQL 8.x  | mysql-connector-java-8.0.25.jar |
-| PostgreSQL | postgresql-42.5.1.jar |
-| Oracle   | ojdbc8.jar|
-| SQLServer | mssql-jdbc-11.2.3.jre8.jar |
-| Doris | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
-| Clickhouse | clickhouse-jdbc-0.4.2-all.jar  |
-| SAP HAHA | ngdbc.jar |
-| Trino/Presto | trino-jdbc-389.jar / presto-jdbc-0.280.jar |
-| OceanBase | oceanbase-client-2.4.2.jar |
+|    Source    |                        JDBC Driver Version                        |
+|:------------:|:-----------------------------------------------------------------:|
+| MySQL 5.x    |                  mysql-connector-java-5.1.47.jar                  |
+|  MySQL 8.x   |                  mysql-connector-java-8.0.25.jar                  |
+|  PostgreSQL  |                       postgresql-42.5.1.jar                       |
+|    Oracle    |                            ojdbc8.jar                             |
+|  SQLServer   |                    mssql-jdbc-11.2.3.jre8.jar                     |
+|    Doris     | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+|  Clickhouse  |                   clickhouse-jdbc-0.4.2-all.jar                   |
+|   SAP HAHA   |                             ngdbc.jar                             |
+| Trino/Presto |            trino-jdbc-389.jar / presto-jdbc-0.280.jar             |
+|  OceanBase   |                    oceanbase-client-2.4.2.jar                     |
+|     DB2      |                         jcc-11.5.8.0.jar                          |
 
 ## FAQ
 
-1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase?
+1. In addition to MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino/Presto, OceanBase, DB2, whether it can support more databases
 
-   Currently, Doris supports MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase. We are planning to expand this list. Technically, any databases that support JDBC access can be connected to Doris in the form of JDBC external tables. You are more than welcome to be a Doris contributor to expedite this effort.
+   Currently, Doris is only adapted to MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino/Presto, OceanBase, and DB2. Adaptation work for other databases is under planning. In principle, any database that supports JDBC access can Can be accessed through JDBC appearance. If you need to access other surfaces, you are welcome to modify the code and contribute to Doris.
 
 2. Why does Mojibake occur when Doris tries to read emojis from MySQL external tables?
 
