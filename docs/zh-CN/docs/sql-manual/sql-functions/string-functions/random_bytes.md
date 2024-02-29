@@ -1,6 +1,6 @@
 ---
 {
-    "title": "url_decode",
+    "title": "random_bytes",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## url_decode
+## random_bytes
 ### description
 
 random_bytes函数用于生成随机字节序列。
@@ -32,12 +32,12 @@ random_bytes函数用于生成随机字节序列。
 #### Syntax
 
 ```sql
-VARCHAR url_decode(INT len)
+VARCHAR random_bytes(INT len)
 ```
 
 ### Parameters
 
-- url: 三该参数指定生成的随机字节序列的长度。
+- len: 该参数指定生成的随机字节序列的长度。
 
 ### example
 
