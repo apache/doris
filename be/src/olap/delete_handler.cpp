@@ -416,7 +416,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
     return Status::OK();
 }
 
-void DeleteHandler::finalize() {
+DeleteHandler::~DeleteHandler() {
     if (!_is_inited) {
         return;
     }
