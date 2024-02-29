@@ -36,11 +36,11 @@ under the License.
 - 升级前可以阅读 [常规升级手册](https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade)，便于理解升级中的一些原理和注意事项。
 - 升级前无法对数据和元数据的兼容性进行验证，因此集群升级一定要避免数据存在 单副本 情况 和 集群单 FE FOLLOWER 节点。
 - 升级过程中会有节点重启，所以可能会触发不必要的集群均衡和副本修复逻辑，先通过以下命令关闭
-  ```
-  admin set frontend config("disable_balance" = "true");
-  admin set frontend config("disable_colocate_balance" = "true");
-  admin set frontend config("disable_tablet_scheduler" = "true");
-  ```
+```
+admin set frontend config("disable_balance" = "true");
+admin set frontend config("disable_colocate_balance" = "true");
+admin set frontend config("disable_tablet_scheduler" = "true");
+```
 - Doris 升级请遵守不要跨两个及以上关键节点版本升级的原则，若要跨多个关键节点版本升级，先升级到最近的关键节点版本，随后再依次往后升级，若是非关键节点版本，则可忽略跳过。具体参考 [升级版本说明](https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade#doris-%E7%89%88%E6%9C%AC%E8%AF%B4%E6%98%8E)
 
 ## 升级操作
@@ -57,34 +57,34 @@ under the License.
  
 1. 修改 `spec.beSpec.image`  
 
-  将 `selectdb/doris.be-ubuntu:2.0.4` 变为 `selectdb/doris.be-ubuntu:2.1.0`
-  ```
-  $ vim doriscluster-sample.yaml
-  ```
+将 `selectdb/doris.be-ubuntu:2.0.4` 变为 `selectdb/doris.be-ubuntu:2.1.0`
+```
+$ vim doriscluster-sample.yaml
+```
 
 2. 保存修改后应用本次修改进行be升级:
-  ```
-  $ kubectl apply -f doriscluster-sample.yaml -n doris
-  ```
+```
+$ kubectl apply -f doriscluster-sample.yaml -n doris
+```
 也可通过 `kubectl edit dcr` 的方式直接修改。
 
 1. 查看 namespace 为 'doris' 下的 dcr 列表，获取需要更新的 `cluster_name`
-  ```
-  $ kubectl get dcr -n doris
-  NAME                  FESTATUS    BESTATUS    CNSTATUS
-  doriscluster-sample   available   available
-  ```
+```
+$ kubectl get dcr -n doris
+NAME                  FESTATUS    BESTATUS    CNSTATUS
+doriscluster-sample   available   available
+```
 
 2. 修改、保存并生效
-  ```
-  $ kubectl edit dcr doriscluster-sample -n doris
-  ```
-  进入文本编辑器后，将找到`spec.beSpec.image`，将 `selectdb/doris.be-ubuntu:2.0.4` 修改为 `selectdb/doris.be-ubuntu:2.1.0`
+```
+$ kubectl edit dcr doriscluster-sample -n doris
+```
+进入文本编辑器后，将找到`spec.beSpec.image`，将 `selectdb/doris.be-ubuntu:2.0.4` 修改为 `selectdb/doris.be-ubuntu:2.1.0`
 
 3. 查看升级过程和结果：
-  ```
-  $ kubectl get pod -n doris
-  ```
+```
+$ kubectl get pod -n doris
+```
 
 当所有 Pod 都重建完毕进入 Running 状态后，升级完成。
 
@@ -94,28 +94,28 @@ under the License.
 
 1. 修改 `spec.feSpec.image`
 
-  将 `selectdb/doris.fe-ubuntu:2.0.4` 变为 `selectdb/doris.fe-ubuntu:2.1.0`
-  ```
-  $ vim doriscluster-sample.yaml
-  ```
+将 `selectdb/doris.fe-ubuntu:2.0.4` 变为 `selectdb/doris.fe-ubuntu:2.1.0`
+```
+$ vim doriscluster-sample.yaml
+```
 
 2. 保存修改后应用本次修改进行be升级:
-  ```
-  $ kubectl apply -f doriscluster-sample.yaml -n doris
-  ```
+```
+$ kubectl apply -f doriscluster-sample.yaml -n doris
+```
 
 也可通过 `kubectl edit dcr` 的方式直接修改。
 
 1. 修改、保存并生效
-  ```
-  $ kubectl edit dcr doriscluster-sample -n doris
-  ```
-  进入文本编辑器后，将找到`spec.feSpec.image`，将 `selectdb/doris.fe-ubuntu:2.0.4` 修改为 `selectdb/doris.fe-ubuntu:2.1.0`
+```
+$ kubectl edit dcr doriscluster-sample -n doris
+```
+进入文本编辑器后，将找到`spec.feSpec.image`，将 `selectdb/doris.fe-ubuntu:2.0.4` 修改为 `selectdb/doris.fe-ubuntu:2.1.0`
 
 2. 查看升级过程和结果
-  ```
-  $ kubectl get pod -n doris
-  ```
+```
+$ kubectl get pod -n doris
+```
 
 当所有 Pod 都重建完毕进入 Running 状态后，升级完成。
 
