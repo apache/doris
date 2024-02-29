@@ -131,6 +131,8 @@ public:
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
+    std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
+
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);
     Status _extract_probe_column(SetProbeSinkLocalState<is_intersect>& local_state,

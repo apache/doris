@@ -610,9 +610,13 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                     auto& deps = _dag[_pipeline->id()];
                     for (auto& dep : deps) {
                         if (pipeline_id_to_task.contains(dep)) {
-                            task->add_upstream_dependency(
-                                    pipeline_id_to_task[dep]->get_downstream_dependency(),
-                                    pipeline_id_to_task[dep]->get_shared_states());
+                            auto ss = pipeline_id_to_task[dep]->get_sink_shared_state();
+                            if (ss) {
+                                task->inject_shared_state(ss);
+                            } else {
+                                pipeline_id_to_task[dep]->inject_shared_state(
+                                        task->get_source_shared_state());
+                            }
                         }
                     }
                 }
@@ -781,7 +785,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
                                                  "LOCAL_EXCHANGE_SINK_DEPENDENCY", true,
                                                  _runtime_state->get_query_ctx());
     sink_dep->set_shared_state(shared_state.get());
-    shared_state->sink_dependency = sink_dep;
+    shared_state->sink_deps.push_back(sink_dep);
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
 
     // 3. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to
@@ -803,6 +807,9 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
         RETURN_IF_ERROR(operator_xs.front()->set_child(source_op));
     }
     operator_xs.insert(operator_xs.begin(), source_op);
+
+    shared_state->create_source_dependencies(source_op->operator_id(), source_op->node_id(),
+                                             _query_ctx.get());
 
     // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;

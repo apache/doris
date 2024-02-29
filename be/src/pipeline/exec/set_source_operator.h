@@ -85,7 +85,10 @@ public:
 
     SetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs)
-            : Base(pool, tnode, operator_id, descs) {};
+            : Base(pool, tnode, operator_id, descs),
+              _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
+                                      ? tnode.intersect_node.result_expr_lists.size()
+                                      : tnode.except_node.result_expr_lists.size()) {};
     ~SetSourceOperatorX() override = default;
 
     [[nodiscard]] bool is_source() const override { return true; }
@@ -105,6 +108,7 @@ private:
 
     void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
                              vectorized::RowRefListWithFlags& value, int& block_size);
+    const int _child_quantity;
 };
 
 } // namespace pipeline
