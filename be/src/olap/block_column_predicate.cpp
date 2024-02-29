@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "block_column_predicate.h"
+#include "olap/block_column_predicate.h"
 
 #include <string.h>
 
@@ -105,7 +105,7 @@ uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uin
 
 void OrBlockColumnPredicate::evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
                                          uint16_t selected_size, bool* flags) const {
-    for (auto block_column_predicate : _block_column_predicate_vec) {
+    for (auto& block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_or(block, sel, selected_size, flags);
     }
 }
@@ -137,14 +137,14 @@ uint16_t AndBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, ui
 
 void AndBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
                                            uint16_t selected_size, bool* flags) const {
-    for (auto block_column_predicate : _block_column_predicate_vec) {
+    for (auto& block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_and(block, sel, selected_size, flags);
     }
 }
 
 bool AndBlockColumnPredicate::evaluate_and(
         const std::pair<WrapperField*, WrapperField*>& statistic) const {
-    for (auto block_column_predicate : _block_column_predicate_vec) {
+    for (auto& block_column_predicate : _block_column_predicate_vec) {
         if (!block_column_predicate->evaluate_and(statistic)) {
             return false;
         }
@@ -153,7 +153,7 @@ bool AndBlockColumnPredicate::evaluate_and(
 }
 
 bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
-    for (auto block_column_predicate : _block_column_predicate_vec) {
+    for (auto& block_column_predicate : _block_column_predicate_vec) {
         if (!block_column_predicate->evaluate_and(bf)) {
             return false;
         }
@@ -163,7 +163,7 @@ bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) co
 
 bool AndBlockColumnPredicate::evaluate_and(const StringRef* dict_words,
                                            const size_t dict_num) const {
-    for (auto* predicate : _block_column_predicate_vec) {
+    for (auto& predicate : _block_column_predicate_vec) {
         if (!predicate->evaluate_and(dict_words, dict_num)) {
             return false;
         }
@@ -179,7 +179,7 @@ void AndBlockColumnPredicate::evaluate_or(vectorized::MutableColumns& block, uin
         bool new_flags[selected_size];
         memset(new_flags, true, selected_size);
 
-        for (auto block_column_predicate : _block_column_predicate_vec) {
+        for (auto& block_column_predicate : _block_column_predicate_vec) {
             block_column_predicate->evaluate_and(block, sel, selected_size, new_flags);
         }
 
@@ -197,7 +197,7 @@ void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, ui
     } else {
         bool new_flags[size];
         bool initialized = false;
-        for (auto block_column_predicate : _block_column_predicate_vec) {
+        for (auto& block_column_predicate : _block_column_predicate_vec) {
             if (initialized) {
                 block_column_predicate->evaluate_vec(block, size, new_flags);
                 for (uint16_t j = 0; j < size; j++) {
