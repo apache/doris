@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("testNDVToHll") {
+suite ("test_approx_count_distinct") {
     sql """set enable_nereids_planner=true;"""
     sql """set enable_fallback_to_original_planner=false;"""
     sql """ DROP TABLE IF EXISTS user_tags; """
@@ -33,7 +33,7 @@ suite ("testNDVToHll") {
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view user_tags_mv as select user_id, hll_union(hll_hash(tag_id)) from user_tags group by user_id;")
+    createMV("create materialized view user_tags_mv as select user_id, approx_count_distinct(tag_id) from user_tags group by user_id;")
 
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
