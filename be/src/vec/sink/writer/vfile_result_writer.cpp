@@ -26,7 +26,6 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
@@ -142,21 +141,24 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
             _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
             _file_writer_impl));
+    RETURN_IF_ERROR(_file_writer_impl->open());
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
-        _vfile_writer.reset(new VCSVTransformer(
-                _file_writer_impl.get(), _vec_output_expr_ctxs, _output_object_data, _header_type,
-                _header, _file_opts->column_separator, _file_opts->line_delimiter));
+        _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
+                                                _vec_output_expr_ctxs, _output_object_data,
+                                                _header_type, _header, _file_opts->column_separator,
+                                                _file_opts->line_delimiter, _file_opts->with_bom));
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetTransformer(
-                _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
+                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
                 _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
                 _file_opts->parquet_version, _output_object_data));
         break;
     case TFileFormatType::FORMAT_ORC:
-        _vfile_writer.reset(new VOrcTransformer(_file_writer_impl.get(), _vec_output_expr_ctxs,
-                                                _file_opts->orc_schema, _output_object_data));
+        _vfile_writer.reset(new VOrcTransformer(_state, _file_writer_impl.get(),
+                                                _vec_output_expr_ctxs, _file_opts->orc_schema,
+                                                _output_object_data));
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -221,7 +223,7 @@ std::string VFileResultWriter::_file_format_to_name() {
     }
 }
 
-Status VFileResultWriter::append_block(Block& block) {
+Status VFileResultWriter::write(Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -305,6 +307,9 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string file_url;
     static_cast<void>(_get_file_url(&file_url));
+    std::stringstream ss;
+    ss << file_url << "*";
+    file_url = ss.str();
     row_buffer.push_string(file_url.c_str(), file_url.length()); // url
 
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
@@ -393,8 +398,8 @@ Status VFileResultWriter::_delete_dir() {
     case TStorageBackendType::HDFS: {
         THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
         std::shared_ptr<io::HdfsFileSystem> hdfs_fs = nullptr;
-        RETURN_IF_ERROR(
-                io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &hdfs_fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr,
+                                                   &hdfs_fs));
         file_system = hdfs_fs;
         break;
     }

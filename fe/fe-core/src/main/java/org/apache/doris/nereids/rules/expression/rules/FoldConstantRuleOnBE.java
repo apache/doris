@@ -134,7 +134,13 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             }
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
-            Expr staleExpr = ExpressionTranslator.translate(expr, null);
+            Expr staleExpr;
+            try {
+                staleExpr = ExpressionTranslator.translate(expr, null);
+            } catch (Exception e) {
+                LOG.warn("expression {} translate to legacy expr failed. ", expr, e);
+                return;
+            }
             tExprMap.put(id, staleExpr.treeToThrift());
         } else {
             for (int i = 0; i < expr.children().size(); i++) {
@@ -175,6 +181,8 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             tParams.setQueryOptions(tQueryOptions);
             tParams.setQueryId(context.queryId());
 
+            // TODO: will be delete the debug log after find problem of timeout.
+            LOG.info("fold query {} ", DebugUtil.printId(context.queryId()));
             Future<PConstantExprResult> future =
                     BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
@@ -209,8 +217,9 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                                     type = DateTimeV2Type.of(pScalarType.getScale());
                                 } else if (primitiveType == PrimitiveType.DECIMAL32
                                         || primitiveType == PrimitiveType.DECIMAL64
-                                        || primitiveType == PrimitiveType.DECIMAL128) {
-                                    type = DecimalV3Type.createDecimalV3Type(
+                                        || primitiveType == PrimitiveType.DECIMAL128
+                                        || primitiveType == PrimitiveType.DECIMAL256) {
+                                    type = DecimalV3Type.createDecimalV3TypeLooseCheck(
                                             pScalarType.getPrecision(), pScalarType.getScale());
                                 } else {
                                     type = DataType.fromCatalogType(ScalarType.createType(
@@ -221,7 +230,9 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                         } else {
                             ret = constMap.get(e1.getKey());
                         }
-                        LOG.debug("Be constant folding convert {} to {}", e1.getKey(), ret);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Be constant folding convert {} to {}", e1.getKey(), ret);
+                        }
                         resultMap.put(e1.getKey(), ret);
                     }
                 }
@@ -237,4 +248,3 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
         return resultMap;
     }
 }
-

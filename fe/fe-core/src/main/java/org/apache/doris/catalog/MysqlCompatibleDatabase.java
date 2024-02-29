@@ -50,12 +50,12 @@ public abstract class MysqlCompatibleDatabase extends Database {
      * @note: Rename a table of mysql database in MYSQL ls allowed.
      */
     @Override
-    public boolean createTable(Table table) {
-        return super.createTable(table);
+    public boolean registerTable(TableIf table) {
+        return super.registerTable(table);
     }
 
     @Override
-    public void dropTable(String name) {
+    public void unregisterTable(String name) {
         // Do nothing
     }
 
@@ -75,11 +75,6 @@ public abstract class MysqlCompatibleDatabase extends Database {
     @Override
     public void readFields(DataInput in) throws IOException {
         throw new IOException("Not support.");
-    }
-
-    @Override
-    public boolean isMysqlCompatibleDatabase() {
-        return true;
     }
 
     /**

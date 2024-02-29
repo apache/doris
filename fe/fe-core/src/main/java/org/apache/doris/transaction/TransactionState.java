@@ -17,7 +17,9 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
@@ -45,8 +47,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -104,7 +108,8 @@ public class TransactionState implements Writable {
         TIMEOUT,
         OFFSET_OUT_OF_RANGE,
         PAUSE,
-        NO_PARTITIONS;
+        NO_PARTITIONS,
+        INVALID_JSON_PATH;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
@@ -159,6 +164,9 @@ public class TransactionState implements Writable {
         public TxnSourceType sourceType;
         @SerializedName(value = "ip")
         public String ip;
+        // True if this txn if created by system(such as writing data to audit table)
+        @SerializedName(value = "ii")
+        public boolean isFromInternal = false;
 
         public TxnCoordinator() {
         }
@@ -216,13 +224,20 @@ public class TransactionState implements Writable {
     // this state need not be serialized
     private Map<Long, PublishVersionTask> publishVersionTasks;
     private boolean hasSendTask;
-    private long publishVersionTime = -1;
     private TransactionStatus preStatus = null;
 
     // When publish txn, if every tablet has at least 1 replica published succ, but not quorum replicas succ,
-    // and time since firstPublishOneSuccTime has exceeds Config.publish_wait_time_second,
+    // and time since firstPublishVersionTime has exceeds Config.publish_wait_time_second,
     // then this transaction will become visible.
-    private long firstPublishOneSuccTime = -1;
+    private long firstPublishVersionTime = -1;
+
+    private long lastPublishVersionTime = -1;
+
+    private long publishCount = 0;
+
+    // txn may try finish many times and generate a lot of log.
+    // use lastPublishLogTime to reduce log.
+    private long lastPublishLogTime = 0;
 
     @SerializedName(value = "callbackId")
     private long callbackId = -1;
@@ -264,6 +279,24 @@ public class TransactionState implements Writable {
     // this msg will be shown in show proc "/transactions/dbId/";
     // no need to persist.
     private String errMsg = "";
+
+    public class SchemaInfo {
+        public List<Column> schema;
+        public int schemaVersion;
+
+        public SchemaInfo(OlapTable olapTable) {
+            Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
+            for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+                schema = indexMeta.getSchema();
+                schemaVersion = indexMeta.getSchemaVersion();
+                break;
+            }
+        }
+    }
+
+    private boolean isPartialUpdate = false;
+    // table id -> schema info
+    private Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
 
     public TransactionState() {
         this.dbId = -1;
@@ -309,6 +342,22 @@ public class TransactionState implements Writable {
         this.timeoutMs = timeoutMs;
     }
 
+    //for TxnInfoPB convert to TransactionState
+    public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
+            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, TransactionStatus transactionStatus,
+            String reason, long callbackId, long timeoutMs, TxnCommitAttachment txnCommitAttachment, long prepareTime,
+            long preCommitTime, long commitTime, long finishTime) {
+        this(dbId, tableIdList, transactionId, label, requestId, sourceType, txnCoordinator, callbackId, timeoutMs);
+
+        this.transactionStatus = transactionStatus;
+        this.prepareTime = prepareTime;
+        this.preCommitTime = preCommitTime;
+        this.commitTime = commitTime;
+        this.finishTime = finishTime;
+        this.reason = reason;
+        this.txnCommitAttachment = txnCommitAttachment;
+    }
+
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
     }
@@ -317,17 +366,29 @@ public class TransactionState implements Writable {
         this.publishVersionTasks.put(backendId, task);
     }
 
-    public void setHasSendTask(boolean hasSendTask) {
-        this.hasSendTask = hasSendTask;
-        this.publishVersionTime = System.currentTimeMillis();
+    public void setSendedTask() {
+        this.hasSendTask = true;
+        updateSendTaskTime();
     }
 
     public void updateSendTaskTime() {
-        this.publishVersionTime = System.currentTimeMillis();
+        this.publishCount++;
+        this.lastPublishVersionTime = System.currentTimeMillis();
+        if (this.firstPublishVersionTime <= 0) {
+            this.firstPublishVersionTime = lastPublishVersionTime;
+        }
     }
 
-    public long getPublishVersionTime() {
-        return this.publishVersionTime;
+    public long getFirstPublishVersionTime() {
+        return firstPublishVersionTime;
+    }
+
+    public long getLastPublishVersionTime() {
+        return this.lastPublishVersionTime;
+    }
+
+    public long getPublishCount() {
+        return publishCount;
     }
 
     public boolean hasSendTask() {
@@ -398,12 +459,12 @@ public class TransactionState implements Writable {
         return errorLogUrl;
     }
 
-    public long getFirstPublishOneSuccTime() {
-        return firstPublishOneSuccTime;
+    public long getLastPublishLogTime() {
+        return lastPublishLogTime;
     }
 
-    public void setFirstPublishOneSuccTime(long firstPublishOneSuccTime) {
-        this.firstPublishOneSuccTime = firstPublishOneSuccTime;
+    public void setLastPublishLogTime(long lastPublishLogTime) {
+        this.lastPublishLogTime = lastPublishLogTime;
     }
 
     public void setTransactionStatus(TransactionStatus transactionStatus) {
@@ -624,7 +685,7 @@ public class TransactionState implements Writable {
         if (prolongPublishTimeout) {
             timeoutMillis *= 2;
         }
-        return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
+        return System.currentTimeMillis() - lastPublishVersionTime > timeoutMillis;
     }
 
     public void prolongPublishTimeout() {
@@ -675,8 +736,7 @@ public class TransactionState implements Writable {
         dbId = in.readLong();
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
-            TableCommitInfo info = new TableCommitInfo();
-            info.readFields(in);
+            TableCommitInfo info = TableCommitInfo.read(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
         txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
@@ -724,5 +784,54 @@ public class TransactionState implements Writable {
 
     public String getErrMsg() {
         return this.errMsg;
+    }
+
+    // reduce memory
+    public void pruneAfterVisible() {
+        publishVersionTasks.clear();
+        tableIdToTotalNumDeltaRows.clear();
+    }
+
+    public void setSchemaForPartialUpdate(OlapTable olapTable) {
+        // the caller should hold the read lock of the table
+        isPartialUpdate = true;
+        txnSchemas.put(olapTable.getId(), new SchemaInfo(olapTable));
+    }
+
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
+    public SchemaInfo getTxnSchema(long id) {
+        return txnSchemas.get(id);
+    }
+
+    public boolean checkSchemaCompatibility(OlapTable olapTable) {
+        SchemaInfo currentSchemaInfo = new SchemaInfo(olapTable);
+        SchemaInfo txnSchemaInfo = txnSchemas.get(olapTable.getId());
+        if (txnSchemaInfo == null) {
+            return true;
+        }
+        if (txnSchemaInfo.schemaVersion >= currentSchemaInfo.schemaVersion) {
+            return true;
+        }
+        for (Column txnCol : txnSchemaInfo.schema) {
+            if (!txnCol.isVisible() || !txnCol.getType().isStringType()) {
+                continue;
+            }
+            int uniqueId = txnCol.getUniqueId();
+            Optional<Column> currentCol = currentSchemaInfo.schema.stream()
+                    .filter(col -> col.getUniqueId() == uniqueId).findFirst();
+            // for now Doris's light schema change only supports adding columns,
+            // dropping columns, and type conversions that increase the varchar length
+            if (currentCol.isPresent() && currentCol.get().getType().isStringType()) {
+                if (currentCol.get().getStrLen() != txnCol.getStrLen()) {
+                    LOG.warn("Check schema compatibility failed, txnId={}, table={}",
+                            transactionId, olapTable.getName());
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }

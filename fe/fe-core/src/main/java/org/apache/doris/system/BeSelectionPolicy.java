@@ -51,6 +51,11 @@ public class BeSelectionPolicy {
     public boolean preferComputeNode = false;
     public int expectBeNum = 0;
 
+    public boolean enableRoundRobin = false;
+    // if enable round robin, choose next be from nextRoundRobinIndex
+    // call SystemInfoService::selectBackendIdsByPolicy will update nextRoundRobinIndex
+    public int nextRoundRobinIndex = -1;
+
     public List<String> preferredLocations = new ArrayList<>();
 
     private BeSelectionPolicy() {
@@ -114,6 +119,16 @@ public class BeSelectionPolicy {
             return this;
         }
 
+        public Builder setEnableRoundRobin(boolean enableRoundRobin) {
+            policy.enableRoundRobin = enableRoundRobin;
+            return this;
+        }
+
+        public Builder setNextRoundRobinIndex(int nextRoundRobinIndex) {
+            policy.nextRoundRobinIndex = nextRoundRobinIndex;
+            return this;
+        }
+
         public BeSelectionPolicy build() {
             return policy;
         }
@@ -166,8 +181,10 @@ public class BeSelectionPolicy {
             filterBackends = preLocationFilterBackends;
         }
         Collections.shuffle(filterBackends);
+        int numComputeNode = filterBackends.stream().filter(Backend::isComputeNode).collect(Collectors.toList()).size();
         List<Backend> candidates = new ArrayList<>();
-        if (preferComputeNode) {
+        if (preferComputeNode && numComputeNode > 0) {
+            int realExpectBeNum = expectBeNum == -1 ? numComputeNode : expectBeNum;
             int num = 0;
             // pick compute node first
             for (Backend backend : filterBackends) {
@@ -177,10 +194,10 @@ public class BeSelectionPolicy {
                 }
             }
             // fill with some mix node.
-            if (num < expectBeNum) {
+            if (num < realExpectBeNum) {
                 for (Backend backend : filterBackends) {
                     if (backend.isMixNode()) {
-                        if (num >= expectBeNum) {
+                        if (num >= realExpectBeNum) {
                             break;
                         }
                         candidates.add(backend);

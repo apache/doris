@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.rest.manager;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -63,10 +64,13 @@ public class ClusterAction extends RestBaseController {
                 .map(Frontend::getHost)
                 .collect(Collectors.toList());
 
-        result.put("mysql", frontends.stream().map(ip -> ip + ":" + Config.query_port).collect(Collectors.toList()));
-        result.put("http", frontends.stream().map(ip -> ip + ":" + Config.http_port).collect(Collectors.toList()));
+        result.put("mysql", frontends.stream().map(ip -> NetUtils
+                .getHostPortInAccessibleFormat(ip, Config.query_port)).collect(Collectors.toList()));
+        result.put("http", frontends.stream().map(ip -> NetUtils
+                .getHostPortInAccessibleFormat(ip, Config.http_port)).collect(Collectors.toList()));
         result.put("arrow flight sql server", frontends.stream().map(
-                ip -> ip + ":" + Config.arrow_flight_sql_port).collect(Collectors.toList()));
+                ip -> NetUtils.getHostPortInAccessibleFormat(ip, Config.arrow_flight_sql_port))
+                .collect(Collectors.toList()));
         return ResponseEntityBuilder.ok(result);
     }
 }

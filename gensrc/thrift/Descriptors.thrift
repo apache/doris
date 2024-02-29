@@ -41,6 +41,7 @@ struct TColumn {
     16: optional string aggregation
     17: optional bool result_is_nullable
     18: optional bool is_auto_increment = false;
+    19: optional i32 cluster_key_id = -1
 }
 
 struct TSlotDescriptor {
@@ -62,6 +63,8 @@ struct TSlotDescriptor {
   14: optional bool is_auto_increment = false;
   // subcolumn path info list for semi structure column(variant)
   15: optional list<string> column_paths
+  16: optional string col_default_value
+  17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
 }
 
 struct TTupleDescriptor {
@@ -176,6 +179,8 @@ struct TOlapTablePartition {
     9: optional bool is_mutable = true
     // only used in List Partition
     10: optional bool is_default_partition;
+    // only used in random distribution scenario to make data distributed even 
+    11: optional i64 load_tablet_idx
 }
 
 struct TOlapTablePartitionParam {
@@ -319,7 +324,12 @@ struct TJdbcTable {
   6: optional string jdbc_resource_name
   7: optional string jdbc_driver_class
   8: optional string jdbc_driver_checksum
-  
+  9: optional i32 connection_pool_min_size
+  10: optional i32 connection_pool_max_size
+  11: optional i32 connection_pool_max_wait_time
+  12: optional i32 connection_pool_max_life_time
+  13: optional bool connection_pool_keep_alive
+  14: optional i64 catalog_id
 }
 
 struct TMCTable {

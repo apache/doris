@@ -94,10 +94,17 @@ public class ExternalSchemaCache {
         }
     }
 
+    public void addSchemaForTest(String dbName, String tblName, ImmutableList<Column> schema) {
+        SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
+        schemaCache.put(key, schema);
+    }
+
     public void invalidateTableCache(String dbName, String tblName) {
         SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
         schemaCache.invalidate(key);
-        LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalog.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalog.getName());
+        }
     }
 
     public void invalidateDbCache(String dbName) {
@@ -108,13 +115,17 @@ public class ExternalSchemaCache {
                 schemaCache.invalidate(key);
             }
         }
-        LOG.debug("invalid schema cache for db {} in catalog {} cost: {} ms", dbName, catalog.getName(),
-                (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid schema cache for db {} in catalog {} cost: {} ms", dbName, catalog.getName(),
+                    (System.currentTimeMillis() - start));
+        }
     }
 
     public void invalidateAll() {
         schemaCache.invalidateAll();
-        LOG.debug("invalid all schema cache in catalog {}", catalog.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid all schema cache in catalog {}", catalog.getName());
+        }
     }
 
     @Data

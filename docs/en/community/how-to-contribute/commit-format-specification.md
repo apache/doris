@@ -41,7 +41,7 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         
         * fix: Bug fix
         * feature: New feature
-        * feature-wip: Feature works-in-porgress.
+        * feature-wip: Feature works-in-progress.
         * improvement: Optimization and improvement for the original feature. 
         * style: Code style adjustment
         * typo: Code or Document correction

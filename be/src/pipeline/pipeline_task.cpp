@@ -34,7 +34,6 @@
 #include "task_queue.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
-#include "vec/core/future_block.h"
 
 namespace doris {
 class RuntimeState;
@@ -109,7 +108,6 @@ void PipelineTask::_init_profile() {
     _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
     _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
-    _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
     _wait_source_timer = ADD_TIMER(_task_profile, "WaitSourceTime");
@@ -163,8 +161,7 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block = _fragment_context->is_group_commit() ? doris::vectorized::FutureBlock::create_unique()
-                                                  : doris::vectorized::Block::create_unique();
+    _block = doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -211,46 +208,53 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
     _task_queue = task_queue;
 }
 
-void PipelineTask::yield() {
-    int64_t time_spent = 0;
-    Defer defer {[&]() {
-        time_spent = time_spent * _core_num / _total_query_thread_num;
-        _task_queue->update_statistics(this, time_spent);
-    }};
-    SCOPED_RAW_TIMER(&time_spent);
-    usleep(THREAD_TIME_SLICE_US);
-}
-
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
-    SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
-    // todo(wb) use a more lightweight timer
-    RuntimeProfile::Counter tmp_timer(TUnit::TIME_NS);
-
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
     Defer defer {[&]() {
         if (_task_queue) {
-            time_spent = tmp_timer.value();
             _task_queue->update_statistics(this, time_spent);
+        }
+        int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
+        _task_cpu_timer->update(delta_cpu_time);
+        auto cpu_qs = query_context()->get_cpu_statistics();
+        if (cpu_qs) {
+            cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
     // The status must be runnable
     *eos = false;
     if (!_opened) {
         {
-            SCOPED_CPU_TIMER(&tmp_timer);
-            auto st = _open();
-            if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
+            SCOPED_RAW_TIMER(&time_spent);
+            // if _open_status is not ok, could know have execute open function,
+            // now execute open again, so need excluding PIP_WAIT_FOR_RF and PIP_WAIT_FOR_SC error out.
+            if (!_open_status.ok() && !_open_status.is<ErrorCode::PIP_WAIT_FOR_RF>() &&
+                !_open_status.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+                return _open_status;
+            }
+            // here execute open and not check dependency(eg: the second start rpc arrival)
+            // so if open have some error, and return error status directly, the query will be cancel.
+            // and then the rpc arrival will not found the query as have been canceled and remove.
+            _open_status = _open();
+            if (_open_status.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
                 return Status::OK();
-            } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+            } else if (_open_status.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
                 return Status::OK();
             }
-            RETURN_IF_ERROR(st);
+            //if status is not ok, and have dependency to push back to queue again.
+            if (!_open_status.ok() && has_dependency()) {
+                set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
+                return Status::OK();
+            }
+            // if not ok and no dependency, return error to cancel.
+            RETURN_IF_ERROR(_open_status);
         }
         if (has_dependency()) {
             set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
@@ -266,6 +270,8 @@ Status PipelineTask::execute(bool* eos) {
         }
     }
 
+    auto status = Status::OK();
+
     this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
         if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
@@ -276,12 +282,12 @@ Status PipelineTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
-        if (tmp_timer.value() > THREAD_TIME_SLICE) {
+        if (time_spent > THREAD_TIME_SLICE) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
         // TODO llj: Pipeline entity should_yield
-        SCOPED_CPU_TIMER(&tmp_timer);
+        SCOPED_RAW_TIMER(&time_spent);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
@@ -295,17 +301,7 @@ Status PipelineTask::execute(bool* eos) {
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            auto status = _sink->sink(_state, block, _data_state);
-            if (UNLIKELY(!status.ok() || block->rows() == 0)) {
-                if (_fragment_context->is_group_commit()) {
-                    auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block);
-                    std::unique_lock<doris::Mutex> l(*(future_block->lock));
-                    if (!future_block->is_handled()) {
-                        future_block->set_result(status, 0, 0);
-                        future_block->cv->notify_all();
-                    }
-                }
-            }
+            status = _sink->sink(_state, block, _data_state);
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -315,30 +311,12 @@ Status PipelineTask::execute(bool* eos) {
             }
         }
     }
-
-    return Status::OK();
-}
-
-Status PipelineTask::finalize() {
-    SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
-    Defer defer {[&]() {
-        if (_task_queue) {
-            _task_queue->update_statistics(this, _finalize_timer->value());
-        }
-    }};
-    SCOPED_TIMER(_finalize_timer);
-    return _sink->finalize(_state);
-}
-
-Status PipelineTask::try_close(Status exec_status) {
-    if (_try_close_flag) {
-        return Status::OK();
+    if (*eos) { // now only join node/set operation node have add_dependency, and join probe could start when the join sink is eos
+        _finish_p_dependency();
     }
-    _try_close_flag = true;
-    Status status1 = _sink->try_close(_state);
-    Status status2 = _source->try_close(_state);
-    return status1.ok() ? status2 : status1;
+
+    // If the status is eof(sink node will return eof if downstream fragment finished), then return it.
+    return status;
 }
 
 Status PipelineTask::close(Status exec_status) {
@@ -368,7 +346,7 @@ Status PipelineTask::close(Status exec_status) {
 }
 
 QueryContext* PipelineTask::query_context() {
-    return _fragment_context->get_query_context();
+    return _fragment_context->get_query_ctx();
 }
 
 // The FSM see PipelineTaskState's comment
@@ -408,10 +386,6 @@ void PipelineTask::set_state(PipelineTaskState state) {
         }
     }
 
-    if (state == PipelineTaskState::FINISHED) {
-        _finish_p_dependency();
-    }
-
     _cur_state = state;
 }
 
@@ -449,13 +423,6 @@ std::string PipelineTask::debug_string() {
         fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
     }
     return fmt::to_string(debug_string_buffer);
-}
-
-taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
-    if (_is_empty_task) {
-        return _empty_group_entity;
-    }
-    return _fragment_context->get_task_group_entity();
 }
 
 } // namespace doris::pipeline

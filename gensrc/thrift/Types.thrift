@@ -94,7 +94,10 @@ enum TPrimitiveType {
   UNSUPPORTED,
   VARIANT,
   LAMBDA_FUNCTION,
-  AGG_STATE
+  AGG_STATE,
+  DECIMAL256,
+  IPV4,
+  IPV6
 }
 
 enum TTypeNodeType {
@@ -219,7 +222,10 @@ enum TTaskType {
     PUSH_COOLDOWN_CONF,
     PUSH_STORAGE_POLICY,
     ALTER_INVERTED_INDEX,
-    GC_BINLOG
+    GC_BINLOG,
+
+    // CLOUD
+    CALCULATE_DELETE_BITMAP = 1000
 }
 
 enum TStmtType {
@@ -421,6 +427,14 @@ struct TJdbcExecutorCtorParams {
   8: optional string driver_path
 
   9: optional TOdbcTableType table_type
+
+  10: optional i32 connection_pool_min_size
+  11: optional i32 connection_pool_max_size
+  12: optional i32 connection_pool_max_wait_time
+  13: optional i32 connection_pool_max_life_time
+  14: optional i32 connection_pool_cache_clear_time
+  15: optional bool connection_pool_keep_alive
+  16: optional i64 catalog_id
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -618,6 +632,9 @@ struct TBackend {
     1: required string host
     2: required TPort be_port
     3: required TPort http_port
+    4: optional TPort brpc_port
+    5: optional bool is_alive
+    6: optional i64 id
 }
 
 struct TReplicaInfo {
@@ -692,7 +709,11 @@ enum TMetadataType {
   FRONTENDS,
   CATALOGS,
   FRONTENDS_DISKS,
+  MATERIALIZED_VIEWS,
+  JOBS,
+  TASKS,
   QUERIES,
+  WORKLOAD_SCHED_POLICY
 }
 
 enum TIcebergQueryType {

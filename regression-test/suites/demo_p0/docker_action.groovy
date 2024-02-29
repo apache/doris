@@ -18,6 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 
 suite('docker_action') {
+    // run a new docker
     docker {
         sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10'''
         sql '''insert into tb1 values (1),(2),(3)'''
@@ -37,15 +38,31 @@ suite('docker_action') {
         }
     }
 
-    // run another docker
     def options = new ClusterOptions()
     // add fe config items
     options.feConfigs = ['example_conf_k1=v1', 'example_conf_k2=v2']
     // contains 5 backends
     options.beNum = 5
-    // each backend has 3 disks
-    options.beDiskNum = 3
+    // each backend has 1 HDD disk and 3 SSD disks
+    options.beDisks = ['HDD=1', 'SSD=3']
+
+    // run another docker
     docker(options) {
         sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="5")'''
+    }
+
+    def options2 = new ClusterOptions()
+    options2.beNum = 1
+    // create cloud cluster
+    options2.cloudMode = true
+    //// cloud docker only run in cloud pipeline, but enable it run in none-cloud pipeline
+    // options2.skipRunWhenPipelineDiff = false
+    // run another docker, create a cloud cluster
+    docker(options2) {
+        // cloud cluster will ignore replication_num, always set to 1. so create table succ even has 1 be.
+        sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="1000")'''
+
+        sql 'set global enable_memtable_on_sink_node = false'
+        sql 'insert into tb1 values (2)'
     }
 }

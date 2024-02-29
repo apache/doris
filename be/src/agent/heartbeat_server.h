@@ -31,7 +31,7 @@ class THeartbeatResult;
 class TMasterInfo;
 
 const uint32_t HEARTBEAT_INTERVAL = 10;
-class StorageEngine;
+class BaseStorageEngine;
 class ThriftServer;
 
 class HeartbeatServer : public HeartbeatServiceIf {
@@ -39,7 +39,7 @@ public:
     explicit HeartbeatServer(TMasterInfo* master_info);
     ~HeartbeatServer() override = default;
 
-    virtual void init_cluster_id();
+    void init_cluster_id();
 
     // Master send heartbeat to this server
     //
@@ -53,13 +53,13 @@ public:
 private:
     Status _heartbeat(const TMasterInfo& master_info);
 
-    StorageEngine* _olap_engine;
+    BaseStorageEngine& _engine;
     int64_t _be_epoch;
 
     // mutex to protect master_info and _epoch
     std::mutex _hb_mtx;
     // Not owned. Point to the ExecEnv::_master_info
-    TMasterInfo* _master_info;
+    TMasterInfo* _master_info = nullptr;
     int64_t _fe_epoch;
 
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);

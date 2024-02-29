@@ -53,7 +53,7 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
         LOG(FATAL) << "offsets_column must be a ColumnUInt64";
     }
 
-    if (!offsets_concrete->empty() && keys && values) {
+    if (!offsets_concrete->empty() && keys_column && values_column) {
         auto last_offset = offsets_concrete->get_data().back();
 
         /// This will also prevent possible overflow in offset.
@@ -185,14 +185,10 @@ void ColumnMap::insert_from(const IColumn& src_, size_t n) {
     get_offsets().push_back(get_offsets().back() + size);
 }
 
-void ColumnMap::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                    const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnMap::insert_default();
-        } else {
-            ColumnMap::insert_from(src, *x);
-        }
+void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                    const uint32_t* indices_end) {
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        ColumnMap::insert_from(src, *x);
     }
 }
 
@@ -221,7 +217,7 @@ StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char con
 
 const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
     size_t array_size = unaligned_load<size_t>(pos);
-    pos += 2 * sizeof(array_size);
+    pos += sizeof(array_size);
 
     for (size_t i = 0; i < array_size; ++i) {
         pos = get_keys().deserialize_and_insert_from_arena(pos);
@@ -235,6 +231,35 @@ const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
     return pos;
 }
 
+int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
+    const auto& rhs = assert_cast<const ColumnMap&>(rhs_);
+
+    size_t lhs_size = size_at(n);
+    size_t rhs_size = rhs.size_at(m);
+
+    size_t lhs_offset = offset_at(n);
+    size_t rhs_offset = rhs.offset_at(m);
+
+    size_t min_size = std::min(lhs_size, rhs_size);
+
+    for (size_t i = 0; i < min_size; ++i) {
+        // if any value in key not equal, just return
+        if (int res = get_keys().compare_at(lhs_offset + i, rhs_offset + i, rhs.get_keys(),
+                                            nan_direction_hint);
+            res) {
+            return res;
+        }
+        // // if any value in value not equal, just return
+        if (int res = get_values().compare_at(lhs_offset + i, rhs_offset + i, rhs.get_values(),
+                                              nan_direction_hint);
+            res) {
+            return res;
+        }
+    }
+
+    return lhs_size < rhs_size ? -1 : (lhs_size == rhs_size ? 0 : 1);
+}
+
 void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
     size_t kv_size = size_at(n);
     size_t offset = offset_at(n);
@@ -244,11 +269,6 @@ void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
         get_keys().update_hash_with_value(offset + i, hash);
         get_values().update_hash_with_value(offset + i, hash);
     }
-}
-
-void ColumnMap::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                         const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
 void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
@@ -282,7 +302,7 @@ void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& has
     }
 }
 
-void ColumnMap::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
     if (null_data) {
@@ -328,9 +348,9 @@ void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_d
     }
 }
 
-void ColumnMap::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
-                                       const uint8_t* __restrict null_data) const {
-    auto s = hash.size();
+void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                       uint32_t offset, const uint8_t* __restrict null_data) const {
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data) {
@@ -433,14 +453,25 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
-void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnMap&>(column);
+MutableColumnPtr ColumnMap::get_shrinked_column() {
+    MutableColumns new_columns(2);
 
-    // Make a temp column array for reusing its replicate function
-    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
-            ->replicate(indexs, target_size, res.keys_column->assume_mutable_ref());
-    ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
-            ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
+    if (keys_column->is_column_string() || keys_column->is_column_array() ||
+        keys_column->is_column_map() || keys_column->is_column_struct()) {
+        new_columns[0] = keys_column->get_shrinked_column();
+    } else {
+        new_columns[0] = keys_column->get_ptr();
+    }
+
+    if (values_column->is_column_string() || values_column->is_column_array() ||
+        values_column->is_column_map() || values_column->is_column_struct()) {
+        new_columns[1] = values_column->get_shrinked_column();
+    } else {
+        new_columns[1] = values_column->get_ptr();
+    }
+
+    return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
+                             offsets_column->assume_mutable());
 }
 
 void ColumnMap::reserve(size_t n) {
@@ -450,9 +481,8 @@ void ColumnMap::reserve(size_t n) {
 }
 
 void ColumnMap::resize(size_t n) {
-    get_offsets().resize(n);
-    keys_column->resize(n);
-    values_column->resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
 }
 
 size_t ColumnMap::byte_size() const {
@@ -465,10 +495,10 @@ size_t ColumnMap::allocated_bytes() const {
            get_offsets().allocated_bytes();
 }
 
-void ColumnMap::protect() {
-    offsets_column->protect();
-    keys_column->protect();
-    values_column->protect();
+ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
+    return ColumnMap::create(keys_column->convert_to_full_column_if_const(),
+                             values_column->convert_to_full_column_if_const(),
+                             offsets_column->convert_to_full_column_if_const());
 }
 
 } // namespace doris::vectorized

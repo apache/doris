@@ -73,8 +73,9 @@ suite("test_multi_buckets") {
     assertTrue(syncer.commitTxn())
     syncer.closeBackendClients()
     assertTrue(syncer.checkTargetVersion())
+    target_sql " sync "
     def res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == 1)
+    assertEquals(res.size(), 1)
 
 
 
@@ -94,7 +95,8 @@ suite("test_multi_buckets") {
         syncer.closeBackendClients()
     }
 
+    target_sql " sync "
     res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == insert_num)
+    assertEquals(res.size(), insert_num)
 
 }

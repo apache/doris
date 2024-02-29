@@ -30,6 +30,18 @@ Stream load 是一个同步的导入方式，用户通过发送 HTTP 协议发�
 
 Stream load 主要适用于导入本地文件，或通过程序导入数据流中的数据。
 
+:::tip
+相比于直接使用 `curl` 的单并发导入，更推荐使用 **专用导入工具 Doris Streamloader** 该工具是一款用于将数据导入 Doris 数据库的专用客户端工具，可以提供 **多并发导入** 的功能，降低大数据量导入的耗时。拥有以下功能：
+
+- 并发导入，实现 Stream Load 的多并发导入。可以通过 `workers` 值设置并发数。
+- 多文件导入，一次导入可以同时导入多个文件及目录，支持设置通配符以及会自动递归获取文件夹下的所有文件。
+- 断点续传，在导入过程中可能出现部分失败的情况，支持在失败点处进行继续传输。
+- 自动重传，在导入出现失败的情况后，无需手动重传，工具会自动重传默认的次数，如果仍然不成功，打印出手动重传的命令。
+
+
+点击 [Doris Streamloader 文档](https://doris.apache.org/zh-CN/docs/ecosystem/doris-streamloader) 了解使用方法与实践详情。
+:::
+
 ## 基本原理
 
 下图展示了 Stream load 的主要流程，省略了一些导入细节。
@@ -154,8 +166,11 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 - format
 
-  指定导入数据格式，支持 `csv` 和 `json`，默认是 `csv`
-  <version since="1.2"> 支持 `csv_with_names` (csv文件行首过滤)、`csv_with_names_and_types`(csv文件前两行过滤)、`parquet`、`orc`</version>
+  指定导入数据格式，支持 `csv`、 `json` 和 `arrow` ，默认是 `csv`。
+
+  <version since="1.2"> 支持 `csv_with_names` (csv文件行首过滤)、`csv_with_names_and_types`(csv文件前两行过滤)、`parquet`、`orc`。</version>
+
+  <version since="2.1.0"> 支持 `arrow`格式。</version>
 
   ```text
   列顺序变换例子：原始数据有三列(src_c1,src_c2,src_c3), 目前doris表也有三列（dst_c1,dst_c2,dst_c3）
@@ -192,6 +207,14 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 - two_phase_commit
 
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
+
+- enclose
+  
+  包围符。当csv数据字段中含有行分隔符或列分隔符时，为防止意外截断，可指定单字节字符作为包围符起到保护作用。例如列分隔符为","，包围符为"'"，数据为"a,'b,c'",则"b,c"会被解析为一个字段。
+
+- escape
+
+  转义符。用于转义在csv字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。
 
   示例：
 
@@ -300,7 +323,7 @@ curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -
 示例：
 
 ```
-curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream(\"format\" = \"CSV\", \"column_separator\" = \",\" ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
 ```
 
 #### 相关参数

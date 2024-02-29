@@ -106,14 +106,12 @@ public:
 
     bool is_numeric() const override { return false; }
     bool is_column_decimal() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
-    void protect() override { data.protect(); }
     void reserve(size_t n) override { data.reserve(n); }
     void resize(size_t n) override { data.resize(n); }
 
@@ -121,16 +119,21 @@ public:
         data.push_back(assert_cast<const Self&>(src).get_data()[n]);
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
         data.resize(origin_size + new_size);
-        const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
-        for (int i = 0; i < new_size; ++i) {
-            data[origin_size + i] = src_data[indices_begin[i]];
-        }
+        auto copy = [](const T* __restrict src, T* __restrict dest,
+                       const uint32_t* __restrict begin, const uint32_t* __restrict end) {
+            for (auto it = begin; it != end; ++it) {
+                *dest = src[*it];
+                ++dest;
+            }
+        };
+        copy(reinterpret_cast<const T*>(src.get_raw_data().data), data.data() + origin_size,
+             indices_begin, indices_end);
     }
 
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
@@ -173,16 +176,15 @@ public:
                                        const uint8_t* null_map) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
@@ -201,7 +203,7 @@ public:
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
     bool get_bool(size_t n) const override { return bool(data[n]); }
-    Int64 get_int(size_t n) const override { return Int64(data[n] * scale); }
+    Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
     UInt64 get64(size_t n) const override;
     bool is_default_at(size_t n) const override { return data[n].value == 0; }
 
@@ -225,8 +227,6 @@ public:
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     MutableColumns scatter(IColumn::ColumnIndex num_columns,
                            const IColumn::Selector& selector) const override {
@@ -262,6 +262,8 @@ public:
         data[self_row] = T();
     }
 
+    void replace_column_null_data(const uint8_t* __restrict null_map) override;
+
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
 
@@ -296,8 +298,8 @@ protected:
                               [this](size_t a, size_t b) { return data[a] < data[b]; });
     }
 
-    void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint64_t& hash) const {
-        const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
+    void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint32_t& hash) const {
+        const auto& dec_val = (const DecimalV2Value&)data[i];
         int64_t int_val = dec_val.int_value();
         int32_t frac_val = dec_val.frac_value();
         hash = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hash);

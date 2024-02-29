@@ -72,6 +72,21 @@ suite("test_http_stream_2pc", "p0") {
         assertEquals(code, 0)
         assertEquals("success", json2pc.status.toLowerCase())
 
+        def count = 0
+        while (true) {
+            res = sql "select count(*) from ${tableName1}"
+            if (res[0][0] > 0) {
+                break
+            }
+            if (count >= 60) {
+                log.error("stream load commit can not visible for long time")
+                assertEquals(2, res[0][0])
+                break
+            }
+            sleep(1000)
+            count++
+        }
+
         qt_sql "select id, name from ${tableName1} order by id"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName1}"

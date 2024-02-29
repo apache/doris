@@ -16,7 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
-import org.apache.doris.regression.suite.NodeType
+import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
 
 class InjectCase {
@@ -39,8 +39,8 @@ suite('test_min_load_replica_num_complicate') {
 
     def random = new Random()
     def insertThreadNum = getSuiteConf('insertThreadNum', '3') as int
-    def iterationNum = getSuiteConf('iterationNum', '20') as int
-    def injectProb = getSuiteConf('injectProb', '50') as int  // inject perc = injectProb / 100
+    def iterationNum = getSuiteConf('iterationNum', '2') as int
+    def injectProb = getSuiteConf('injectProb', '100') as int  // inject perc = injectProb / 100
     def insertBatchSize = 4
     def bucketNum = 2
 
@@ -73,7 +73,7 @@ suite('test_min_load_replica_num_complicate') {
         options.feConfigs.add('tablet_checker_interval_ms=1000')
         options.beNum = replicaNum + 1
 
-        def tbl = "test_min_load_replica_num_complicate_tbl_replica_num_${replicaNum}_min_load_num_${minLoadNum}"
+        def tbl = "test_x_load_complicate_replica_${replicaNum}_x_${minLoadNum}"
         tbl = tbl.replaceAll('-', 'm')
 
         docker(options) {

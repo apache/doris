@@ -28,7 +28,6 @@
 #include <type_traits>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"

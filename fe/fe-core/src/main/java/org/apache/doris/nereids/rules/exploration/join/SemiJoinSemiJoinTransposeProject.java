@@ -53,8 +53,8 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(this::typeChecker)
-                .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child()))
-                .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child(), false))
+                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> join.left().isAllSlots())
                 .then(topSemi -> {
@@ -72,13 +72,13 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                                     acProjects.add(slot);
                                 }
                             });
-                    LogicalJoin newBottomSemi = topSemi.withChildrenNoContext(a, c);
+                    LogicalJoin newBottomSemi = topSemi.withChildrenNoContext(a, c, null);
                     newBottomSemi.getJoinReorderContext().copyFrom(bottomSemi.getJoinReorderContext());
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
                     newBottomSemi.getJoinReorderContext().setHasLAsscom(false);
 
                     LogicalProject acProject = new LogicalProject<>(Lists.newArrayList(acProjects), newBottomSemi);
-                    LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(acProject, b);
+                    LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(acProject, b, null);
                     newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topSemi.getOutput()), newTopSemi);

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -162,8 +161,6 @@ public class ShowAlterStmt extends ShowStmt {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         Preconditions.checkNotNull(type);
@@ -207,7 +204,9 @@ public class ShowAlterStmt extends ShowStmt {
             throw new UserException("SHOW " + type.name() + " does not implement yet");
         }
 
-        LOG.debug("process SHOW PROC '{}';", sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("process SHOW PROC '{}';", sb.toString());
+        }
         // create show proc stmt
         // '/jobs/db_name/rollup|schema_change/
         node = ProcService.getInstance().open(sb.toString());

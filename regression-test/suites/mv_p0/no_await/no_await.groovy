@@ -26,7 +26,11 @@ suite ("no_await") {
         sql "sync;"
         while (!result.contains("FINISHED")) {
             result = (sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tblName}' ORDER BY CreateTime DESC LIMIT 1;")[0]
-            Thread.sleep(1100)
+            if (!result.contains("RUNNING")&&!result.contains("PENDING")&&!result.contains("FINISHED")&&!result.contains("WAITING_TXN")) {
+                assertTrue(false)
+            }
+            log.info("result: ${result}")
+            Thread.sleep(3000)
             try_times -= 1
             assertTrue(try_times > 0)
         }

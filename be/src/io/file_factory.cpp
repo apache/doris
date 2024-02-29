@@ -93,7 +93,8 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
+        RETURN_IF_ERROR(
+                io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr, &fs));
         RETURN_IF_ERROR(fs->create_file(path, &file_writer));
         break;
     }
@@ -152,8 +153,8 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 stream_load_ctx->schema_buffer->pos /* total_length */);
         stream_load_ctx->schema_buffer->flip();
-        static_cast<void>(pipe->append(stream_load_ctx->schema_buffer));
-        static_cast<void>(pipe->finish());
+        RETURN_IF_ERROR(pipe->append(stream_load_ctx->schema_buffer));
+        RETURN_IF_ERROR(pipe->finish());
         *file_reader = std::move(pipe);
     } else {
         *file_reader = stream_load_ctx->pipe;
@@ -175,7 +176,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     } else {
         pipe_id = runtime_state->fragment_instance_id();
     }
-    *file_reader = multi_table_pipe->getPipe(pipe_id);
+    *file_reader = multi_table_pipe->get_pipe(pipe_id);
     LOG(INFO) << "create pipe reader for fragment instance: " << pipe_id
               << " pipe: " << (*file_reader).get();
 
@@ -188,7 +189,7 @@ Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params,
                                        std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                        io::FileReaderSPtr* reader, RuntimeProfile* profile) {
     std::shared_ptr<io::HdfsFileSystem> fs;
-    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, fd.fs_name, profile, &fs));
+    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", fd.fs_name, profile, &fs));
     RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
     *hdfs_file_system = std::move(fs);
     return Status::OK();

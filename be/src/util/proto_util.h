@@ -38,16 +38,15 @@ constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31);
 
 // Embed column_values and brpc request serialization string in controller attachment.
 template <typename Params, typename Closure>
-Status request_embed_attachment_contain_block(Params* brpc_request, Closure* closure) {
+Status request_embed_attachment_contain_blockv2(Params* brpc_request,
+                                                std::unique_ptr<Closure>& closure) {
     auto block = brpc_request->block();
-    Status st = request_embed_attachment(brpc_request, block.column_values(), closure);
+    Status st = request_embed_attachmentv2(brpc_request, block.column_values(), closure);
     block.set_column_values("");
     return st;
 }
 
-inline bool enable_http_send_block(
-        const PTransmitDataParams& request,
-        bool transfer_large_data_by_brpc = config::transfer_large_data_by_brpc) {
+inline bool enable_http_send_block(const PTransmitDataParams& request) {
     if (!config::transfer_large_data_by_brpc) {
         return false;
     }
@@ -61,32 +60,37 @@ inline bool enable_http_send_block(
 }
 
 template <typename Closure>
-void transmit_block(PBackendService_Stub& stub, Closure* closure,
-                    const PTransmitDataParams& params) {
-    closure->cntl.http_request().Clear();
-    stub.transmit_block(&closure->cntl, &params, &closure->result, closure);
+void transmit_blockv2(PBackendService_Stub& stub, std::unique_ptr<Closure> closure) {
+    closure->cntl_->http_request().Clear();
+    stub.transmit_block(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
+                        closure.get());
+    closure.release();
 }
 
 template <typename Closure>
-Status transmit_block_http(ExecEnv* exec_env, Closure* closure, PTransmitDataParams& params,
-                           TNetworkAddress brpc_dest_addr) {
-    RETURN_IF_ERROR(request_embed_attachment_contain_block(&params, closure));
+Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure,
+                             TNetworkAddress brpc_dest_addr) {
+    RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure));
 
     //format an ipv6 address
     std::string brpc_url = get_brpc_http_url(brpc_dest_addr.hostname, brpc_dest_addr.port);
 
     std::shared_ptr<PBackendService_Stub> brpc_http_stub =
             exec_env->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url, "http");
-    closure->cntl.http_request().uri() = brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
-    closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
-    closure->cntl.http_request().set_content_type("application/json");
-    brpc_http_stub->transmit_block_by_http(&closure->cntl, nullptr, &closure->result, closure);
+    closure->cntl_->http_request().uri() =
+            brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
+    closure->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);
+    closure->cntl_->http_request().set_content_type("application/json");
+    brpc_http_stub->transmit_block_by_http(closure->cntl_.get(), nullptr, closure->response_.get(),
+                                           closure.get());
+    closure.release();
 
     return Status::OK();
 }
 
 template <typename Params, typename Closure>
-Status request_embed_attachment(Params* brpc_request, const std::string& data, Closure* closure) {
+Status request_embed_attachmentv2(Params* brpc_request, const std::string& data,
+                                  std::unique_ptr<Closure>& closure) {
     butil::IOBuf attachment;
 
     // step1: serialize brpc_request to string, and append to attachment.
@@ -108,7 +112,7 @@ Status request_embed_attachment(Params* brpc_request, const std::string& data, C
                                          data_size);
     }
     // step3: attachment add to closure.
-    closure->cntl.request_attachment().swap(attachment);
+    closure->cntl_->request_attachment().swap(attachment);
     return Status::OK();
 }
 

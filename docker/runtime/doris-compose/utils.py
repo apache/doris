@@ -19,6 +19,7 @@ import docker
 import json
 import logging
 import os
+import pwd
 import subprocess
 import time
 import yaml
@@ -167,6 +168,13 @@ def get_doris_running_containers(cluster_name):
     }
 
 
+def remove_docker_network(cluster_name):
+    client = docker.client.from_env()
+    for network in client.networks.list(
+            names=[cluster_name + "_" + with_doris_prefix(cluster_name)]):
+        network.remove()
+
+
 def is_dir_empty(dir):
     return False if os.listdir(dir) else True
 
@@ -264,6 +272,13 @@ def enable_dir_with_rw_perm(dir):
                           entrypoint="chmod a+rw -R {}".format("/opt/mount"))
 
 
+def get_path_owner(path):
+    try:
+        return pwd.getpwuid(os.stat(path).st_uid).pw_name
+    except:
+        return ""
+
+
 def read_compose_file(file):
     with open(file, "r") as f:
         return yaml.safe_load(f.read())
@@ -280,3 +295,7 @@ def pretty_json(json_data):
 
 def is_true(val):
     return str(val) == "true" or str(val) == "1"
+
+
+def escape_null(val):
+    return "" if val == "\\N" else val

@@ -37,28 +37,28 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class EmptySetSourceOperator final : public SourceOperator<EmptySetSourceOperatorBuilder> {
+class EmptySetSourceOperator final : public SourceOperator<vectorized::VEmptySetNode> {
 public:
     EmptySetSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* empty_set_node);
     bool can_read() override { return true; }
 };
 
-class EmptySetLocalState final : public PipelineXLocalState<FakeDependency> {
+class EmptySetLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(EmptySetLocalState);
 
     EmptySetLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~EmptySetLocalState() = default;
 };
 
 class EmptySetSourceOperatorX final : public OperatorX<EmptySetLocalState> {
 public:
-    EmptySetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : OperatorX<EmptySetLocalState>(pool, tnode, descs) {}
+    EmptySetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                            const DescriptorTbl& descs)
+            : OperatorX<EmptySetLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
 };

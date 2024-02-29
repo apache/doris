@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/Types_types.h>
 #include <stddef.h>
 
 #include <string>
@@ -53,7 +54,9 @@ public:
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     bool is_constant() const override {
-        if (!_function->is_use_default_implementation_for_constants()) {
+        if (!_function->is_use_default_implementation_for_constants() ||
+            // udf function with no argument, can't sure it's must return const column
+            (_fn.binary_type == TFunctionBinaryType::JAVA_UDF && _children.empty())) {
             return false;
         }
         return VExpr::is_constant();

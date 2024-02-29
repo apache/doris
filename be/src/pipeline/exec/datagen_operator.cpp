@@ -45,8 +45,8 @@ Status DataGenOperator::close(RuntimeState* state) {
 }
 
 DataGenSourceOperatorX::DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : OperatorX<DataGenLocalState>(pool, tnode, descs),
+                                               int operator_id, const DescriptorTbl& descs)
+        : OperatorX<DataGenLocalState>(pool, tnode, operator_id, descs),
           _tuple_id(tnode.data_gen_scan_node.tuple_id),
           _tuple_desc(nullptr),
           _runtime_filter_descs(tnode.runtime_filters) {}
@@ -74,19 +74,16 @@ Status DataGenSourceOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                         SourceState& source_state) {
+Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     if (state == nullptr || block == nullptr) {
         return Status::InternalError("input is NULL pointer");
     }
     RETURN_IF_CANCELLED(state);
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    bool eos = false;
-    Status res = local_state._table_func->get_next(state, block, &eos);
-    source_state = eos ? SourceState::FINISHED : source_state;
+    auto& local_state = get_local_state(state);
+    Status res = local_state._table_func->get_next(state, block, eos);
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     return res;
 }
 
@@ -100,17 +97,8 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
     for (const auto& filter_desc : p._runtime_filter_descs) {
         IRuntimeFilter* runtime_filter = nullptr;
-        if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
-            RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, state->query_options(), p.id(), false));
-            RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, p.id(), &runtime_filter));
-        } else {
-            RETURN_IF_ERROR(state->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, state->query_options(), p.id(), false));
-            RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, p.id(), &runtime_filter));
-        }
+        RETURN_IF_ERROR(state->register_consumer_runtime_filter(filter_desc, false, p.node_id(),
+                                                                &runtime_filter));
         runtime_filter->init_profile(_runtime_profile.get());
     }
     return Status::OK();

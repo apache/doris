@@ -157,7 +157,7 @@ public class DeleteStmt extends DdlStmt {
                 expr = new BoolLiteral(true);
             } else if (column.isKey()) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
-            } else if (!isMow && !column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue())) {
+            } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             } else {
                 continue;
@@ -245,8 +245,12 @@ public class DeleteStmt extends DdlStmt {
             binaryPredicate.setChild(1, binaryPredicate.getChild(1).castTo(binaryPredicate.getChild(0).getType()));
             binaryPredicate.analyze(analyzer);
 
-            ExprRewriter exprRewriter = new ExprRewriter(FoldConstantsRule.INSTANCE);
-            binaryPredicate.setChild(1, exprRewriter.rewrite(binaryPredicate.getChild(1), analyzer, null));
+            Expr rightChild = binaryPredicate.getChild(1);
+            Expr rewrittenExpr = FoldConstantsRule.INSTANCE.apply(rightChild, analyzer, null);
+            if (rightChild != rewrittenExpr) {
+                binaryPredicate.setChild(1, rewrittenExpr);
+            }
+
             Expr leftExpr = binaryPredicate.getChild(0);
             if (!(leftExpr instanceof SlotRef)) {
                 throw new AnalysisException(

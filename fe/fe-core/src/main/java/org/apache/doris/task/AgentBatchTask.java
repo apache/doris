@@ -165,13 +165,20 @@ public class AgentBatchTask implements Runnable {
                 client = ClientPool.backendPool.borrowObject(address);
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {
-                    agentTaskRequests.add(toAgentTaskRequest(task));
+                    try {
+                        agentTaskRequests.add(toAgentTaskRequest(task));
+                    } catch (Exception e) {
+                        task.failed();
+                        throw e;
+                    }
                 }
                 client.submitTasks(agentTaskRequests);
                 if (LOG.isDebugEnabled()) {
                     for (AgentTask task : tasks) {
-                        LOG.debug("send task: type[{}], backend[{}], signature[{}]",
-                                task.getTaskType(), backendId, task.getSignature());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("send task: type[{}], backend[{}], signature[{}]",
+                                    task.getTaskType(), backendId, task.getSignature());
+                        }
                     }
                 }
                 ok = true;
@@ -386,7 +393,9 @@ public class AgentBatchTask implements Runnable {
                 return tAgentTaskRequest;
             }
             default:
-                LOG.debug("could not find task type for task [{}]", task);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("could not find task type for task [{}]", task);
+                }
                 return null;
         }
     }

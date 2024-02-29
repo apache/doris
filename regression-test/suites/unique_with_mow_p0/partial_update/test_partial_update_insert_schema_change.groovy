@@ -150,24 +150,10 @@ suite("test_partial_update_insert_schema_change", "p0") {
     qt_delete_seq_col_1 "select * from ${tableName} order by k;"
 
     // schema change
-    sql " ALTER table ${tableName} DROP COLUMN c;"
-    try_times=100
-    while(true){
-        def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
-        if(res[0][9].toString() == "FINISHED"){
-            break;
-        }
-        assert(try_times>0)
-        try_times--
+    test {
+        sql " ALTER table ${tableName} DROP COLUMN c;"
+        exception "Can not drop sequence mapping column[c] in Unique data model table[${tableName}]"
     }
-    sql "sync"
-
-    sql "set enable_unique_key_partial_update=true;"
-    sql "insert into ${tableName}(k,v1) values(2,222),(1,111);"
-    sql "set enable_unique_key_partial_update=false;"
-    sql "sync"
-    qt_delete_seq_col_2 "select * from ${tableName} order by k;" 
 
     // test update value column
     tableName = "test_partial_update_insert_schema_change_update_column"

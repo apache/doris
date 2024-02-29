@@ -37,6 +37,8 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -55,9 +57,8 @@ public class If extends ScalarFunction
         implements TernaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.retArgType(1)
-                    .args(BooleanType.INSTANCE, ArrayType.of(new AnyDataType(0)),
-                            ArrayType.of(new AnyDataType(0))),
+            FunctionSignature.ret(NullType.INSTANCE)
+                    .args(BooleanType.INSTANCE, NullType.INSTANCE, NullType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateV2Type.INSTANCE)
@@ -88,6 +89,15 @@ public class If extends ScalarFunction
             FunctionSignature.ret(BitmapType.INSTANCE)
                     .args(BooleanType.INSTANCE, BitmapType.INSTANCE, BitmapType.INSTANCE),
             FunctionSignature.ret(HllType.INSTANCE).args(BooleanType.INSTANCE, HllType.INSTANCE, HllType.INSTANCE),
+            FunctionSignature.retArgType(1)
+                    .args(BooleanType.INSTANCE, ArrayType.of(new AnyDataType(0)),
+                            ArrayType.of(new AnyDataType(0))),
+            FunctionSignature.retArgType(1)
+                    .args(BooleanType.INSTANCE, MapType.of(new AnyDataType(0), new AnyDataType(1)),
+                            MapType.of(new AnyDataType(0), new AnyDataType(1))),
+            FunctionSignature.retArgType(1)
+                    .args(BooleanType.INSTANCE, new AnyDataType(0), new AnyDataType(0)),
+            // NOTICE string must at least of signature list, because all complex type could implicit cast to string
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)

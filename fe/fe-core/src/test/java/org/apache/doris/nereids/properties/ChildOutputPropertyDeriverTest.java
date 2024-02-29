@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -30,8 +31,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -99,7 +100,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testInnerJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -126,7 +127,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -138,7 +139,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testCrossJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.CROSS_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -165,7 +166,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -177,7 +178,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testLeftOuterJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.LEFT_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -204,7 +205,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -217,7 +218,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testLeftSemiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.LEFT_SEMI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -244,7 +245,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -257,7 +258,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testLeftAntiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.LEFT_ANTI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -284,7 +285,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -297,7 +298,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testNullAwareLeftAntiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -324,7 +325,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -337,7 +338,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testRightSemiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_SEMI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -364,7 +365,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -378,7 +379,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testRightAntiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_ANTI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -405,7 +406,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -419,7 +420,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testRightOuterJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -446,7 +447,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -458,9 +459,9 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
-    void testFullOuterJoin() {
+    void testFullOuterJoinWithNatural() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.FULL_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -487,9 +488,44 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecAny);
+        Assertions.assertInstanceOf(DistributionSpecStorageAny.class, result.getDistributionSpec());
+    }
+
+    @Test
+    void testFullOuterJoinWithOther() {
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.FULL_OUTER_JOIN,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
+                groupPlan, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(join);
+        new Group(null, groupExpression, null);
+
+        PhysicalProperties left = new PhysicalProperties(
+                new DistributionSpecHash(
+                        Lists.newArrayList(new ExprId(0)),
+                        ShuffleType.EXECUTION_BUCKETED,
+                        0,
+                        Sets.newHashSet(0L)
+                ),
+                new OrderSpec(
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                                true, true)))
+        );
+
+        PhysicalProperties right = new PhysicalProperties(new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(1)),
+                ShuffleType.EXECUTION_BUCKETED,
+                1,
+                Sets.newHashSet(1L)
+        ));
+
+        List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
+        ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
+
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
+        Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
+        Assertions.assertInstanceOf(DistributionSpecAny.class, result.getDistributionSpec());
     }
 
     @Test
@@ -507,7 +543,7 @@ class ChildOutputPropertyDeriverTest {
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
                                 Collections.emptyList()))),
-                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -530,7 +566,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -554,7 +590,7 @@ class ChildOutputPropertyDeriverTest {
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
                                 Collections.emptyList()))),
-                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -580,7 +616,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -613,7 +649,7 @@ class ChildOutputPropertyDeriverTest {
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
 
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -639,7 +675,7 @@ class ChildOutputPropertyDeriverTest {
                         new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertEquals(child.getDistributionSpec(), result.getDistributionSpec());
     }
@@ -666,7 +702,7 @@ class ChildOutputPropertyDeriverTest {
                         new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
@@ -695,7 +731,7 @@ class ChildOutputPropertyDeriverTest {
                         new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(PhysicalProperties.GATHER, result);
     }
 
@@ -711,7 +747,7 @@ class ChildOutputPropertyDeriverTest {
                         new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(orderKeys, result.getOrderSpec().getOrderKeys());
         Assertions.assertEquals(DistributionSpecReplicated.INSTANCE, result.getDistributionSpec());
     }
@@ -728,7 +764,7 @@ class ChildOutputPropertyDeriverTest {
                         new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(orderKeys, result.getOrderSpec().getOrderKeys());
         Assertions.assertEquals(DistributionSpecGather.INSTANCE, result.getDistributionSpec());
     }
@@ -746,7 +782,7 @@ class ChildOutputPropertyDeriverTest {
                         new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(orderKeys, result.getOrderSpec().getOrderKeys());
         Assertions.assertEquals(DistributionSpecReplicated.INSTANCE, result.getDistributionSpec());
         // merge/gather sort requires gather
@@ -758,7 +794,7 @@ class ChildOutputPropertyDeriverTest {
                         new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
 
         deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
-        result = deriver.getOutputProperties(groupExpression);
+        result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(orderKeys, result.getOrderSpec().getOrderKeys());
         Assertions.assertEquals(DistributionSpecGather.INSTANCE, result.getDistributionSpec());
     }
@@ -774,7 +810,7 @@ class ChildOutputPropertyDeriverTest {
                 new OrderSpec(orderKeys));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(orderKeys, result.getOrderSpec().getOrderKeys());
         Assertions.assertEquals(DistributionSpecGather.INSTANCE, result.getDistributionSpec());
     }
@@ -790,7 +826,7 @@ class ChildOutputPropertyDeriverTest {
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecGather.INSTANCE, new OrderSpec());
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
-        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(PhysicalProperties.GATHER, result);
     }
 }

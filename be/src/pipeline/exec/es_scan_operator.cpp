@@ -55,7 +55,7 @@ Status EsScanLocalState::_init_profile() {
 
 Status EsScanLocalState::_process_conjuncts() {
     RETURN_IF_ERROR(Base::_process_conjuncts());
-    if (Base::_eos_dependency->read_blocked_by() == nullptr) {
+    if (Base::_eos) {
         return Status::OK();
     }
 
@@ -66,7 +66,8 @@ Status EsScanLocalState::_process_conjuncts() {
 
 Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
-        Base::_eos_dependency->set_ready_for_read();
+        _eos = true;
+        _scan_dependency->set_ready();
         return Status::OK();
     }
 
@@ -106,16 +107,17 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
     return Status::OK();
 }
 
-void EsScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void EsScanLocalState::set_scan_ranges(RuntimeState* state,
+                                       const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& es_scan_range : scan_ranges) {
         DCHECK(es_scan_range.scan_range.__isset.es_scan_range);
         _scan_ranges.emplace_back(new TEsScanRange(es_scan_range.scan_range.es_scan_range));
     }
 }
 
-EsScanOperatorX::EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                 const DescriptorTbl& descs)
-        : ScanOperatorX<EsScanLocalState>(pool, tnode, descs),
+EsScanOperatorX::EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                                 const DescriptorTbl& descs, int parallel_tasks)
+        : ScanOperatorX<EsScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
           _tuple_id(tnode.es_scan_node.tuple_id),
           _tuple_desc(nullptr) {
     ScanOperatorX<EsScanLocalState>::_output_tuple_id = tnode.es_scan_node.tuple_id;

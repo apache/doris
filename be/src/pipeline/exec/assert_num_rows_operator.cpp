@@ -17,6 +17,8 @@
 
 #include "assert_num_rows_operator.h"
 
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris::pipeline {
 
 OperatorPtr AssertNumRowsOperatorBuilder::build_operator() {
@@ -24,8 +26,8 @@ OperatorPtr AssertNumRowsOperatorBuilder::build_operator() {
 }
 
 AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, descs),
+                                               int operator_id, const DescriptorTbl& descs)
+        : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, operator_id, descs),
           _desired_num_rows(tnode.assert_num_rows_node.desired_num_rows),
           _subquery_string(tnode.assert_num_rows_node.subquery_string) {
     if (tnode.assert_num_rows_node.__isset.assertion) {
@@ -36,9 +38,9 @@ AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode
 }
 
 Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Block* block,
-                                    SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+                                    bool* eos) {
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     local_state.add_num_rows_returned(block->rows());
     int64_t num_rows_returned = local_state.num_rows_returned();
     bool assert_res = false;
@@ -83,6 +85,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     }
     COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
     COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
     return Status::OK();
 }
 

@@ -25,10 +25,8 @@ import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
@@ -125,13 +123,12 @@ public class RecoverTest {
     }
 
     private static boolean checkDbExist(String dbName) {
-        return Env.getCurrentInternalCatalog()
-                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)).isPresent();
+        return Env.getCurrentInternalCatalog().getDb(dbName).isPresent();
     }
 
     private static boolean checkTableExist(String dbName, String tblName) {
         return Env.getCurrentInternalCatalog()
-                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
+                .getDb(dbName)
                 .flatMap(db -> db.getTable(tblName)).isPresent();
     }
 
@@ -141,13 +138,13 @@ public class RecoverTest {
 
     private static boolean checkPartitionExist(String dbName, String tblName, String partName) {
         return Env.getCurrentInternalCatalog()
-                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
+                .getDb(dbName)
                 .flatMap(db -> db.getTable(tblName)).map(table -> table.getPartition(partName)).isPresent();
     }
 
     private static long getDbId(String dbName) throws DdlException {
         Database db = (Database) Env.getCurrentInternalCatalog()
-                .getDbOrDdlException((ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)));
+                .getDbOrDdlException(dbName);
         if (db != null) {
             return db.getId();
         } else {
@@ -157,7 +154,7 @@ public class RecoverTest {
 
     private static long getTableId(String dbName, String tblName) throws DdlException {
         Database db = (Database) Env.getCurrentInternalCatalog()
-                .getDbOrDdlException((ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)));
+                .getDbOrDdlException(dbName);
         if (db != null) {
             OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
             if (olapTable != null) {
@@ -172,7 +169,7 @@ public class RecoverTest {
 
     private static long getPartId(String dbName, String tblName, String partName) throws DdlException {
         Database db = (Database) Env.getCurrentInternalCatalog()
-                .getDbOrDdlException((ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)));
+                .getDbOrDdlException(dbName);
         if (db != null) {
             OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
             if (olapTable != null) {

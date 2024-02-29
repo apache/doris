@@ -19,7 +19,10 @@ version: "3.8"
 
 networks:
   doris--network:
-    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.43.0.0/24
 
 services:
 

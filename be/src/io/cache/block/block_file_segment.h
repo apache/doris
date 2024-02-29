@@ -138,6 +138,10 @@ public:
 
     std::string get_path_in_local_cache() const;
 
+    bool change_cache_type(CacheType new_type);
+
+    Status change_cache_type_self(CacheType new_type);
+
     State state_unlock(std::lock_guard<std::mutex>&) const;
 
     FileBlock& operator=(const FileBlock&) = delete;
@@ -182,7 +186,7 @@ private:
     mutable std::mutex _download_mutex;
 
     Key _file_key;
-    IFileCache* _cache;
+    IFileCache* _cache = nullptr;
 
     std::atomic<bool> _is_downloaded {false};
     CacheType _cache_type;

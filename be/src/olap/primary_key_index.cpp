@@ -21,7 +21,6 @@
 
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "io/fs/file_writer.h"
@@ -55,7 +54,7 @@ Status PrimaryKeyIndexBuilder::init() {
 
 Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
     RETURN_IF_ERROR(_primary_key_index_builder->add(&key));
-    Slice key_without_seq = Slice(key.get_data(), key.get_size() - _seq_col_length);
+    Slice key_without_seq = Slice(key.get_data(), key.get_size() - _seq_col_length - _rowid_length);
     _bloom_filter_index_builder->add_values(&key_without_seq, 1);
     // the key is already sorted, so the first key is min_key, and
     // the last key is max_key.

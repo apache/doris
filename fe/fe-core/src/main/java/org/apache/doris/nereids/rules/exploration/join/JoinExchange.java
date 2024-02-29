@@ -17,16 +17,18 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Lists;
@@ -52,7 +54,8 @@ public class JoinExchange extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin())
                 .when(JoinExchange::checkReorder)
-                .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint() || join.right().hasJoinHint())
+                .whenNot(join -> join.hasDistributeHint()
+                        || join.left().hasDistributeHint() || join.right().hasDistributeHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin() || join.right().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left();
@@ -85,15 +88,16 @@ public class JoinExchange extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts, JoinHint.NONE, a, c);
+                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
+                            new DistributeHint(DistributeType.NONE), a, c, null);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts, JoinHint.NONE, b, d);
+                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
+                            new DistributeHint(DistributeType.NONE), b, d, null);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
-                            newLeftJoin, newRightJoin);
-                    setNewLeftJoinReorder(newLeftJoin, leftJoin);
-                    setNewRightJoinReorder(newRightJoin, leftJoin);
-                    setNewTopJoinReorder(newTopJoin, topJoin);
+                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
+                            new DistributeHint(DistributeType.NONE),
+                            newLeftJoin, newRightJoin, null);
+                    newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return newTopJoin;
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
@@ -103,6 +107,10 @@ public class JoinExchange extends OneExplorationRuleFactory {
      * check reorder masks.
      */
     public static boolean checkReorder(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
+        if (topJoin.isLeadingJoin()
+                || isChildLeadingJoin(topJoin.left()) || isChildLeadingJoin(topJoin.right())) {
+            return false;
+        }
         if (topJoin.getJoinReorderContext().hasCommute()
                 || topJoin.getJoinReorderContext().hasLeftAssociate()
                 || topJoin.getJoinReorderContext().hasRightAssociate()
@@ -113,25 +121,22 @@ public class JoinExchange extends OneExplorationRuleFactory {
         }
     }
 
-    public static void setNewTopJoinReorder(LogicalJoin newTopJoin, LogicalJoin topJoin) {
-        newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
-        newTopJoin.getJoinReorderContext().setHasExchange(true);
-    }
-
-    public static void setNewLeftJoinReorder(LogicalJoin newLeftJoin, LogicalJoin leftJoin) {
-        newLeftJoin.getJoinReorderContext().copyFrom(leftJoin.getJoinReorderContext());
-        newLeftJoin.getJoinReorderContext().setHasCommute(false);
-        newLeftJoin.getJoinReorderContext().setHasLeftAssociate(false);
-        newLeftJoin.getJoinReorderContext().setHasRightAssociate(false);
-        newLeftJoin.getJoinReorderContext().setHasExchange(false);
-    }
-
-    public static void setNewRightJoinReorder(LogicalJoin newRightJoin, LogicalJoin rightJoin) {
-        newRightJoin.getJoinReorderContext().copyFrom(rightJoin.getJoinReorderContext());
-        newRightJoin.getJoinReorderContext().setHasCommute(false);
-        newRightJoin.getJoinReorderContext().setHasLeftAssociate(false);
-        newRightJoin.getJoinReorderContext().setHasRightAssociate(false);
-        newRightJoin.getJoinReorderContext().setHasExchange(false);
+    /**
+     * check whether a child plan is generate by leading
+     * @param child input plan by rule
+     * @return boolean value if child is generate by leading
+     */
+    public static boolean isChildLeadingJoin(Plan child) {
+        if (child instanceof LogicalProject) {
+            if (((LogicalJoin) (child.child(0))).isLeadingJoin()) {
+                return true;
+            }
+        } else if (child instanceof LogicalJoin) {
+            if (((LogicalJoin) child).isLeadingJoin()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

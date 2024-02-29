@@ -81,9 +81,10 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
                             && rightAlwaysNullSlots.containsAll(p.getInputSlots())))
                     .collect(ImmutableSet.toImmutableSet());
             boolean containRightSlot = predicates.stream()
-                    .anyMatch(s -> join.right().getOutputSet().containsAll(s.getInputSlots()));
+                    .flatMap(p -> p.getInputSlots().stream())
+                    .anyMatch(join.right().getOutputSet()::contains);
             if (!containRightSlot) {
-                res = join.withJoinType(JoinType.LEFT_ANTI_JOIN);
+                res = join.withJoinType(JoinType.LEFT_ANTI_JOIN, join.getJoinReorderContext());
                 res = predicates.isEmpty() ? res : filter.withConjuncts(predicates).withChildren(res);
                 res = project.withChildren(res);
             }
@@ -94,9 +95,10 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
                             && leftAlwaysNullSlots.containsAll(p.getInputSlots())))
                     .collect(ImmutableSet.toImmutableSet());
             boolean containLeftSlot = predicates.stream()
-                    .anyMatch(s -> join.left().getOutputSet().containsAll(s.getInputSlots()));
+                    .flatMap(p -> p.getInputSlots().stream())
+                    .anyMatch(join.left().getOutputSet()::contains);
             if (!containLeftSlot) {
-                res = join.withJoinType(JoinType.RIGHT_ANTI_JOIN);
+                res = join.withJoinType(JoinType.RIGHT_ANTI_JOIN, join.getJoinReorderContext());
                 res = predicates.isEmpty() ? res : filter.withConjuncts(predicates).withChildren(res);
                 res = project.withChildren(res);
             }

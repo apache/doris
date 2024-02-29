@@ -27,13 +27,13 @@
 #include <unordered_map>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/load_channel.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/countdown_latch.h"
@@ -50,7 +50,6 @@ class Thread;
 class LoadChannelMgr {
 public:
     LoadChannelMgr();
-    ~LoadChannelMgr();
 
     Status init(int64_t process_mem_limit);
 
@@ -73,12 +72,20 @@ private:
 
     Status _start_bg_worker();
 
+    class LastSuccessChannelCache : public LRUCachePolicy {
+    public:
+        LastSuccessChannelCache(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
+                                 LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+    };
+
 protected:
     // lock protect the load channel map
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
-    Cache* _last_success_channel = nullptr;
+    std::unique_ptr<LastSuccessChannelCache> _last_success_channels;
 
     MemTableMemoryLimiter* _memtable_memory_limiter = nullptr;
 

@@ -37,6 +37,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_tuple.h"
@@ -64,9 +65,10 @@ static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
-    EXPECT_TRUE(io::global_local_filesystem()
-                        ->delete_and_create_directory(config::storage_root_path)
-                        .ok());
+    auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+    ASSERT_TRUE(st.ok()) << st;
+    st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+    ASSERT_TRUE(st.ok()) << st;
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
@@ -82,11 +84,11 @@ static void set_up() {
     options.store_paths = paths;
     k_engine = std::make_unique<StorageEngine>(options);
     Status s = k_engine->open();
-    EXPECT_TRUE(s.ok()) << s.to_string();
-    ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
+    ASSERT_TRUE(s.ok()) << s;
 }
 
 static void tear_down() {
+    k_engine.reset();
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
@@ -94,13 +96,12 @@ static void tear_down() {
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
-    ExecEnv::GetInstance()->set_storage_engine(nullptr);
-    k_engine.reset();
 }
 
 static void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10003;
     request->__set_version(1);
+    request->partition_id = 10004;
     request->tablet_schema.schema_hash = 270068375;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -284,9 +285,10 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -303,7 +305,7 @@ protected:
         res = k_engine->create_tablet(_create_dup_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(_create_dup_tablet.tablet_id);
-        EXPECT_TRUE(dup_tablet.get() != NULL);
+        EXPECT_TRUE(dup_tablet);
         _dup_tablet_path = tablet->tablet_path();
     }
 
@@ -311,7 +313,7 @@ protected:
         // Remove all dir.
         tablet.reset();
         dup_tablet.reset();
-        static_cast<void>(StorageEngine::instance()->tablet_manager()->drop_tablet(
+        static_cast<void>(k_engine->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
                 io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
@@ -491,9 +493,10 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -866,9 +869,10 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -881,9 +885,6 @@ protected:
         EXPECT_TRUE(tablet != nullptr);
         _tablet_path = tablet->tablet_path();
 
-        static_cast<void>(_data_row_cursor.init(tablet->tablet_schema()));
-        static_cast<void>(
-                _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema()));
         _json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
@@ -910,7 +911,7 @@ protected:
         // Remove all dir.
         tablet.reset();
         _delete_handler.finalize();
-        static_cast<void>(StorageEngine::instance()->tablet_manager()->drop_tablet(
+        static_cast<void>(k_engine->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
                 io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
@@ -949,7 +950,6 @@ protected:
     }
 
     std::string _tablet_path;
-    RowCursor _data_row_cursor;
     TabletSharedPtr tablet;
     TCreateTabletReq _create_tablet;
     DeleteHandler _delete_handler;
@@ -1090,30 +1090,6 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
 
-    // 构造一行测试数据
-    std::vector<string> data_str;
-    data_str.push_back("1");
-    data_str.push_back("6");
-    data_str.push_back("8");
-    data_str.push_back("-1");
-    data_str.push_back("16");
-    data_str.push_back("1.2");
-    data_str.push_back("2014-01-01");
-    data_str.push_back("2014-01-01 00:00:00");
-    data_str.push_back("YWFH");
-    data_str.push_back("1");
-    data_str.push_back("YWFH==");
-    data_str.push_back("1");
-    OlapTuple tuple1(data_str);
-    res = _data_row_cursor.from_tuple(tuple1);
-    EXPECT_EQ(Status::OK(), res);
-
-    // 构造一行测试数据
-    data_str[1] = "4";
-    OlapTuple tuple2(data_str);
-    res = _data_row_cursor.from_tuple(tuple2);
-    EXPECT_EQ(Status::OK(), res);
-
     _delete_handler.finalize();
 }
 
@@ -1175,23 +1151,6 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
 
-    std::vector<string> data_str;
-    data_str.push_back("4");
-    data_str.push_back("5");
-    data_str.push_back("8");
-    data_str.push_back("-1");
-    data_str.push_back("16");
-    data_str.push_back("1.2");
-    data_str.push_back("2014-01-01");
-    data_str.push_back("2014-01-01 00:00:00");
-    data_str.push_back("YWFH");
-    data_str.push_back("1");
-    data_str.push_back("YWFH==");
-    data_str.push_back("1");
-    OlapTuple tuple(data_str);
-    res = _data_row_cursor.from_tuple(tuple);
-    EXPECT_EQ(Status::OK(), res);
-
     _delete_handler.finalize();
 }
 
@@ -1236,24 +1195,6 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
 
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
-    EXPECT_EQ(Status::OK(), res);
-
-    // 构造一行测试数据
-    std::vector<string> data_str;
-    data_str.push_back("1");
-    data_str.push_back("6");
-    data_str.push_back("8");
-    data_str.push_back("-1");
-    data_str.push_back("16");
-    data_str.push_back("1.2");
-    data_str.push_back("2014-01-01");
-    data_str.push_back("2014-01-01 00:00:00");
-    data_str.push_back("YWFH");
-    data_str.push_back("1");
-    data_str.push_back("YWFH==");
-    data_str.push_back("1");
-    OlapTuple tuple(data_str);
-    res = _data_row_cursor.from_tuple(tuple);
     EXPECT_EQ(Status::OK(), res);
 
     _delete_handler.finalize();

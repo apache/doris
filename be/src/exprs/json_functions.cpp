@@ -21,6 +21,8 @@
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/rapidjson.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <re2/re2.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
 #include <stdlib.h>
@@ -32,7 +34,6 @@
 #include <string>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 
@@ -260,7 +261,7 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
         const std::string& _msg = msg;                                                      \
         if (UNLIKELY(_err)) {                                                               \
             if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS) { \
-                return Status::DataQualityError(                                            \
+                return Status::NotFound<false>(                                             \
                         fmt::format("Not found target filed, err: {}, msg: {}",             \
                                     simdjson::error_message(_err), _msg));                  \
             }                                                                               \
@@ -314,6 +315,37 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
     std::swap(*value, tvalue);
 
     return Status::OK();
+}
+
+std::string JsonFunctions::print_json_value(const rapidjson::Value& value) {
+    rapidjson::StringBuffer buffer;
+    buffer.Clear();
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    value.Accept(writer);
+    return std::string(buffer.GetString());
+}
+
+void JsonFunctions::merge_objects(rapidjson::Value& dst_object, rapidjson::Value& src_object,
+                                  rapidjson::Document::AllocatorType& allocator) {
+    if (!src_object.IsObject()) {
+        return;
+    }
+    VLOG_DEBUG << "merge from src: " << print_json_value(src_object)
+               << ", to: " << print_json_value(dst_object);
+    for (auto src_it = src_object.MemberBegin(); src_it != src_object.MemberEnd(); ++src_it) {
+        auto dst_it = dst_object.FindMember(src_it->name);
+        if (dst_it != dst_object.MemberEnd()) {
+            if (src_it->value.IsObject() && dst_it->value.IsObject()) {
+                merge_objects(dst_it->value, src_it->value, allocator);
+            } else {
+                if (dst_it->value.IsNull()) {
+                    dst_it->value = src_it->value;
+                }
+            }
+        } else {
+            dst_object.AddMember(src_it->name, src_it->value, allocator);
+        }
+    }
 }
 
 } // namespace doris

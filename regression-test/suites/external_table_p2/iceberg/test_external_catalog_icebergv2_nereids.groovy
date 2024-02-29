@@ -20,7 +20,7 @@ suite("test_external_catalog_icebergv2_nereids", "p2,external,iceberg,external_r
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
         String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String hms_catalog_name = "test_external_hms_catalog_iceberg"
+        String hms_catalog_name = "test_external_hms_catalog_iceberg_nereids"
         String iceberg_catalog_name = "test_external_iceberg_catalog_nereids"
 
         sql """drop catalog if exists ${hms_catalog_name};"""

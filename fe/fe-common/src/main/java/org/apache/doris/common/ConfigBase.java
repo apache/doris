@@ -391,6 +391,7 @@ public class ConfigBase {
             throws IOException {
         File file = new File(customConfFile);
         if (!file.exists()) {
+            file.getParentFile().mkdirs();
             file.createNewFile();
         } else if (resetPersist) {
             // clear the customConfFile content

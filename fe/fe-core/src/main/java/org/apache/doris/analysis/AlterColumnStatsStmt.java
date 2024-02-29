@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -74,6 +73,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
             .build();
 
     private final TableName tableName;
+    private final String indexName;
     private final String columnName;
     private final Map<String, String> properties;
     private final PartitionNames optPartitionNames;
@@ -81,9 +81,12 @@ public class AlterColumnStatsStmt extends DdlStmt {
     private final List<Long> partitionIds = Lists.newArrayList();
     private final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
 
-    public AlterColumnStatsStmt(TableName tableName, String columnName,
+    private long indexId = -1;
+
+    public AlterColumnStatsStmt(TableName tableName, String indexName, String columnName,
             Map<String, String> properties, PartitionNames optPartitionNames) {
         this.tableName = tableName;
+        this.indexName = indexName;
         this.columnName = columnName;
         this.properties = properties == null ? Collections.emptyMap() : properties;
         this.optPartitionNames = optPartitionNames;
@@ -97,6 +100,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
         return columnName;
     }
 
+    public long getIndexId() {
+        return indexId;
+    }
+
     public List<Long> getPartitionIds() {
         return partitionIds;
     }
@@ -107,7 +114,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
@@ -127,14 +134,6 @@ public class AlterColumnStatsStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid statistics");
         }
 
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
-        }
-
         // get statsTypeToValue
         properties.forEach((key, value) -> {
             StatsType statsType = StatsType.fromString(key);
@@ -142,10 +141,33 @@ public class AlterColumnStatsStmt extends DdlStmt {
         });
     }
 
+    @Override
+    public void checkPriv() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+                tableName.getTbl(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableName.getDb() + ": " + tableName.getTbl());
+        }
+    }
+
     private void checkPartitionAndColumn() throws AnalysisException {
         CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         DatabaseIf db = catalog.getDbOrAnalysisException(tableName.getDb());
         TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
+
+        if (indexName != null) {
+            if (!(table instanceof OlapTable)) {
+                throw new AnalysisException("Only OlapTable support alter index stats. "
+                    + "Table " + table.getName() + " is not OlapTable.");
+            }
+            OlapTable olapTable = (OlapTable) table;
+            Long idxId = olapTable.getIndexIdByName(indexName);
+            if (idxId == null) {
+                throw new AnalysisException("Index " + indexName + " not exist in table " + table.getName());
+            }
+            indexId = idxId;
+        }
 
         if (table.getColumn(columnName) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
@@ -175,6 +197,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
         sb.append(tableName.toSql());
+        if (indexName != null) {
+            sb.append(" INDEX ");
+            sb.append(indexName);
+        }
         sb.append(" MODIFY COLUMN ");
         sb.append(columnName);
         sb.append(" SET STATS ");
@@ -191,10 +217,5 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
     public String getValue(StatsType statsType) {
         return statsTypeToValue.get(statsType);
-    }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.NO_FORWARD;
     }
 }

@@ -26,7 +26,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.task.AgentTask;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -88,6 +91,13 @@ public abstract class AlterJobV2 implements Writable {
     protected long timeoutMs = -1;
     @SerializedName(value = "rawSql")
     protected String rawSql;
+    @SerializedName(value = "cloudClusterName")
+    protected String cloudClusterName = "";
+
+    // The job will wait all transactions before this txn id finished, then send the schema_change/rollup tasks.
+    @SerializedName(value = "watershedTxnId")
+    protected long watershedTxnId = -1;
+
 
     public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
                       long timeoutMs) {
@@ -105,6 +115,22 @@ public abstract class AlterJobV2 implements Writable {
 
     protected AlterJobV2(JobType type) {
         this.type = type;
+    }
+
+    public String getCloudClusterName() {
+        return cloudClusterName;
+    }
+
+    public void setCloudClusterName(final String clusterName) {
+        cloudClusterName = clusterName;
+    }
+
+    protected void sleepSeveralSeconds() {
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException ie) {
+            LOG.warn("ignore InterruptedException");
+        }
     }
 
     public long getJobId() {
@@ -135,6 +161,10 @@ public abstract class AlterJobV2 implements Writable {
         return tableName;
     }
 
+    public long getWatershedTxnId() {
+        return watershedTxnId;
+    }
+
     public boolean isTimeout() {
         return System.currentTimeMillis() - createTimeMs > timeoutMs;
     }
@@ -155,6 +185,23 @@ public abstract class AlterJobV2 implements Writable {
         this.finishedTimeMs = finishedTimeMs;
     }
 
+    public String getRawSql() {
+        return rawSql;
+    }
+
+    // /api/debug_point/add/{name}?value=100
+    private void stateWait(final String name) {
+        long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);
+        if (waitTimeMs > 0) {
+            try {
+                LOG.info("debug point {} wait {} ms", name, waitTimeMs);
+                Thread.sleep(waitTimeMs);
+            } catch (InterruptedException e) {
+                LOG.warn(name, e);
+            }
+        }
+    }
+
     /**
      * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()
@@ -171,21 +218,37 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
+        if (!cloudClusterName.isEmpty()) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            ctx.setCloudCluster(cloudClusterName);
+        }
+
+        // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN
+        if (DebugPointUtil.isEnable("FE.STOP_ALTER_JOB_RUN")) {
+            LOG.info("debug point FE.STOP_ALTER_JOB_RUN, schema change schedule stopped");
+            return;
+        }
+
         try {
             switch (jobState) {
                 case PENDING:
+                    stateWait("FE.ALTER_JOB_V2_PENDING");
                     runPendingJob();
                     break;
                 case WAITING_TXN:
+                    stateWait("FE.ALTER_JOB_V2_WAITING_TXN");
                     runWaitingTxnJob();
                     break;
                 case RUNNING:
+                    stateWait("FE.ALTER_JOB_V2_RUNNING");
                     runRunningJob();
                     break;
                 default:
                     break;
             }
-        } catch (AlterCancelException e) {
+        } catch (Exception e) {
+            LOG.error("failed to run alter job {}", jobId, e);
             cancelImpl(e.getMessage());
         }
     }
@@ -209,7 +272,7 @@ public abstract class AlterJobV2 implements Writable {
         tbl.writeLockOrAlterCancelException();
         try {
             boolean isStable = tbl.isStable(Env.getCurrentSystemInfo(),
-                    Env.getCurrentEnv().getTabletScheduler(), db.getClusterName());
+                    Env.getCurrentEnv().getTabletScheduler());
 
             if (!isStable) {
                 errMsg = "table is unstable";
@@ -228,7 +291,7 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    protected abstract void runPendingJob() throws AlterCancelException;
+    protected abstract void runPendingJob() throws Exception;
 
     protected abstract void runWaitingTxnJob() throws AlterCancelException;
 
@@ -237,6 +300,8 @@ public abstract class AlterJobV2 implements Writable {
     protected abstract boolean cancelImpl(String errMsg);
 
     protected abstract void getInfo(List<List<Comparable>> infos);
+
+    protected void ensureCloudClusterExist(List<AgentTask> tasks) throws AlterCancelException {}
 
     public abstract void replay(AlterJobV2 replayedJob);
 

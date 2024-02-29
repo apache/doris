@@ -49,29 +49,28 @@ ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent
         : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state),
           _serializer(this) {}
 
-ResultFileSinkOperatorX::ResultFileSinkOperatorX(const RowDescriptor& row_desc,
+ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(0),
+        : DataSinkOperatorX(operator_id, 0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _is_top_sink(true) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(
-        const RowDescriptor& row_desc, const TResultFileSink& sink,
+        int operator_id, const RowDescriptor& row_desc, const TResultFileSink& sink,
         const std::vector<TPlanFragmentDestination>& destinations,
-        bool send_query_statistics_with_every_batch, const std::vector<TExpr>& t_output_expr,
-        DescriptorTbl& descs)
-        : DataSinkOperatorX(0),
+        const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
+        : DataSinkOperatorX(operator_id, 0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _dests(destinations),
-          _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
           _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false),
           _is_top_sink(false) {
     CHECK_EQ(destinations.size(), 1);
 }
 
 Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::init(tsink));
     auto& sink = tsink.result_file_sink;
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new vectorized::ResultFileOptions(sink.file_options));
@@ -100,11 +99,16 @@ Status ResultFileSinkOperatorX::open(RuntimeState* state) {
 
 Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _sender_id = info.sender_id;
 
     _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
+    _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
+    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
+    _split_block_distribute_by_channel_timer =
+            ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
+    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     CHECK(p._file_opts.get() != nullptr);
     if (p._is_top_sink) {
@@ -128,10 +132,9 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
 
         std::map<int64_t, int64_t> fragment_id_to_channel_index;
         for (int i = 0; i < p._dests.size(); ++i) {
-            _channels.push_back(new vectorized::Channel(
-                    this, p._row_desc, p._dests[i].brpc_server, state->fragment_instance_id(),
-                    info.tsink.result_file_sink.dest_node_id, false,
-                    p._send_query_statistics_with_every_batch));
+            _channels.push_back(new vectorized::Channel(this, p._row_desc, p._dests[i].brpc_server,
+                                                        state->fragment_instance_id(),
+                                                        info.tsink.result_file_sink.dest_node_id));
         }
         std::random_device rd;
         std::mt19937 g(rd());
@@ -152,7 +155,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
 }
 
 Status ResultFileSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     return Base::open(state);
 }
@@ -162,7 +165,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         return Status::OK();
     }
     SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
 
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     if (_closed) {
@@ -170,9 +173,9 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     }
 
     Status final_status = exec_status;
-    // close the writer
-    if (_writer && _writer->need_normal_close()) {
-        Status st = _writer->close();
+    // For pipelinex engine, the writer is closed in async thread process_block
+    if (_writer) {
+        Status st = _writer->get_writer_status();
         if (!st.ok() && exec_status.ok()) {
             // close file writer failed, should return this error to client
             final_status = st;
@@ -181,7 +184,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     if (p._is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+            _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
             static_cast<void>(_sender->close(final_status));
         }
         static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
@@ -234,14 +237,13 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                                     status = channel->send_local_block(&cur_block);
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                    status = channel->send_broadcast_block(_block_holder.get(),
-                                                                           nullptr, true);
+                                    status = channel->send_broadcast_block(_block_holder, true);
                                 }
                                 HANDLE_CHANNEL_STATUS(state, channel, status);
                             }
                         }
                         cur_block.clear_column_data();
-                        _serializer.get_block()->set_muatable_columns(cur_block.mutate_columns());
+                        _serializer.get_block()->set_mutable_columns(cur_block.mutate_columns());
                     }
                 }
             }
@@ -260,22 +262,11 @@ void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelP
     static_cast<void>(channel->close(state, Status::OK()));
 }
 
-Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                     SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    return local_state.sink(state, in_block, source_state);
-}
-
-FinishDependency* ResultFileSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_sink_local_state(id())->cast<ResultFileSinkLocalState>();
-    return local_state._finish_dependency->finish_blocked_by();
-}
-
-WriteDependency* ResultFileSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state.write_blocked_by();
+    return local_state.sink(state, in_block, eos);
 }
 
 } // namespace doris::pipeline

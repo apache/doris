@@ -19,6 +19,8 @@
 
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
+#include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
@@ -29,25 +31,28 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 #include <ostream>
 #include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "runtime/exec_env.h"
 #include "s3_uri.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
 
 namespace s3_bvar {
-bvar::Adder<uint64_t> s3_get_total("s3_get", "total_num");
-bvar::Adder<uint64_t> s3_put_total("s3_put", "total_num");
-bvar::Adder<uint64_t> s3_delete_total("s3_delete", "total_num");
-bvar::Adder<uint64_t> s3_head_total("s3_head", "total_num");
-bvar::Adder<uint64_t> s3_multi_part_upload_total("s3_multi_part_upload", "total_num");
-bvar::Adder<uint64_t> s3_list_total("s3_list", "total_num");
-bvar::Adder<uint64_t> s3_list_object_versions_total("s3_list_object_versions", "total_num");
-bvar::Adder<uint64_t> s3_get_bucket_version_total("s3_get_bucket_version", "total_num");
-bvar::Adder<uint64_t> s3_copy_object_total("s3_copy_object", "total_num");
+bvar::LatencyRecorder s3_get_latency("s3_get");
+bvar::LatencyRecorder s3_put_latency("s3_put");
+bvar::LatencyRecorder s3_delete_latency("s3_delete");
+bvar::LatencyRecorder s3_head_latency("s3_head");
+bvar::LatencyRecorder s3_multi_part_upload_latency("s3_multi_part_upload");
+bvar::LatencyRecorder s3_list_latency("s3_list");
+bvar::LatencyRecorder s3_list_object_versions_latency("s3_list_object_versions");
+bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
+bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 }; // namespace s3_bvar
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
@@ -85,10 +90,10 @@ private:
             LOG(INFO) << "[" << tag << "] " << message;
             break;
         case Aws::Utils::Logging::LogLevel::Debug:
-            VLOG_ROW << "[" << tag << "] " << message;
+            LOG(INFO) << "[" << tag << "] " << message;
             break;
         case Aws::Utils::Logging::LogLevel::Trace:
-            VLOG_ROW << "[" << tag << "] " << message;
+            LOG(INFO) << "[" << tag << "] " << message;
             break;
         default:
             break;
@@ -122,8 +127,7 @@ S3ClientFactory& S3ClientFactory::instance() {
 
 bool S3ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>& prop) {
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
-        properties.find(S3_ENDPOINT) == properties.end() ||
+    if (properties.find(S3_ENDPOINT) == properties.end() ||
         properties.find(S3_REGION) == properties.end()) {
         DCHECK(false) << "aws properties is incorrect.";
         LOG(ERROR) << "aws properties is incorrect.";
@@ -133,7 +137,7 @@ bool S3ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>&
 }
 
 bool S3ClientFactory::is_s3_conf_valid(const S3Conf& s3_conf) {
-    return !s3_conf.ak.empty() && !s3_conf.sk.empty() && !s3_conf.endpoint.empty();
+    return !s3_conf.endpoint.empty();
 }
 
 std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf) {
@@ -150,16 +154,20 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
         }
     }
 
-    Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
-    DCHECK(!aws_cred.IsExpiredOrEmpty());
-
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
     aws_config.endpointOverride = s3_conf.endpoint;
     aws_config.region = s3_conf.region;
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {
-        aws_config.maxConnections = config::doris_remote_scanner_thread_pool_thread_num;
+#ifdef BE_TEST
+        // the S3Client may shared by many threads.
+        // So need to set the number of connections large enough.
+        aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
+#else
+        aws_config.maxConnections =
+                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
+#endif
     }
 
     if (s3_conf.request_timeout_ms > 0) {
@@ -168,11 +176,27 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
-
-    std::shared_ptr<Aws::S3::S3Client> new_client = std::make_shared<Aws::S3::S3Client>(
-            std::move(aws_cred), std::move(aws_config),
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            s3_conf.use_virtual_addressing);
+    aws_config.retryStrategy =
+            std::make_shared<Aws::Client::DefaultRetryStrategy>(config::max_s3_client_retry);
+    std::shared_ptr<Aws::S3::S3Client> new_client;
+    if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
+        Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
+        DCHECK(!aws_cred.IsExpiredOrEmpty());
+        if (!s3_conf.token.empty()) {
+            aws_cred.SetSessionToken(s3_conf.token);
+        }
+        new_client = std::make_shared<Aws::S3::S3Client>(
+                std::move(aws_cred), std::move(aws_config),
+                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                s3_conf.use_virtual_addressing);
+    } else {
+        std::shared_ptr<Aws::Auth::AWSCredentialsProvider> aws_provider_chain =
+                std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+        new_client = std::make_shared<Aws::S3::S3Client>(
+                std::move(aws_provider_chain), std::move(aws_config),
+                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                s3_conf.use_virtual_addressing);
+    }
 
     {
         std::lock_guard l(_lock);
@@ -187,8 +211,13 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         return Status::InvalidArgument("S3 properties are incorrect, please check properties.");
     }
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    s3_conf->ak = properties.find(S3_AK)->second;
-    s3_conf->sk = properties.find(S3_SK)->second;
+    if (properties.find(S3_AK) != properties.end() && properties.find(S3_SK) != properties.end()) {
+        s3_conf->ak = properties.find(S3_AK)->second;
+        s3_conf->sk = properties.find(S3_SK)->second;
+    }
+    if (properties.find(S3_TOKEN) != properties.end()) {
+        s3_conf->token = properties.find(S3_TOKEN)->second;
+    }
     s3_conf->endpoint = properties.find(S3_ENDPOINT)->second;
     s3_conf->region = properties.find(S3_REGION)->second;
 

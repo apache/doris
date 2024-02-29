@@ -28,7 +28,6 @@ import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
-import org.apache.doris.nereids.rules.analysis.RejectGroupCommitInsert;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
@@ -44,12 +43,11 @@ import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
-import org.apache.doris.nereids.rules.rewrite.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
-import org.apache.doris.nereids.rules.rewrite.CountLiteralToCountStar;
+import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
@@ -57,11 +55,18 @@ import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
+import org.apache.doris.nereids.rules.rewrite.EliminateGroupBy;
+import org.apache.doris.nereids.rules.rewrite.EliminateGroupByKey;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinByFK;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinByUnique;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
+import org.apache.doris.nereids.rules.rewrite.EliminateSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
+import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubquery;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractAndNormalizeWindowExpression;
@@ -73,31 +78,46 @@ import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
-import org.apache.doris.nereids.rules.rewrite.LeadingJoin;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
+import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
+import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
+import org.apache.doris.nereids.rules.rewrite.OrExpansion;
+import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
+import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
+import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
+import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
+import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
+import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
-import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
-import org.apache.doris.nereids.rules.rewrite.PushdownLimitDistinctThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
-import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
@@ -122,6 +142,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
+                            new EliminateSortUnderSubquery(),
                             new EliminateGroupByConstant(),
                             // MergeProjects depends on this rule
                             new LogicalSubQueryAliasToLogicalProject(),
@@ -147,11 +168,53 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // after doing NormalizeAggregate in analysis job
                     // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                     bottomUp(new PullUpProjectUnderApply()),
-                    topDown(new PushdownFilterThroughProject()),
-                    costBased(
-                            custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
-                                    AggScalarSubQueryToWindowFunction::new)
+                    topDown(
+                            /*
+                             * for subquery unnest, we need hand sql like
+                             *
+                             * SELECT *
+                             *     FROM table1 AS t1
+                             * WHERE EXISTS
+                             *     (SELECT `pk`
+                             *         FROM table2 AS t2
+                             *     WHERE t1.pk = t2 .pk
+                             *     GROUP BY  t2.pk
+                             *     HAVING t2.pk > 0) ;
+                             *
+                             * before:
+                             *              apply
+                             *            /       \
+                             *          child    Filter(t2.pk > 0)
+                             *                     |
+                             *                  Project(t2.pk)
+                             *                     |
+                             *                    agg
+                             *                     |
+                             *                  Project(t2.pk)
+                             *                     |
+                             *              Filter(t1.pk=t2.pk)
+                             *                     |
+                             *                    child
+                             *
+                             * after:
+                             *              apply
+                             *            /       \
+                             *          child     agg
+                             *                      |
+                             *                  Project(t2.pk)
+                             *                      |
+                             *              Filter(t1.pk=t2.pk and t2.pk >0)
+                             *                      |
+                             *                     child
+                             *
+                             * then PullUpCorrelatedFilterUnderApplyAggregateProject rule can match the node pattern
+                             */
+                            new PushDownFilterThroughAggregation(),
+                            new PushDownFilterThroughProject(),
+                            new MergeFilters()
                     ),
+                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
+                            AggScalarSubQueryToWindowFunction::new),
                     bottomUp(
                             new EliminateUselessPlanUnderApply(),
                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -173,7 +236,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateLimit(),
                             new EliminateFilter(),
                             new EliminateAggregate(),
-                            new EliminateAssertNumRows()
+                            new EliminateJoinCondition(),
+                            new EliminateAssertNumRows(),
+                            new EliminateSemiJoin()
                     )
             ),
             // please note: this rule must run before NormalizeAggregate
@@ -185,7 +250,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topDown(
                     new SimplifyAggGroupBy(),
                     new NormalizeAggregate(),
-                    new CountLiteralToCountStar(),
+                    new CountLiteralRewrite(),
                     new NormalizeSort()
             ),
             topic("Window analysis",
@@ -207,6 +272,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // but top-down traverse can not cover this case in one iteration, so bottom-up is more
                     // efficient because it can find the new plans and apply transform wherever it is
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    // after push down, some new filters are generated, which needs to be optimized. (example: tpch q19)
+                    topDown(new ExpressionOptimization()),
                     topDown(
                             new MergeFilters(),
                             new ReorderJoin(),
@@ -217,7 +284,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // push down SEMI Join
                     bottomUp(
-                            new SemiJoinCommute(),
                             new TransposeSemiJoinLogicalJoin(),
                             new TransposeSemiJoinLogicalJoinProject(),
                             new TransposeSemiJoinAgg(),
@@ -231,15 +297,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new EliminateNotNull()),
                     topDown(new ConvertInnerOrCrossJoin())
             ),
-            topic("LEADING JOIN",
-                bottomUp(
-                    new CollectJoinConstraint()
-                ),
-                custom(RuleType.LEADING_JOIN, LeadingJoin::new),
-                bottomUp(
-                    new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE)
-                )
-            ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                     custom(RuleType.INFER_PREDICATES, InferPredicates::new),
@@ -252,6 +309,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
                     // this can help to translate plan to backend
                     topDown(new PushFilterInsideJoin()),
+                    topDown(new FindHashConditionForJoin()),
                     topDown(new ExpressionNormalization())
             ),
 
@@ -261,41 +319,84 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Set operation optimization",
                     // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
                     topDown(new PushProjectThroughUnion(), new MergeProjects()),
-                    bottomUp(new MergeSetOperations()),
+                    bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                     bottomUp(new PushProjectIntoOneRowRelation()),
                     topDown(new MergeOneRowRelationIntoUnion()),
+                    topDown(new PushProjectIntoUnion()),
                     costBased(topDown(new InferSetOperatorDistinct())),
                     topDown(new BuildAggForUnion())
             ),
 
-            // TODO remove it after Nereids support group commit insert
-            topDown(new RejectGroupCommitInsert()),
+            topic("Eliminate GroupBy",
+                    topDown(new EliminateGroupBy())
+            ),
 
-            // topic("Distinct",
-            //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
-            // ),
+            topic("Eager aggregation",
+                    topDown(
+                            new PushDownAggThroughJoinOneSide(),
+                            new PushDownAggThroughJoin()
+                    ),
+                    custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)
+            ),
+
+            // this rule should invoke after infer predicate and push down distinct, and before push down limit
+            topic("eliminate join according unique or foreign key",
+                bottomUp(new EliminateJoinByFK()),
+                topDown(new EliminateJoinByUnique())
+            ),
+
+            // this rule should be after topic "Column pruning and infer predicate"
+            topic("Join pull up",
+                    topDown(
+                        new EliminateFilter(),
+                        new PushDownFilterThroughProject(),
+                        new MergeProjects()
+                    ),
+                    topDown(
+                        new PullUpJoinFromUnionAll()
+                    ),
+                    custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
+            ),
+
+            // this rule should invoke after topic "Join pull up"
+            topic("eliminate group by keys according to fd items",
+                    topDown(new EliminateGroupByKey())
+            ),
 
             topic("Limit optimization",
+                    // TODO: the logical plan should not contains any phase information,
+                    //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
+                    //       generate one PhysicalLimit if current distribution is gather or two
+                    //       PhysicalLimits with gather exchange
+                    topDown(new LimitSortToTopN()),
+                    topDown(new MergeTopNs()),
+                    topDown(new SplitLimit()),
                     topDown(
-                            // TODO: the logical plan should not contains any phase information,
-                            //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
-                            //       generate one PhysicalLimit if current distribution is gather or two
-                            //       PhysicalLimits with gather exchange
-                            new LimitSortToTopN(),
-                            new SplitLimit(),
-                            new PushdownLimit(),
-                            new PushdownTopNThroughJoin(),
-                            new PushdownLimitDistinctThroughJoin(),
-                            new PushdownTopNThroughWindow(),
-                            new CreatePartitionTopNFromWindow()
+                            new PushDownLimit(),
+                            new PushDownLimitDistinctThroughJoin(),
+                            new PushDownLimitDistinctThroughUnion(),
+                            new PushDownTopNDistinctThroughJoin(),
+                            new PushDownTopNDistinctThroughUnion(),
+                            new PushDownTopNThroughJoin(),
+                            new PushDownTopNThroughWindow(),
+                            new PushDownTopNThroughUnion()
+                    ),
+                    topDown(new CreatePartitionTopNFromWindow()),
+                    topDown(
+                            new PullUpProjectUnderTopN(),
+                            new PullUpProjectUnderLimit()
                     )
             ),
             // TODO: these rules should be implementation rules, and generate alternative physical plans.
             topic("Table/Physical optimization",
                     topDown(
                             new PruneOlapScanPartition(),
+                            new PruneEmptyPartition(),
                             new PruneFileScanPartition(),
                             new PushConjunctsIntoJdbcScan(),
+                            new PushConjunctsIntoOdbcScan(),
                             new PushConjunctsIntoEsScan()
                     )
             ),
@@ -304,7 +405,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new SelectMaterializedIndexWithAggregate(),
                             new SelectMaterializedIndexWithoutAggregate(),
                             new EliminateFilter(),
-                            new PushdownFilterThroughProject(),
+                            new PushDownFilterThroughProject(),
                             new MergeProjects(),
                             new PruneOlapScanTablet()
                     ),
@@ -315,16 +416,17 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("topn optimize",
                     topDown(new DeferMaterializeTopNResult())
             ),
+            topic("eliminate",
+                    // SORT_PRUNING should be applied after mergeLimit
+                    custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
+                    bottomUp(new EliminateEmptyRelation())
+            ),
+
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
                     custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                     custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
-                    topDown(
-                            new PushdownFilterThroughProject(),
-                            new MergeProjects()
-                    ),
-                    // SORT_PRUNING should be applied after mergeLimit
-                    custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
+                    topDown(new PushDownFilterThroughProject(), new MergeProjects()),
                     custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
@@ -338,10 +440,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new CollectFilterAboveConsumer(),
                             new CollectProjectAboveConsumer()
                     )
-            ),
-
-            topic("eliminate empty relation",
-                bottomUp(new EliminateEmptyRelation())
             )
     );
 
@@ -376,8 +474,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
         List<RewriteJob> withoutCostBased = Rewriter.CTE_CHILDREN_REWRITE_JOBS.stream()
-                    .filter(j -> !(j instanceof CostBasedRewriteJob))
-                    .collect(Collectors.toList());
+                .filter(j -> !(j instanceof CostBasedRewriteJob))
+                .collect(Collectors.toList());
         return getWholeTreeRewriteJobs(withCostBased ? CTE_CHILDREN_REWRITE_JOBS : withoutCostBased);
     }
 
@@ -393,6 +491,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("rewrite cte sub-tree",
                         custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(jobs))
                 ),
+                topic("or expansion",
+                        topDown(new OrExpansion())),
                 topic("whole plan check",
                         custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                 )

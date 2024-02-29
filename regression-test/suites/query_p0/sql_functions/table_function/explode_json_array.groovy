@@ -45,12 +45,17 @@ suite("explode_json_array") {
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
                         GROUP BY c_age ORDER BY c_age """
 
+    qt_explode_json_array_8_invalid """ SELECT c_age, COUNT(1) FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('["1", 60]') t1 as c_age 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('["b", "c"]') t2 as d_age 
+                        GROUP BY c_age ORDER BY c_age """
+
     qt_explode_json_array9 """ SELECT * FROM ${tableName}
                             LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[]') t1 AS c_age 
                             ORDER BY id, c_age """
 
     qt_explode_json_array10 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
-                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", -3]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
                         ORDER BY id, c, d """
 
@@ -69,4 +74,18 @@ suite("explode_json_array") {
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[-92233720368547758071,-92233720368547758081]') t1 as c_age 
                         GROUP BY c_age ORDER BY c_age """
 
+    qt_explode_json_array14 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1182381637816312, "b", -1273982982312333]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
+                        ORDER BY id, c, d """
+
+    qt_explode_json_array15 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[true, "b", false]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
+                        ORDER BY id, c, d """    
+
+    qt_explode_json_array16 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[null, "b", null]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
+                        ORDER BY id, c, d """        
 }

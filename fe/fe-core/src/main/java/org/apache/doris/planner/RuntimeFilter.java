@@ -35,6 +35,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -107,7 +108,9 @@ public final class RuntimeFilter {
 
     private boolean bitmapFilterNotIn = false;
 
-    private boolean useRemoteRfOpt = true;
+    private TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType;
+
+    private boolean bloomFilterSizeCalculatedByNdv = false;
 
     /**
      * Internal representation of a runtime filter target.
@@ -142,8 +145,10 @@ public final class RuntimeFilter {
     }
 
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
-            List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots, TRuntimeFilterType type,
-            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
+                          List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots,
+                          TRuntimeFilterType type,
+                          RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv,
+                          TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType) {
         this.id = filterId;
         this.builderNode = filterSrcNode;
         this.srcExpr = srcExpr;
@@ -152,16 +157,27 @@ public final class RuntimeFilter {
         this.targetSlotsByTid = ImmutableList.copyOf(targetSlots);
         this.runtimeFilterType = type;
         this.ndvEstimate = buildSizeNdv;
+        this.tMinMaxRuntimeFilterType = tMinMaxRuntimeFilterType;
         computeNdvEstimate();
         calculateFilterSize(filterSizeLimits);
     }
 
+    private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
+            List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots, TRuntimeFilterType type,
+            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
+        this(filterId, filterSrcNode, srcExpr, exprOrder, origTargetExprs,
+                targetSlots, type, filterSizeLimits, buildSizeNdv, TMinMaxRuntimeFilterType.MIN_MAX);
+    }
+
     // only for nereids planner
-    public static RuntimeFilter fromNereidsRuntimeFilter(RuntimeFilterId id, JoinNodeBase node, Expr srcExpr,
-            int exprOrder, List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots,
-            TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
-        return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExprs,
-                targetSlots, type, filterSizeLimits, buildSizeNdv);
+    public static RuntimeFilter fromNereidsRuntimeFilter(
+            org.apache.doris.nereids.trees.plans.physical.RuntimeFilter nereidsFilter,
+            JoinNodeBase node, Expr srcExpr, List<Expr> origTargetExprs,
+            List<Map<TupleId, List<SlotId>>> targetSlots,
+            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+        return new RuntimeFilter(nereidsFilter.getId(), node, srcExpr, nereidsFilter.getExprOrder(), origTargetExprs,
+                targetSlots, nereidsFilter.getType(), filterSizeLimits, nereidsFilter.getBuildSideNdv(),
+                nereidsFilter.gettMinMaxType());
     }
 
     @Override
@@ -189,17 +205,6 @@ public final class RuntimeFilter {
         this.bitmapFilterNotIn = bitmapFilterNotIn;
     }
 
-    public void computeUseRemoteRfOpt() {
-        for (RuntimeFilterTarget target : targets) {
-            useRemoteRfOpt = useRemoteRfOpt && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
-                    && target.expr instanceof SlotRef;
-        }
-    }
-
-    public boolean getUseRemoteRfOpt() {
-        return useRemoteRfOpt;
-    }
-
     /**
      * Serializes a runtime filter to Thrift.
      */
@@ -211,12 +216,8 @@ public final class RuntimeFilter {
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
         tFilter.setHasRemoteTargets(hasRemoteTargets);
-        boolean optRemoteRf = true;
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
-            // TODO: now only support SlotRef
-            optRemoteRf = optRemoteRf && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
-                    && target.expr instanceof SlotRef;
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
@@ -224,7 +225,11 @@ public final class RuntimeFilter {
             tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
             tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
         }
-        tFilter.setOptRemoteRf(optRemoteRf);
+        if (runtimeFilterType.equals(TRuntimeFilterType.MIN_MAX)) {
+            tFilter.setMinMaxType(tMinMaxRuntimeFilterType);
+        }
+        tFilter.setOptRemoteRf(hasRemoteTargets);
+        tFilter.setBloomFilterSizeCalculatedByNdv(bloomFilterSizeCalculatedByNdv);
         return tFilter;
     }
 
@@ -254,6 +259,18 @@ public final class RuntimeFilter {
 
     public TRuntimeFilterType getType() {
         return runtimeFilterType;
+    }
+
+    public String getTypeDesc() {
+        String desc = runtimeFilterType.toString().toLowerCase();
+        if (runtimeFilterType == TRuntimeFilterType.MIN_MAX) {
+            if (tMinMaxRuntimeFilterType == TMinMaxRuntimeFilterType.MIN) {
+                desc = "min";
+            } else if (tMinMaxRuntimeFilterType == TMinMaxRuntimeFilterType.MAX) {
+                desc = "max";
+            }
+        }
+        return desc;
     }
 
     public void setType(TRuntimeFilterType type) {
@@ -573,6 +590,10 @@ public final class RuntimeFilter {
         isBroadcastJoin = isBroadcast;
     }
 
+    public boolean isBroadcast() {
+        return isBroadcastJoin;
+    }
+
     public void computeNdvEstimate() {
         if (ndvEstimate < 0) {
             ndvEstimate = builderNode.getChild(1).getCardinalityAfterFilter();
@@ -684,5 +705,35 @@ public final class RuntimeFilter {
 
     public long getExpectFilterSizeBytes() {
         return expectFilterSizeBytes;
+    }
+
+    public String getExplainString(boolean isBuildNode, boolean isBrief, PlanNodeId targetNodeId) {
+        StringBuilder filterStr = new StringBuilder();
+        filterStr.append(getFilterId());
+        if (!isBrief) {
+            filterStr.append("[");
+            filterStr.append(getTypeDesc());
+            filterStr.append("]");
+            if (isBuildNode) {
+                filterStr.append(" <- ");
+                filterStr.append(getSrcExpr().toSql());
+                filterStr.append("(").append(getEstimateNdv()).append("/")
+                        .append(getExpectFilterSizeBytes()).append("/")
+                        .append(getFilterSizeBytes()).append(")");
+            } else {
+                filterStr.append(" -> ");
+                filterStr.append(getTargetExpr(targetNodeId).toSql());
+            }
+        }
+        return filterStr.toString();
+    }
+
+
+    public boolean isBloomFilterSizeCalculatedByNdv() {
+        return bloomFilterSizeCalculatedByNdv;
+    }
+
+    public void setBloomFilterSizeCalculatedByNdv(boolean bloomFilterSizeCalculatedByNdv) {
+        this.bloomFilterSizeCalculatedByNdv = bloomFilterSizeCalculatedByNdv;
     }
 }

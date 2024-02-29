@@ -34,6 +34,7 @@
 #include "olap/delta_writer_context.h"
 #include "olap/memtable_writer.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -61,16 +62,17 @@ class Block;
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriterV2 {
+    ENABLE_FACTORY_CREATOR(DeltaWriterV2);
+
 public:
-    static Status open(WriteRequest* req,
-                       const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                       DeltaWriterV2** writer, RuntimeProfile* profile);
+    DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
+                  RuntimeState* state);
 
     ~DeltaWriterV2();
 
     Status init();
 
-    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                  bool is_append = false);
 
     Status append(const vectorized::Block* block);
@@ -79,32 +81,21 @@ public:
     Status close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    Status close_wait();
+    Status close_wait(RuntimeProfile* profile = nullptr);
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
     Status cancel();
     Status cancel_with_status(const Status& st);
 
-    int64_t partition_id() const;
-
-    int64_t mem_consumption(MemType mem);
-
-    int64_t tablet_id() { return _req.tablet_id; }
-
-    int32_t schema_hash() { return _req.schema_hash; }
-
-    int64_t total_received_rows() const { return _total_received_rows; }
-
 private:
-    DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                  StorageEngine* storage_engine, RuntimeProfile* profile);
-
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
                                       const TabletSchema& ori_tablet_schema);
 
-    void _init_profile(RuntimeProfile* profile);
+    void _update_profile(RuntimeProfile* profile);
+
+    RuntimeState* _state = nullptr;
 
     bool _is_init = false;
     bool _is_cancelled = false;
@@ -115,17 +106,16 @@ private:
 
     std::mutex _lock;
 
-    // total rows num written by DeltaWriterV2
-    int64_t _total_received_rows = 0;
-
-    RuntimeProfile* _profile = nullptr;
-    RuntimeProfile::Counter* _write_memtable_timer = nullptr;
-    RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    int64_t _write_memtable_time = 0;
+    int64_t _wait_flush_limit_time = 0;
+    int64_t _close_wait_time = 0;
 
     std::shared_ptr<MemTableWriter> _memtable_writer;
     MonotonicStopWatch _lock_watch;
 
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 };
 
 } // namespace doris

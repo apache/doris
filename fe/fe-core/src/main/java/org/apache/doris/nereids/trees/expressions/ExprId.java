@@ -45,4 +45,14 @@ public class ExprId extends Id<ExprId> {
     public String toString() {
         return "" + id;
     }
+
+    @Override
+    public boolean equals(Object obj) {
+        return super.equals(obj);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
 }

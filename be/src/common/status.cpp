@@ -17,6 +17,11 @@
 #include "service/backend_options.h"
 
 namespace doris {
+namespace ErrorCode {
+
+ErrorCodeState error_states[MAX_ERROR_CODE_DEFINE_NUM];
+ErrorCodeInitializer error_code_init;
+} // namespace ErrorCode
 
 void Status::to_thrift(TStatus* s) const {
     s->error_msgs.clear();

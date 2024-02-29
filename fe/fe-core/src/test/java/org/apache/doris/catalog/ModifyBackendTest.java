@@ -81,9 +81,10 @@ public class ModifyBackendTest {
         String createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n"
                 + "buckets 3 properties(\n" + "\"replication_num\" = \"1\"\n" + ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
                         + "Create failed replications:\n"
-                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
+                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: HDD",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
 
         createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n" + "buckets 3 properties(\n"
@@ -105,7 +106,7 @@ public class ModifyBackendTest {
         //partition create failed, because there is no BE with "default" tag
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "replication num should be less than the number of available backends. replication num is 3, available backend num is 1",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt3));
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
 
         createStr = "create table test.tbl4(\n" + "k1 date, k2 int\n" + ") partition by range(k1)()\n"
                 + "distributed by hash(k1)\n" + "buckets 3 properties(\n"
@@ -151,10 +152,10 @@ public class ModifyBackendTest {
         String wrongAlterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = "
-                + "errCode = 2, detailMessage = Failed to find enough backend, "
-                + "please check the replication num,replication tag and storage medium.\n"
-                + "Create failed replications:\n"
-                + "replication tag: {\"location\" : \"zonex\"}, replication num: 1, storage medium: null",
+                        + "errCode = 2, detailMessage = Failed to find enough backend, "
+                        + "please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        + "Create failed replications:\n"
+                        + "replication tag: {\"location\" : \"zonex\"}, replication num: 1, storage medium: null",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(wrongAlterStr, connectContext));
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));

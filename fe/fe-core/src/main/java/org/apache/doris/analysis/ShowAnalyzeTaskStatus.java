@@ -19,8 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 /**
@@ -32,6 +32,7 @@ public class ShowAnalyzeTaskStatus extends ShowStmt {
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("task_id", ScalarType.createVarchar(100)))
                     .addColumn(new Column("col_name", ScalarType.createVarchar(1000)))
+                    .addColumn(new Column("index_name", ScalarType.createVarchar(1000)))
                     .addColumn(new Column("message", ScalarType.createVarchar(1000)))
                     .addColumn(new Column("last_state_change_time", ScalarType.createVarchar(1000)))
                     .addColumn(new Column("time_cost_in_ms", ScalarType.createVarchar(1000)))
@@ -45,7 +46,7 @@ public class ShowAnalyzeTaskStatus extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }

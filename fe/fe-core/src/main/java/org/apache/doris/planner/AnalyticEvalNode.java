@@ -75,6 +75,8 @@ public class AnalyticEvalNode extends PlanNode {
     private final Expr orderByEq;
     private final TupleDescriptor bufferedTupleDesc;
 
+    private boolean isColocate = false;
+
     public AnalyticEvalNode(
             PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
             List<Expr> partitionExprs, List<OrderByElement> orderByElements,
@@ -181,6 +183,10 @@ public class AnalyticEvalNode extends PlanNode {
         cardinality = getChild(0).cardinality;
     }
 
+    public void setColocate(boolean colocate) {
+        this.isColocate = colocate;
+    }
+
     @Override
     protected String debugString() {
         List<String> orderByElementStrs = Lists.newArrayList();
@@ -215,7 +221,7 @@ public class AnalyticEvalNode extends PlanNode {
         msg.analytic_node.setPartitionExprs(Expr.treesToThrift(substitutedPartitionExprs));
         msg.analytic_node.setOrderByExprs(Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
         msg.analytic_node.setAnalyticFunctions(Expr.treesToThrift(analyticFnCalls));
-
+        msg.analytic_node.setIsColocate(isColocate);
         if (analyticWindow == null) {
             if (!orderByElements.isEmpty()) {
                 msg.analytic_node.setWindow(AnalyticWindow.DEFAULT_WINDOW.toThrift());

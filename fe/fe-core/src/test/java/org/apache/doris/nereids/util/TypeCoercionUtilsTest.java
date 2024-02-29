@@ -727,12 +727,12 @@ public class TypeCoercionUtilsTest {
                 new DecimalV3Literal(new BigDecimal("123.45")));
         expression = TypeCoercionUtils.processBinaryArithmetic(add);
         Assertions.assertEquals(expression.child(0),
-                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(10, 3)));
 
         Subtract sub = new Subtract(new DecimalLiteral(new BigDecimal("987654.321")),
                 new DecimalV3Literal(new BigDecimal("123.45")));
         expression = TypeCoercionUtils.processBinaryArithmetic(sub);
         Assertions.assertEquals(expression.child(0),
-                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(10, 3)));
     }
 }

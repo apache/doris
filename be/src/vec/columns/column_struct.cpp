@@ -185,15 +185,25 @@ const char* ColumnStruct::deserialize_and_insert_from_arena(const char* pos) {
     return pos;
 }
 
+int ColumnStruct::compare_at(size_t n, size_t m, const IColumn& rhs_,
+                             int nan_direction_hint) const {
+    const ColumnStruct& rhs = assert_cast<const ColumnStruct&>(rhs_);
+
+    const size_t lhs_tuple_size = columns.size();
+    const size_t rhs_tuple_size = rhs.tuple_size();
+    const size_t min_size = std::min(lhs_tuple_size, rhs_tuple_size);
+    for (size_t i = 0; i < min_size; ++i) {
+        if (int res = columns[i]->compare_at(n, m, *rhs.columns[i], nan_direction_hint); res) {
+            return res;
+        }
+    }
+    return lhs_tuple_size > rhs_tuple_size ? 1 : (lhs_tuple_size < rhs_tuple_size ? -1 : 0);
+}
+
 void ColumnStruct::update_hash_with_value(size_t n, SipHash& hash) const {
     for (const auto& column : columns) {
         column->update_hash_with_value(n, hash);
     }
-}
-
-void ColumnStruct::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                            const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
 void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
@@ -203,7 +213,7 @@ void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& 
     }
 }
 
-void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                          const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
         column->update_crc_with_value(start, end, hash, nullptr);
@@ -217,16 +227,17 @@ void ColumnStruct::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-void ColumnStruct::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
-        column->update_crcs_with_value(hash, type, null_data);
+        column->update_crcs_with_value(hash, type, rows, offset, null_data);
     }
 }
 
-void ColumnStruct::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                       const int* indices_end) {
-    const ColumnStruct& src_concrete = assert_cast<const ColumnStruct&>(src);
+void ColumnStruct::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                       const uint32_t* indices_end) {
+    const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
     for (size_t i = 0; i < columns.size(); ++i) {
         columns[i]->insert_indices_from(src_concrete.get_column(i), indices_begin, indices_end);
     }
@@ -284,13 +295,19 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     return ColumnStruct::create(new_columns);
 }
 
-void ColumnStruct::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnStruct&>(column);
-    res.columns.resize(columns.size());
+MutableColumnPtr ColumnStruct::get_shrinked_column() {
+    const size_t tuple_size = columns.size();
+    MutableColumns new_columns(tuple_size);
 
-    for (size_t i = 0; i != columns.size(); ++i) {
-        columns[i]->replicate(indexs, target_size, *res.columns[i]);
+    for (size_t i = 0; i < tuple_size; ++i) {
+        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
+            columns[i]->is_column_map() || columns[i]->is_column_struct()) {
+            new_columns[i] = columns[i]->get_shrinked_column();
+        } else {
+            new_columns[i] = columns[i]->get_ptr();
+        }
     }
+    return ColumnStruct::create(std::move(new_columns));
 }
 
 MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {
@@ -345,12 +362,6 @@ size_t ColumnStruct::allocated_bytes() const {
         res += column->allocated_bytes();
     }
     return res;
-}
-
-void ColumnStruct::protect() {
-    for (auto& column : columns) {
-        column->protect();
-    }
 }
 
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {

@@ -129,7 +129,7 @@ Regexps constructRegexps(const std::vector<String>& str_patterns,
         }
     }
     hs_database_t* db = nullptr;
-    hs_compile_error_t* compile_error;
+    hs_compile_error_t* compile_error = nullptr;
 
     std::unique_ptr<unsigned int[]> ids;
 

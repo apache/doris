@@ -2,7 +2,7 @@
 -- !select_star --
 1	1	1	1	1	1	1	1	1	1	1	1	1	1	1	2023-06-09	shipmode	name	address	city	nation	AMERICA	phone	mktsegment	name	address	city	nation	AMERICA	phone	name	MFGR#1	category	brand	color	type	4	container
 2	2	2	2	2	2	2	2	2	2	2	2	2	2	2	2023-06-09	shipmode	name	address	city	nation	region	phone	mktsegment	name	address	city	nation	region	phone	name	mfgr	category	brand	color	type	4	container
-19920101	1	1	1	1	1	1	1	1	1	1	100	1	1	1	2023-06-09	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	MFGR#12	MFGR#12	brand	color	type	4	container
+19920101	1	1	1	1	1	11	1	1	1	1	100	1	1	1	2023-06-09	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	ASIA	MFGR#12	MFGR#12	brand	color	type	4	container
 19930101	1	1	1	1	1	1	1	1	1	1	100	1	1	1	2023-06-09	shipmode	name	address	city	nation	AMERICA	phone	mktsegment	name	address	city	nation	AMERICA	phone	name	MFGR#1	category	brand	color	type	4	container
 19930101	1	1	1	1	1	1	1	1	1	1	100	1	1	1	2023-06-09	shipmode	name	address	city	nation	AMERICA	phone	mktsegment	name	address	city	nation	AMERICA	phone	name	MFGR#12	MFGR#12	brand	color	type	4	container
 19930101	2	2	2	2	2	2	2	2	2	2	2	2	2	2	2023-06-09	shipmode	name	address	city	nation	region	phone	mktsegment	name	address	city	nation	region	phone	name	mfgr	category	brand	color	type	4	container
@@ -21,4 +21,12 @@ ASIA	ASIA	1992	1
 -- !select_q_4_1 --
 0	nation	0
 1993	nation	0
+
+-- !select_count_1 --
+1	1
+2	2
+
+-- !select_count_3 --
+1	3
+2	4
 

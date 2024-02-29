@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
@@ -27,51 +24,27 @@ import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
-public class CreateTableTest {
+public class CreateTableTest extends TestWithFeService {
     private static String runningDir = "fe/mocked/CreateTableTest2/" + UUID.randomUUID().toString() + "/";
 
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        Config.disable_storage_medium_check = true;
-        UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 3);
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-        // create database
-        String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+    @Override
+    protected int backendNum() {
+        return 3;
     }
 
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-    }
-
-    private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
-    }
-
-    private static void alterTable(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().alterTable(alterTableStmt);
+    @Override
+    protected void runBeforeAll() throws Exception {
+        Config.allow_replica_on_same_host = true;
+        createDatabase("test");
     }
 
     @Test
@@ -145,6 +118,16 @@ public class CreateTableTest {
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.tb7(key1 int, key2 varchar(10)) \n"
                         + "distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+
+        ConfigBase.setMutableConfig("disable_storage_medium_check", "true");
+        ExceptionChecker
+                .expectThrowsNoException(() -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
+                                + "PARTITION BY RANGE(`key1`) (\n"
+                                + "    PARTITION `p1` VALUES LESS THAN (\"10\"),\n"
+                                + "    PARTITION `p2` VALUES LESS THAN (\"20\"),\n"
+                                + "    PARTITION `p3` VALUES LESS THAN (\"30\"))\n"
+                                + "distributed by hash(key1)\n"
+                                + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.compression1(key1 int, key2 varchar(10)) \n"
@@ -225,7 +208,7 @@ public class CreateTableTest {
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_col' = 'v1');"));
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
         Assert.assertTrue(tbl6.getColumn("k2").isKey());
@@ -240,10 +223,10 @@ public class CreateTableTest {
         Assert.assertTrue(tbl8.getColumn("k1").isKey());
         Assert.assertTrue(tbl8.getColumn("k2").isKey());
         Assert.assertFalse(tbl8.getColumn("v1").isKey());
-        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
+        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
 
         OlapTable tbl13 = (OlapTable) db.getTableOrDdlException("tbl13");
-        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
+        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
         Assert.assertEquals(tbl13.getSequenceMapCol(), "v1");
     }
@@ -295,10 +278,25 @@ public class CreateTableTest {
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
+                .expectThrowsWithMsg(DdlException.class,
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
-                        () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
+                        () -> createTable(
+                                "create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
+                                        + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class,
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                                + "Create failed replications:\n"
+                                + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
+                        () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
+                                + "PARTITION BY RANGE(`key1`) (\n"
+                                + "    PARTITION `p1` VALUES LESS THAN (\"10\"),\n"
+                                + "    PARTITION `p2` VALUES LESS THAN (\"20\"),\n"
+                                + "    PARTITION `p3` VALUES LESS THAN (\"30\"))\n"
+                                + "distributed by hash(key1)\n"
                                 + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
         ExceptionChecker
@@ -739,7 +737,7 @@ public class CreateTableTest {
             createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10) , k3 VARCHAR ,k4 VARCHAR(10))"
                     + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
         });
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
         Assert.assertEquals(1, tb.getColumn("k1").getStrLen());
         Assert.assertEquals(10, tb.getColumn("k2").getStrLen());
@@ -761,10 +759,10 @@ public class CreateTableTest {
             // can still set replication_num manually.
             ExceptionChecker.expectThrowsWithMsg(UserException.class, "Failed to find enough host with tag",
                     () -> {
-                        alterTable("alter table test.test_replica modify partition p1 set ('replication_num' = '4')");
+                        alterTableSync("alter table test.test_replica modify partition p1 set ('replication_num' = '4')");
                     });
 
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
             OlapTable tb = (OlapTable) db.getTableOrDdlException("test_replica");
             Partition p1 = tb.getPartition("p1");
             Assert.assertEquals(1, tb.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum());
@@ -786,23 +784,23 @@ public class CreateTableTest {
                                   + " 'min_load_replica_num' = '1'\n"
                                   + ");"));
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tbl1 = (OlapTable) db.getTableOrDdlException("tbl_min_load_replica_num_1");
         Assert.assertEquals(1, tbl1.getMinLoadReplicaNum());
         Assert.assertEquals(2, (int) tbl1.getDefaultReplicaAllocation().getTotalReplicaNum());
 
         ExceptionChecker.expectThrowsNoException(
-                () -> alterTable("alter table test.tbl_min_load_replica_num_1\n"
+                () -> alterTableSync("alter table test.tbl_min_load_replica_num_1\n"
                                  + " set ( 'min_load_replica_num' = '2');"));
         Assert.assertEquals(2, tbl1.getMinLoadReplicaNum());
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to check min load replica num",
-                () -> alterTable("alter table test.tbl_min_load_replica_num_1\n"
+                () -> alterTableSync("alter table test.tbl_min_load_replica_num_1\n"
                                  + " set ( 'min_load_replica_num' = '3');"));
         Assert.assertEquals(2, tbl1.getMinLoadReplicaNum());
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "min_load_replica_num should > 0 or =-1",
-                () -> alterTable("alter table test.tbl_min_load_replica_num_1\n"
+                () -> alterTableSync("alter table test.tbl_min_load_replica_num_1\n"
                                  + " set ( 'min_load_replica_num' = '-3');"));
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to check min load replica num",
@@ -881,7 +879,7 @@ public class CreateTableTest {
                                   + ");\n"));
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to check min load replica num",
-                () -> alterTable("alter table test.tbl_min_load_replica_num_6\n"
+                () -> alterTableSync("alter table test.tbl_min_load_replica_num_6\n"
                                  + " set ( 'min_load_replica_num' = '3');"));
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to check min load replica num",
@@ -904,5 +902,58 @@ public class CreateTableTest {
                                   + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
                                   + "\"dynamic_partition.start\" = \"-3\"\n"
                                   + ");\n"));
+    }
+
+    @Test
+    public void testCreateTableWithNerieds() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                "Failed to check min load replica num",
+                () -> createTable("create table test.tbl_min_load_replica_num_2_nereids\n"
+                        + "(k1 int, k2 int)\n"
+                        + "duplicate key(k1)\n"
+                        + "distributed by hash(k1) buckets 1\n"
+                        + "properties(\n"
+                        + " 'replication_num' = '2',\n"
+                        + " 'min_load_replica_num' = '3'\n"
+                        + ");", true));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl_no_properties\n"
+                        + "(k1 int, k2 int)\n"
+                        + "duplicate key(k1)\n"
+                        + "distributed by hash(k1) buckets 1", true));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl_range_part_no_properties\n"
+                        + "(k1 int not null, k2 int)\n"
+                        + "partition by range(k1)\n"
+                        + "(partition p1 values less than ('100'),"
+                        + "partition p2 values less than ('200'))\n"
+                        + "distributed by hash(k1) buckets 1", true));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl_in_part_no_properties\n"
+                        + "(k1 int not null, k2 int)\n"
+                        + "partition by list(k1)\n"
+                        + "(partition p1 values in ('100'),"
+                        + "partition p2 values in ('200'))\n"
+                        + "distributed by hash(k1) buckets 3", true));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl_fixed_part_no_properties\n"
+                        + "(k1 int not null, k2 int)\n"
+                        + "partition by range(k1)\n"
+                        + "(partition p1 values [('100'),('200')),"
+                        + "partition p2 values [('200'),('300')))\n"
+                        + "distributed by hash(k1) buckets 10", true));
+
+        createDatabaseWithSql("create database db2 properties('replication_num' = '4')");
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                "replication num should be less than the number of available backends. "
+                        + "replication num is 4, available backend num is 3",
+                () -> createTable("create table db2.tbl_4_replica\n"
+                        + "(k1 int, k2 int)\n"
+                        + "duplicate key(k1)\n"
+                        + "distributed by hash(k1) buckets 1\n", true));
     }
 }

@@ -123,6 +123,7 @@ public abstract class DataType {
                 dataType = SmallIntType.INSTANCE;
                 break;
             case "int":
+            case "integer":
                 dataType = IntegerType.INSTANCE;
                 break;
             case "bigint":
@@ -150,6 +151,24 @@ public abstract class DataType {
                     case 3:
                         dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(
                                 Integer.parseInt(types.get(1)), Integer.parseInt(types.get(2)));
+                        break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+                break;
+            case "decimalv2":
+                // NOTICE, maybe convert to decimalv3, so do not truc here.
+                switch (types.size()) {
+                    case 1:
+                        dataType = DecimalV2Type.CATALOG_DEFAULT_NOT_CONVERSION;
+                        break;
+                    case 2:
+                        dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(
+                                Integer.parseInt(types.get(1)), 0, false);
+                        break;
+                    case 3:
+                        dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(
+                                Integer.parseInt(types.get(1)), Integer.parseInt(types.get(2)), false);
                         break;
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
@@ -215,6 +234,9 @@ public abstract class DataType {
             case "date":
                 dataType = DateType.INSTANCE;
                 break;
+            case "datev1":
+                dataType = DateType.NOT_CONVERSION;
+                break;
             case "datev2":
                 dataType = DateV2Type.INSTANCE;
                 break;
@@ -229,6 +251,17 @@ public abstract class DataType {
                     case 2:
                         dataType = DateTimeV2Type.of(Integer.parseInt(types.get(1)));
                         break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+                break;
+            case "datetimev1":
+                switch (types.size()) {
+                    case 1:
+                        dataType = DateTimeType.NOT_CONVERSION;
+                        break;
+                    case 2:
+                        throw new AnalysisException("Nereids do not support datetimev1 type with precision");
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
@@ -257,6 +290,12 @@ public abstract class DataType {
             case "json":
             case "jsonb":
                 dataType = JsonType.INSTANCE;
+                break;
+            case "ipv4":
+                dataType = IPv4Type.INSTANCE;
+                break;
+            case "ipv6":
+                dataType = IPv6Type.INSTANCE;
                 break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
@@ -332,7 +371,7 @@ public abstract class DataType {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
             int scale = scalarType.getScalarScale();
-            return DecimalV3Type.createDecimalV3Type(precision, scale);
+            return DecimalV3Type.createDecimalV3TypeNoCheck(precision, scale);
         } else if (type.isDecimalV2()) {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
@@ -340,10 +379,12 @@ public abstract class DataType {
             return DecimalV2Type.createDecimalV2Type(precision, scale);
         } else if (type.isJsonbType()) {
             return JsonType.INSTANCE;
+        } else if (type.isVariantType()) {
+            return VariantType.INSTANCE;
         } else if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
                     .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
-                            cf.getContainsNull(), cf.getComment()))
+                            cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment()))
                     .collect(ImmutableList.toImmutableList());
             return new StructType(structFields);
         } else if (type.isMapType()) {
@@ -357,6 +398,10 @@ public abstract class DataType {
             List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
                     .collect(Collectors.toList());
             return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
+        } else if (type.isIPv4()) {
+            return IPv4Type.INSTANCE;
+        } else if (type.isIPv6()) {
+            return IPv6Type.INSTANCE;
         } else {
             return UnsupportedType.INSTANCE;
         }
@@ -541,6 +586,14 @@ public abstract class DataType {
         return this instanceof DateTimeV2Type;
     }
 
+    public boolean isIPv4Type() {
+        return this instanceof IPv4Type;
+    }
+
+    public boolean isIPv6Type() {
+        return this instanceof IPv6Type;
+    }
+
     public boolean isBitmapType() {
         return this instanceof BitmapType;
     }
@@ -567,6 +620,10 @@ public abstract class DataType {
 
     public boolean isMapType() {
         return this instanceof MapType;
+    }
+
+    public boolean isVariantType() {
+        return this instanceof VariantType;
     }
 
     public boolean isStructType() {

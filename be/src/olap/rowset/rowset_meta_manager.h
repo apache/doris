@@ -54,8 +54,6 @@ public:
     // TODO(Drogon): refactor save && _save_with_binlog to one, adapt to ut temperately
     static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                        const RowsetMetaPB& rowset_meta_pb, bool enable_binlog);
-    static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                       const RowsetMetaPB& rowset_meta_pb);
 
     static std::vector<std::string> get_binlog_filenames(OlapMeta* meta, TabletUid tablet_uid,
                                                          std::string_view binlog_version,
@@ -75,13 +73,16 @@ public:
                                         std::function<bool(const TabletUid&, const RowsetId&,
                                                            const std::string&)> const& collector);
     static Status traverse_binlog_metas(
-            OlapMeta* meta, std::function<bool(const string&, const string&, bool)> const& func);
+            OlapMeta* meta,
+            std::function<bool(const std::string&, const std::string&, bool)> const& func);
 
     static Status remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 
     static Status load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path);
 
 private:
+    static Status _save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
+                        const RowsetMetaPB& rowset_meta_pb);
     static Status _save_with_binlog(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                                     const RowsetMetaPB& rowset_meta_pb);
     static Status _get_rowset_binlog_metas(OlapMeta* meta, const TabletUid tablet_uid,

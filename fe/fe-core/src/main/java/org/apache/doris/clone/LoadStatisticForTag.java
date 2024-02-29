@@ -21,6 +21,8 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BackendLoadStatistic.LoadScore;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -37,6 +39,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 /*
@@ -143,6 +146,7 @@ public class LoadStatisticForTag {
         // classify all backends
         for (TStorageMedium medium : TStorageMedium.values()) {
             classifyBackendByLoad(medium);
+            classifyBackendByMaxDiskUsage(medium);
         }
 
         // sort be stats by mix load score
@@ -186,39 +190,142 @@ public class LoadStatisticForTag {
         int lowCounter = 0;
         int midCounter = 0;
         int highCounter = 0;
+
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
+        if (debugHighBeId > 0) {
+            final long targetBeId = debugHighBeId; // debugHighBeId can not put in lambda cause it's updated later
+            if (!beLoadStatistics.stream().anyMatch(it -> it.getBeId() == targetBeId)) {
+                debugHighBeId = -1L;
+            }
+        }
+
         for (BackendLoadStatistic beStat : beLoadStatistics) {
             if (!beStat.hasMedium(medium)) {
                 continue;
             }
 
-
-            if (Config.be_rebalancer_fuzzy_test) {
+            Classification clazz = Classification.MID;
+            if (debugHighBeId > 0) {
+                if (beStat.getBeId() == debugHighBeId) {
+                    clazz = Classification.HIGH;
+                } else {
+                    clazz = Classification.LOW;
+                }
+            } else if (Config.be_rebalancer_fuzzy_test) {
                 if (beStat.getLoadScore(medium) > avgLoadScore) {
-                    beStat.setClazz(medium, Classification.HIGH);
-                    highCounter++;
+                    clazz = Classification.HIGH;
                 } else if (beStat.getLoadScore(medium) < avgLoadScore) {
-                    beStat.setClazz(medium, Classification.LOW);
-                    lowCounter++;
+                    clazz = Classification.LOW;
                 }
             } else {
                 if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore
                         > Config.balance_load_score_threshold) {
                     if (beStat.getLoadScore(medium) > avgLoadScore) {
-                        beStat.setClazz(medium, Classification.HIGH);
-                        highCounter++;
+                        clazz = Classification.HIGH;
                     } else if (beStat.getLoadScore(medium) < avgLoadScore) {
-                        beStat.setClazz(medium, Classification.LOW);
-                        lowCounter++;
+                        clazz = Classification.LOW;
                     }
-                } else {
-                    beStat.setClazz(medium, Classification.MID);
+                }
+            }
+
+            beStat.setClazz(medium, clazz);
+            switch (clazz) {
+                case HIGH:
+                    highCounter++;
+                    break;
+                case LOW:
+                    lowCounter++;
+                    break;
+                case MID:
                     midCounter++;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
+                    medium, avgLoadScore, lowCounter, midCounter, highCounter);
+        }
+    }
+
+    private void classifyBackendByMaxDiskUsage(TStorageMedium medium) {
+        calcDiskGlobalUsages(medium);
+        Classification[] clazzs = { Classification.HIGH, Classification.LOW, Classification.MID };
+        for (BackendLoadStatistic beStat : beLoadStatistics) {
+            if (!beStat.hasMedium(medium)) {
+                continue;
+            }
+            for (Classification clazz : clazzs) {
+                if (beStat.hasAvailPathWithGlobalClazz(medium, clazz)) {
+                    beStat.setMaxDiskClazz(medium, clazz);
+                    break;
+                }
+            }
+        }
+    }
+
+    private void calcDiskGlobalUsages(TStorageMedium medium) {
+        double urgentDiffUsageThreshold;
+        if (Config.be_rebalancer_fuzzy_test) {
+            urgentDiffUsageThreshold = 0;
+        } else {
+            urgentDiffUsageThreshold = Config.balance_load_score_threshold
+                    + Config.urgent_balance_disk_usage_extra_threshold;
+            if (urgentDiffUsageThreshold <= 0) {
+                return;
+            }
+        }
+
+        double totalDiskUsages = 0;
+        int totalDiskNum = 0;
+        for (BackendLoadStatistic beStat : getBackendLoadStatistics()) {
+            if (!beStat.isAvailable()) {
+                continue;
+            }
+            for (RootPathLoadStatistic pathStat : beStat.getAvailPaths(medium)) {
+                if (pathStat.getCapacityB() > 1L) {
+                    totalDiskUsages += pathStat.getUsedPercent();
+                    totalDiskNum++;
                 }
             }
         }
 
-        LOG.debug("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
-                medium, avgLoadScore, lowCounter, midCounter, highCounter);
+        if (totalDiskNum == 0) {
+            return;
+        }
+
+        double avgDiskUsage = totalDiskUsages / totalDiskNum;
+        double urgentDiskUsage = avgDiskUsage + urgentDiffUsageThreshold;
+
+        boolean hasHighDisk = false;
+        for (BackendLoadStatistic beStat : getBackendLoadStatistics()) {
+            if (!beStat.isAvailable()) {
+                continue;
+            }
+            for (RootPathLoadStatistic pathStat : beStat.getAvailPaths(medium)) {
+                if (pathStat.getCapacityB() > 1L) {
+                    double usage = pathStat.getUsedPercent();
+                    if (usage > urgentDiskUsage) {
+                        pathStat.setGlobalClazz(Classification.HIGH);
+                        hasHighDisk = true;
+                    } else if (usage > avgDiskUsage) {
+                        pathStat.setGlobalClazz(Classification.MID);
+                    } else {
+                        pathStat.setGlobalClazz(Classification.LOW);
+                    }
+                }
+            }
+        }
+
+        if (!hasHighDisk) {
+            for (BackendLoadStatistic beStat : getBackendLoadStatistics()) {
+                for (RootPathLoadStatistic pathStat : beStat.getAvailPaths(medium)) {
+                    pathStat.setGlobalClazz(Classification.MID);
+                }
+            }
+        }
     }
 
     private static void sortBeStats(List<BackendLoadStatistic> beStats, TStorageMedium medium) {
@@ -265,6 +372,11 @@ public class LoadStatisticForTag {
             return false;
         }
 
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
+        if (srcBeStat.getBeId() == debugHighBeId) {
+            return true;
+        }
+
         currentSrcBeScore = srcBeStat.getLoadScore(medium);
         currentDestBeScore = destBeStat.getLoadScore(medium);
 
@@ -283,12 +395,14 @@ public class LoadStatisticForTag {
         double newDiff = Math.abs(newSrcBeScore.score - avgLoadScoreMap.get(medium))
                 + Math.abs(newDestBeScore.score - avgLoadScoreMap.get(medium));
 
-        LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
-                        + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
-                        + " more balanced: {}",
-                tabletId, tabletSize, srcBeId, destBeId, medium, currentSrcBeScore, newSrcBeScore.score,
-                currentDestBeScore, newDestBeScore.score, avgLoadScoreMap.get(medium), currentDiff, newDiff,
-                (newDiff < currentDiff));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
+                            + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
+                            + " more balanced: {}",
+                    tabletId, tabletSize, srcBeId, destBeId, medium, currentSrcBeScore, newSrcBeScore.score,
+                    currentDestBeScore, newDestBeScore.score, avgLoadScoreMap.get(medium), currentDiff, newDiff,
+                    (newDiff < currentDiff));
+        }
 
         return newDiff < currentDiff;
     }
@@ -324,7 +438,8 @@ public class LoadStatisticForTag {
                 pathStat.add(String.valueOf(pathStatistic.getCapacityB()));
                 pathStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
                         pathStatistic.getUsedCapacityB() * 100 / (double) pathStatistic.getCapacityB())));
-                pathStat.add(pathStatistic.getClazz().name());
+                pathStat.add(pathStatistic.getLocalClazz().name());
+                pathStat.add(pathStatistic.getGlobalClazz().name());
                 pathStat.add(pathStatistic.getDiskState().name());
                 statistics.add(pathStat);
             }
@@ -344,6 +459,90 @@ public class LoadStatisticForTag {
 
     public List<BackendLoadStatistic> getBackendLoadStatistics() {
         return beLoadStatistics;
+    }
+
+    public boolean getLowHighBEsWithIsUrgent(List<BackendLoadStatistic> lowBEs, List<BackendLoadStatistic> highBEs,
+            TStorageMedium medium) {
+        if (getUrgentLowHighBEs(lowBEs, highBEs, medium)) {
+            return true;
+        } else {
+            lowBEs.clear();
+            highBEs.clear();
+            List<BackendLoadStatistic> midBEs = Lists.newArrayList();
+            getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
+            return false;
+        }
+    }
+
+    private boolean getUrgentLowHighBEs(List<BackendLoadStatistic> lowBEs, List<BackendLoadStatistic> highBEs,
+            TStorageMedium medium) {
+        List<BackendLoadStatistic> midBEs = Lists.newArrayList();
+        for (BackendLoadStatistic beStat : getBackendLoadStatistics()) {
+            if (!beStat.isAvailable()) {
+                continue;
+            }
+            switch (beStat.getMaxDiskClazz(medium)) {
+                case LOW:
+                    lowBEs.add(beStat);
+                    break;
+                case MID:
+                    midBEs.add(beStat);
+                    break;
+                case HIGH:
+                    highBEs.add(beStat);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (lowBEs.isEmpty()) {
+            lowBEs.addAll(midBEs);
+        }
+
+        if (lowBEs.isEmpty() && highBEs.size() > 1 && Config.enable_urgent_balance_no_low_backend) {
+            // all backend will exchange tablets among themselves.
+            lowBEs.addAll(highBEs);
+        }
+
+        if (lowBEs.isEmpty() || highBEs.isEmpty()) {
+            lowBEs.clear();
+            highBEs.clear();
+            return false;
+        }
+
+        BiConsumer<List<BackendLoadStatistic>, Boolean> resortBeStats = (beStats, choseMinPathElseMaxPath) -> {
+            List<Pair<BackendLoadStatistic, Double>> bePairs = Lists.newArrayList();
+            for (BackendLoadStatistic beStat : beStats) {
+                double score = -1.0;
+                for (RootPathLoadStatistic pathStat : beStat.getAvailPaths(medium)) {
+                    if (pathStat.getCapacityB() > 1) {
+                        double usage = pathStat.getUsedPercent();
+                        if (score < 0 || (choseMinPathElseMaxPath && usage < score)
+                                || (!choseMinPathElseMaxPath && usage > score)) {
+                            score = usage;
+                        }
+                    }
+                }
+                bePairs.add(Pair.of(beStat, score));
+            }
+            Collections.sort(bePairs, new Pair.PairComparator<Pair<BackendLoadStatistic, Double>>());
+
+            beStats.clear();
+            bePairs.forEach(pair -> beStats.add(pair.key()));
+        };
+
+        resortBeStats.accept(lowBEs, true);
+        resortBeStats.accept(highBEs, false);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("urgent backends' classification lowBe {}, highBe {}, medium: {}",
+                    lowBEs.stream().map(BackendLoadStatistic::getBeId).collect(Collectors.toList()),
+                    highBEs.stream().map(BackendLoadStatistic::getBeId).collect(Collectors.toList()),
+                    medium);
+        }
+
+        return true;
     }
 
     /*
@@ -392,8 +591,10 @@ public class LoadStatisticForTag {
         sortBeStats(mid, medium);
         sortBeStats(high, medium);
 
-        LOG.debug("after adjust, backends' classification low/mid/high: {}/{}/{}, medium: {}",
-                low.size(), mid.size(), high.size(), medium);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after adjust, backends' classification low/mid/high: {}/{}/{}, medium: {}",
+                    low.size(), mid.size(), high.size(), medium);
+        }
     }
 
     public List<BackendLoadStatistic> getSortedBeLoadStats(TStorageMedium medium) {

@@ -36,34 +36,33 @@ class Arena;
 
 class DataTypeMapSerDe : public DataTypeSerDe {
 public:
-    DataTypeMapSerDe(const DataTypeSerDeSPtr& _key_serde, const DataTypeSerDeSPtr& _value_serde)
-            : key_serde(_key_serde), value_serde(_value_serde) {}
+    DataTypeMapSerDe(const DataTypeSerDeSPtr& _key_serde, const DataTypeSerDeSPtr& _value_serde,
+                     int nesting_level = 1)
+            : DataTypeSerDe(nesting_level), key_serde(_key_serde), value_serde(_value_serde) {}
 
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                      FormatOptions& options, int nesting_level = 1) const override;
+                                      FormatOptions& options) const override;
     Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                    BufferWritable& bw, FormatOptions& options,
-                                    int nesting_level = 1) const override;
+                                    BufferWritable& bw, FormatOptions& options) const override;
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options,
-                                          int nesting_level = 1) const override;
+                                          const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized, const FormatOptions& options,
-                                               int nesting_level = 1) const override;
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
 
-    Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                               const FormatOptions& options,
-                                               int nesting_level = 1) const override;
+    Status deserialize_one_cell_from_hive_text(
+            IColumn& column, Slice& slice, const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
 
-    Status deserialize_column_from_hive_text_vector(IColumn& column, std::vector<Slice>& slices,
-                                                    int* num_deserialized,
-                                                    const FormatOptions& options,
-                                                    int nesting_level = 1) const override;
+    Status deserialize_column_from_hive_text_vector(
+            IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+            const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
 
-    void serialize_one_cell_to_hive_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                         FormatOptions& options,
-                                         int nesting_level = 1) const override;
+    void serialize_one_cell_to_hive_text(
+            const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
@@ -87,8 +86,9 @@ public:
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
 
-    Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+    Status write_column_to_orc(const std::string& timezone, const IColumn& column,
+                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               int start, int end,
                                std::vector<StringRef>& buffer_list) const override;
 
     void set_return_object_as_string(bool value) override {

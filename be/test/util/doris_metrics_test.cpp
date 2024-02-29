@@ -108,25 +108,11 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("16", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->report_all_tablets_requests_total->increment(17);
-        auto metric = server_entity->get_metric("report_all_tablets_requests_total",
-                                                "engine_requests_total");
-        EXPECT_TRUE(metric != nullptr);
-        EXPECT_STREQ("17", metric->to_string().c_str());
-    }
-    {
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
         auto metric = server_entity->get_metric("report_all_tablets_requests_skip",
                                                 "engine_requests_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("1", metric->to_string().c_str());
-    }
-    {
-        DorisMetrics::instance()->report_tablet_requests_total->increment(18);
-        auto metric =
-                server_entity->get_metric("report_tablet_requests_total", "engine_requests_total");
-        EXPECT_TRUE(metric != nullptr);
-        EXPECT_STREQ("18", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->schema_change_requests_total->increment(19);

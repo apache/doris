@@ -48,7 +48,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class UnionSinkOperator final : public StreamingOperator<UnionSinkOperatorBuilder> {
+class UnionSinkOperator final : public StreamingOperator<vectorized::VUnionNode> {
 public:
     UnionSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* node,
                       std::shared_ptr<DataQueue> queue);
@@ -67,14 +67,14 @@ private:
 };
 
 class UnionSinkOperatorX;
-class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionDependency> {
+class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSinkLocalState);
     UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _child_row_idx(0) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     friend class UnionSinkOperatorX;
-    using Base = PipelineXSinkLocalState<UnionDependency>;
+    using Base = PipelineXSinkLocalState<UnionSharedState>;
     using Parent = UnionSinkOperatorX;
 
 private:
@@ -109,8 +109,20 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    std::shared_ptr<BasicSharedState> create_shared_state() const override {
+        if (_cur_child_id > 0) {
+            return nullptr;
+        } else {
+            std::shared_ptr<BasicSharedState> ss = std::make_shared<UnionSharedState>(_child_size);
+            ss->id = operator_id();
+            for (auto& dest : dests_id()) {
+                ss->related_op_ids.insert(dest);
+            }
+            return ss;
+        }
+    }
 
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
@@ -152,7 +164,7 @@ private:
 
     Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
                              vectorized::Block* res_block) {
-        CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+        auto& local_state = get_local_state(state);
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {

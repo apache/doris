@@ -181,7 +181,7 @@ struct TQueryOptions {
 
   54: optional bool enable_share_hash_table_for_broadcast_join
 
-  55: optional bool check_overflow_for_decimal = false
+  55: optional bool check_overflow_for_decimal = true
 
   // For debug purpose, skip delete bitmap when reading data
   56: optional bool skip_delete_bitmap = false
@@ -246,7 +246,36 @@ struct TQueryOptions {
   // use is_report_success any more
   84: optional bool enable_profile = false;
   85: optional bool enable_page_cache = false;
-  86: optional i32 analyze_timeout = 43200
+  86: optional i32 analyze_timeout = 43200;
+
+  87: optional bool faster_float_convert = false;
+
+  88: optional bool enable_decimal256 = false;
+
+  89: optional bool enable_local_shuffle = false;
+  // For emergency use, skip missing version when reading rowsets
+  90: optional bool skip_missing_version = false;
+
+  91: optional bool runtime_filter_wait_infinitely = false;
+
+  92: optional i32 wait_full_block_schedule_times = 1;
+  
+  93: optional i32 inverted_index_max_expansions = 50;
+
+  94: optional i32 inverted_index_skip_threshold = 50;
+
+  95: optional bool enable_parallel_scan = false;
+
+  96: optional i32 parallel_scan_max_scanners_count = 0;
+
+  97: optional i64 parallel_scan_min_rows_per_scanner = 0;
+
+  98: optional bool skip_bad_tablet = false;
+  // Increase concurrency of scanners adaptively, the maxinum times to scale up
+  99: optional double scanner_scale_up_ratio = 0;
+
+  // For cloud, to control if the content would be written into file cache
+  1000: optional bool disable_file_cache = false
 }
 
 
@@ -319,7 +348,7 @@ struct TPlanFragmentExecParams {
   11: optional bool send_query_statistics_with_every_batch
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
-  13: optional bool group_commit
+  13: optional bool group_commit // deprecated
 }
 
 // Global query parameters assigned by the coordinator.
@@ -373,6 +402,13 @@ struct TColumnDict {
 struct TGlobalDict {
   1: optional map<i32, TColumnDict> dicts,  // map dict_id to column dict
   2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
+}
+
+struct TPipelineWorkloadGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
 }
 
 // ExecPlanFragment
@@ -447,6 +483,21 @@ struct TExecPlanFragmentParams {
   24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
 
   25: optional i64 wal_id
+
+  // num load stream for each sink backend
+  26: optional i32 load_stream_per_node
+
+  // total num of load streams the downstream backend will see
+  27: optional i32 total_load_streams
+
+  28: optional i32 num_local_sink
+
+  29: optional i64 content_length
+
+  30: optional list<TPipelineWorkloadGroup> workload_groups
+
+  // For cloud
+  1000: optional bool is_mow_table;
 }
 
 struct TExecPlanFragmentParamsList {
@@ -595,6 +646,14 @@ struct TFetchDataResult {
     4: optional Status.TStatus status
 }
 
+// For cloud
+enum TCompoundType {
+    UNKNOWN = 0,
+    AND = 1,
+    OR = 2,
+    NOT = 3,
+}
+
 struct TCondition {
     1:  required string column_name
     2:  required string condition_op
@@ -603,6 +662,9 @@ struct TCondition {
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
     5:  optional bool marked_by_runtime_filter = false
+
+    // For cloud
+    1000: optional TCompoundType compound_type = TCompoundType.UNKNOWN
 }
 
 struct TExportStatusResult {
@@ -619,13 +681,6 @@ struct TPipelineInstanceParams {
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
-}
-
-struct TPipelineWorkloadGroup {
-  1: optional i64 id
-  2: optional string name
-  3: optional map<string, string> properties
-  4: optional i64 version
 }
 
 // ExecPlanFragment
@@ -662,6 +717,18 @@ struct TPipelineFragmentParams {
   // scan node id -> scan range params, only for external file scan
   29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
   30: optional bool group_commit = false;
+  31: optional i32 load_stream_per_node // num load stream for each sink backend
+  32: optional i32 total_load_streams // total num of load streams the downstream backend will see
+  33: optional i32 num_local_sink
+  34: optional i32 num_buckets
+  35: optional map<i32, i32> bucket_seq_to_instance_idx
+  36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  37: optional i32 parallel_instances
+  38: optional i32 total_instances
+  39: optional map<i32, i32> shuffle_idx_to_instance_idx
+
+  // For cloud
+  1000: optional bool is_mow_table;
 }
 
 struct TPipelineFragmentParamsList {

@@ -26,10 +26,12 @@ suite('nereids_insert_into_values') {
     def t1 = 'value_t1'
     def t2 = 'value_t2'
     def t3 = 'value_t3'
+    def t4 = 'value_t4'
 
     sql "drop table if exists ${t1}"
     sql "drop table if exists ${t2}"
     sql "drop table if exists ${t3}"
+    sql "drop table if exists ${t4}"
 
     sql """
         create table ${t1} (
@@ -71,6 +73,27 @@ suite('nereids_insert_into_values') {
     """
 
     sql """
+        CREATE TABLE `${t4}` (
+          `k1` BOOLEAN NULL DEFAULT "true",
+          `k2` TINYINT NULL DEFAULT "10",
+          `k3` SMALLINT NULL DEFAULT "10000",
+          `k4` INT NULL DEFAULT "10000000",
+          `k5` BIGINT NULL DEFAULT "92233720368547758",
+          `k6` LARGEINT NULL DEFAULT "19223372036854775807",
+          `k8` DOUBLE NULL DEFAULT "3.14159",
+          `k10` VARCHAR(64) NULL DEFAULT "hello world, today is 15/06/2023",
+          `k11` DATE NULL DEFAULT "2023-06-15",
+          `k12` DATETIME NULL DEFAULT "2023-06-15 16:10:15"
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
         INSERT INTO ${t1} VALUES
             (1, (1 + 9) * (10 - 9), 1, '1', 1.0, '2000-01-01'),
             (2, 20, 2, '2', 2.0, days_add('2000-01-01', 1)),
@@ -93,8 +116,13 @@ suite('nereids_insert_into_values') {
             (5);
     """
 
+    sql """
+        INSERT INTO ${t4} VALUES ();
+    """
+
     sql "sync"
     qt_sql_cross_join "select * from ${t1}, ${t2}, ${t3} order by ${t1}.id, ${t1}.id1, ${t2}.id, ${t3}.id"
+    qt_select_all_default "select * from ${t4}"
 
     sql "drop table if exists agg_have_dup_base_value"
 

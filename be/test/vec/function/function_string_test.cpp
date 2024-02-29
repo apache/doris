@@ -482,7 +482,7 @@ TEST(function_string_test, function_to_base64_test) {
     DataSet data_set = {{{std::string("asd你好")}, {std::string("YXNk5L2g5aW9")}},
                         {{std::string("hello world")}, {std::string("aGVsbG8gd29ybGQ=")}},
                         {{std::string("HELLO,!^%")}, {std::string("SEVMTE8sIV4l")}},
-                        {{std::string("")}, {Null()}},
+                        {{std::string("")}, {std::string("")}},
                         {{std::string("MYtestSTR")}, {std::string("TVl0ZXN0U1RS")}},
                         {{std::string("ò&ø")}, {std::string("w7Imw7g=")}}};
 
@@ -496,7 +496,7 @@ TEST(function_string_test, function_from_base64_test) {
     DataSet data_set = {{{std::string("YXNk5L2g5aW9")}, {std::string("asd你好")}},
                         {{std::string("aGVsbG8gd29ybGQ=")}, {std::string("hello world")}},
                         {{std::string("SEVMTE8sIV4l")}, {std::string("HELLO,!^%")}},
-                        {{std::string("")}, {Null()}},
+                        {{std::string("")}, {std::string("")}},
                         {{std::string("TVl0ZXN0U1RS")}, {std::string("MYtestSTR")}},
                         {{std::string("w7Imw7g=")}, {std::string("ò&ø")}},
                         {{std::string("ò&ø")}, {Null()}},
@@ -1119,25 +1119,6 @@ TEST(function_string_test, function_coalesce_test) {
                 {{Null(), Null(), std::string("uvw")}, {std::string("uvw")}}};
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
-}
-
-TEST(function_string_test, function_str_to_date_test) {
-    std::string func_name = "str_to_date";
-    InputTypeSet input_types = {
-            TypeIndex::String,
-            TypeIndex::String,
-    };
-    DataSet data_set = {
-            {{Null(), std::string("%Y-%m-%d %H:%i:%s")}, {Null()}},
-            {{std::string("2014-12-21 12:34:56"), std::string("%Y-%m-%d %H:%i:%s")},
-             str_to_date_time("2014-12-21 12:34:56", false)},
-            {{std::string("2014-12-21 12:34%3A56"), std::string("%Y-%m-%d %H:%i%%3A%s")},
-             str_to_date_time("2014-12-21 12:34:56", false)},
-            {{std::string("11/09/2011"), std::string("%m/%d/%Y")},
-             str_to_date_time("2011-11-09", false)},
-            {{std::string("2020-09-01"), std::string("%Y-%m-%d %H:%i:%s")},
-             str_to_date_time("2020-09-01 00:00:00", false)}};
-    static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
 }
 
 TEST(function_string_test, function_replace) {

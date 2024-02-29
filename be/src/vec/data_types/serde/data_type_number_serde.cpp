@@ -64,8 +64,8 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 arrow::UInt16Builder, Int16, arrow::Int16Builder, UInt32, arrow::UInt32Builder,
                 Int32, arrow::Int32Builder, UInt64, arrow::UInt64Builder, Int64,
                 arrow::Int64Builder, UInt128, arrow::FixedSizeBinaryBuilder, Int128,
-                arrow::FixedSizeBinaryBuilder, Float32, arrow::FloatBuilder, Float64,
-                arrow::DoubleBuilder, void,
+                arrow::FixedSizeBinaryBuilder, IPv6, arrow::FixedSizeBinaryBuilder, Float32,
+                arrow::FloatBuilder, Float64, arrow::DoubleBuilder, void,
                 void // Add this line to represent the end of the TypeMap
                 >;
 
@@ -84,7 +84,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                      end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column.get_name(), array_builder->type()->name());
-    } else if constexpr (std::is_same_v<T, Int128>) {
+    } else if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, IPv6>) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {
             auto& data_value = col_data[i];
@@ -109,8 +109,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                              const FormatOptions& options,
-                                                              int nesting_level) const {
+                                                              const FormatOptions& options) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
     ReadBuffer rb(slice.data, slice.size);
     if constexpr (std::is_same<T, UInt128>::value) {
@@ -147,16 +146,14 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
 template <typename T>
 Status DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
                                                         int end_idx, BufferWritable& bw,
-                                                        FormatOptions& options,
-                                                        int nesting_level) const {
+                                                        FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                           BufferWritable& bw,
-                                                          FormatOptions& options,
-                                                          int nesting_level) const {
+                                                          FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -176,11 +173,9 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(IColumn& column,
-                                                                   std::vector<Slice>& slices,
-                                                                   int* num_deserialized,
-                                                                   const FormatOptions& options,
-                                                                   int nesting_level) const {
+Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
@@ -274,14 +269,24 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
+#define WRITE_INTEGRAL_COLUMN_TO_ORC(ORC_TYPE)                    \
+    ORC_TYPE* cur_batch = dynamic_cast<ORC_TYPE*>(orc_col_batch); \
+    for (size_t row_id = start; row_id < end; row_id++) {         \
+        if (cur_batch->notNull[row_id] == 1) {                    \
+            cur_batch->data[row_id] = col_data[row_id];           \
+        }                                                         \
+    }                                                             \
+    cur_batch->numElements = end - start;
+
 template <typename T>
-Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
+                                                   const IColumn& column, const NullMap* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch, int start,
                                                    int end,
                                                    std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 
-    if constexpr (std::is_same_v<T, Int128>) {
+    if constexpr (std::is_same_v<T, Int128>) { // largeint
         orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
         char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
@@ -317,25 +322,18 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const 
         }
         buffer_list.emplace_back(bufferRef);
         cur_batch->numElements = end - start;
-    } else if constexpr ((std::is_integral<T>::value && std::is_signed<T>::value) ||
-                         std::is_same_v<T, UInt8>) { // tinyint/smallint/..int and boolean type
-        orc::LongVectorBatch* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
-
-        for (size_t row_id = start; row_id < end; row_id++) {
-            if (cur_batch->notNull[row_id] == 1) {
-                cur_batch->data[row_id] = col_data[row_id];
-            }
-        }
-        cur_batch->numElements = end - start;
-    } else if constexpr (IsFloatNumber<T>) {
-        orc::DoubleVectorBatch* cur_batch = dynamic_cast<orc::DoubleVectorBatch*>(orc_col_batch);
-
-        for (size_t row_id = start; row_id < end; row_id++) {
-            if (cur_batch->notNull[row_id] == 1) {
-                cur_batch->data[row_id] = col_data[row_id];
-            }
-        }
-        cur_batch->numElements = end - start;
+    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) { // tinyint/boolean
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::ByteVectorBatch)
+    } else if constexpr (std::is_same_v<T, Int16>) { // smallint
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::ShortVectorBatch)
+    } else if constexpr (std::is_same_v<T, Int32>) { // int
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
+    } else if constexpr (std::is_same_v<T, Int64>) { // bigint
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::LongVectorBatch)
+    } else if constexpr (std::is_same_v<T, Float32>) { // float
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::FloatVectorBatch)
+    } else if constexpr (std::is_same_v<T, Float64>) { // double
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
     }
     return Status::OK();
 }
@@ -343,7 +341,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const 
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberSerDe<UInt8>;
 template class DataTypeNumberSerDe<UInt16>;
-template class DataTypeNumberSerDe<UInt32>;
+template class DataTypeNumberSerDe<UInt32>; // IPv4
 template class DataTypeNumberSerDe<UInt64>;
 template class DataTypeNumberSerDe<UInt128>;
 template class DataTypeNumberSerDe<Int8>;
@@ -353,5 +351,6 @@ template class DataTypeNumberSerDe<Int64>;
 template class DataTypeNumberSerDe<Int128>;
 template class DataTypeNumberSerDe<Float32>;
 template class DataTypeNumberSerDe<Float64>;
+template class DataTypeNumberSerDe<IPv6>; // IPv6
 } // namespace vectorized
 } // namespace doris

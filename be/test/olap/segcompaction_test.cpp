@@ -66,9 +66,10 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
@@ -194,8 +195,9 @@ protected:
         std::shared_ptr<DataDir> data_dir = std::make_shared<DataDir>(lTestDir);
         TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
         tablet_meta->_tablet_id = 1;
+        tablet_meta->set_partition_id(10000);
         tablet_meta->_schema = tablet_schema;
-        auto tablet = std::make_shared<Tablet>(tablet_meta, data_dir.get(), "test_str");
+        auto tablet = std::make_shared<Tablet>(*l_engine, tablet_meta, data_dir.get(), "test_str");
         char* tmp_str = (char*)malloc(20);
         strncpy(tmp_str, "test_tablet_name", 20);
 
@@ -263,7 +265,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             sleep(1);
         }
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back("10047_0.dat");
         ls.push_back("10047_1.dat");
@@ -459,7 +461,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             sleep(1);
         }
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         // ooooOOoOooooooooO
         ls.push_back("10048_0.dat"); // oooo
@@ -585,7 +587,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
             sleep(1);
         }
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back("10049_0.dat"); // O
         ls.push_back("10049_1.dat"); // o
@@ -764,7 +766,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         EXPECT_EQ(Status::OK(), s);
         sleep(1);
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back("10051_0.dat");
         ls.push_back("10051_1.dat");
@@ -998,7 +1000,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         EXPECT_EQ(Status::OK(), s);
         sleep(1);
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back("10052_0.dat");
         ls.push_back("10052_1.dat");

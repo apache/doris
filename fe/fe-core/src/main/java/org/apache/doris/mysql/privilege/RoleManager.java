@@ -32,10 +32,10 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -55,7 +55,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class RoleManager implements Writable {
+public class RoleManager implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RoleManager.class);
     //prefix of each user default role
     public static String DEFAULT_ROLE_PREFIX = "default_role_rbac_";
@@ -65,10 +65,8 @@ public class RoleManager implements Writable {
     private Map<String, Role> roles = Maps.newHashMap();
 
     public RoleManager() {
-        roles.put(
-                Role.OPERATOR.getRoleName(), Role.OPERATOR);
-        roles.put(
-                Role.ADMIN.getRoleName(), Role.ADMIN);
+        roles.put(Role.OPERATOR.getRoleName(), Role.OPERATOR);
+        roles.put(Role.ADMIN.getRoleName(), Role.ADMIN);
     }
 
     public Role getRole(String name) {
@@ -100,6 +98,14 @@ public class RoleManager implements Writable {
 
         // we just remove the role from this map and remain others unchanged(privs, etc..)
         roles.remove(qualifiedRole);
+    }
+
+    private void replaceResourceLevel(Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> map, PrivLevel type) {
+        List<Entry<ResourcePattern, PrivBitSet>> clusterSet = map.get(PrivLevel.RESOURCE);
+        if (clusterSet != null && !clusterSet.isEmpty()) {
+            map.remove(PrivLevel.RESOURCE);
+            map.put(type, clusterSet);
+        }
     }
 
     public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs,
@@ -153,7 +159,13 @@ public class RoleManager implements Writable {
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
             info.add(Joiner.on(", ").join(Env.getCurrentEnv().getAuth().getRoleUsers(role.getRoleName())));
+
+            Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> clusterMap = role.getClusterPatternToPrivs()
+                    .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
+            replaceResourceLevel(clusterMap, PrivLevel.CLUSTER);
+
             Map<PrivLevel, String> infoMap =
+                    Stream.concat(
                     Stream.concat(
                             role.getTblPatternToPrivs().entrySet().stream()
                                     .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
@@ -164,6 +176,8 @@ public class RoleManager implements Writable {
                                     role.getWorkloadGroupPatternToPrivs().entrySet().stream()
                                             .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
                                             .entrySet().stream())
+                    ),
+                    clusterMap.entrySet().stream()
                     ).collect(Collectors.toMap(Entry::getKey, entry -> {
                                 if (entry.getKey() == PrivLevel.GLOBAL) {
                                     return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
@@ -175,7 +189,8 @@ public class RoleManager implements Writable {
                                 }
                             }, (s1, s2) -> s1 + " " + s2
                     ));
-            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE)
+            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
+                        PrivLevel.CLUSTER)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {
@@ -197,14 +212,14 @@ public class RoleManager implements Writable {
         List<TablePattern> tablePatterns = Lists.newArrayList();
         TablePattern informationTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
-            informationTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            informationTblPattern.analyze();
             tablePatterns.add(informationTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
         TablePattern mysqlTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
         try {
-            mysqlTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            mysqlTblPattern.analyze();
             tablePatterns.add(mysqlTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
@@ -266,6 +281,16 @@ public class RoleManager implements Writable {
         }
     }
 
+    // should be removed after version 3.0
+    private void removeClusterPrefix() {
+        Map<String, Role> newRoles = Maps.newHashMap();
+        for (Map.Entry<String, Role> entry : roles.entrySet()) {
+            String roleName = ClusterNamespace.getNameFromFullName(entry.getKey());
+            newRoles.put(roleName, entry.getValue());
+        }
+        roles = newRoles;
+    }
+
     @Deprecated
     private void readFields(DataInput in) throws IOException {
         int size = in.readInt();
@@ -273,5 +298,10 @@ public class RoleManager implements Writable {
             Role role = Role.read(in);
             roles.put(role.getRoleName(), role);
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
     }
 }

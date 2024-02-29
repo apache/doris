@@ -28,13 +28,13 @@ under the License.
 
 ### Name
 
-OURFILE
+OUTFILE
 
 ### description
 
  `SELECT INTO OUTFILE` 命令用于将查询结果导出为文件。目前支持通过 Broker 进程, S3 协议或HDFS 协议，导出到远端存储，如 HDFS，S3，BOS，COS（腾讯云）上。
 
-语法：
+#### 语法：
 
 ```
 query_stmt
@@ -43,7 +43,7 @@ INTO OUTFILE "file_path"
 [properties]
 ```
 
-说明：
+#### 说明：
 
 1. file_path
 
@@ -111,7 +111,7 @@ INTO OUTFILE "file_path"
         s3.access_key
         s3.secret_key
         s3.region
-        use_path_stype: (选填) 默认为false 。S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可能没开启或不支持virtual-hosted style 方式的访问，此时可以添加 use_path_style 参数来强制使用 path style 访问方式。
+        use_path_style: (选填) 默认为false 。S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可能没开启或不支持virtual-hosted style 方式的访问，此时可以添加 use_path_style 参数来强制使用 path style 访问方式。
     ```
 
     > 注意：若要使用delete_existing_files参数，还需要在fe.conf中添加配置`enable_delete_existing_files = true`并重启fe，此时delete_existing_files才会生效。delete_existing_files = true 是一个危险的操作，建议只在测试环境中使用。
@@ -132,6 +132,55 @@ INTO OUTFILE "file_path"
     select * from tbl1 limit 10 
     INTO OUTFILE "file:///home/work/path/result_";
     ```
+
+#### 数据类型映射
+
+parquet、orc文件格式拥有自己的数据类型，Doris的导出功能能够自动将Doris的数据类型导出到parquet/orc文件格式的对应数据类型，以下是Doris数据类型和parquet/orc文件格式的数据类型映射关系表：
+
+1. Doris导出到Orc文件格式的数据类型映射表：
+
+    | Doris Type | Orc Type |
+    | --- | --- |
+    | boolean | boolean  |
+    | tinyint | tinyint |
+    | smallint | smallint |
+    | int | int |
+    | bigint | bigint |
+    | largeInt | string |
+    | date | string |
+    | datev2 | string |
+    | datetime | string |
+    | datetimev2 | timestamp |
+    | float | float |
+    | double | double |
+    | char / varchar / string | string |
+    | decimal | decimal |
+    | struct | struct |
+    | map | map  |
+    | array | array |
+
+
+2. Doris导出到Parquet文件格式时，会先将Doris内存数据转换为arrow内存数据格式，然后由arrow写出到parquet文件格式。Doris数据类型到arrow数据类的映射关系为：
+
+    | Doris Type | Arrow Type |
+    | --- | --- |
+    | boolean  | boolean |
+    | tinyint  | int8 |
+    | smallint  | int16 |
+    | int  | int32 |
+    | bigint  | int64 |
+    | largeInt | utf8 |
+    | date | utf8 |
+    | datev2 | utf8 |
+    | datetime | utf8 |
+    | datetimev2 | utf8 |
+    | float  | float32 |
+    | double | float64 |
+    | char / varchar / string | utf8 |
+    | decimal | decimal128 |
+    | struct | struct |
+    | map | map |
+    | array | list |
 
 ### example
 

@@ -62,7 +62,7 @@ ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
 Status ODBCConnector::close(Status) {
     // do not commit transaction, roll back
     if (_is_in_transaction) {
-        static_cast<void>(abort_trans());
+        RETURN_IF_ERROR(abort_trans());
     }
 
     if (_stmt != nullptr) {

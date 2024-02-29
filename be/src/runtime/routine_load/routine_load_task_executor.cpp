@@ -33,7 +33,6 @@
 #include <thread>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -214,6 +213,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if (task.__isset.is_multi_table && task.is_multi_table) {
         ctx->is_multi_table = true;
     }
+    if (task.__isset.memtable_on_sink_node) {
+        ctx->memtable_on_sink_node = task.memtable_on_sink_node;
+    }
 
     // set execute plan params (only for non-single-stream-multi-table load)
     TStreamLoadPutResult put_result;
@@ -336,8 +338,11 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 #endif
     }
 
+    std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
+            std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
+
     // start to consume, this may block a while
-    HANDLE_ERROR(consumer_grp->start_all(ctx), "consuming failed");
+    HANDLE_ERROR(consumer_grp->start_all(ctx, kafka_pipe), "consuming failed");
 
     if (ctx->is_multi_table) {
         // plan the rest of unplanned data
@@ -345,7 +350,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         HANDLE_ERROR(multi_table_pipe->request_and_exec_plans(),
                      "multi tables task executes plan error");
         // need memory order
-        multi_table_pipe->set_consume_finished();
+        multi_table_pipe->handle_consume_finished();
+        HANDLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
     }
 
     // wait for all consumers finished

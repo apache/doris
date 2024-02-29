@@ -30,7 +30,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.collect.Maps;
 import mockit.Delegate;
@@ -120,13 +120,13 @@ public class WorkloadGroupMgrTest {
         workloadGroupMgr.createWorkloadGroup(stmt1);
 
         Map<String, WorkloadGroup> nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
-        Assert.assertEquals(1, nameToRG.size());
+        Assert.assertEquals(2, nameToRG.size());
         Assert.assertTrue(nameToRG.containsKey(name1));
         WorkloadGroup group1 = nameToRG.get(name1);
         Assert.assertEquals(name1, group1.getName());
 
         Map<Long, WorkloadGroup> idToRG = workloadGroupMgr.getIdToWorkloadGroup();
-        Assert.assertEquals(1, idToRG.size());
+        Assert.assertEquals(2, idToRG.size());
         Assert.assertTrue(idToRG.containsKey(group1.getId()));
 
         Map<String, String> properties2 = Maps.newHashMap();
@@ -137,11 +137,11 @@ public class WorkloadGroupMgrTest {
         workloadGroupMgr.createWorkloadGroup(stmt2);
 
         nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
-        Assert.assertEquals(2, nameToRG.size());
+        Assert.assertEquals(3, nameToRG.size());
         Assert.assertTrue(nameToRG.containsKey(name2));
         WorkloadGroup group2 = nameToRG.get(name2);
         idToRG = workloadGroupMgr.getIdToWorkloadGroup();
-        Assert.assertEquals(2, idToRG.size());
+        Assert.assertEquals(3, idToRG.size());
         Assert.assertTrue(idToRG.containsKey(group2.getId()));
 
         try {
@@ -153,8 +153,8 @@ public class WorkloadGroupMgrTest {
 
         CreateWorkloadGroupStmt stmt3 = new CreateWorkloadGroupStmt(true, name2, properties2);
         workloadGroupMgr.createWorkloadGroup(stmt3);
-        Assert.assertEquals(2, workloadGroupMgr.getIdToWorkloadGroup().size());
-        Assert.assertEquals(2, workloadGroupMgr.getNameToWorkloadGroup().size());
+        Assert.assertEquals(3, workloadGroupMgr.getIdToWorkloadGroup().size());
+        Assert.assertEquals(3, workloadGroupMgr.getNameToWorkloadGroup().size());
     }
 
     @Test
@@ -169,11 +169,17 @@ public class WorkloadGroupMgrTest {
         CreateWorkloadGroupStmt stmt1 = new CreateWorkloadGroupStmt(false, name1, properties1);
         workloadGroupMgr.createWorkloadGroup(stmt1);
         context.getSessionVariable().setWorkloadGroup(name1);
-        List<TPipelineWorkloadGroup> tWorkloadGroups1 = workloadGroupMgr.getWorkloadGroup(context);
-        Assert.assertEquals(1, tWorkloadGroups1.size());
-        TPipelineWorkloadGroup tWorkloadGroup1 = tWorkloadGroups1.get(0);
-        Assert.assertEquals(name1, tWorkloadGroup1.getName());
-        Assert.assertTrue(tWorkloadGroup1.getProperties().containsKey(WorkloadGroup.CPU_SHARE));
+        List<TopicInfo> tWorkloadGroups1 = workloadGroupMgr.getPublishTopicInfo();
+        Assert.assertEquals(2, tWorkloadGroups1.size());
+        TopicInfo tWorkloadGroup1 = null;
+        for (int i = 0; i < 2; ++i) {
+            if (tWorkloadGroups1.get(i).getWorkloadGroupInfo().getName().equals(name1)) {
+                tWorkloadGroup1 = tWorkloadGroups1.get(i);
+                break;
+            }
+        }
+        Assert.assertEquals(name1, tWorkloadGroup1.getWorkloadGroupInfo().getName());
+        Assert.assertTrue(tWorkloadGroup1.getWorkloadGroupInfo().getCpuShare() == 10);
 
         try {
             context.getSessionVariable().setWorkloadGroup("g2");
@@ -242,9 +248,15 @@ public class WorkloadGroupMgrTest {
         workloadGroupMgr.alterWorkloadGroup(stmt2);
 
         context.getSessionVariable().setWorkloadGroup(name);
-        List<TPipelineWorkloadGroup> tWorkloadGroups = workloadGroupMgr.getWorkloadGroup(context);
-        Assert.assertEquals(1, tWorkloadGroups.size());
-        TPipelineWorkloadGroup tWorkloadGroup1 = tWorkloadGroups.get(0);
-        Assert.assertEquals(tWorkloadGroup1.getProperties().get(WorkloadGroup.CPU_SHARE), "5");
+        List<TopicInfo> tWorkloadGroups = workloadGroupMgr.getPublishTopicInfo();
+        Assert.assertEquals(2, tWorkloadGroups.size());
+        TopicInfo tWorkloadGroup1 = null;
+        for (int i = 0; i < 2; ++i) {
+            if (tWorkloadGroups.get(i).getWorkloadGroupInfo().getName().equals(name)) {
+                tWorkloadGroup1 = tWorkloadGroups.get(i);
+                break;
+            }
+        }
+        Assert.assertTrue(tWorkloadGroup1.getWorkloadGroupInfo().getCpuShare() == 5);
     }
 }

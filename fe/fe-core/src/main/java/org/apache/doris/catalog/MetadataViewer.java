@@ -17,11 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
-import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowDataSkewStmt;
+import org.apache.doris.analysis.ShowReplicaDistributionStmt;
+import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.common.DdlException;
@@ -39,7 +39,7 @@ import java.util.Map;
 
 public class MetadataViewer {
 
-    public static List<List<String>> getTabletStatus(AdminShowReplicaStatusStmt stmt) throws DdlException {
+    public static List<List<String>> getTabletStatus(ShowReplicaStatusStmt stmt) throws DdlException {
         return getTabletStatus(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions(),
                                stmt.getStatusFilter(), stmt.getOp());
     }
@@ -93,6 +93,8 @@ public class MetadataViewer {
 
                             } else if (replica.getSchemaHash() != -1 && replica.getSchemaHash() != schemaHash) {
                                 status = ReplicaStatus.SCHEMA_ERROR;
+                            } else if (replica.isUserDrop()) {
+                                status = ReplicaStatus.DROP;
                             }
 
                             if (filterReplica(status, statusFilter, op)) {
@@ -109,6 +111,7 @@ public class MetadataViewer {
                             row.add(String.valueOf(replica.getSchemaHash()));
                             row.add(String.valueOf(replica.getVersionCount()));
                             row.add(String.valueOf(replica.isBad()));
+                            row.add(String.valueOf(replica.isUserDrop()));
                             row.add(replica.getState().name());
                             row.add(status.name());
                             result.add(row);
@@ -129,6 +132,7 @@ public class MetadataViewer {
                             row.add("-1");
                             row.add("-1");
                             row.add("-1");
+                            row.add(FeConstants.null_string);
                             row.add(FeConstants.null_string);
                             row.add(FeConstants.null_string);
                             row.add(ReplicaStatus.MISSING.name());
@@ -155,7 +159,7 @@ public class MetadataViewer {
         }
     }
 
-    public static List<List<String>> getTabletDistribution(AdminShowReplicaDistributionStmt stmt) throws DdlException {
+    public static List<List<String>> getTabletDistribution(ShowReplicaDistributionStmt stmt) throws DdlException {
         return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 

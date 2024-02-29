@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
@@ -33,16 +32,16 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
@@ -256,7 +255,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (FileFormatUtils.isCsv(formatString)) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
                     FileFormatConstants.PROP_CSV_SCHEMA, ""));
-            LOG.debug("get csv schema: {}", csvSchema);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get csv schema: {}", csvSchema);
+            }
         }
 
         pathPartitionKeys = Optional.ofNullable(
@@ -310,13 +311,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (!csvSchema.isEmpty()) {
             return csvSchema;
         }
-        if (FeConstants.runningUnitTest) {
-            Object mockedUtObj = FeConstants.unitTestConstant;
-            if (mockedUtObj instanceof List) {
-                return ((List<Column>) mockedUtObj);
-            }
-            return new ArrayList<>();
-        }
+        // if (FeConstants.runningUnitTest) {
+        //     Object mockedUtObj = FeConstants.unitTestConstant;
+        //     if (mockedUtObj instanceof List) {
+        //         return ((List<Column>) mockedUtObj);
+        //     }
+        //     return new ArrayList<>();
+        // }
         if (this.columns != null) {
             return columns;
         }
@@ -330,13 +331,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (this.fileFormatType == TFileFormatType.FORMAT_WAL) {
             List<Column> fileColumns = new ArrayList<>();
             Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
-            List<Column> tableColumns = table.getBaseSchema(false);
-            for (int i = 1; i <= tableColumns.size(); i++) {
-                fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getDataType(), true));
-            }
-            Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
-            if (deleteSignColumn != null) {
-                fileColumns.add(new Column("c" + (tableColumns.size() + 1), deleteSignColumn.getDataType(), true));
+            List<Column> tableColumns = table.getBaseSchema(true);
+            for (int i = 0; i < tableColumns.size(); i++) {
+                Column column = new Column(tableColumns.get(i).getName(), tableColumns.get(i).getType(), true);
+                column.setUniqueId(tableColumns.get(i).getUniqueId());
+                fileColumns.add(column);
             }
             return fileColumns;
         }
@@ -344,22 +343,28 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             PFetchTableSchemaRequest request = getFetchTableStructureRequest();
-            Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
-                    .fetchTableStructureAsync(address, request);
+            InternalService.PFetchTableSchemaResult result = null;
 
-            InternalService.PFetchTableSchemaResult result = future.get();
-            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-            String errMsg;
-            if (code != TStatusCode.OK) {
-                if (!result.getStatus().getErrorMsgsList().isEmpty()) {
-                    errMsg = result.getStatus().getErrorMsgsList().get(0);
-                } else {
-                    errMsg = "fetchTableStructureAsync failed. backend address: "
-                            + address.getHostname() + ":" + address.getPort();
+            // `request == null` means we don't need to get schemas from BE,
+            // and we fill a dummy col for this table.
+            if (request != null) {
+                Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
+                        .fetchTableStructureAsync(address, request);
+
+                result = future.get();
+                TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                String errMsg;
+                if (code != TStatusCode.OK) {
+                    if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                        errMsg = result.getStatus().getErrorMsgsList().get(0);
+                    } else {
+                        errMsg = "fetchTableStructureAsync failed. backend address: "
+                                + NetUtils
+                                .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
+                    }
+                    throw new AnalysisException(errMsg);
                 }
-                throw new AnalysisException(errMsg);
             }
-
             fillColumns(result);
         } catch (RpcException e) {
             throw new AnalysisException("fetchTableStructureResult rpc exception", e);
@@ -379,7 +384,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         long backendId = ctx.getBackendId();
         if (getTFileType() == TFileType.FILE_STREAM) {
             Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
-            if (be.isAlive()) {
+            if (be == null || be.isAlive()) {
                 return be;
             }
         }
@@ -431,10 +436,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return Pair.of(type, parsedNodes);
     }
 
-    private void fillColumns(InternalService.PFetchTableSchemaResult result)
-            throws AnalysisException {
-        if (result.getColumnNums() == 0) {
-            throw new AnalysisException("The amount of column is 0");
+    private void fillColumns(InternalService.PFetchTableSchemaResult result) {
+        // `result == null` means we don't need to get schemas from BE,
+        // and we fill a dummy col for this table.
+        if (result == null) {
+            columns.add(new Column("__dummy_col", ScalarType.createStringType(), true));
+            return;
         }
         // add fetched file columns
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
@@ -450,7 +457,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws AnalysisException, TException {
+    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
@@ -467,22 +474,27 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-            String fsNmae = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
-            tHdfsParams.setFsName(fsNmae);
+            String fsName = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
+            tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (fileStatus.isIsDir()) {
+            if (fileStatus.isIsDir() || fileStatus.size == 0) {
                 continue;
             }
             firstFile = fileStatus;
             break;
         }
+
+        // `firstFile == null` means:
+        // 1. No matching file path exists
+        // 2. All matched files have a size of 0
+        // For these two situations, we don't need to get schema from BE
         if (firstFile == null) {
-            throw new AnalysisException("Can not get first file, please check uri.");
+            return null;
         }
 
         // set TFileRangeDesc
@@ -503,6 +515,4 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 }
-
-
 

@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -38,6 +39,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -54,6 +56,16 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 
 public class ShowDataStmt extends ShowStmt {
+    private static final ShowResultSetMetaData SHOW_DATABASE_DATA_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("DbId", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("DbName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Size", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RecycleSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RecycleRemoteSize", ScalarType.createVarchar(30)))
+                    .build();
+
     private static final ShowResultSetMetaData SHOW_TABLE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
@@ -71,6 +83,7 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
                     .build();
+
     public static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN =
             new ImmutableList.Builder<String>().add("TableName").add("Size").add("ReplicaCount")
             .add("RemoteSize").build();
@@ -97,6 +110,10 @@ public class ShowDataStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         dbName = analyzer.getDefaultDb();
+        if (Strings.isNullOrEmpty(dbName)) {
+            getAllDbStats();
+            return;
+        }
         if (tableName != null) {
             tableName.analyze(analyzer);
             // disallow external catalog
@@ -225,12 +242,6 @@ public class ShowDataStmt extends ShowStmt {
                         + leftPair.second;
                 List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft), "");
                 totalRows.add(leftRow);
-
-                // txn quota
-                long txnQuota = db.getTransactionQuotaSize();
-                List<String> transactionQuotaList = Arrays.asList("Transaction Quota",
-                        String.valueOf(txnQuota), String.valueOf(txnQuota), "");
-                totalRows.add(transactionQuotaList);
             } finally {
                 db.readUnlock();
             }
@@ -244,7 +255,7 @@ public class ShowDataStmt extends ShowStmt {
             }
 
             OlapTable olapTable = (OlapTable) db
-                    .getTableOrMetaException(tableName.getTbl(), TableType.OLAP, TableType.MATERIALIZED_VIEW);
+                    .getTableOrMetaException(tableName.getTbl(), TableType.OLAP);
             long totalSize = 0;
             long totalReplicaCount = 0;
             long totalRemoteSize = 0;
@@ -374,6 +385,9 @@ public class ShowDataStmt extends ShowStmt {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
+        if (Strings.isNullOrEmpty(dbName)) {
+            return SHOW_DATABASE_DATA_META_DATA;
+        }
         if (tableName != null) {
             return SHOW_INDEX_DATA_META_DATA;
         } else {
@@ -385,11 +399,10 @@ public class ShowDataStmt extends ShowStmt {
     public String toSql() {
         StringBuilder builder = new StringBuilder();
         builder.append("SHOW DATA");
-        builder.append(" FROM ");
+
         if (tableName != null) {
+            builder.append(" FROM ");
             builder.append(tableName.toSql());
-        } else {
-            builder.append("`").append(dbName).append("`");
         }
 
         // Order By clause
@@ -407,5 +420,69 @@ public class ShowDataStmt extends ShowStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    private void getAllDbStats() {
+        List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
+        if (dbNames == null || dbNames.isEmpty()) {
+            return;
+        }
+        long totalSize = 0;
+        long totalRemoteSize = 0;
+        long totalRecycleSize = 0;
+        long totalRecycleRemoteSize = 0;
+        Map<Long, Pair<Long, Long>> dbToRecycleSize = Env.getCurrentRecycleBin().getDbToRecycleSize();
+        // show all database datasize
+        for (String dbName : dbNames) {
+            DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+            if (db == null) {
+                continue;
+            }
+            List<String> dbInfo = new ArrayList<>();
+            db.readLock();
+            try {
+                dbInfo.add(String.valueOf(db.getId()));
+                dbInfo.add(dbName);
+                Pair<Long, Long> usedSize =  ((Database) db).getUsedDataSize();
+                dbInfo.add(String.valueOf(usedSize.first));
+                dbInfo.add(String.valueOf(usedSize.second));
+                totalSize += usedSize.first;
+                totalRemoteSize += usedSize.second;
+            } finally {
+                db.readUnlock();
+            }
+
+            Pair<Long, Long> recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L));
+            dbInfo.add(String.valueOf(recycleSize.first));
+            dbInfo.add(String.valueOf(recycleSize.second));
+            totalRecycleSize += recycleSize.first;
+            totalRecycleRemoteSize += recycleSize.second;
+            dbToRecycleSize.remove(db.getId());
+            totalRows.add(dbInfo);
+        }
+
+        // Append left database in recycle bin
+        for (Map.Entry<Long, Pair<Long, Long>> entry : dbToRecycleSize.entrySet()) {
+            List<String> dbInfo = new ArrayList<>();
+            dbInfo.add(String.valueOf(entry.getKey()));
+            dbInfo.add("NULL");
+            dbInfo.add("0");
+            dbInfo.add("0");
+            dbInfo.add(String.valueOf(entry.getValue().first));
+            dbInfo.add(String.valueOf(entry.getValue().second));
+            totalRecycleSize += entry.getValue().first;
+            totalRecycleRemoteSize += entry.getValue().second;
+            totalRows.add(dbInfo);
+        }
+
+        // calc total size
+        List<String> dbInfo = new ArrayList<>();
+        dbInfo.add("Total");
+        dbInfo.add("NULL");
+        dbInfo.add(String.valueOf(totalSize));
+        dbInfo.add(String.valueOf(totalRemoteSize));
+        dbInfo.add(String.valueOf(totalRecycleSize));
+        dbInfo.add(String.valueOf(totalRecycleRemoteSize));
+        totalRows.add(dbInfo);
     }
 }

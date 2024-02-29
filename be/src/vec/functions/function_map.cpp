@@ -146,7 +146,7 @@ public:
     }
 };
 
-template <bool is_key>
+template <bool is_key, bool OldVersion = false>
 class FunctionMapContains : public IFunction {
 public:
     static constexpr auto name = is_key ? "map_contains_key" : "map_contains_value";
@@ -170,7 +170,16 @@ public:
         }
         DCHECK(is_map(datatype)) << "first argument for function: " << name
                                  << " should be DataTypeMap";
-        return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+
+        if constexpr (OldVersion) {
+            return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+        } else {
+            if (arguments[0]->is_nullable()) {
+                return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+            } else {
+                return std::make_shared<DataTypeNumber<UInt8>>();
+            }
+        }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

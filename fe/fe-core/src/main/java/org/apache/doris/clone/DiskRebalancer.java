@@ -17,21 +17,22 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.DataProperty;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
+import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -42,7 +43,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 /*
 
  * This DiskBalancer is different from other Balancers which takes care of cluster-wide data balancing.
@@ -125,6 +125,15 @@ public class DiskRebalancer extends Rebalancer {
         List<BackendLoadStatistic> highBEs = Lists.newArrayList();
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
 
+        Rebalancer rebalancer = FeConstants.runningUnitTest ? null
+                : Env.getCurrentEnv().getTabletScheduler().getRebalancer();
+        if (rebalancer != null && rebalancer.unPickOverLongTime(clusterStat.getTag(), medium)) {
+            midBEs.addAll(lowBEs);
+            midBEs.addAll(highBEs);
+            lowBEs.clear();
+            highBEs.clear();
+        }
+
         if (!(lowBEs.isEmpty() && highBEs.isEmpty())) {
             // the cluster is not balanced
             if (prioBackends.isEmpty()) {
@@ -141,17 +150,25 @@ public class DiskRebalancer extends Rebalancer {
         // first we should check if mid backends is available.
         // if all mid backends is not available, we should not start balance
         if (midBEs.stream().noneMatch(BackendLoadStatistic::isAvailable)) {
-            LOG.debug("all mid load backends is dead: {} with medium: {}. skip",
-                    lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("all mid load backends is dead: {} with medium: {}. skip",
+                        midBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
+            }
             return alternativeTablets;
         }
 
         if (midBEs.stream().noneMatch(BackendLoadStatistic::hasAvailDisk)) {
             LOG.info("all mid load backends {} have no available disk with medium: {}. skip",
-                    lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
+                    midBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
             return alternativeTablets;
         }
 
+        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
+        // so in clone ut recycleBin need to set to null.
+        CatalogRecycleBin recycleBin = null;
+        if (!FeConstants.runningUnitTest) {
+            recycleBin = Env.getCurrentRecycleBin();
+        }
         Set<Long> alternativeTabletIds = Sets.newHashSet();
         Set<Long> unbalancedBEs = Sets.newHashSet();
         // choose tablets from backends randomly.
@@ -196,12 +213,22 @@ public class DiskRebalancer extends Rebalancer {
                 if (alternativeTabletIds.contains(tabletId)) {
                     continue;
                 }
+                if (!Config.enable_disk_balance_for_single_replica
+                        && invertedIndex.getReplicasByTabletId(tabletId).size() <= 1) {
+                    continue;
+                }
                 Replica replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
                 if (replica == null) {
                     continue;
                 }
                 // ignore empty replicas as they do not make disk more balance. (disk usage)
                 if (replica.getDataSize() == 0) {
+                    continue;
+                }
+
+                // backend not support migrate cooldown tablets
+                TUniqueId cooldownMetaId = replica.getCooldownMetaId();
+                if (cooldownMetaId != null && (cooldownMetaId.getLo() != 0 || cooldownMetaId.getHi() != 0)) {
                     continue;
                 }
 
@@ -212,6 +239,10 @@ public class DiskRebalancer extends Rebalancer {
                 if (remainingPaths.containsKey(replicaPathHash)) {
                     TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
                     if (tabletMeta == null) {
+                        continue;
+                    }
+                    if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
+                            tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
                         continue;
                     }
 
@@ -276,34 +307,24 @@ public class DiskRebalancer extends Rebalancer {
         Replica replica = invertedIndex.getReplica(tabletCtx.getTabletId(), tabletCtx.getTempSrcBackendId());
         // check src replica still there
         if (replica == null || replica.getPathHash() != tabletCtx.getTempSrcPathHash()) {
-            throw new SchedException(Status.UNRECOVERABLE, "src replica may be rebalanced");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "src replica may be rebalanced");
         }
         // ignore empty replicas as they do not make disk more balance
         if (replica.getDataSize() == 0) {
-            throw new SchedException(Status.UNRECOVERABLE, "size of src replica is zero");
-        }
-        Database db = Env.getCurrentInternalCatalog().getDbOrException(tabletCtx.getDbId(),
-                s -> new SchedException(Status.UNRECOVERABLE, "db " + tabletCtx.getDbId() + " does not exist"));
-        OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(),
-                s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletCtx.getTblId() + " does not exist"));
-        DataProperty dataProperty = tbl.getPartitionInfo().getDataProperty(tabletCtx.getPartitionId());
-        if (dataProperty == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "data property is null");
-        }
-        String storagePolicy = dataProperty.getStoragePolicy();
-        if (!Strings.isNullOrEmpty(storagePolicy)) {
-            throw new SchedException(Status.UNRECOVERABLE, "disk balance not support for cooldown storage");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "size of src replica is zero");
         }
 
         // check src slot
         PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
         if (slot == null) {
-            LOG.debug("BE does not have slot: {}", replica.getBackendId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("BE does not have slot: {}", replica.getBackendId());
+            }
             throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
         }
         long pathHash = slot.takeBalanceSlot(replica.getPathHash());
         if (pathHash == -1) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to take src slot");
         }
         // after take src slot, we can set src replica now
         tabletCtx.setSrc(replica);
@@ -323,14 +344,16 @@ public class DiskRebalancer extends Rebalancer {
         if (pathHigh.contains(replica.getPathHash())) {
             pathLow.addAll(pathMid);
         } else if (!pathMid.contains(replica.getPathHash())) {
-            throw new SchedException(Status.UNRECOVERABLE, "src path is low load");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "src path is low load");
         }
         // check if this migration task can make the be's disks more balance.
         List<RootPathLoadStatistic> availPaths = Lists.newArrayList();
         BalanceStatus bs;
         if ((bs = beStat.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), availPaths,
                 false /* not supplement */)) != BalanceStatus.OK) {
-            LOG.debug("tablet not fit in BE {}, reason: {}", beStat.getBeId(), bs.getErrMsgs());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("tablet not fit in BE {}, reason: {}", beStat.getBeId(), bs.getErrMsgs());
+            }
             throw new SchedException(Status.UNRECOVERABLE, "tablet not fit in BE");
         }
         // Select a low load path as destination.
@@ -342,12 +365,16 @@ public class DiskRebalancer extends Rebalancer {
             }
             // check if avail path is low path
             if (!pathLow.contains(stat.getPathHash())) {
-                LOG.debug("the path :{} is not low load", stat.getPathHash());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("the path :{} is not low load", stat.getPathHash());
+                }
                 continue;
             }
             if (!beStat.isMoreBalanced(tabletCtx.getSrcPathHash(), stat.getPathHash(),
                     tabletCtx.getTabletId(), tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
-                LOG.debug("the path :{} can not make more balance", stat.getPathHash());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("the path :{} can not make more balance", stat.getPathHash());
+                }
                 continue;
             }
             long destPathHash = slot.takeBalanceSlot(stat.getPathHash());
@@ -360,7 +387,7 @@ public class DiskRebalancer extends Rebalancer {
         }
 
         if (!setDest) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find low load path");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to find low load path");
         }
     }
 }

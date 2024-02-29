@@ -128,7 +128,7 @@ public:
                     (array_offsets.size() > 0 &&
                      memcmp(array_offsets.data(), col_array.get_offsets().data(),
                             sizeof(array_offsets[0]) * array_offsets.size()) != 0)) {
-                    return Status::InternalError(
+                    return Status::InvalidArgument(
                             "in array map function, the input column size "
                             "are "
                             "not equal completely, nested column data rows 1st size is {}, {}th "

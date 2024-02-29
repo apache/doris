@@ -50,7 +50,7 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(group(), innerLogicalJoin())
                 .when(InnerJoinLeftAssociate::checkReorder)
-                .whenNot(join -> join.hasJoinHint() || join.right().hasJoinHint())
+                .whenNot(join -> join.hasDistributeHint() || join.right().hasDistributeHint())
                 .whenNot(join -> join.isMarkJoin() || join.right().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right();
@@ -85,11 +85,10 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
 
                     // new join.
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(
-                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts, a, b);
+                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts, a, b, null);
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
-                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts, newBottomJoin, c);
-                    setNewBottomJoinReorder(newBottomJoin, bottomJoin);
-                    setNewTopJoinReorder(newTopJoin, topJoin);
+                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts, newBottomJoin, c, null);
+                    newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
 
                     return newTopJoin;
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE);
@@ -97,25 +96,13 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
 
     /** Check JoinReorderContext. */
     public static boolean checkReorder(LogicalJoin<GroupPlan, ? extends Plan> topJoin) {
+        if (topJoin.isLeadingJoin()
+                || JoinExchange.isChildLeadingJoin(topJoin.right())) {
+            return false;
+        }
         return !topJoin.getJoinReorderContext().hasCommute()
                 && !topJoin.getJoinReorderContext().hasLeftAssociate()
                 && !topJoin.getJoinReorderContext().hasRightAssociate()
                 && !topJoin.getJoinReorderContext().hasExchange();
-    }
-
-    /** Set JoinReorderContext */
-    public static void setNewTopJoinReorder(LogicalJoin newTopJoin, LogicalJoin topJoin) {
-        newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
-        newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
-        newTopJoin.getJoinReorderContext().setHasCommute(false);
-    }
-
-    /** Set JoinReorderContext */
-    public static void setNewBottomJoinReorder(LogicalJoin newBottomJoin, LogicalJoin bottomJoin) {
-        newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
-        newBottomJoin.getJoinReorderContext().setHasCommute(false);
-        newBottomJoin.getJoinReorderContext().setHasRightAssociate(false);
-        newBottomJoin.getJoinReorderContext().setHasLeftAssociate(false);
-        newBottomJoin.getJoinReorderContext().setHasExchange(false);
     }
 }

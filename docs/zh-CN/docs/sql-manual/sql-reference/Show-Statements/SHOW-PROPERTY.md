@@ -38,6 +38,7 @@ SHOW PROPERTY
 
 ```sql
 SHOW PROPERTY [FOR user] [LIKE key]
+SHOW ALL PROPERTIES [LIKE key]
 ```
 
 * `user`
@@ -47,6 +48,10 @@ SHOW PROPERTY [FOR user] [LIKE key]
 * `LIKE`
 
    模糊匹配可以通过属性名来完成。
+
+* `ALL` 
+
+   查看所有用户的属性(从2.0.3版本开始支持)
 
 返回结果说明：
 
@@ -68,6 +73,26 @@ mysql> show property like'%connection%';
 
   属性值.
 
+
+```sql
+mysql> show all properties like "%connection%";
++-------------------+--------------------------------------+
+| User              | Properties                           |
++-------------------+--------------------------------------+
+| root              | {"max_user_connections": "100"}      |
+| admin             | {"max_user_connections": "100"}      |
+| default_cluster:a | {"max_user_connections": "1000"}     |
++-------------------+--------------------------------------+
+```
+
+* `User`
+
+  用户名.
+
+* `Properties`
+
+  对应用户各个property的key:value.
+
 ### Example
 
 1. 查看 jack 用户的属性
@@ -82,8 +107,14 @@ mysql> show property like'%connection%';
    SHOW PROPERTY FOR 'jack' LIKE '%load_cluster%'
    ```
 
+3. 查看所有用户导入cluster相关属性
+
+   ```sql
+   SHOW ALL PROPERTIES LIKE '%load_cluster%'
+   ```
+
 ### Keywords
 
-    SHOW, PROPERTY
+    SHOW, PROPERTY, ALL
 
 ### Best Practice

@@ -58,12 +58,12 @@ public class FEFunctions {
     /**
      * date and time function
      */
-    @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
+    @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIMEV2")
     public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getTimeZone());
         long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getTimeZone());
-        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000,
-            FloatLiteral.getDefaultTimeType(Type.TIME));
+        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) * 1000,
+                FloatLiteral.getDefaultTimeType(Type.TIMEV2));
     }
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
@@ -151,7 +151,7 @@ public class FEFunctions {
         return new StringLiteral(result);
     }
 
-    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
+    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIMEV2")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
         DateLiteral dateLiteral = new DateLiteral();
         try {
@@ -168,6 +168,11 @@ public class FEFunctions {
         return dateAdd(date, new IntLiteral(-(int) day.getLongValue()));
     }
 
+    @FEFunction(name = "date_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral dateSubDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return dateAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
     @FEFunction(name = "years_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral yearsSub(LiteralExpr date, LiteralExpr year) throws AnalysisException {
         return yearsAdd(date, new IntLiteral(-(int) year.getLongValue()));
@@ -180,6 +185,16 @@ public class FEFunctions {
 
     @FEFunction(name = "days_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral daysSub(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
+    @FEFunction(name = "days_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral daysSubDateTimeV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
+    @FEFunction(name = "days_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral daysSubDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
     }
 
@@ -231,10 +246,11 @@ public class FEFunctions {
         return new IntLiteral(unixTime, Type.INT);
     }
 
-    @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
+    @FEFunction(name = "from_unixtime", argTypes = { "BIGINT" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= Integer.MAX_VALUE) {
+        // 32536771199L is max valid timestamp of mysql from_unix_time
+        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() > 32536771199L) {
             throw new AnalysisException("unix timestamp out of range");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
@@ -242,10 +258,11 @@ public class FEFunctions {
         return new StringLiteral(dl.getStringValue());
     }
 
-    @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
+    @FEFunction(name = "from_unixtime", argTypes = { "BIGINT", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= Integer.MAX_VALUE) {
+        // 32536771199L is max valid timestamp of mysql from_unix_time
+        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= 32536771199L) {
             throw new AnalysisException("unix timestamp out of range");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),

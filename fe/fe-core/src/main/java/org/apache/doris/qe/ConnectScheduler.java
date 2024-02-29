@@ -29,6 +29,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TimerTask;
@@ -102,7 +103,7 @@ public class ConnectScheduler {
             return false;
         }
         connectionMap.put(ctx.getConnectionId(), ctx);
-        if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT)) {
+        if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
             flightToken2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
         }
         return true;
@@ -116,7 +117,7 @@ public class ConnectScheduler {
                 conns.decrementAndGet();
             }
             numberConnection.decrementAndGet();
-            if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT)) {
+            if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 flightToken2ConnectionId.remove(ctx.getPeerIdentity());
             }
         }
@@ -124,6 +125,15 @@ public class ConnectScheduler {
 
     public ConnectContext getContext(int connectionId) {
         return connectionMap.get(connectionId);
+    }
+
+    public ConnectContext getContextWithQueryId(String queryId) {
+        for (ConnectContext context : connectionMap.values()) {
+            if (queryId.equals(DebugUtil.printId(context.queryId))) {
+                return context;
+            }
+        }
+        return null;
     }
 
     public ConnectContext getContext(String flightToken) {
@@ -162,6 +172,16 @@ public class ConnectScheduler {
         return infos;
     }
 
+    // used for thrift
+    public List<List<String>> listConnectionWithoutAuth(boolean isShowFullSql, boolean isShowFeHost) {
+        List<List<String>> list = new ArrayList<>();
+        long nowMs = System.currentTimeMillis();
+        for (ConnectContext ctx : connectionMap.values()) {
+            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, isShowFeHost));
+        }
+        return list;
+    }
+
     public void putTraceId2QueryId(String traceId, TUniqueId queryId) {
         traceId2QueryId.put(traceId, queryId);
     }
@@ -169,5 +189,9 @@ public class ConnectScheduler {
     public String getQueryIdByTraceId(String traceId) {
         TUniqueId queryId = traceId2QueryId.get(traceId);
         return queryId == null ? "" : DebugUtil.printId(queryId);
+    }
+
+    public Map<Integer, ConnectContext> getConnectionMap() {
+        return connectionMap;
     }
 }

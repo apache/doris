@@ -159,7 +159,7 @@ FROM data_source [data_source_properties]
 
      These three parameters represent:
 
-     1. The maximum execution time of each subtask, in seconds. The range is 1 to 60. Default is 10.
+     1. The maximum execution time of each subtask, in seconds. Must be greater than or equal to 1. The default is 10.
      2. The maximum number of lines read by each subtask. Must be greater than or equal to 200000. The default is 200000.
      3. The maximum number of bytes read by each subtask. The unit is bytes and the range is 100MB to 1GB. The default is 100MB.
 
@@ -253,11 +253,17 @@ FROM data_source [data_source_properties]
       Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used. Multi-table does not support this parameter.
 
   13. `max_filter_ratio`
-      The maximum allowed filtering rate within the sampling window. Must be between 0 and 1. The default value is 1.0.
+      The maximum allowed filtering rate within the sampling window. Must be between 0 and 1. The default value is 0.
 
       The sampling window is `max_batch_rows * 10`. That is, if the number of error lines / total lines is greater than `max_filter_ratio` within the sampling window, the routine operation will be suspended, requiring manual intervention to check data quality problems.
 
       Rows that are filtered out by where conditions are not considered error rows.
+
+  14. `enclose`
+      When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field.
+
+  15. `escape`
+      Used to escape characters that appear in a csv field identical to the enclosing characters. For example, if the data is "a,'b,'c'", enclose is "'", and you want "b,'c to be parsed as a field, you need to specify a single-byte escape character, such as "\", and then modify the data to "a,' b,\'c'".
   
 - `FROM data_source [data_source_properties]`
 

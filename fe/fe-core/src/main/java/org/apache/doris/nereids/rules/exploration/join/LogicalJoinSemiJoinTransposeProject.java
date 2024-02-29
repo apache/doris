@@ -43,8 +43,8 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                         .when(topJoin -> (topJoin.left().child().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isLeftOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint()
-                                || topJoin.left().child().hasJoinHint()
+                        .whenNot(topJoin -> topJoin.hasDistributeHint()
+                                || topJoin.left().child().hasDistributeHint()
                                 || topJoin.left().child().isMarkJoin())
                         .whenNot(LogicalJoin::isMarkJoin)
                         .when(join -> join.left().isAllSlots())
@@ -55,18 +55,18 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             GroupPlan c = topJoin.right();
 
                             // Discard this project, because it is useless.
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c);
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b, null);
                             return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
                                     newTopJoin);
-                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_PROJECT),
+                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_LEFT_PROJECT),
 
                 logicalJoin(group(), logicalProject(logicalJoin()))
                         .when(topJoin -> (topJoin.right().child().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isRightOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint()
-                                || topJoin.right().child().hasJoinHint()
+                        .whenNot(topJoin -> topJoin.hasDistributeHint()
+                                || topJoin.right().child().hasDistributeHint()
                                 || topJoin.right().child().isMarkJoin())
                         .when(join -> join.right().isAllSlots())
                         .then(topJoin -> {
@@ -76,11 +76,11 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             GroupPlan c = bottomJoin.right();
 
                             // Discard this project, because it is useless.
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b);
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, c);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b, null);
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, c, null);
                             return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
                                     newTopJoin);
-                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_PROJECT)
+                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_RIGHT_PROJECT)
         );
     }
 }

@@ -21,11 +21,12 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -36,6 +37,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
@@ -151,6 +154,16 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testExplainTree() {
+        String sql = "explain tree select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
+        ExplainLevel explainLevel = explainCommand.getLevel();
+        Assertions.assertEquals(ExplainLevel.TREE, explainLevel);
+    }
+
+    @Test
     public void testExplainGraph() {
         String sql = "explain graph select `AD``D` from t1 where a = 1";
         NereidsParser nereidsParser = new NereidsParser();
@@ -258,7 +271,35 @@ public class NereidsParserTest extends ParserTestBase {
                 .stream()
                 .mapToLong(e -> e.<Set<DecimalLiteral>>collect(DecimalLiteral.class::isInstance).size())
                 .sum();
-        Assertions.assertEquals(doubleCount, Config.enable_decimal_conversion ? 0 : 1);
+        Assertions.assertEquals(Config.enable_decimal_conversion ? 0 : 1, doubleCount);
+    }
+
+    @Test
+    public void testDatev1() {
+        String dv1 = "SELECT CAST('2023-12-18' AS DATEV1)";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(dv1).child(0);
+        Assertions.assertEquals(DateType.INSTANCE, logicalPlan.getExpressions().get(0).getDataType());
+    }
+
+    @Test
+    public void testDatetimev1() {
+        String dtv1 = "SELECT CAST('2023-12-18' AS DATETIMEV1)";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(dtv1).child(0);
+        Assertions.assertEquals(DateTimeType.INSTANCE, logicalPlan.getExpressions().get(0).getDataType());
+
+        String wrongDtv1 = "SELECT CAST('2023-12-18' AS DATETIMEV1(2))";
+        Assertions.assertThrows(AnalysisException.class, () -> nereidsParser.parseSingle(wrongDtv1).child(0));
+
+    }
+
+    @Test
+    public void testDecimalv2() {
+        String decv2 = "SELECT CAST('1.234' AS decimalv2(10,5))";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(decv2).child(0);
+        Assertions.assertTrue(logicalPlan.getExpressions().get(0).getDataType().isDecimalV2Type());
     }
 
     @Test
@@ -291,20 +332,20 @@ public class NereidsParserTest extends ParserTestBase {
     public void testJoinHint() {
         // no hint
         parsePlan("select * from t1 join t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.NONE));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.NONE));
 
         // valid hint
         parsePlan("select * from t1 join [shuffle] t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.SHUFFLE_RIGHT));
 
         parsePlan("select * from t1 join [  shuffle ] t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.SHUFFLE_RIGHT));
 
         parsePlan("select * from t1 join [broadcast] t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.BROADCAST_RIGHT));
 
         parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.BROADCAST_RIGHT));
 
         // invalid hint position
         parsePlan("select * from [shuffle] t1 join t2 on t1.keyy=t2.keyy")
@@ -348,7 +389,6 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-
     void testParseExprDepthWidth() {
         String sql = "SELECT 1+2 = 3 from t";
         NereidsParser nereidsParser = new NereidsParser();
@@ -362,6 +402,21 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testParseCollate() {
         String sql = "SELECT * FROM t1 WHERE col COLLATE utf8 = 'test'";
+        NereidsParser nereidsParser = new NereidsParser();
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testParseBinaryKeyword() {
+        String sql = "SELECT BINARY 'abc' FROM t";
+        NereidsParser nereidsParser = new NereidsParser();
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testParseReserveKeyword() {
+        // partitions and auto_increment are reserve keywords
+        String sql = "SELECT BINARY 'abc' FROM information_schema.partitions order by AUTO_INCREMENT";
         NereidsParser nereidsParser = new NereidsParser();
         nereidsParser.parseSingle(sql);
     }

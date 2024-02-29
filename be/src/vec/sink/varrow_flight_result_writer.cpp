@@ -27,14 +27,13 @@
 namespace doris {
 namespace vectorized {
 
-VArrowFlightResultWriter::VArrowFlightResultWriter(BufferControlBlock* sinker,
-                                                   const VExprContextSPtrs& output_vexpr_ctxs,
-                                                   RuntimeProfile* parent_profile,
-                                                   const RowDescriptor& row_desc)
+VArrowFlightResultWriter::VArrowFlightResultWriter(
+        BufferControlBlock* sinker, const VExprContextSPtrs& output_vexpr_ctxs,
+        RuntimeProfile* parent_profile, const std::shared_ptr<arrow::Schema>& arrow_schema)
         : _sinker(sinker),
           _output_vexpr_ctxs(output_vexpr_ctxs),
           _parent_profile(parent_profile),
-          _row_desc(row_desc) {}
+          _arrow_schema(arrow_schema) {}
 
 Status VArrowFlightResultWriter::init(RuntimeState* state) {
     _init_profile();
@@ -42,8 +41,6 @@ Status VArrowFlightResultWriter::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
     _is_dry_run = state->query_options().dry_run_query;
-    // generate the arrow schema
-    RETURN_IF_ERROR(convert_to_arrow_schema(_row_desc, &_arrow_schema));
     return Status::OK();
 }
 
@@ -55,7 +52,7 @@ void VArrowFlightResultWriter::_init_profile() {
     _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
 }
 
-Status VArrowFlightResultWriter::append_block(Block& input_block) {
+Status VArrowFlightResultWriter::write(Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
@@ -100,7 +97,7 @@ bool VArrowFlightResultWriter::can_sink() {
     return _sinker->can_sink();
 }
 
-Status VArrowFlightResultWriter::close(Status) {
+Status VArrowFlightResultWriter::close(Status st) {
     COUNTER_SET(_sent_rows_counter, _written_rows);
     COUNTER_UPDATE(_bytes_sent_counter, _bytes_sent);
     return Status::OK();

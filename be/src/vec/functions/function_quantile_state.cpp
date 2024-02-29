@@ -29,7 +29,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "util/quantile_state.h"
@@ -149,11 +148,9 @@ public:
             const DataTypePtr& nested_data_type =
                     static_cast<const DataTypeNullable*>(data_type.get())->get_nested_type();
             WhichDataType nested_which(nested_data_type);
-            static_cast<void>(
-                    execute_internal<true>(column, data_type, column_result, compression));
+            RETURN_IF_ERROR(execute_internal<true>(column, data_type, column_result, compression));
         } else {
-            static_cast<void>(
-                    execute_internal<false>(column, data_type, column_result, compression));
+            RETURN_IF_ERROR(execute_internal<false>(column, data_type, column_result, compression));
         }
         if (status.ok()) {
             block.replace_by_position(result, std::move(column_result));
@@ -195,8 +192,8 @@ public:
                 block.get_by_position(arguments.back()).column);
 
         if (!percent_arg) {
-            LOG(FATAL) << fmt::format(
-                    "Second argument to {} must be a constant string describing type", get_name());
+            return Status::InternalError(
+                    "Second argument to {} must be a constant float describing type", get_name());
         }
         float percent_arg_value = percent_arg->get_value<Float32>();
         if (percent_arg_value < 0 || percent_arg_value > 1) {

@@ -60,7 +60,7 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         this.columnNames = columnNames;
         this.queryStmt = queryStmt;
         this.insertStmt = new NativeInsertStmt(createTableStmt.getDbTbl(), null, null,
-                queryStmt, null, columnNames);
+                queryStmt, null, columnNames, true);
     }
 
     /**
@@ -72,6 +72,7 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         // To avoid duplicate registrations of table/colRefs,
         // create a new root analyzer and clone the query statement for this initial pass.
         Analyzer dummyRootAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+        super.analyze(dummyRootAnalyzer);
         QueryStmt tmpStmt = queryStmt.clone();
         tmpStmt.analyze(dummyRootAnalyzer);
         this.queryStmt = tmpStmt;
@@ -88,11 +89,11 @@ public class CreateTableAsSelectStmt extends DdlStmt {
                 queryStmt.getResultExprs().get(i).getSrcSlotRef().getDesc().setColumn(columnCopy);
             }
             if (Config.enable_date_conversion) {
-                if (queryStmt.getResultExprs().get(i).getType() == Type.DATE) {
+                if (queryStmt.getResultExprs().get(i).getType().isDate()) {
                     Expr castExpr = queryStmt.getResultExprs().get(i).castTo(Type.DATEV2);
                     queryStmt.getResultExprs().set(i, castExpr);
                 }
-                if (queryStmt.getResultExprs().get(i).getType() == Type.DATETIME) {
+                if (queryStmt.getResultExprs().get(i).getType().isDatetime()) {
                     Expr castExpr = queryStmt.getResultExprs().get(i).castTo(Type.DATETIMEV2);
                     queryStmt.getResultExprs().set(i, castExpr);
                 }

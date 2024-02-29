@@ -47,7 +47,7 @@ Status SchemaScanOperator::close(RuntimeState* state) {
 Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
 
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<SchemaScanOperatorX>();
     _scanner_param.common_param = p._common_scanner_param;
@@ -65,13 +65,16 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    RETURN_IF_ERROR(_schema_scanner->init(&_scanner_param, state->obj_pool()));
+    return _schema_scanner->init(&_scanner_param, state->obj_pool());
+}
+
+Status SchemaScanLocalState::open(RuntimeState* state) {
     return _schema_scanner->start(state);
 }
 
-SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : Base(pool, tnode, descs),
+        : Base(pool, tnode, operator_id, descs),
           _table_name(tnode.schema_scan_node.table_name),
           _common_scanner_param(new SchemaScannerCommonParam()),
           _tuple_id(tnode.schema_scan_node.tuple_id),
@@ -206,10 +209,9 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                      SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_CANCELLED(state);
     bool schema_eos = false;
 
@@ -241,7 +243,7 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
             RETURN_IF_ERROR(local_state._schema_scanner->get_next_block(&src_block, &schema_eos));
 
             if (schema_eos) {
-                source_state = SourceState::FINISHED;
+                *eos = true;
                 break;
             }
 
@@ -264,9 +266,9 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
                     local_state._conjuncts, block, _dest_tuple_desc->slots().size()));
             src_block.clear();
         }
-    } while (block->rows() == 0 && source_state != SourceState::FINISHED);
+    } while (block->rows() == 0 && !*eos);
 
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     return Status::OK();
 }
 

@@ -63,9 +63,9 @@ public:
     friend class doris::pipeline::OlapScanOperator;
 
     Status prepare(RuntimeState* state) override;
-    Status collect_query_statistics(QueryStatistics* statistics) override;
 
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
 
     std::string get_name() override;
 
@@ -100,6 +100,14 @@ protected:
 
     void add_filter_info(int id, const PredicateFilterInfo& info);
 
+    // For some conjunct there is chance to elimate cast operator
+    // Eg. Variant's sub column could eliminate cast in storage layer if
+    // cast dst column type equals storage column type
+    void get_cast_types_for_variants() override;
+    void _filter_and_collect_cast_type_for_variant(
+            const VExpr* expr,
+            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+
 private:
     Status _build_key_ranges_and_filters();
 
@@ -121,6 +129,7 @@ private:
     RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
@@ -143,6 +152,7 @@ private:
     std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
@@ -158,6 +168,10 @@ private:
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_bf_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_rp_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_dict_timer = nullptr;
     RuntimeProfile::Counter* _first_read_timer = nullptr;
     RuntimeProfile::Counter* _second_read_timer = nullptr;
     RuntimeProfile::Counter* _first_read_seek_timer = nullptr;
@@ -192,8 +206,7 @@ private:
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
-    // number of created olap scanners
-    RuntimeProfile::Counter* _num_scanners = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_info = nullptr;
 
     // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;

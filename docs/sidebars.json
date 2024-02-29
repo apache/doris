@@ -21,7 +21,19 @@
                         "install/construct-docker/run-docker-cluster"
                     ]
                 },
-                "install/k8s-deploy",
+                {
+                    "type": "category",
+                    "label": "Deploy Doris on Kubernetes",
+                    "items": [
+                        "install/k8s-deploy/operator-deploy",
+                        "install/k8s-deploy/helm-chart-deploy",
+                        "install/k8s-deploy/network",
+                        "install/k8s-deploy/persistent-volume",
+                        "install/k8s-deploy/root-user-use",
+                        "install/k8s-deploy/expansion-and-contraction",
+                        "install/k8s-deploy/debug-crash"
+                    ]
+                },
                 {
                     "type": "category",
                     "label": "Source Code Compilation",
@@ -51,8 +63,7 @@
                         "data-table/index/index-overview",
                         "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
-                        "data-table/index/ngram-bloomfilter-index",
-                        "data-table/index/bitmap-index"
+                        "data-table/index/ngram-bloomfilter-index"
                     ]
                 }
             ]
@@ -84,6 +95,7 @@
                             "type": "category",
                             "label": "Import Way",
                             "items": [
+                                "data-operate/import/import-way/binlog-load-manual",
                                 "data-operate/import/import-way/broker-load-manual",
                                 "data-operate/import/import-way/routine-load-manual",
                                 "data-operate/import/import-way/spark-load-manual",
@@ -91,7 +103,8 @@
                                 "data-operate/import/import-way/mysql-load-manual",
                                 "data-operate/import/import-way/s3-load-manual",
                                 "data-operate/import/import-way/insert-into-manual",
-                                "data-operate/import/import-way/load-json-format"
+                                "data-operate/import/import-way/load-json-format",
+                                "data-operate/import/import-way/group-commit-manual"
                             ]
                         },
                         {
@@ -118,6 +131,7 @@
                     "items": [
                         "data-operate/update-delete/batch-delete-manual",
                         "data-operate/update-delete/update",
+                        "data-operate/update-delete/partial-update",
                         "data-operate/update-delete/delete-manual",
                         "data-operate/update-delete/sequence-column-manual"
                     ]
@@ -149,7 +163,9 @@
                     "type": "category",
                     "label": "Data Cache",
                     "items": [
-                        "advanced/cache/partition-cache"
+                        "advanced/cache/partition-cache-manual",
+                        "advanced/cache/query-cache",
+                        "advanced/cache/sql-cache-manual"
                     ]
                 },
                 "advanced/autobucket",
@@ -168,11 +184,15 @@
                 "advanced/orthogonal-bitmap-manual",
                 "advanced/using-hll",
                 "advanced/variables",
+                "advanced/variables-template",
                 "advanced/time-zone",
+                "advanced/sql-mode",
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
-                "advanced/compute-node",
-                "advanced/lateral-view"
+                "advanced/is-being-synced",
+                "advanced/lateral-view",
+                "advanced/auto-increment",
+                "advanced/is-being-synced"
             ]
         },
         {
@@ -180,6 +200,7 @@
             "label": "Query Acceleration",
             "items": [
                 "query-acceleration/pipeline-execution-engine",
+                "query-acceleration/pipeline-x-execution-engine",
                 "query-acceleration/nereids",
                 "query-acceleration/hight-concurrent-point-query",
                 "query-acceleration/materialized-view",
@@ -192,6 +213,21 @@
                         "query-acceleration/join-optimization/colocation-join",
                         "query-acceleration/join-optimization/runtime-filter",
                         "query-acceleration/join-optimization/doris-join-optimization"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Async Materialized View",
+                    "items": [
+                        "query-acceleration/async-materialized-view/async-materialized-view",
+                        "query-acceleration/async-materialized-view/query-async-materialized-view"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Hint",
+                    "items": [
+                        "query-acceleration/hint/joinHint"
                     ]
                 }
             ]
@@ -215,9 +251,18 @@
                         "lakehouse/multi-catalog/jdbc"
                     ]
                 },
+                {
+                    "type": "category",
+                    "label": "Cloud Service Authentication",
+                    "items": [
+                        "lakehouse/cloud-auth/cloud-auth"
+                    ]
+                },
                 "lakehouse/file",
                 "lakehouse/filecache",
+                "lakehouse/compute-node",
                 "lakehouse/external-statistics",
+                "lakehouse/sql-dialect",
                 "lakehouse/fs-benchmark-tool",
                 "lakehouse/faq"
             ]
@@ -228,6 +273,7 @@
             "items": [
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
+                "ecosystem/doris-streamloader",
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
@@ -311,8 +357,10 @@
                                 "sql-manual/sql-functions/array-functions/array-last",
                                 "sql-manual/sql-functions/array-functions/arrays-overlap",
                                 "sql-manual/sql-functions/array-functions/array-count",
+                                "sql-manual/sql-functions/array-functions/array-apply",
                                 "sql-manual/sql-functions/array-functions/countequal",
-                                "sql-manual/sql-functions/array-functions/element-at"
+                                "sql-manual/sql-functions/array-functions/element-at",
+                                "sql-manual/sql-functions/array-functions/sequence"
                             ]
                         },
                         {
@@ -344,6 +392,7 @@
                                 "sql-manual/sql-functions/date-time-functions/from-days",
                                 "sql-manual/sql-functions/date-time-functions/last-day",
                                 "sql-manual/sql-functions/date-time-functions/to-monday",
+                                "sql-manual/sql-functions/date-time-functions/from-second",
                                 "sql-manual/sql-functions/date-time-functions/from-unixtime",
                                 "sql-manual/sql-functions/date-time-functions/unix-timestamp",
                                 "sql-manual/sql-functions/date-time-functions/utc-timestamp",
@@ -363,6 +412,9 @@
                                 "sql-manual/sql-functions/date-time-functions/date-trunc",
                                 "sql-manual/sql-functions/date-time-functions/date-format",
                                 "sql-manual/sql-functions/date-time-functions/datediff",
+                                "sql-manual/sql-functions/date-time-functions/date_floor",
+                                "sql-manual/sql-functions/date-time-functions/date_ceil",
+                                "sql-manual/sql-functions/date-time-functions/microsecond",
                                 "sql-manual/sql-functions/date-time-functions/microseconds-add",
                                 "sql-manual/sql-functions/date-time-functions/microseconds-diff",
                                 "sql-manual/sql-functions/date-time-functions/microseconds-sub",
@@ -436,7 +488,6 @@
                                 "sql-manual/sql-functions/string-functions/char",
                                 "sql-manual/sql-functions/string-functions/concat",
                                 "sql-manual/sql-functions/string-functions/concat-ws",
-                                "sql-manual/sql-functions/string-functions/substr",
                                 "sql-manual/sql-functions/string-functions/substring",
                                 "sql-manual/sql-functions/string-functions/sub-replace",
                                 "sql-manual/sql-functions/string-functions/append-trailing-char-if-absent",
@@ -455,8 +506,6 @@
                                 "sql-manual/sql-functions/string-functions/field",
                                 "sql-manual/sql-functions/string-functions/find-in-set",
                                 "sql-manual/sql-functions/string-functions/replace",
-                                "sql-manual/sql-functions/string-functions/left",
-                                "sql-manual/sql-functions/string-functions/right",
                                 "sql-manual/sql-functions/string-functions/strleft",
                                 "sql-manual/sql-functions/string-functions/strright",
                                 "sql-manual/sql-functions/string-functions/split-part",
@@ -464,6 +513,7 @@
                                 "sql-manual/sql-functions/string-functions/substring-index",
                                 "sql-manual/sql-functions/string-functions/money-format",
                                 "sql-manual/sql-functions/string-functions/parse-url",
+                                "sql-manual/sql-functions/string-functions/url-decode",
                                 "sql-manual/sql-functions/string-functions/convert-to",
                                 "sql-manual/sql-functions/string-functions/extract-url-parameter",
                                 "sql-manual/sql-functions/string-functions/uuid",
@@ -531,42 +581,48 @@
                             "type": "category",
                             "label": "Aggregate Functions",
                             "items": [
-                                "sql-manual/sql-functions/aggregate-functions/collect-set",
                                 "sql-manual/sql-functions/aggregate-functions/min",
-                                "sql-manual/sql-functions/aggregate-functions/stddev-samp",
+                                "sql-manual/sql-functions/aggregate-functions/min-by",
+                                "sql-manual/sql-functions/aggregate-functions/max",
+                                "sql-manual/sql-functions/aggregate-functions/max-by",
                                 "sql-manual/sql-functions/aggregate-functions/avg",
                                 "sql-manual/sql-functions/aggregate-functions/avg-weighted",
-                                "sql-manual/sql-functions/aggregate-functions/percentile",
-                                "sql-manual/sql-functions/aggregate-functions/percentile-array",
-                                "sql-manual/sql-functions/aggregate-functions/hll-union-agg",
+                                "sql-manual/sql-functions/aggregate-functions/sum",
+                                "sql-manual/sql-functions/aggregate-functions/stddev",
+                                "sql-manual/sql-functions/aggregate-functions/stddev-samp",
+                                "sql-manual/sql-functions/aggregate-functions/variance",
+                                "sql-manual/sql-functions/aggregate-functions/var-samp",
+                                "sql-manual/sql-functions/aggregate-functions/covar",
+                                "sql-manual/sql-functions/aggregate-functions/covar-samp",
+                                "sql-manual/sql-functions/aggregate-functions/corr",
                                 "sql-manual/sql-functions/aggregate-functions/topn",
                                 "sql-manual/sql-functions/aggregate-functions/topn-array",
                                 "sql-manual/sql-functions/aggregate-functions/topn-weighted",
                                 "sql-manual/sql-functions/aggregate-functions/count",
-                                "sql-manual/sql-functions/aggregate-functions/sum",
-                                "sql-manual/sql-functions/aggregate-functions/max-by",
-                                "sql-manual/sql-functions/aggregate-functions/bitmap-union",
+                                "sql-manual/sql-functions/aggregate-functions/count-by-enum",
+                                "sql-manual/sql-functions/aggregate-functions/approx-count-distinct",
+                                "sql-manual/sql-functions/aggregate-functions/percentile",
+                                "sql-manual/sql-functions/aggregate-functions/percentile-array",
+                                "sql-manual/sql-functions/aggregate-functions/percentile-approx",
+                                "sql-manual/sql-functions/aggregate-functions/histogram",
                                 "sql-manual/sql-functions/aggregate-functions/group-bitmap-xor",
                                 "sql-manual/sql-functions/aggregate-functions/group-bit-and",
                                 "sql-manual/sql-functions/aggregate-functions/group-bit-or",
                                 "sql-manual/sql-functions/aggregate-functions/group-bit-xor",
-                                "sql-manual/sql-functions/aggregate-functions/percentile-approx",
-                                "sql-manual/sql-functions/aggregate-functions/stddev",
                                 "sql-manual/sql-functions/aggregate-functions/group-concat",
-                                "sql-manual/sql-functions/aggregate-functions/collect-list",
-                                "sql-manual/sql-functions/aggregate-functions/min-by",
-                                "sql-manual/sql-functions/aggregate-functions/max",
-                                "sql-manual/sql-functions/aggregate-functions/any-value",
-                                "sql-manual/sql-functions/aggregate-functions/var-samp",
-                                "sql-manual/sql-functions/aggregate-functions/approx-count-distinct",
-                                "sql-manual/sql-functions/aggregate-functions/variance",
-                                "sql-manual/sql-functions/aggregate-functions/retention",
-                                "sql-manual/sql-functions/aggregate-functions/sequence-match",
-                                "sql-manual/sql-functions/aggregate-functions/sequence-count",
+                                "sql-manual/sql-functions/aggregate-functions/bitmap-union",
+                                "sql-manual/sql-functions/aggregate-functions/hll-union-agg",
                                 "sql-manual/sql-functions/aggregate-functions/grouping",
                                 "sql-manual/sql-functions/aggregate-functions/grouping-id",
-                                "sql-manual/sql-functions/aggregate-functions/count-by-enum",
-                                "sql-manual/sql-functions/aggregate-functions/histogram"
+                                "sql-manual/sql-functions/aggregate-functions/any-value",
+                                "sql-manual/sql-functions/aggregate-functions/array-agg",
+                                "sql-manual/sql-functions/aggregate-functions/map-agg",
+                                "sql-manual/sql-functions/aggregate-functions/bitmap-agg",
+                                "sql-manual/sql-functions/aggregate-functions/collect-set",
+                                "sql-manual/sql-functions/aggregate-functions/collect-list",
+                                "sql-manual/sql-functions/aggregate-functions/retention",
+                                "sql-manual/sql-functions/aggregate-functions/sequence-match",
+                                "sql-manual/sql-functions/aggregate-functions/sequence-count"
                             ]
                         },
                         {
@@ -606,7 +662,10 @@
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-intersect-count",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate-count",
-                                "sql-manual/sql-functions/bitmap-functions/bitmap-hash64"
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-hash64",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-from-base64",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-to-base64",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-remove"
                             ]
                         },
                         {
@@ -616,7 +675,10 @@
                                 "sql-manual/sql-functions/bitwise-functions/bitand",
                                 "sql-manual/sql-functions/bitwise-functions/bitor",
                                 "sql-manual/sql-functions/bitwise-functions/bitxor",
-                                "sql-manual/sql-functions/bitwise-functions/bitnot"
+                                "sql-manual/sql-functions/bitwise-functions/bitnot",
+                                "sql-manual/sql-functions/bitwise-functions/bitcount",
+                                "sql-manual/sql-functions/bitwise-functions/bitshiftleft",
+                                "sql-manual/sql-functions/bitwise-functions/bitshiftright"
                             ]
                         },
                         {
@@ -660,7 +722,9 @@
                             "label": "Hash Functions",
                             "items": [
                                 "sql-manual/sql-functions/hash-functions/murmur-hash3-32",
-                                "sql-manual/sql-functions/hash-functions/murmur-hash3-64"
+                                "sql-manual/sql-functions/hash-functions/murmur-hash3-64",
+                                "sql-manual/sql-functions/hash-functions/xxhash-32",
+                                "sql-manual/sql-functions/hash-functions/xxhash-64"
                             ]
                         },
                         {
@@ -680,10 +744,13 @@
                                 "sql-manual/sql-functions/numeric-functions/bin",
                                 "sql-manual/sql-functions/numeric-functions/sin",
                                 "sql-manual/sql-functions/numeric-functions/cos",
+                                "sql-manual/sql-functions/numeric-functions/cosh",
                                 "sql-manual/sql-functions/numeric-functions/tan",
+                                "sql-manual/sql-functions/numeric-functions/tanh",
                                 "sql-manual/sql-functions/numeric-functions/asin",
                                 "sql-manual/sql-functions/numeric-functions/acos",
                                 "sql-manual/sql-functions/numeric-functions/atan",
+                                "sql-manual/sql-functions/numeric-functions/atan2",
                                 "sql-manual/sql-functions/numeric-functions/e",
                                 "sql-manual/sql-functions/numeric-functions/pi",
                                 "sql-manual/sql-functions/numeric-functions/exp",
@@ -710,7 +777,8 @@
                                 "sql-manual/sql-functions/numeric-functions/least",
                                 "sql-manual/sql-functions/numeric-functions/random",
                                 "sql-manual/sql-functions/numeric-functions/mod",
-                                "sql-manual/sql-functions/numeric-functions/running-difference"
+                                "sql-manual/sql-functions/numeric-functions/running-difference",
+                                "sql-manual/sql-functions/numeric-functions/uuid_numeric"
                             ]
                         },
                         {
@@ -734,6 +802,7 @@
                                 "sql-manual/sql-functions/table-functions/explode-json-array",
                                 "sql-manual/sql-functions/table-functions/explode",
                                 "sql-manual/sql-functions/table-functions/explode-split",
+                                "sql-manual/sql-functions/table-functions/explode_map",
                                 "sql-manual/sql-functions/table-functions/explode-bitmap",
                                 "sql-manual/sql-functions/table-functions/numbers",
                                 "sql-manual/sql-functions/table-functions/explode-numbers",
@@ -746,7 +815,12 @@
                                 "sql-manual/sql-functions/table-functions/frontends",
                                 "sql-manual/sql-functions/table-functions/workload-group",
                                 "sql-manual/sql-functions/table-functions/catalogs",
-                                "sql-manual/sql-functions/table-functions/frontends_disks"
+                                "sql-manual/sql-functions/table-functions/frontends_disks",
+                                "sql-manual/sql-functions/table-functions/active_queries",
+                                "sql-manual/sql-functions/table-functions/job",
+                                "sql-manual/sql-functions/table-functions/jobs",
+                                "sql-manual/sql-functions/table-functions/mv_infos",
+                                "sql-manual/sql-functions/table-functions/tasks"
                             ]
                         },
                         {
@@ -761,6 +835,8 @@
                                 "sql-manual/sql-functions/window-functions/window-function-count",
                                 "sql-manual/sql-functions/window-functions/window-function-rank",
                                 "sql-manual/sql-functions/window-functions/window-function-dense-rank",
+                                "sql-manual/sql-functions/window-functions/window-function-percent-rank",
+                                "sql-manual/sql-functions/window-functions/window-function-cume-dist",
                                 "sql-manual/sql-functions/window-functions/window-function-first-value",
                                 "sql-manual/sql-functions/window-functions/window-function-last-value",
                                 "sql-manual/sql-functions/window-functions/window-function-lead",
@@ -775,7 +851,30 @@
                             "label": "IP Functions",
                             "items": [
                                 "sql-manual/sql-functions/ip-functions/ipv4-num-to-string",
-                                "sql-manual/sql-functions/ip-functions/inet-ntoa"
+                                "sql-manual/sql-functions/ip-functions/inet-ntoa",
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num",
+                                "sql-manual/sql-functions/ip-functions/inet-aton",
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-default",
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-null",
+                                "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
+                                "sql-manual/sql-functions/ip-functions/inet6-ntoa",
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num",
+                                "sql-manual/sql-functions/ip-functions/inet6-aton",
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-default",
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-null",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-compat",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-mapped",
+                                "sql-manual/sql-functions/ip-functions/ipv4-cidr-to-range",
+                                "sql-manual/sql-functions/ip-functions/ipv6-cidr-to-range",
+                                "sql-manual/sql-functions/ip-functions/is-ip-address-in-range",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-string",
+                                "sql-manual/sql-functions/ip-functions/is-ipv6-string",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4-or-default",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4-or-null",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6-or-default",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6-or-null"
                             ]
                         },
                         {
@@ -834,7 +933,7 @@
                             "type": "category",
                             "label": "Database Administration",
                             "items": [
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-CONFIG",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-CONFIG",
                                 "sql-manual/sql-reference/Database-Administration-Statements/SET-VARIABLE",
                                 "sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN",
@@ -843,19 +942,20 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-REPLICA-VERSION",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-PARTITION-VERSION",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-TABLE-STATUS",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-DISTRIBUTION",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-REPLICA-DISTRIBUTION",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-REPLICA-STATUS",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REPAIR-TABLE",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REPAIR",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CHECK-TABLET",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-DIAGNOSE-TABLET",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-TABLET-DIAGNOSIS",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-TABLET-STORAGE-FORMAT",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-TABLET-STORAGE-FORMAT",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CLEAN-TRASH",
                                 "sql-manual/sql-reference/Database-Administration-Statements/RECOVER",
                                 "sql-manual/sql-reference/Database-Administration-Statements/KILL",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK"
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK",
+                                "sql-manual/sql-reference/Database-Administration-Statements/UNSET-VARIABLE"
                             ]
                         },
                         {
@@ -883,7 +983,10 @@
                                 "sql-manual/sql-reference/Data-Types/MAP",
                                 "sql-manual/sql-reference/Data-Types/STRUCT",
                                 "sql-manual/sql-reference/Data-Types/JSON",
-                                "sql-manual/sql-reference/Data-Types/AGG_STATE"
+                                "sql-manual/sql-reference/Data-Types/AGG_STATE",
+                                "sql-manual/sql-reference/Data-Types/VARIANT",
+                                "sql-manual/sql-reference/Data-Types/IPV4",
+                                "sql-manual/sql-reference/Data-Types/IPV6"
                             ]
                         },
                         {
@@ -899,9 +1002,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-AS-SELECT",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-JOB",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION",
@@ -910,7 +1011,9 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ENCRYPT-KEY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-JOB"
                                     ]
                                 },
                                 {
@@ -921,7 +1024,6 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-DATABASE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
@@ -934,9 +1036,9 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-COLOCATE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/PAUSE-JOB",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/RESUME-JOB",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/STOP-JOB"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/RESUME-JOB"
                                     ]
                                 },
                                 {
@@ -955,7 +1057,9 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-JOB"
                                     ]
                                 },
                                 {
@@ -994,7 +1098,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CANCEL-LOAD",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CLEAN-LABEL"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CLEAN-LABEL",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CLEAN-PROFILE"
                                     ]
                                 },
                                 {
@@ -1007,7 +1112,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/ANALYZE"
                                     ]
                                 },
                                 "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"
@@ -1019,6 +1125,7 @@
                             "items": [
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ALTER",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ANALYZE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-BACKUP",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-BACKENDS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-BROKER",
@@ -1033,13 +1140,16 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-COLUMN-STATS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLLATION",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CONVERT-LIGHT-SCHEMA-CHANGE-PROCESS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATABASES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATA-SKEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATABASE-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DYNAMIC-PARTITION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DELETE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATA",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-DATA-TYPES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ENGINES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-EVENTS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-EXPORT",
@@ -1048,8 +1158,6 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TYPECAST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-GRANTS",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB-TASK",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LAST-INSERT",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-WARNINGS",
@@ -1063,12 +1171,14 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WHITE-LIST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WARNING",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLETS-BELONG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-VARIABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PLUGINS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PROCEDURE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD-TASK",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PROC",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-STATS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-STATUS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-REPOSITORIES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-QUERY-PROFILE",
@@ -1114,7 +1224,12 @@
                                 "sql-manual/sql-reference/Utility-Statements/SWITCH",
                                 "sql-manual/sql-reference/Utility-Statements/REFRESH",
                                 "sql-manual/sql-reference/Utility-Statements/SYNC",
-                                "sql-manual/sql-reference/Utility-Statements/CLEAN-QUERY-STATS"
+                                "sql-manual/sql-reference/Utility-Statements/CLEAN-QUERY-STATS",
+                                "sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK",
+                                "sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH-LDAP"
                             ]
                         }
                     ]
@@ -1147,7 +1262,6 @@
                 },
                 "admin-manual/sql-interception",
                 "admin-manual/query-profile",
-                "admin-manual/tracing",
                 "admin-manual/certificate",
                 "admin-manual/fe-certificate",
                 {
@@ -1188,6 +1302,7 @@
                         "admin-manual/config/config-dir",
                         "admin-manual/config/fe-config",
                         "admin-manual/config/be-config",
+                        "admin-manual/config/fe-config-template",
                         "admin-manual/config/user-property"
                     ]
                 },
@@ -1196,7 +1311,8 @@
                     "label": "User Privilege and Ldap",
                     "items": [
                         "admin-manual/privilege-ldap/user-privilege",
-                        "admin-manual/privilege-ldap/ldap"
+                        "admin-manual/privilege-ldap/ldap",
+                        "admin-manual/privilege-ldap/ranger"
                     ]
                 },
                 {
@@ -1258,6 +1374,7 @@
                                 "admin-manual/http-actions/fe/show-meta-info-action",
                                 "admin-manual/http-actions/fe/show-proc-action",
                                 "admin-manual/http-actions/fe/show-runtime-info-action",
+                                "admin-manual/http-actions/fe/show-table-data-action",
                                 "admin-manual/http-actions/fe/statement-execution-action",
                                 "admin-manual/http-actions/fe/table-query-plan-action",
                                 "admin-manual/http-actions/fe/table-row-count-action",
@@ -1319,8 +1436,14 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.5",
+                "releasenotes/release-2.0.4",
+                "releasenotes/release-2.0.3",
+                "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",
+                "releasenotes/release-2.0-Beta",
+                "releasenotes/release-2.0-Alpha",
                 "releasenotes/release-1.2.7",
                 "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",

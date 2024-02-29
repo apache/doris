@@ -119,11 +119,11 @@ public class StructType extends DataType {
 
     @Override
     public String toSql() {
-        return "STRUCT<" + fields.stream().map(StructField::toSql).collect(Collectors.joining(", ")) + ">";
+        return "STRUCT<" + fields.stream().map(StructField::toSql).collect(Collectors.joining(",")) + ">";
     }
 
     @Override
     public String toString() {
-        return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(", ")) + ">";
+        return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(",")) + ">";
     }
 }

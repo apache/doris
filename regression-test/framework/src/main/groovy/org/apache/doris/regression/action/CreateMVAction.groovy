@@ -80,12 +80,8 @@ class CreateMVAction implements SuiteAction {
         Throwable ex = null
 
         long startTime = System.currentTimeMillis()
-        try {
-            log.info("sql:\n${sql}".toString())
-            (result, meta) = JdbcUtils.executeToList(conn, sql)
-        } catch (Throwable t) {
-            ex = t
-        }
+        log.info("sql:\n${sql}".toString())
+        (result, meta) = JdbcUtils.executeToList(conn, sql)
         long endTime = System.currentTimeMillis()
 
         return new ActionResult(result, ex, startTime, endTime, meta)

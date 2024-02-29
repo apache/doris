@@ -53,7 +53,10 @@ public:
 protected:
     void SetUp() override {
         config::disable_storage_page_cache = true;
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(TEST_DIR).ok());
+        auto st = io::global_local_filesystem()->delete_directory(TEST_DIR);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(TEST_DIR);
+        ASSERT_TRUE(st.ok()) << st;
     }
 
     void TearDown() override {
@@ -542,7 +545,7 @@ static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type)
     } else if (type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
         return vectorized::DataTypeDateTime().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
-        return vectorized::DataTypeDecimal<vectorized::Decimal128>(27, 9).create_column();
+        return vectorized::DataTypeDecimal<vectorized::Decimal128V2>(27, 9).create_column();
     }
     return vectorized::DataTypeNothing().create_column();
 }
@@ -585,7 +588,7 @@ void test_v_read_default_value(string value, void* result) {
                     EXPECT_EQ(sr.size, sizeof(vectorized::Int64));
 
                     auto x = unaligned_load<vectorized::Int64>(sr.data);
-                    auto value = binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(x);
+                    auto value = binary_cast<vectorized::Int64, VecDateTimeValue>(x);
                     char buf[64] = {};
                     value.to_string(buf);
                     int ret = strcmp(buf, (char*)result);

@@ -197,7 +197,7 @@ suite("create_policy") {
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket",
+            "AWS_BUCKET" = "test-bucket"
         );
         """
         // errCode = 2, detailMessage = Missing [s3_validity_check] in properties.
@@ -220,8 +220,8 @@ suite("create_policy") {
             "s3_validity_check" = "false"
         );
         """
-        // errCode = 2, detailMessage = Missing [AWS_ACCESS_KEY] in properties.
-        assertEquals(failed_create_2, null)
+        // can read AWS_ACCESS_KEY from environment variable
+        assertEquals(failed_create_2, [[0]])
     }
 
     if (has_created_2.size() == 0) {
@@ -240,7 +240,7 @@ suite("create_policy") {
             "s3_validity_check" = "false"
         );
         """
-        // errCode = 2, detailMessage = Missing [AWS_SECRET_KEY] in properties.
+        // can read AWS_SECRET_KEY from environment variables
         assertEquals(failed_create_2, null)
     }
 

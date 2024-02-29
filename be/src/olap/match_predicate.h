@@ -48,17 +48,31 @@ public:
 
     virtual PredicateType type() const override;
 
+    const std::string& get_value() const { return _value; }
+
+    bool support_zonemap() const override { return false; }
+
     //evaluate predicate on Bitmap
-    virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                            roaring::Roaring* roaring) const override {
+    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* roaring) const override {
         LOG(FATAL) << "Not Implemented MatchPredicate::evaluate";
     }
 
     //evaluate predicate on inverted
-    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+    Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+                    InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override;
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return is_string_type(input_type);
+    }
+
 private:
+    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                             uint16_t size) const override {
+        return size;
+    }
+
     InvertedIndexQueryType _to_inverted_index_query_type(MatchType match_type) const;
     std::string _debug_string() const override {
         std::string info = "MatchPredicate";

@@ -457,7 +457,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // datetime
     {
-        vectorized::VecDateTimeValue data_time_value;
+        VecDateTimeValue data_time_value;
         const char* date = "20210407000000";
         data_time_value.from_date_str(date, strlen(date));
         std::cout << data_time_value.type() << std::endl;
@@ -498,7 +498,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // date
     {
-        vectorized::VecDateTimeValue data_time_value;
+        VecDateTimeValue data_time_value;
         const char* date = "20210407";
         data_time_value.from_date_str(date, strlen(date));
         __int64_t dt;
@@ -514,7 +514,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // datev2
     {
-        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> data_time_value;
+        DateV2Value<DateV2ValueType> data_time_value;
         const char* date = "20210407";
         data_time_value.from_date_str(date, strlen(date));
         uint32_t dt;
@@ -557,7 +557,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<DecimalField<Decimal128>>();
+        auto v = (*ctn.column)[0].get<DecimalField<Decimal128V2>>();
         EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
     }

@@ -156,7 +156,7 @@ FROM data_source [data_source_properties]
 
      这三个参数分别表示：
 
-     1. 每个子任务最大执行时间，单位是秒。范围为 1 到 60。默认为10。
+     1. 每个子任务最大执行时间，单位是秒。必须大于等于 1。默认为10。
      2. 每个子任务最多读取的行数。必须大于等于200000。默认是200000。
      3. 每个子任务最多读取的字节数。单位是字节，范围是 100MB 到 1GB。默认是 100MB。
 
@@ -253,11 +253,17 @@ FROM data_source [data_source_properties]
 
   13. `max_filter_ratio`
 
-      采样窗口内，允许的最大过滤率。必须在大于等于0到小于等于1之间。默认值是 1.0。
+      采样窗口内，允许的最大过滤率。必须在大于等于0到小于等于1之间。默认值是 0。
 
       采样窗口为 `max_batch_rows * 10`。即如果在采样窗口内，错误行数/总行数大于 `max_filter_ratio`，则会导致例行作业被暂停，需要人工介入检查数据质量问题。
 
       被 where 条件过滤掉的行不算错误行。
+
+  14. `enclose`
+      When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field.
+
+  15. `escape`
+      转义符。用于转义在csv字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。
 
 - `FROM data_source [data_source_properties]`
 

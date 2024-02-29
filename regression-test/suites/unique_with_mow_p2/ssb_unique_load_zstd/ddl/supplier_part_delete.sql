@@ -1,1 +1,1 @@
-delete from `supplier` where s_suppkey > 100;
+delete from `supplier` where s_suppkey > 100000;

@@ -59,4 +59,58 @@ suite("test_csv_with_double_quotes", "p0") {
     sql "sync"
     qt_sql "select * from ${tableName} order by k1, k2"
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    def create_table = { testTablex ->
+                    sql """
+                        CREATE TABLE `${testTablex}` (
+                            `name` varchar(48) NULL,
+                            `age` bigint(20) NULL,
+                            `agent_id` varchar(256) NULL
+                            ) ENGINE=OLAP
+                            DUPLICATE KEY(`name`)
+                            COMMENT 'OLAP'
+                            DISTRIBUTED BY RANDOM BUCKETS 10
+                            PROPERTIES (
+                            "replication_allocation" = "tag.location.default: 1",
+                            "is_being_synced" = "false",
+                            "storage_format" = "V2",
+                            "light_schema_change" = "true",
+                            "disable_auto_compaction" = "false",
+                            "enable_single_replica_compaction" = "false"
+                            ); 
+                        """
+    }
+
+    def tableName1 = "test_single_quotes"
+    try {
+        sql "DROP TABLE IF EXISTS ${tableName1}"
+
+        create_table.call(tableName1)
+
+        streamLoad {
+            table "${tableName1}"
+
+            set 'column_separator', ','
+            set 'trim_double_quotes', 'true'
+
+            file 'test_single_quote.csv'
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(1, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+
+        qt_sql_test_single_quote "SELECT * FROM ${tableName1} order by name"
+
+    } finally {
+        sql "DROP TABLE IF EXISTS ${tableName1}"
+    }
 }

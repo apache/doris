@@ -66,8 +66,19 @@ suite("test_javaudf_no_input") {
         ); """
 
         qt_select1 """ SELECT no_input_udf() FROM ${tableName}; """
+        qt_select2 """ SELECT length(no_input_udf()) FROM ${tableName}; """
 
+        sql """ CREATE GLOBAL FUNCTION global_no_input_udf() RETURNS String PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.NoInputTest",
+            "always_nullable"="true",
+            "type"="JAVA_UDF"
+        ); """
+
+        qt_select3 """ SELECT global_no_input_udf() FROM ${tableName}; """
+        qt_select4 """ SELECT length(global_no_input_udf()) FROM ${tableName}; """
     } finally {
+        try_sql("DROP GLOBAL FUNCTION IF EXISTS global_no_input_udf();")
         try_sql("DROP FUNCTION IF EXISTS no_input_udf();")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

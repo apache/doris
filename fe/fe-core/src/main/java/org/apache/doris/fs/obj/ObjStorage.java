@@ -44,6 +44,8 @@ public interface ObjStorage<C> {
 
     Status deleteObject(String remotePath);
 
+    Status deleteObjects(String remotePath);
+
     Status copyObject(String origFilePath, String destFilePath);
 
     RemoteObjects listObjects(String remotePath, String continuationToken) throws DdlException;

@@ -20,22 +20,32 @@ package org.apache.doris.paimon;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
+import org.apache.paimon.data.DataGetters;
+import org.apache.paimon.data.InternalArray;
+import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 
 public class PaimonColumnValue implements ColumnValue {
+    private static final Logger LOG = LoggerFactory.getLogger(PaimonColumnValue.class);
     private int idx;
-    private InternalRow record;
-    ColumnType dorisType;
+    private DataGetters record;
+    private ColumnType dorisType;
 
     public PaimonColumnValue() {
+    }
+
+    public PaimonColumnValue(DataGetters record, int idx, ColumnType columnType) {
+        this.idx = idx;
+        this.record = record;
+        this.dorisType = columnType;
     }
 
     public void setIdx(int idx, ColumnType dorisType) {
@@ -109,13 +119,12 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDate getDate() {
-        return LocalDate.ofEpochDay(record.getLong(idx));
+        return LocalDate.ofEpochDay(record.getInt(idx));
     }
 
     @Override
     public LocalDateTime getDateTime() {
-        return Instant.ofEpochMilli(record.getTimestamp(idx, 3)
-            .getMillisecond()).atZone(ZoneOffset.ofHours(0)).toLocalDateTime();
+        return record.getTimestamp(idx, dorisType.getPrecision()).toLocalDateTime();
     }
 
     @Override
@@ -130,12 +139,29 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public void unpackArray(List<ColumnValue> values) {
-
+        InternalArray recordArray = record.getArray(idx);
+        for (int i = 0; i < recordArray.size(); i++) {
+            PaimonColumnValue arrayColumnValue = new PaimonColumnValue((DataGetters) recordArray, i,
+                    dorisType.getChildTypes().get(0));
+            values.add(arrayColumnValue);
+        }
     }
 
     @Override
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
-
+        InternalMap map = record.getMap(idx);
+        InternalArray key = map.keyArray();
+        for (int i = 0; i < key.size(); i++) {
+            PaimonColumnValue keyColumnValue = new PaimonColumnValue((DataGetters) key, i,
+                    dorisType.getChildTypes().get(0));
+            keys.add(keyColumnValue);
+        }
+        InternalArray value = map.valueArray();
+        for (int i = 0; i < value.size(); i++) {
+            PaimonColumnValue valueColumnValue = new PaimonColumnValue((DataGetters) value, i,
+                    dorisType.getChildTypes().get(1));
+            values.add(valueColumnValue);
+        }
     }
 
     @Override

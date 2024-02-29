@@ -23,6 +23,8 @@ import hu.webarticum.treeprinter.TraditionalTreePrinter;
 
 public class PlanTreePrinter {
 
+    private static final String DELIMITER = "||";
+
     public static String printPlanExplanation(PlanTreeNode root) {
         SimpleTreeNode rootNode = buildNode(root);
         StringBuilder sb = new StringBuilder();
@@ -36,5 +38,22 @@ public class PlanTreePrinter {
             node.addChild(buildNode(child));
         }
         return node;
+    }
+
+    public static String printPlanTree(PlanTreeNode root) {
+        return buildTree(root, "");
+    }
+
+    private static String buildTree(PlanTreeNode planNode, String prefix) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(prefix).append(planNode.getIds()).append(":")
+                .append(planNode.getExplainStr().replaceAll("\n", DELIMITER)).append("\n");
+        String childPrefix = prefix + "--";
+        planNode.getChildren().forEach(
+                child -> {
+                    builder.append(buildTree(child, childPrefix));
+                }
+        );
+        return builder.toString();
     }
 }

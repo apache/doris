@@ -63,7 +63,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         if (DebugPointUtil.isEnable("PublishVersionDaemon.stop_publish")) {
             return;
         }
-        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
         if (readyTransactionStates.isEmpty()) {
             return;
@@ -121,7 +121,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                 batchTask.addTask(task);
                 transactionState.addPublishVersionTask(backendId, task);
             }
-            transactionState.setHasSendTask(true);
+            transactionState.setSendedTask();
             LOG.info("send publish tasks for transaction: {}, db: {}", transactionState.getTransactionId(),
                     transactionState.getDbId());
         }
@@ -129,7 +129,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
+        Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
             Stream<PublishVersionTask> publishVersionTaskStream = transactionState
@@ -141,15 +141,15 @@ public class PublishVersionDaemon extends MasterDaemon {
                             Map<Long, Long> tableIdToDeltaNumRows =
                                     task.getTableIdToDeltaNumRows();
                             tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
-                                tableIdToDeltaNumRows
+                                tableIdToTotalDeltaNumRows
                                         .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
-                                tableIdToNumDeltaRows.putIfAbsent(tableId, numRows);
+                                tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
                             });
                         }
                     });
             boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
                     .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
-            transactionState.setTableIdToTotalNumDeltaRows(tableIdToNumDeltaRows);
+            transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
 
             boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout()
                     || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
@@ -165,7 +165,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                     // if finish transaction state failed, then update publish version time, should check
                     // to finish after some interval
                     transactionState.updateSendTaskTime();
-                    LOG.debug("publish version for transaction {} failed", transactionState);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("publish version for transaction {} failed", transactionState);
+                    }
                 }
             }
 
@@ -173,8 +175,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                 for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
                 }
+                transactionState.pruneAfterVisible();
                 if (MetricRepo.isInit) {
-                    long publishTime = transactionState.getPublishVersionTime() - transactionState.getCommitTime();
+                    long publishTime = transactionState.getLastPublishVersionTime() - transactionState.getCommitTime();
                     MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
                 }
             }

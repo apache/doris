@@ -1,4 +1,4 @@
-select  i_item_desc
+select i_item_desc
       ,w_warehouse_name
       ,d1.d_week_seq
       ,sum(case when p_promo_sk is null then 1 else 0 end) no_promo

@@ -138,7 +138,7 @@ private:
     }
 
     UInt64 randomSeed() const {
-        struct timespec times;
+        struct timespec times {};
 
         /// Not cryptographically secure as time, pid and stack address can be predictable.
 

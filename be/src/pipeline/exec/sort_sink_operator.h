@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SortSinkOperator final : public StreamingOperator<SortSinkOperatorBuilder> {
+class SortSinkOperator final : public StreamingOperator<vectorized::VSortNode> {
 public:
     SortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
 
@@ -49,12 +49,12 @@ enum class SortAlgorithm { HEAP_SORT, TOPN_SORT, FULL_SORT };
 
 class SortSinkOperatorX;
 
-class SortSinkLocalState : public PipelineXSinkLocalState<SortDependency> {
+class SortSinkLocalState : public PipelineXSinkLocalState<SortSharedState> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
 
 public:
     SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<SortDependency>(parent, state) {}
+            : PipelineXSinkLocalState<SortSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -64,10 +64,7 @@ private:
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _sort_blocks_memory_usage;
-    RuntimeProfile::Counter* _child_get_next_timer = nullptr;
-    RuntimeProfile::Counter* _sink_timer = nullptr;
+    RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
     // topn top value
     vectorized::Field old_top {vectorized::Field::Types::Null};
@@ -75,7 +72,8 @@ private:
 
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
-    SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+                      const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SortSinkLocalState>::_name);
@@ -85,15 +83,25 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    DataDistribution required_data_distribution() const override {
+        if (_is_analytic_sort) {
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        } else if (_merge_by_exchange) {
+            // The current sort node is used for the ORDER BY
+            return {ExchangeType::PASSTHROUGH};
+        }
+        return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
+    }
 
 private:
     friend class SortSinkLocalState;
 
     // Number of rows to skip.
     const int64_t _offset;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
@@ -107,6 +115,10 @@ private:
 
     const RowDescriptor _row_descriptor;
     const bool _use_two_phase_read;
+    const bool _merge_by_exchange;
+    const bool _is_colocate = false;
+    const bool _is_analytic_sort = false;
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

@@ -18,10 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.Privilege;
 
 import com.google.common.base.Joiner;
@@ -55,17 +55,17 @@ public class RevokeStmt extends DdlStmt {
 
     public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern,
             List<AccessPrivilegeWithCols> privileges) {
-        this(userIdent, role, tblPattern, null, null, privileges);
+        this(userIdent, role, tblPattern, null, null, privileges, ResourceTypeEnum.GENERAL);
     }
 
     public RevokeStmt(UserIdentity userIdent, String role,
-            ResourcePattern resourcePattern, List<AccessPrivilegeWithCols> privileges) {
-        this(userIdent, role, null, resourcePattern, null, privileges);
+            ResourcePattern resourcePattern, List<AccessPrivilegeWithCols> privileges, ResourceTypeEnum type) {
+        this(userIdent, role, null, resourcePattern, null, privileges, type);
     }
 
     public RevokeStmt(UserIdentity userIdent, String role,
             WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> privileges) {
-        this(userIdent, role, null, null, workloadGroupPattern, privileges);
+        this(userIdent, role, null, null, workloadGroupPattern, privileges, ResourceTypeEnum.GENERAL);
     }
 
     public RevokeStmt(List<String> roles, UserIdentity userIdent) {
@@ -74,12 +74,16 @@ public class RevokeStmt extends DdlStmt {
     }
 
     private RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, ResourcePattern resourcePattern,
-            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> accessPrivileges) {
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> accessPrivileges,
+                       ResourceTypeEnum type) {
         this.userIdent = userIdent;
         this.role = role;
         this.tblPattern = tblPattern;
         this.resourcePattern = resourcePattern;
         this.workloadGroupPattern = workloadGroupPattern;
+        if (this.resourcePattern != null) {
+            this.resourcePattern.setResourceType(type);
+        }
         this.accessPrivileges = accessPrivileges;
     }
 
@@ -118,10 +122,9 @@ public class RevokeStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (userIdent != null) {
-            userIdent.analyze(analyzer.getClusterName());
+            userIdent.analyze();
         } else {
             FeNameFormat.checkRoleName(role, false /* can not be superuser */, "Can not revoke from role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
         if (tblPattern != null) {
@@ -134,7 +137,6 @@ public class RevokeStmt extends DdlStmt {
             for (int i = 0; i < roles.size(); i++) {
                 String originalRoleName = roles.get(i);
                 FeNameFormat.checkRoleName(originalRoleName, true /* can be admin */, "Can not revoke role");
-                roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
             }
         }
         if (!CollectionUtils.isEmpty(accessPrivileges)) {
@@ -152,6 +154,7 @@ public class RevokeStmt extends DdlStmt {
         if (tblPattern != null) {
             GrantStmt.checkTablePrivileges(privileges, role, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
+            privileges = PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
             GrantStmt.checkResourcePrivileges(privileges, role, resourcePattern);
         } else if (workloadGroupPattern != null) {
             GrantStmt.checkWorkloadGroupPrivileges(privileges, role, workloadGroupPattern);

@@ -20,14 +20,11 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.collect.Maps;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -36,27 +33,36 @@ import java.util.stream.Collectors;
  * represent fixed range partition
  */
 public class FixedRangePartition extends PartitionDefinition {
-    private final String partitionName;
     private List<Expression> lowerBounds;
     private List<Expression> upperBounds;
-    private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
-    public FixedRangePartition(String partitionName, List<Expression> lowerBounds, List<Expression> upperBounds) {
-        this.partitionName = partitionName;
+    public FixedRangePartition(boolean ifNotExists, String partitionName,
+            List<Expression> lowerBounds, List<Expression> upperBounds) {
+        super(ifNotExists, partitionName);
         this.lowerBounds = lowerBounds;
         this.upperBounds = upperBounds;
     }
 
     @Override
     public void validate(Map<String, String> properties) {
+        super.validate(properties);
         try {
-            replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+            FeNameFormat.checkPartitionName(partitionName);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        final DataType type = partitionTypes.get(0);
-        lowerBounds = lowerBounds.stream().map(e -> e.castTo(type)).collect(Collectors.toList());
-        upperBounds = upperBounds.stream().map(e -> e.castTo(type)).collect(Collectors.toList());
+        List<Expression> newLowerBounds = new ArrayList<>();
+        List<Expression> newUpperBounds = new ArrayList<>();
+        for (int i = 0; i < partitionTypes.size(); ++i) {
+            if (i < lowerBounds.size()) {
+                newLowerBounds.add(lowerBounds.get(i).castTo(partitionTypes.get(i)));
+            }
+            if (i < upperBounds.size()) {
+                newUpperBounds.add(upperBounds.get(i).castTo(partitionTypes.get(i)));
+            }
+        }
+        lowerBounds = newLowerBounds;
+        upperBounds = newUpperBounds;
     }
 
     public String getPartitionName() {
@@ -71,7 +77,9 @@ public class FixedRangePartition extends PartitionDefinition {
                 .collect(Collectors.toList());
         List<PartitionValue> upperValues = upperBounds.stream().map(this::toLegacyPartitionValueStmt)
                 .collect(Collectors.toList());
-        return new SinglePartitionDesc(false, partitionName,
-                PartitionKeyDesc.createFixed(lowerValues, upperValues), replicaAllocation, Maps.newHashMap());
+        return new SinglePartitionDesc(ifNotExists, partitionName,
+                PartitionKeyDesc.createFixed(lowerValues, upperValues), replicaAllocation,
+                properties, partitionDataProperty, isInMemory, tabletType, versionInfo,
+                storagePolicy, isMutable);
     }
 }

@@ -20,8 +20,10 @@ package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.MetaIdMappingsLog;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONDropTableMessage;
@@ -76,7 +78,7 @@ public class DropTableEvent extends MetastoreTableEvent {
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tableName);
-            Env.getCurrentEnv().getCatalogMgr().dropExternalTable(dbName, tableName, catalogName, true);
+            Env.getCurrentEnv().getCatalogMgr().unregisterExternalTable(dbName, tableName, catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);
@@ -89,14 +91,23 @@ public class DropTableEvent extends MetastoreTableEvent {
             return false;
         }
 
-        /**
+        /*
          * Check if `that` event is a rename event, a rename event can not be batched
          * because the process of `that` event will change the reference relation of this table,
          * otherwise it can be batched because this event is a drop-table event
          * and the process of this event will drop the whole table,
          * and `that` event must be a MetastoreTableEvent event otherwise `isSameTable` will return false
-         * */
+         */
         MetastoreTableEvent thatTblEvent = (MetastoreTableEvent) that;
         return !thatTblEvent.willChangeTableName();
+    }
+
+    @Override
+    protected List<MetaIdMappingsLog.MetaIdMapping> transferToMetaIdMappings() {
+        MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
+                    MetaIdMappingsLog.OPERATION_TYPE_DELETE,
+                    MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
+                    dbName, tblName);
+        return ImmutableList.of(metaIdMapping);
     }
 }

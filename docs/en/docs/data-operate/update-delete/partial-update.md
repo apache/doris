@@ -116,6 +116,16 @@ partial_columns:true
 
 Also, specify the columns to be loaded in the `columns` header (it must include all key columns, or else updates cannot be performed).
 
+### Flink Connector
+
+If you are using the Flink Connector, you need to add the following configuration:
+
+```
+'sink.properties.partial_columns' = 'true',
+```
+
+Also, specify the columns to be loaded in `sink.properties.columns` (it must include all key columns, or else updates cannot be performed).
+
 #### INSERT INTO
 
 In all data models, by default, when you use `INSERT INTO` with a given set of columns, the default behavior is to insert the entire row. To enable partial column updates in the Merge-on-Write implementation, you need to set the following session variable:
@@ -123,6 +133,8 @@ In all data models, by default, when you use `INSERT INTO` with a given set of c
 ```
 set enable_unique_key_partial_update=true
 ```
+
+Please note that the default value of the session variable `enable_insert_strict`, which controls whether the insert statement operates in strict mode, is true. In other words, the insert statement is in strict mode by default, and in this mode, updating non-existing keys in partial column updates is not allowed. Therefore, when using the insert statement for partial columns update and wishing to insert non-existing keys, you need to set `enable_unique_key_partial_update` to true and simultaneously set `enable_insert_strict` to false.
 
 #### Example
 
@@ -212,9 +224,7 @@ INSERT INTO order_tbl (order_id, order_status) values (1,'Pending Delivery');
 
 ### Unique Key Merge-on-Write Implementation
 
-In version 2.0, all rows in the same batch of data write tasks (whether load tasks or `INSERT INTO`) can only update the same columns. If you need to update different columns of data, you will need to write them in separate batches.
-
-In version 2.1, we will support more flexible column updates, allowing users to update different columns for each row within the same batch load.
+All rows in the same batch of data write tasks (whether load tasks or `INSERT INTO`) can only update the same columns. If you need to update different columns of data, you will need to write them in separate batches.
 
 ### Aggregate Key Model
 

@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.BooleanType;
@@ -44,7 +43,7 @@ public class AdjustConjunctsReturnType extends DefaultPlanRewriter<Void> impleme
 
     @Override
     public Plan visit(Plan plan, Void context) {
-        return (LogicalPlan) super.visit(plan, context);
+        return super.visit(plan, context);
     }
 
     @Override
@@ -65,6 +64,9 @@ public class AdjustConjunctsReturnType extends DefaultPlanRewriter<Void> impleme
         List<Expression> otherConjuncts = join.getOtherJoinConjuncts().stream()
                 .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                 .collect(Collectors.toList());
-        return join.withJoinConjuncts(hashConjuncts, otherConjuncts);
+        List<Expression> markConjuncts = join.getMarkJoinConjuncts().stream()
+                .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
+                .collect(Collectors.toList());
+        return join.withJoinConjuncts(hashConjuncts, otherConjuncts, markConjuncts, join.getJoinReorderContext());
     }
 }

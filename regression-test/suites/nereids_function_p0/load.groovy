@@ -20,6 +20,12 @@ suite("load") {
     // ddl begin
     sql "drop table if exists fn_test"
     sql "drop table if exists fn_test_not_nullable"
+    sql """
+        DROP TABLE IF EXISTS `fn_test_bitmap_not_nullable`
+    """ 
+    sql """
+        DROP TABLE IF EXISTS `fn_test_bitmap`
+    """
 
     sql """
         CREATE TABLE IF NOT EXISTS `fn_test` (
@@ -105,7 +111,18 @@ suite("load") {
             `km_tint_vchr` map<tinyint, varchar(50)> null,
             `km_tint_str` map<tinyint, string> null,
             `km_tint_date` map<tinyint, date> null,
-            `km_tint_dtm` map<tinyint, datetime> null
+            `km_tint_dtm` map<tinyint, datetime> null,
+            `kjson` JSON null,
+            `kstruct` STRUCT<id: int> null
+        ) engine=olap
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        properties("replication_num" = "1")
+    """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS `fn_test_bitmap` (
+            `id` int null,
+            `kbitmap` bitmap bitmap_union 
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -195,7 +212,18 @@ suite("load") {
             `km_tint_vchr` map<tinyint, varchar(50)> not null,
             `km_tint_str` map<tinyint, string> not null,
             `km_tint_date` map<tinyint, date> not null,
-            `km_tint_dtm` map<tinyint, datetime> not null
+            `km_tint_dtm` map<tinyint, datetime> not null,
+            `kjson` JSON not null,
+            `kstruct` STRUCT<id: int> not null
+        ) engine=olap
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        properties("replication_num" = "1")
+    """
+    
+    sql """
+        CREATE TABLE IF NOT EXISTS `fn_test_bitmap_not_nullable` (
+            `id` int not null,
+            `kbitmap` bitmap bitmap_union not null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -215,12 +243,25 @@ suite("load") {
             km_bool_tint, km_tint_tint, km_sint_tint, km_int_tint, km_bint_tint, km_lint_tint, km_float_tint,
             km_dbl_tint, km_dcml_tint, km_chr_tint, km_vchr_tint, km_str_tint, km_date_tint, km_dtm_tint,
             km_tint_bool, km_int_int, km_tint_sint, km_tint_int, km_tint_bint, km_tint_lint, km_tint_float,
-            km_tint_dbl, km_tint_dcml, km_tint_chr, km_tint_vchr, km_tint_str, km_tint_date, km_tint_dtm
+            km_tint_dbl, km_tint_dcml, km_tint_chr, km_tint_vchr, km_tint_str, km_tint_date, km_tint_dtm, kjson, kstruct
             '''
         file "fn_test.dat"
     }
 
+    streamLoad {
+        table "fn_test_bitmap"
+        db "regression_test_nereids_function_p0"
+        set 'column_separator', ';'
+        set 'columns', '''
+            id, kbitmap=to_bitmap(id)
+            '''
+        file "fn_test_bitmap.dat"
+    }
+
     sql """
         insert into fn_test_not_nullable select * from fn_test where id is not null
+    """
+    sql """
+        insert into fn_test_bitmap_not_nullable select * from fn_test_bitmap where id is not null
     """
 }

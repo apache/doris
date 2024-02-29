@@ -125,6 +125,10 @@ public class LoadStmt extends DdlStmt {
 
     public static final String KEY_COMMENT = "comment";
 
+    public static final String KEY_ENCLOSE = "enclose";
+
+    public static final String KEY_ESCAPE = "escape";
+
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -430,7 +434,7 @@ public class LoadStmt extends DdlStmt {
                     String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
                     dataDescription.getFilePaths().set(i, location);
                     StorageBackend.checkPath(dataDescription.getFilePaths().get(i),
-                            brokerDesc.getStorageType());
+                            brokerDesc.getStorageType(), "DATA INFILE must be specified.");
                     dataDescription.getFilePaths().set(i, dataDescription.getFilePaths().get(i));
                 }
             }

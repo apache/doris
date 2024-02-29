@@ -30,11 +30,6 @@ namespace doris::vectorized {
 template <typename T>
 class DataTypeNumber final : public DataTypeNumberBase<T> {
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
-
-    bool is_summable() const override { return true; }
-    bool can_be_used_in_bit_operations() const override { return true; }
-    bool can_be_used_in_boolean_context() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
 };
 
 using DataTypeUInt8 = DataTypeNumber<UInt8>;

@@ -171,6 +171,18 @@ suite("test_select_stddev_variance_window") {
     qt_sql_dense_rank """
         select * from (select dense_rank() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
     """
+
+    sql "set experimental_enable_pipeline_engine = false;"
+
+    qt_sql_row_number2 """
+        select * from (select row_number() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
+    """
+    qt_sql_rank2 """
+        select * from (select rank() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
+    """
+    qt_sql_dense_rank2 """
+        select * from (select dense_rank() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
+    """
 }
 
 

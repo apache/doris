@@ -35,7 +35,7 @@ GroupCommitScanNode::GroupCommitScanNode(ObjectPool* pool, const TPlanNode& tnod
 Status GroupCommitScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     bool find_node = false;
     while (!find_node && !*eos) {
-        RETURN_IF_ERROR(load_block_queue->get_block(block, &find_node, eos));
+        RETURN_IF_ERROR(load_block_queue->get_block(state, block, &find_node, eos));
     }
     return Status::OK();
 }
@@ -50,7 +50,8 @@ Status GroupCommitScanNode::prepare(RuntimeState* state) {
     return VScanNode::prepare(state);
 }
 
-void GroupCommitScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
+void GroupCommitScanNode::set_scan_ranges(RuntimeState* state,
+                                          const std::vector<TScanRangeParams>& scan_ranges) {}
 
 Status GroupCommitScanNode::_init_profile() {
     return VScanNode::_init_profile();

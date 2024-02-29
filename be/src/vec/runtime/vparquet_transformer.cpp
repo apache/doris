@@ -196,14 +196,14 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
     }
 }
 
-VParquetTransformer::VParquetTransformer(doris::io::FileWriter* file_writer,
+VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                          const VExprContextSPtrs& output_vexpr_ctxs,
                                          const std::vector<TParquetSchema>& parquet_schemas,
                                          const TParquetCompressionType::type& compression_type,
                                          const bool& parquet_disable_dictionary,
                                          const TParquetVersion::type& parquet_version,
                                          bool output_object_data)
-        : VFileFormatTransformer(output_vexpr_ctxs, output_object_data),
+        : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _parquet_schemas(parquet_schemas),
           _compression_type(compression_type),
           _parquet_disable_dictionary(parquet_disable_dictionary),

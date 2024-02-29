@@ -48,3 +48,141 @@ true
 \N	2.0
 2020-09-09	2.0
 
+-- !sql15 --
+12
+
+-- !sql16 --
+12
+
+-- !sql17 --
+12
+12
+
+-- !sql18 --
+12
+12
+
+-- !sql20 --
+5
+7
+
+-- !select_m1 --
+\N
+false
+false
+false
+false
+false
+false
+false
+false
+false
+true
+true
+true
+
+-- !select_m2 --
+false
+false
+false
+false
+false
+false
+true
+true
+true
+true
+true
+true
+true
+
+-- !select_m3 --
+\N
+false
+false
+false
+true
+true
+true
+true
+true
+true
+true
+true
+true
+
+-- !select_m4 --
+false
+false
+false
+false
+false
+false
+false
+true
+true
+true
+true
+true
+true
+
+-- !select_m5 --
+\N
+\N
+\N
+\N
+true
+true
+true
+true
+true
+true
+true
+true
+true
+
+-- !select_m6 --
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+
+-- !select_m7 --
+\N
+\N
+\N
+\N
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !select_m8 --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+

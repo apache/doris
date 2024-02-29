@@ -20,6 +20,7 @@ package org.apache.doris.binlog;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
@@ -29,10 +30,10 @@ import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
-import org.apache.hadoop.util.Lists;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -118,7 +119,7 @@ public class BinlogManagerTest {
         new MockUp<Env>() {
             @Mock
             public InternalCatalog getCurrentInternalCatalog() {
-                return new InternalCatalog();
+                return EnvFactory.getInstance().createInternalCatalog();
             }
         };
 

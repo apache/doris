@@ -33,28 +33,33 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AssertNumRowsOperator final : public StreamingOperator<AssertNumRowsOperatorBuilder> {
+class AssertNumRowsOperator final : public StreamingOperator<vectorized::VAssertNumRowsNode> {
 public:
     AssertNumRowsOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
             : StreamingOperator(operator_builder, node) {}
 };
 
-class AssertNumRowsLocalState final : public PipelineXLocalState<FakeDependency> {
+class AssertNumRowsLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AssertNumRowsLocalState);
 
     AssertNumRowsLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~AssertNumRowsLocalState() = default;
 };
 
 class AssertNumRowsOperatorX final : public StreamingOperatorX<AssertNumRowsLocalState> {
 public:
-    AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                           const DescriptorTbl& descs);
 
-    Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override;
+    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return false; }
+
+    DataDistribution required_data_distribution() const override {
+        return {ExchangeType::PASSTHROUGH};
+    }
 
 private:
     friend class AssertNumRowsLocalState;

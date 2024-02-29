@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -39,7 +40,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -179,33 +179,39 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 LogicalJoin<Plan, Plan> join = ctx.root;
                 List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
                 List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
-                if (otherJoinConjuncts.isEmpty() && hashJoinConjuncts.isEmpty()) {
+                List<Expression> markJoinConjuncts = join.getMarkJoinConjuncts();
+                if (otherJoinConjuncts.isEmpty() && hashJoinConjuncts.isEmpty()
+                        && markJoinConjuncts.isEmpty()) {
                     return join;
                 }
+
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
-                List<Expression> rewriteHashJoinConjuncts = Lists.newArrayList();
-                boolean hashJoinConjunctsChanged = false;
-                for (Expression expr : hashJoinConjuncts) {
-                    Expression newExpr = rewriter.rewrite(expr, context);
-                    hashJoinConjunctsChanged = hashJoinConjunctsChanged || !newExpr.equals(expr);
-                    rewriteHashJoinConjuncts.addAll(ExpressionUtils.extractConjunction(newExpr));
-                }
+                Pair<Boolean, List<Expression>> newHashJoinConjuncts = rewriteConjuncts(hashJoinConjuncts, context);
+                Pair<Boolean, List<Expression>> newOtherJoinConjuncts = rewriteConjuncts(otherJoinConjuncts, context);
+                Pair<Boolean, List<Expression>> newMarkJoinConjuncts = rewriteConjuncts(markJoinConjuncts, context);
 
-                List<Expression> rewriteOtherJoinConjuncts = Lists.newArrayList();
-                boolean otherJoinConjunctsChanged = false;
-                for (Expression expr : otherJoinConjuncts) {
-                    Expression newExpr = rewriter.rewrite(expr, context);
-                    otherJoinConjunctsChanged = otherJoinConjunctsChanged || !newExpr.equals(expr);
-                    rewriteOtherJoinConjuncts.addAll(ExpressionUtils.extractConjunction(newExpr));
-                }
-
-                if (!hashJoinConjunctsChanged && !otherJoinConjunctsChanged) {
+                if (!newHashJoinConjuncts.first && !newOtherJoinConjuncts.first
+                        && !newMarkJoinConjuncts.first) {
                     return join;
                 }
-                return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
-                        rewriteOtherJoinConjuncts, join.getHint(), join.getMarkJoinSlotReference(),
-                        join.children());
+
+                return new LogicalJoin<>(join.getJoinType(), newHashJoinConjuncts.second,
+                        newOtherJoinConjuncts.second, newMarkJoinConjuncts.second,
+                        join.getDistributeHint(), join.getMarkJoinSlotReference(), join.children(),
+                        join.getJoinReorderContext());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
+        }
+
+        private Pair<Boolean, List<Expression>> rewriteConjuncts(List<Expression> conjuncts,
+                ExpressionRewriteContext context) {
+            boolean isChanged = false;
+            ImmutableList.Builder<Expression> rewrittenConjuncts = new ImmutableList.Builder<>();
+            for (Expression expr : conjuncts) {
+                Expression newExpr = rewriter.rewrite(expr, context);
+                isChanged = isChanged || !newExpr.equals(expr);
+                rewrittenConjuncts.addAll(ExpressionUtils.extractConjunction(newExpr));
+            }
+            return Pair.of(isChanged, rewrittenConjuncts.build());
         }
     }
 

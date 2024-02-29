@@ -29,8 +29,8 @@ import java.util.ArrayList;
 
 public class LdapManagerTest {
 
-    private static final String USER1 = "default_cluster:user1";
-    private static final String USER2 = "default_cluster:user2";
+    private static final String USER1 = "user1";
+    private static final String USER2 = "user2";
 
     @Mocked
     private LdapClient ldapClient;
@@ -64,7 +64,7 @@ public class LdapManagerTest {
         mockClient(true, true);
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
         Assert.assertNotNull(ldapUserInfo);
-        String paloRoleString = ldapUserInfo.getPaloRoles().toString();
+        String paloRoleString = ldapUserInfo.getRoles().toString();
         Assert.assertTrue(paloRoleString.contains("information_schema"));
         Assert.assertTrue(paloRoleString.contains("Select_priv"));
 

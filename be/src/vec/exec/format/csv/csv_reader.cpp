@@ -30,13 +30,11 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
 #include "exec/decompressor.h"
 #include "exec/line_reader.h"
-#include "exec/text_converter.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/buffered_reader.h"
@@ -76,12 +74,12 @@ void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>
     const auto& column_sep_positions = _text_line_reader_ctx->column_sep_positions();
     size_t value_start_offset = 0;
     for (auto idx : column_sep_positions) {
-        process_value_func(data, value_start_offset, idx - value_start_offset, trimming_char,
+        process_value_func(data, value_start_offset, idx - value_start_offset, _trimming_char,
                            splitted_values);
-        value_start_offset = idx + value_sep_len;
+        value_start_offset = idx + _value_sep_len;
     }
     // process the last column
-    process_value_func(data, value_start_offset, line.size - value_start_offset, trimming_char,
+    process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
                        splitted_values);
 }
 
@@ -92,11 +90,11 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
     size_t value_start = 0;
     for (size_t i = 0; i < size; ++i) {
         if (data[i] == _value_sep[0]) {
-            process_value_func(data, value_start, i - value_start, trimming_char, splitted_values);
-            value_start = i + value_sep_len;
+            process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
+            value_start = i + _value_sep_len;
         }
     }
-    process_value_func(data, value_start, size - value_start, trimming_char, splitted_values);
+    process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
 }
 
 void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
@@ -115,9 +113,9 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
     //      curpos     curpos
 
     //kmp
-    vector<int> next(value_sep_len);
+    vector<int> next(_value_sep_len);
     next[0] = -1;
-    for (int i = 1, j = -1; i < value_sep_len; i++) {
+    for (int i = 1, j = -1; i < _value_sep_len; i++) {
         while (j > -1 && _value_sep[i] != _value_sep[j + 1]) {
             j = next[j];
         }
@@ -136,8 +134,8 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
         if (line[i] == _value_sep[j + 1]) {
             j++;
         }
-        if (j == value_sep_len - 1) {
-            curpos = i - value_sep_len + 1;
+        if (j == _value_sep_len - 1) {
+            curpos = i - _value_sep_len + 1;
 
             /*
              * column_separator : "xx"
@@ -155,7 +153,7 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
              */
 
             if (curpos >= start) {
-                process_value_func(line.data, start, curpos - start, trimming_char,
+                process_value_func(line.data, start, curpos - start, _trimming_char,
                                    splitted_values);
                 start = i + 1;
             }
@@ -163,7 +161,7 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
             j = next[j];
         }
     }
-    process_value_func(line.data, start, line.size - start, trimming_char, splitted_values);
+    process_value_func(line.data, start, line.size - start, _trimming_char, splitted_values);
 }
 
 void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
@@ -285,7 +283,7 @@ Status CsvReader::init_reader(bool is_load) {
         if (_file_format_type != TFileFormatType::FORMAT_CSV_PLAIN ||
             (_file_compress_type != TFileCompressType::UNKNOWN &&
              _file_compress_type != TFileCompressType::PLAIN)) {
-            return Status::InternalError("For now we do not support split compressed file");
+            return Status::InternalError<false>("For now we do not support split compressed file");
         }
         start_offset -= 1;
         _size += 1;
@@ -303,7 +301,7 @@ Status CsvReader::init_reader(bool is_load) {
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
-                io::PrefetchRange(_range.start_offset, _range.size)));
+                io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
@@ -418,7 +416,7 @@ Status CsvReader::init_reader(bool is_load) {
         _line_reader = NewPlainBinaryLineReader::create_unique(_file_reader);
         break;
     default:
-        return Status::InternalError(
+        return Status::InternalError<false>(
                 "Unknown format type, cannot init line reader in csv reader, type={}",
                 _file_format_type);
     }
@@ -464,13 +462,24 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     size_t rows = 0;
 
     bool success = false;
+    bool is_remove_bom = false;
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         while (rows < batch_size && !_line_reader_eof) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+
+            // _skip_lines == 0 means this line is the actual data beginning line for the entire file
+            // is_remove_bom means _remove_bom should only execute once
+            if (_skip_lines == 0 && !is_remove_bom) {
+                ptr = _remove_bom(ptr, size);
+                is_remove_bom = true;
+            }
+
+            // _skip_lines > 0 means we do not need to remove bom
             if (_skip_lines > 0) {
                 _skip_lines--;
+                is_remove_bom = true;
                 continue;
             }
             if (size == 0) {
@@ -481,18 +490,29 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
-        for (auto& col : block->mutate_columns()) {
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-
+        block->set_columns(std::move(mutate_columns));
     } else {
         auto columns = block->mutate_columns();
         while (rows < batch_size && !_line_reader_eof) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+
+            // _skip_lines == 0 means this line is the actual data beginning line for the entire file
+            // is_remove_bom means _remove_bom should only execute once
+            if (!is_remove_bom && _skip_lines == 0) {
+                ptr = _remove_bom(ptr, size);
+                is_remove_bom = true;
+            }
+
+            // _skip_lines > 0 means we do not remove bom
             if (_skip_lines > 0) {
                 _skip_lines--;
+                is_remove_bom = true;
                 continue;
             }
             if (size == 0) {
@@ -506,6 +526,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             }
             RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
         }
+        block->set_columns(std::move(columns));
     }
 
     *eof = (rows == 0);
@@ -538,10 +559,11 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
         } else { // parse csv file with names
             RETURN_IF_ERROR(_parse_col_names(col_names));
         }
+
         for (size_t j = 0; j < col_names->size(); ++j) {
             col_types->emplace_back(TypeDescriptor::create_string_type());
         }
-    } else { // parse csv file without names and types
+    } else { // parse csv file with names and types
         RETURN_IF_ERROR(_parse_col_names(col_names));
         RETURN_IF_ERROR(_parse_col_types(col_names->size(), col_types));
     }
@@ -559,6 +581,7 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::GZIP;
             break;
         case TFileCompressType::LZO:
+        case TFileCompressType::LZOP:
             compress_type = CompressType::LZOP;
             break;
         case TFileCompressType::BZ2:
@@ -577,7 +600,7 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::SNAPPYBLOCK;
             break;
         default:
-            return Status::InternalError("unknown compress type: {}", _file_compress_type);
+            return Status::InternalError<false>("unknown compress type: {}", _file_compress_type);
         }
     } else {
         switch (_file_format_type) {
@@ -608,7 +631,7 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::SNAPPYBLOCK;
             break;
         default:
-            return Status::InternalError("unknown format type: {}", _file_format_type);
+            return Status::InternalError<false>("unknown format type: {}", _file_format_type);
         }
     }
     Decompressor* decompressor;
@@ -621,7 +644,7 @@ Status CsvReader::_create_decompressor() {
 template <bool from_json>
 Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    if (!(from_json && _options.converted_from_string && slice.trim_quote())) {
+    if (!(from_json && _options.converted_from_string && slice.trim_double_quotes())) {
         if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
@@ -629,7 +652,7 @@ Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     }
     static DataTypeStringSerDe stringSerDe;
     auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
-                                                         _options, 1);
+                                                         _options);
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here
@@ -669,10 +692,10 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                static_cast<void>(deserialize_nullable_string<true>(*col_ptr, slice));
+                RETURN_IF_ERROR(deserialize_nullable_string<true>(*col_ptr, slice));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                static_cast<void>(deserialize_nullable_string<false>(*col_ptr, slice));
+                RETURN_IF_ERROR(deserialize_nullable_string<false>(*col_ptr, slice));
                 break;
             default:
                 break;
@@ -680,11 +703,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         } else {
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                static_cast<void>(
+                RETURN_IF_ERROR(
                         _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                static_cast<void>(
+                RETURN_IF_ERROR(
                         _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options));
                 break;
             default:
@@ -700,13 +723,15 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 Status CsvReader::_validate_line(const Slice& line, bool* success) {
     if (!_is_proto_format && !validate_utf8(line.data, line.size)) {
         if (!_is_load) {
-            return Status::InternalError("Only support csv data in utf8 codec");
+            return Status::InternalError<false>("Only support csv data in utf8 codec");
         } else {
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                    []() -> std::string { return "Unable to display"; },
-                    []() -> std::string {
+                    [&]() -> std::string { return std::string(line.data, line.size); },
+                    [&]() -> std::string {
                         fmt::memory_buffer error_msg;
-                        fmt::format_to(error_msg, "{}", "Unable to display");
+                        fmt::format_to(error_msg, "{}{}",
+                                       "Unable to display, only support csv data in utf8 codec",
+                                       ", please check the data encoding");
                         return fmt::to_string(error_msg);
                     },
                     &_line_reader_eof));
@@ -736,11 +761,21 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
                         fmt::format_to(error_msg, "{} {} {}",
                                        "actual column number in csv file is ", cmp_str,
                                        " schema column number.");
-                        fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
-                                       _split_values.size(), _value_separator);
-                        fmt::format_to(error_msg,
-                                       "line delimiter: [{}], schema column number: {}; ",
-                                       _line_delimiter, _file_slot_descs.size());
+                        fmt::format_to(error_msg, "actual number: {}, schema column number: {}; ",
+                                       _split_values.size(), _file_slot_descs.size());
+                        fmt::format_to(error_msg, "line delimiter: [{}], column separator: [{}], ",
+                                       _line_delimiter, _value_separator);
+                        if (_enclose != 0) {
+                            fmt::format_to(error_msg, "enclose:[{}] ", _enclose);
+                        }
+                        if (_escape != 0) {
+                            fmt::format_to(error_msg, "escape:[{}] ", _escape);
+                        }
+                        fmt::memory_buffer values;
+                        for (const auto& value : _split_values) {
+                            fmt::format_to(values, "{}, ", value.to_string());
+                        }
+                        fmt::format_to(error_msg, "result values:[{}]", fmt::to_string(values));
                         return fmt::to_string(error_msg);
                     },
                     &_line_reader_eof));
@@ -801,7 +836,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
                 "start offset of TFileRangeDesc must be zero in get parsered schema");
     }
     if (_params.file_type == TFileType::FILE_BROKER) {
-        return Status::InternalError(
+        return Status::InternalError<false>(
                 "Getting parsered schema from csv file do not support stream load and broker "
                 "load.");
     }
@@ -911,11 +946,13 @@ Status CsvReader::_parse_col_nums(size_t* col_nums) {
     size_t size = 0;
     RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
     if (size == 0) {
-        return Status::InternalError("The first line is empty, can not parse column numbers");
+        return Status::InternalError<false>(
+                "The first line is empty, can not parse column numbers");
     }
     if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
-        return Status::InternalError("Only support csv data in utf8 codec");
+        return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
+    ptr = _remove_bom(ptr, size);
     _split_line(Slice(ptr, size));
     *col_nums = _split_values.size();
     return Status::OK();
@@ -927,11 +964,12 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     // no use of _line_reader_eof
     RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
     if (size == 0) {
-        return Status::InternalError("The first line is empty, can not parse column names");
+        return Status::InternalError<false>("The first line is empty, can not parse column names");
     }
     if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
-        return Status::InternalError("Only support csv data in utf8 codec");
+        return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
+    ptr = _remove_bom(ptr, size);
     _split_line(Slice(ptr, size));
     for (size_t idx = 0; idx < _split_values.size(); ++idx) {
         col_names->emplace_back(_split_values[idx].to_string());
@@ -955,14 +993,25 @@ Status CsvReader::_parse_col_types(size_t col_nums, std::vector<TypeDescriptor>*
     return Status::OK();
 }
 
-void CsvReader::close() {
+const uint8_t* CsvReader::_remove_bom(const uint8_t* ptr, size_t& size) {
+    if (size >= 3 && ptr[0] == 0xEF && ptr[1] == 0xBB && ptr[2] == 0xBF) {
+        LOG(INFO) << "remove bom";
+        size -= 3;
+        return ptr + 3;
+    }
+    return ptr;
+}
+
+Status CsvReader::close() {
     if (_line_reader) {
         _line_reader->close();
     }
 
     if (_file_reader) {
-        static_cast<void>(_file_reader->close());
+        RETURN_IF_ERROR(_file_reader->close());
     }
+
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

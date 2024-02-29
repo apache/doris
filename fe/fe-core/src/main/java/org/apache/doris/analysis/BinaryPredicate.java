@@ -33,6 +33,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -158,6 +159,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     // for restoring
     public BinaryPredicate() {
         super();
+        printSqlInParens = true;
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
@@ -168,6 +170,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
+        printSqlInParens = true;
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
@@ -180,6 +183,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         children.add(e2);
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
+        printSqlInParens = true;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -187,6 +191,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         op = other.op;
         slotIsleft = other.slotIsleft;
         isInferred = other.isInferred;
+        printSqlInParens = true;
     }
 
     public boolean isInferred() {
@@ -310,7 +315,9 @@ public class BinaryPredicate extends Predicate implements Writable {
         Preconditions.checkState(match.getReturnType().getPrimitiveType() == PrimitiveType.BOOLEAN);
         //todo(dhc): should add oppCode
         //this.vectorOpcode = match.opcode;
-        LOG.debug(debugString() + " opcode: " + vectorOpcode);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(debugString() + " opcode: " + vectorOpcode);
+        }
     }
 
     private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
@@ -327,6 +334,19 @@ public class BinaryPredicate extends Predicate implements Writable {
         } else {
             return false;
         }
+    }
+
+    private boolean canCompareIP(PrimitiveType t1, PrimitiveType t2) {
+        if (t1.isIPv4Type()) {
+            return t2.isIPv4Type() || t2.isStringType();
+        } else if (t2.isIPv4Type()) {
+            return t1.isStringType();
+        } else if (t1.isIPv6Type()) {
+            return t2.isIPv6Type() || t2.isStringType();
+        } else if (t2.isIPv6Type()) {
+            return t1.isStringType();
+        }
+        return false;
     }
 
     private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
@@ -411,6 +431,19 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
+        if (canCompareIP(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
+            if ((getChild(0).getType().isIP() && getChild(1) instanceof StringLiteral)
+                    || (getChild(1).getType().isIP() && getChild(0) instanceof StringLiteral)
+                    || (getChild(0).getType().isIP() && getChild(1).getType().isIP())) {
+                if (getChild(0).getType().isIPv4() || getChild(1).getType().isIPv4()) {
+                    return Type.IPV4;
+                }
+                if (getChild(0).getType().isIPv6() || getChild(1).getType().isIPv6()) {
+                    return Type.IPV6;
+                }
+            }
+        }
+
         // Following logical is compatible with MySQL:
         //    Cast to DOUBLE by default, because DOUBLE has the largest range of values.
         if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.VARCHAR) {
@@ -421,8 +454,15 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.STRING;
         }
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
+                    SessionVariable.getEnableDecimal256());
         }
+
+        if (t1 == PrimitiveType.DECIMALV2 && t2 == PrimitiveType.DECIMALV2) {
+            return ScalarType.getAssignmentCompatibleDecimalV2Type((ScalarType) getChild(0).getType(),
+                    (ScalarType) getChild(1).getType());
+        }
+
         if ((t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.DECIMALV2)
                 || (t2 == PrimitiveType.BIGINT && t1 == PrimitiveType.DECIMALV2)
                 || (t1 == PrimitiveType.LARGEINT && t2 == PrimitiveType.DECIMALV2)
@@ -454,7 +494,16 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType())
                 || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType())) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
+                    SessionVariable.getEnableDecimal256());
+        }
+
+        // Variant can be implicit cast to numeric type and string type at present
+        if (t1.isVariantType() && (t2.isNumericType() || t2.isStringType())) {
+            return Type.fromPrimitiveType(t2);
+        }
+        if (t2.isVariantType() && (t1.isNumericType() || t1.isStringType())) {
+            return Type.fromPrimitiveType(t1);
         }
 
         return Type.DOUBLE;
@@ -773,8 +822,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
-    public Expr getResultValue(boolean inView) throws AnalysisException {
-        recursiveResetChildrenResult(inView);
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        recursiveResetChildrenResult(forPushDownPredicatesToView);
         final Expr leftChildValue = getChild(0);
         final Expr rightChildValue = getChild(1);
         if (!(leftChildValue instanceof LiteralExpr)

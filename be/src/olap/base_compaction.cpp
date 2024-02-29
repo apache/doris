@@ -18,8 +18,6 @@
 #include "olap/base_compaction.h"
 
 #include <gen_cpp/olap_file.pb.h>
-#include <stdint.h>
-#include <time.h>
 
 #include <memory>
 #include <mutex>
@@ -27,8 +25,10 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "olap/compaction.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/tablet.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/thread.h"
@@ -37,59 +37,48 @@
 namespace doris {
 using namespace ErrorCode;
 
-BaseCompaction::BaseCompaction(const TabletSharedPtr& tablet)
-        : Compaction(tablet, "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
+BaseCompaction::BaseCompaction(StorageEngine& engine, const TabletSharedPtr& tablet)
+        : CompactionMixin(engine, tablet, "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
+}
 
 BaseCompaction::~BaseCompaction() = default;
 
 Status BaseCompaction::prepare_compact() {
-    if (!_tablet->init_succeeded()) {
+    if (!tablet()->init_succeeded()) {
         return Status::Error<INVALID_ARGUMENT, false>("_tablet init failed");
     }
 
-    std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
+    std::unique_lock<std::mutex> lock(tablet()->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED, false>(
-                "another base compaction is running. tablet={}", _tablet->full_name());
+                "another base compaction is running. tablet={}", _tablet->tablet_id());
     }
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
-    _tablet->set_clone_occurred(false);
 
     return Status::OK();
 }
 
-Status BaseCompaction::execute_compact_impl() {
+Status BaseCompaction::execute_compact() {
 #ifndef __APPLE__
     if (config::enable_base_compaction_idle_sched) {
         Thread::set_idle_sched();
     }
 #endif
-    std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
+    std::unique_lock<std::mutex> lock(tablet()->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED, false>(
-                "another base compaction is running. tablet={}", _tablet->full_name());
-    }
-
-    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
-    // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED, false>("get_clone_occurred failed");
+                "another base compaction is running. tablet={}", _tablet->tablet_id());
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    // 2. do base compaction, merge rowsets
-    int64_t permits = get_compaction_permits();
-    RETURN_IF_ERROR(do_compaction(permits));
+    RETURN_IF_ERROR(CompactionMixin::execute_compact());
+    DCHECK_EQ(_state, CompactionState::SUCCESS);
 
-    // 3. set state to success
-    _state = CompactionState::SUCCESS;
-
-    // 4. add metric to base compaction
+    tablet()->set_last_base_compaction_success_time(UnixMillis());
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
 
@@ -98,7 +87,7 @@ Status BaseCompaction::execute_compact_impl() {
 
 void BaseCompaction::_filter_input_rowset() {
     // if dup_key and no delete predicate
-    // we skip big files too save resources
+    // we skip big files to save resources
     if (_tablet->keys_type() != KeysType::DUP_KEYS) {
         return;
     }
@@ -120,7 +109,7 @@ void BaseCompaction::_filter_input_rowset() {
 }
 
 Status BaseCompaction::pick_rowsets_to_compact() {
-    _input_rowsets = _tablet->pick_candidate_rowsets_to_base_compaction();
+    _input_rowsets = tablet()->pick_candidate_rowsets_to_base_compaction();
     RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
     _filter_input_rowset();
     if (_input_rowsets.size() <= 1) {
@@ -141,7 +130,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     // rowset's start version is bigger than 2, we'll always remain the delete pred information inside
     // the output rowset so the rowsets whose version is less than _input_rowsets.front()->start_version() > 0
     // would apply the delete pred in the end.
-    if (!allow_delete_in_cumu_compaction() && _input_rowsets.front()->start_version() > 0) {
+    if (!_allow_delete_in_cumu_compaction && _input_rowsets.front()->start_version() > 0) {
         bool has_delete_predicate = false;
         for (const auto& rs : _input_rowsets) {
             if (rs->rowset_meta()->has_delete_predicate()) {
@@ -164,7 +153,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
 
     // 1. cumulative rowset must reach base_compaction_num_cumulative_deltas threshold
     if (_input_rowsets.size() > config::base_compaction_min_rowset_num) {
-        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
+        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()
                     << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
                     << ", base_compaction_num_cumulative_rowsets="
                     << config::base_compaction_min_rowset_num;
@@ -188,7 +177,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
 
     if (cumulative_base_ratio > min_data_ratio) {
-        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
+        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()
                     << ", cumulative_total_size=" << cumulative_total_size
                     << ", base_size=" << base_size
                     << ", cumulative_base_ratio=" << cumulative_base_ratio
@@ -201,7 +190,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     int64_t interval_threshold = 86400;
     int64_t interval_since_last_base_compaction = time(nullptr) - base_creation_time;
     if (interval_since_last_base_compaction > interval_threshold) {
-        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
+        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()
                     << ", interval_since_last_base_compaction="
                     << interval_since_last_base_compaction
                     << ", interval_threshold=" << interval_threshold;
@@ -211,7 +200,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     return Status::Error<BE_NO_SUITABLE_VERSION>(
             "don't satisfy the base compaction policy. tablet={}, num_cumulative_rowsets={}, "
             "cumulative_base_ratio={}, interval_since_last_base_compaction={}",
-            _tablet->full_name(), _input_rowsets.size() - 1, cumulative_base_ratio,
+            _tablet->tablet_id(), _input_rowsets.size() - 1, cumulative_base_ratio,
             interval_since_last_base_compaction);
 }
 

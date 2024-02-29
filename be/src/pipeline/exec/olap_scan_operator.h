@@ -45,12 +45,18 @@ public:
     OlapScanLocalState(RuntimeState* state, OperatorXBase* parent)
             : ScanLocalState(state, parent) {}
 
-    TOlapScanNode& olap_scan_node();
+    TOlapScanNode& olap_scan_node() const;
+
+    std::string name_suffix() const override {
+        return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
+                           olap_scan_node().table_name);
+    }
 
 private:
     friend class vectorized::NewOlapScanner;
 
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts() override;
     bool _is_key_column(const std::string& col_name) override;
@@ -98,6 +104,7 @@ private:
     RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
@@ -120,6 +127,7 @@ private:
     std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
@@ -135,6 +143,10 @@ private:
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_bf_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_rp_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_dict_timer = nullptr;
     RuntimeProfile::Counter* _first_read_timer = nullptr;
     RuntimeProfile::Counter* _second_read_timer = nullptr;
     RuntimeProfile::Counter* _first_read_seek_timer = nullptr;
@@ -169,20 +181,20 @@ private:
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
-    // number of created olap scanners
-    RuntimeProfile::Counter* _num_scanners = nullptr;
-
     // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
+
+    RuntimeProfile::Counter* _runtime_filter_info = nullptr;
 
     std::mutex _profile_mtx;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
-    OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                      const DescriptorTbl& descs, int parallel_tasks);
 
 private:
     friend class OlapScanLocalState;

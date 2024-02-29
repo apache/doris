@@ -19,6 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -28,6 +29,7 @@ import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.MysqlPassword;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
@@ -37,6 +39,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.util.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -48,7 +51,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public class UserManager implements Writable {
+public class UserManager implements Writable, GsonPostProcessable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
     // Concurrency control is delegated by Auth, so not concurrentMap
@@ -183,6 +186,12 @@ public class UserManager implements Writable {
             throws PatternMatcherException {
         if (userIdentityExist(userIdent, true)) {
             User userByUserIdentity = getUserByUserIdentity(userIdent);
+            if (!userByUserIdentity.isSetByDomainResolver() && setByResolver) {
+                // If the user is NOT created by domain resolver,
+                // and the current operation is done by DomainResolver,
+                // we should not override it, just return
+                return userByUserIdentity;
+            }
             userByUserIdentity.setPassword(pwd);
             userByUserIdentity.setSetByDomainResolver(setByResolver);
             return userByUserIdentity;
@@ -308,6 +317,44 @@ public class UserManager implements Writable {
 
     public static UserManager read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, UserManager.class);
+        UserManager um = GsonUtils.GSON.fromJson(json, UserManager.class);
+        return um;
     }
+
+    // should be removed after version 3.0
+    private void removeClusterPrefix() {
+        Map<String, List<User>> newNameToUsers = Maps.newHashMap();
+        for (Entry<String, List<User>> entry : nameToUsers.entrySet()) {
+            String user = entry.getKey();
+            newNameToUsers.put(ClusterNamespace.getNameFromFullName(user), entry.getValue());
+        }
+        this.nameToUsers = newNameToUsers;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
+    }
+
+    // ====== CLOUD ======
+    public Set<String> getAllUsers() {
+        return nameToUsers.keySet();
+    }
+
+    public String getUserId(String userName) {
+        if (!nameToUsers.containsKey(userName)) {
+            LOG.warn("can't find userName {} 's userId, nameToUsers {}", userName, nameToUsers);
+            return "";
+        }
+        List<User> users = nameToUsers.get(userName);
+        if (users.isEmpty()) {
+            LOG.warn("userName {}  empty users in map {}", userName, nameToUsers);
+        }
+        // here, all the users has same userid, just return one
+        String userId = users.stream().map(User::getUserId).filter(Strings::isNotEmpty).findFirst().orElse("");
+        LOG.debug("userName {}, userId {}, map {}", userName, userId, nameToUsers);
+        return userId;
+    }
+
+    // ====== CLOUD =====
 }

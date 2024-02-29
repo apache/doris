@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka,mariadb
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka"
+    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,iceberg"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb"
         fi
     fi
 fi
@@ -107,7 +107,7 @@ if [[ "${COMPONENTS}"x == ""x ]]; then
 fi
 
 if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
-    echo "Must set CONTAINER_UID to a unique name in custom_settings.sh"
+    echo "Must set CONTAINER_UID to a unique name in custom_settings.env"
     exit 1
 fi
 
@@ -132,7 +132,7 @@ RUN_HUDI=0
 RUN_TRINO=0
 RUN_KAFKA=0
 RUN_SPARK=0
-
+RUN_MARIADB=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -159,6 +159,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_TRINO=1
     elif [[ "${element}"x == "spark"x ]];then
         RUN_SPARK=1
+    elif [[ "${element}"x == "mariadb"x ]];then
+        RUN_MARIADB=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -178,6 +180,14 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es8/
         sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es8/*
         sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/data
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es6/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es6/*
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es7/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es7/*
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es8/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es8/*
+        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/logs
+        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/config
         sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
     fi
 fi
@@ -188,8 +198,8 @@ if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
         sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
         sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
     fi
 fi
@@ -200,8 +210,8 @@ if [[ "${RUN_PG}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
         sudo rm "${ROOT}"/docker-compose/postgresql/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
         sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
     fi
 fi
@@ -212,8 +222,8 @@ if [[ "${RUN_ORACLE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oracle/oracle-11.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
         sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
         sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
     fi
 fi
@@ -224,8 +234,8 @@ if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
         sudo rm "${ROOT}"/docker-compose/sqlserver/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
         sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
     fi
 fi
@@ -236,8 +246,8 @@ if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
         sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
         sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
     fi
 fi
@@ -251,6 +261,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env down
+
     create_kafka_topics() {
        local container_id="$1"
        local ip_host="$2"
@@ -292,6 +303,8 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
     sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sed -i "s/\${externalEnvIp}/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
+    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
@@ -315,13 +328,12 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/spark-defaults.conf
     sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
+    sudo rm -rf "${ROOT}"/docker-compose/iceberg/data
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/notebooks
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/notebooks
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/spark
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/spark
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/warehouse
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/warehouse
+        wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip
+        sudo unzip -d "${ROOT}"/docker-compose/iceberg -q ${ROOT}/docker-compose/iceberg/iceberg_data.zip
+        sudo mv "${ROOT}"/docker-compose/iceberg/iceberg_data "${ROOT}"/docker-compose/iceberg/data
+        sudo rm -rf ${ROOT}/docker-compose/iceberg/iceberg_data.zip
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
     fi
 fi
@@ -422,5 +434,17 @@ if  [[ "${RUN_TRINO}" -eq 1 ]]; then
         sleep 20s
         # execute create table sql
         docker exec -it ${TRINO_CONTAINER_ID} /bin/bash -c 'trino -f /scripts/create_trino_table.sql'
+    fi
+fi
+
+if [[ "${RUN_MARIADB}" -eq 1 ]]; then
+    # mariadb
+    cp "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml.tpl "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/mariadb/data/
+        sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
+        sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
     fi
 fi

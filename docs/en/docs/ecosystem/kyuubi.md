@@ -44,7 +44,7 @@ unified authentication, engine lifecycle management, etc.
 
 Download Apache Kyuubi from <https://kyuubi.apache.org/zh/releases.html>
 
-Get Apache Kyuubi 1.6.0 or above and extract it to folder。
+Get Apache Kyuubi 1.6.0 or above and extract it to folder.
 
 ### Config Doris as Kyuubi data source
 

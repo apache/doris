@@ -118,6 +118,10 @@ public class DataProperty implements Writable, GsonPostProcessable {
         storageMediumSpecified = isSpecified;
     }
 
+    public void setStorageMedium(TStorageMedium medium) {
+        this.storageMedium = medium;
+    }
+
     public static DataProperty read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_108) {
             String json = Text.readString(in);

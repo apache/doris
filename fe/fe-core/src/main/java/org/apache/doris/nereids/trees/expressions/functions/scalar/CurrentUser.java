@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -35,7 +35,7 @@ public class CurrentUser extends ScalarFunction
         implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args()
+            FunctionSignature.ret(StringType.INSTANCE).args()
     );
 
     public CurrentUser() {

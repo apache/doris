@@ -30,32 +30,35 @@ OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
 }
 
 Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<PartitionSortDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    RETURN_IF_ERROR(PipelineXLocalState<PartitionSortNodeSharedState>::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
     _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
-    _shared_state->previous_row = std::make_unique<vectorized::SortCursorCmp>();
     return Status::OK();
 }
 
 Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
-                                               SourceState& source_state) {
+                                               bool* eos) {
     RETURN_IF_CANCELLED(state);
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
-    SCOPED_TIMER(local_state._get_next_timer);
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     output_block->clear_column_data();
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
         if (local_state._shared_state->blocks_buffer.empty() == false) {
             local_state._shared_state->blocks_buffer.front().swap(*output_block);
             local_state._shared_state->blocks_buffer.pop();
-            //if buffer have no data, block reading and wait for signal again
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
-                                                                   output_block->columns()));
-            if (local_state._shared_state->blocks_buffer.empty()) {
-                local_state._dependency->block_reading();
+            //if buffer have no data and sink not eos, block reading and wait for signal again
+            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
+                    local_state._conjuncts, output_block, output_block->columns()));
+            if (local_state._shared_state->blocks_buffer.empty() &&
+                local_state._shared_state->sink_eos == false) {
+                // add this mutex to check, as in some case maybe is doing block(), and the sink is doing set eos.
+                // so have to hold mutex to set block(), avoid to sink have set eos and set ready, but here set block() by mistake
+                std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+                if (local_state._shared_state->sink_eos == false) {
+                    local_state._dependency->block();
+                }
             }
             return Status::OK();
         }
@@ -67,22 +70,15 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     // if we move the _blocks_buffer output at last(behind 286 line),
     // it's maybe eos but not output all data: when _blocks_buffer.empty() and _can_read = false (this: _sort_idx && _partition_sorts.size() are 0)
     RETURN_IF_ERROR(get_sorted_block(state, output_block, local_state));
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
                                                            output_block->columns()));
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
-        if (local_state._shared_state->blocks_buffer.empty() &&
-            local_state._shared_state->sort_idx >=
-                    local_state._shared_state->partition_sorts.size()) {
-            source_state = SourceState::FINISHED;
-        }
+
+        *eos = local_state._shared_state->blocks_buffer.empty() &&
+               local_state._sort_idx >= local_state._shared_state->partition_sorts.size();
     }
     return Status::OK();
-}
-
-Dependency* PartitionSortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
 }
 
 Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
@@ -91,20 +87,17 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     SCOPED_TIMER(local_state._get_sorted_timer);
     //sorter output data one by one
     bool current_eos = false;
-    if (local_state._shared_state->sort_idx < local_state._shared_state->partition_sorts.size()) {
-        RETURN_IF_ERROR(
-                local_state._shared_state->partition_sorts[local_state._shared_state->sort_idx]
-                        ->get_next(state, output_block, &current_eos));
+    if (local_state._sort_idx < local_state._shared_state->partition_sorts.size()) {
+        RETURN_IF_ERROR(local_state._shared_state->partition_sorts[local_state._sort_idx]->get_next(
+                state, output_block, &current_eos));
     }
     if (current_eos) {
         //current sort have eos, so get next idx
-        local_state._shared_state->previous_row->reset();
-        auto rows = local_state._shared_state->partition_sorts[local_state._shared_state->sort_idx]
+        auto rows = local_state._shared_state->partition_sorts[local_state._sort_idx]
                             ->get_output_rows();
         local_state._num_rows_returned += rows;
-        local_state._shared_state->partition_sorts[local_state._shared_state->sort_idx].reset(
-                nullptr);
-        local_state._shared_state->sort_idx++;
+        local_state._shared_state->partition_sorts[local_state._sort_idx].reset(nullptr);
+        local_state._sort_idx++;
     }
 
     return Status::OK();

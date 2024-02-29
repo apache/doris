@@ -38,6 +38,7 @@ import java.util.List;
 public class JoinCommute extends OneExplorationRuleFactory {
 
     public static final JoinCommute LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP, false);
+    public static final JoinCommute LEFT_ZIG_ZAG = new JoinCommute(SwapType.LEFT_ZIG_ZAG, false);
     public static final JoinCommute ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG, false);
     public static final JoinCommute BUSHY = new JoinCommute(SwapType.BUSHY, false);
     public static final JoinCommute NON_INNER = new JoinCommute(SwapType.BUSHY, true);
@@ -54,13 +55,14 @@ public class JoinCommute extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> !justNonInner || !join.getJoinType().isInnerJoin())
+                .when(join -> checkReorder(join))
                 .when(join -> check(swapType, join))
-                .whenNot(LogicalJoin::hasJoinHint)
+                .whenNot(LogicalJoin::hasDistributeHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(join -> {
                     LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
-                            join.right(), join.left());
+                            join.right(), join.left(), null);
                     newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
@@ -72,7 +74,8 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     enum SwapType {
-        LEFT_DEEP, ZIG_ZAG, BUSHY
+        LEFT_DEEP, ZIG_ZAG, BUSHY,
+        LEFT_ZIG_ZAG
     }
 
     /**
@@ -87,7 +90,21 @@ public class JoinCommute extends OneExplorationRuleFactory {
             return false;
         }
 
-        return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
+        if (swapType == SwapType.LEFT_ZIG_ZAG) {
+            double leftRows = join.left().getGroup().getStatistics().getRowCount();
+            double rightRows = join.right().getGroup().getStatistics().getRowCount();
+            return leftRows <= rightRows && isZigZagJoin(join);
+        }
+
+        return true;
+    }
+
+    private boolean checkReorder(LogicalJoin<GroupPlan, GroupPlan> join) {
+        if (join.isLeadingJoin()) {
+            return false;
+        }
+        return !join.getJoinReorderContext().hasCommute()
+                && !join.getJoinReorderContext().hasExchange();
     }
 
     public static boolean isNotBottomJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
@@ -95,10 +112,18 @@ public class JoinCommute extends OneExplorationRuleFactory {
         return containJoin(join.left()) || containJoin(join.right());
     }
 
+    public static boolean isZigZagJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
+        return !containJoin(join.left()) || !containJoin(join.right());
+    }
+
     private static boolean containJoin(GroupPlan groupPlan) {
-        // TODO: tmp way to judge containJoin
-        List<Slot> output = groupPlan.getOutput();
-        return !output.stream().map(Slot::getQualifier).allMatch(output.get(0).getQualifier()::equals);
+        if (groupPlan.getGroup().getStatistics() != null) {
+            return groupPlan.getGroup().getStatistics().getWidthInJoinCluster() > 1;
+        } else {
+            // tmp way to judge containJoin, just used for test case where stats is null
+            List<Slot> output = groupPlan.getOutput();
+            return !output.stream().map(Slot::getQualifier).allMatch(output.get(0).getQualifier()::equals);
+        }
     }
 
     /**

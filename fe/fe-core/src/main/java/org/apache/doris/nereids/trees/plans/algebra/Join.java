@@ -17,14 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.plans.JoinHint;
-import org.apache.doris.nereids.trees.plans.JoinHint.JoinHintType;
+import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.DistributeType.JoinDistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Common interface for logical/physical join.
@@ -34,44 +39,48 @@ public interface Join {
 
     List<Expression> getHashJoinConjuncts();
 
+    default List<EqualTo> getEqualToConjuncts() {
+        return getHashJoinConjuncts().stream().filter(EqualTo.class::isInstance).map(EqualTo.class::cast)
+                .collect(Collectors.toList());
+    }
+
+    default List<EqualPredicate> getEqualPredicates() {
+        return Stream.concat(getHashJoinConjuncts().stream(), getMarkJoinConjuncts().stream())
+                .filter(EqualPredicate.class::isInstance).map(EqualPredicate.class::cast)
+                .collect(Collectors.toList());
+    }
+
     List<Expression> getOtherJoinConjuncts();
+
+    List<Expression> getMarkJoinConjuncts();
 
     Optional<Expression> getOnClauseCondition();
 
-    JoinHint getHint();
+    DistributeHint getDistributeHint();
 
     boolean isMarkJoin();
 
-    default boolean hasJoinHint() {
-        return getHint() != JoinHint.NONE;
+    Optional<MarkJoinSlotReference> getMarkJoinSlotReference();
+
+    default boolean hasDistributeHint() {
+        return getDistributeHint().distributeType != DistributeType.NONE;
     }
 
-    /**
-     * The join plan has join condition or not.
-     */
-    default boolean hasJoinCondition() {
-        return !getHashJoinConjuncts().isEmpty() || !getOtherJoinConjuncts().isEmpty();
-    }
-
-    default JoinHintType getLeftHint() {
-        return JoinHintType.NONE;
+    default JoinDistributeType getLeftHint() {
+        return JoinDistributeType.NONE;
     }
 
     /**
      * Get the hint type of join's right child.
      */
-    default JoinHintType getRightHint() {
-        switch (getHint()) {
+    default JoinDistributeType getRightHint() {
+        switch (getDistributeHint().distributeType) {
             case SHUFFLE_RIGHT:
-                return JoinHintType.SHUFFLE;
+                return JoinDistributeType.SHUFFLE;
             case BROADCAST_RIGHT:
-                return JoinHintType.BROADCAST;
+                return JoinDistributeType.BROADCAST;
             default:
-                return JoinHintType.NONE;
+                return JoinDistributeType.NONE;
         }
-    }
-
-    default Optional<MarkJoinSlotReference> getLeftMarkJoinSlotReference() {
-        return Optional.empty();
     }
 }

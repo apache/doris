@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <string>
 
 #if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
@@ -125,6 +126,14 @@ public:
             }
         }
 #endif
+    }
+
+    static std::mutex je_purge_dirty_pages_lock;
+    static std::condition_variable je_purge_dirty_pages_cv;
+    static std::atomic<bool> je_purge_dirty_pages_notify;
+    static void notify_je_purge_dirty_pages() {
+        je_purge_dirty_pages_notify.store(true, std::memory_order_relaxed);
+        je_purge_dirty_pages_cv.notify_all();
     }
 
     static inline size_t allocator_virtual_mem() {

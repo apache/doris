@@ -31,9 +31,9 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
-#include "olap/tablet_schema.h"
+#include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 #include "runtime/runtime_state.h"
 #include "vec/exec/format/generic_reader.h"
 
@@ -45,6 +45,7 @@ class Schema;
 class TBrokerScanRange;
 class TDescriptorTable;
 class TTabletInfo;
+class StorageEngine;
 
 namespace vectorized {
 class Block;
@@ -54,7 +55,7 @@ class VExprContext;
 
 class PushHandler {
 public:
-    PushHandler() = default;
+    PushHandler(StorageEngine& engine) : _engine(engine) {}
     ~PushHandler() = default;
 
     // Load local data file into specified tablet.
@@ -69,11 +70,10 @@ private:
     Status _convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                        TabletSchemaSPtr tablet_schema, PushType push_type);
 
-    // Only for debug
-    std::string _debug_version_list(const Versions& versions) const;
-
     Status _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                    PushType push_type, std::vector<TTabletInfo>* tablet_info_vec);
+
+    StorageEngine& _engine;
 
     // mainly tablet_id, version and delta file path
     TPushReq _request;
@@ -83,7 +83,7 @@ private:
 
     int64_t _write_bytes = 0;
     int64_t _write_rows = 0;
-    DISALLOW_COPY_AND_ASSIGN(PushHandler);
+    PendingRowsetGuard _pending_rs_guard;
 };
 
 class PushBrokerReader {
@@ -111,7 +111,7 @@ private:
     bool _ready;
     bool _eof;
     int _next_range;
-    vectorized::Block* _src_block_ptr;
+    vectorized::Block* _src_block_ptr = nullptr;
     vectorized::Block _src_block;
     const TDescriptorTable& _t_desc_tbl;
     std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
@@ -124,10 +124,10 @@ private:
 
     std::vector<SlotDescriptor*> _src_slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;
-    const TupleDescriptor* _dest_tuple_desc;
+    const TupleDescriptor* _dest_tuple_desc = nullptr;
 
     std::unique_ptr<RuntimeState> _runtime_state;
-    RuntimeProfile* _runtime_profile;
+    RuntimeProfile* _runtime_profile = nullptr;
     std::unique_ptr<vectorized::GenericReader> _cur_reader;
     bool _cur_reader_eof;
     const TBrokerScanRangeParams& _params;

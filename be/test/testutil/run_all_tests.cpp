@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gtest/gtest_pred_impl.h"
+#include "http/ev_http_server.h"
 #include "olap/page_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema_cache.h"
@@ -39,17 +40,19 @@
 #include "util/mem_info.h"
 
 int main(int argc, char** argv) {
+    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     doris::thread_context()->thread_mem_tracker_mgr->init();
     doris::ExecEnv::GetInstance()->set_cache_manager(doris::CacheManager::create_global_instance());
-    doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
-            doris::TabletSchemaCache::create_global_schema_cache());
-    doris::ExecEnv::GetInstance()->get_tablet_schema_cache()->start();
+    doris::ExecEnv::GetInstance()->set_dummy_lru_cache(std::make_shared<doris::DummyLRUCache>());
     doris::ExecEnv::GetInstance()->set_storage_page_cache(
             doris::StoragePageCache::create_global_cache(1 << 30, 10, 0));
     doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000));
     std::string conf = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     auto st = doris::config::init(conf.c_str(), false);
+    doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
+            doris::TabletSchemaCache::create_global_schema_cache(
+                    doris::config::tablet_schema_cache_capacity));
     LOG(INFO) << "init config " << st;
 
     doris::init_glog("be-test");
@@ -60,10 +63,10 @@ int main(int argc, char** argv) {
     doris::BackendOptions::init();
 
     auto service = std::make_unique<doris::HttpService>(doris::ExecEnv::GetInstance(), 0, 1);
-    static_cast<void>(service->start());
+    service->register_debug_point_handler();
+    service->_ev_http_server->start();
     doris::global_test_http_host = "http://127.0.0.1:" + std::to_string(service->get_real_port());
 
     int res = RUN_ALL_TESTS();
-    doris::ExecEnv::GetInstance()->get_tablet_schema_cache()->stop();
     return res;
 }

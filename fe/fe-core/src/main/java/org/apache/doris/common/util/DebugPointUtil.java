@@ -30,6 +30,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Use for manage debug points.
+ *
+ * usage example can see DebugPointUtilTest.java
+ *
  **/
 public class DebugPointUtil {
     private static final Logger LOG = LogManager.getLogger(DebugPointUtil.class);
@@ -109,9 +112,32 @@ public class DebugPointUtil {
         return debugPoint;
     }
 
+    // if not enable debug point or its params not contains `key`, then return `defaultValue`
+    // url: /api/debug_point/add/name?k1=v1&k2=v2&...
+    public static <E> E getDebugParamOrDefault(String debugPointName, String key, E defaultValue) {
+        DebugPoint debugPoint = getDebugPoint(debugPointName);
+
+        return debugPoint != null ? debugPoint.param(key, defaultValue) : defaultValue;
+    }
+
+    // url: /api/debug_point/add/name?value=v
+    public static <E> E getDebugParamOrDefault(String debugPointName, E defaultValue) {
+        return getDebugParamOrDefault(debugPointName, "value", defaultValue);
+    }
+
     public static void addDebugPoint(String name, DebugPoint debugPoint) {
         debugPoints.put(name, debugPoint);
         LOG.info("add debug point: name={}, params={}", name, debugPoint.params);
+    }
+
+    public static void addDebugPoint(String name) {
+        addDebugPoint(name, new DebugPoint());
+    }
+
+    public static <E> void addDebugPointWithValue(String name, E value) {
+        DebugPoint debugPoint = new DebugPoint();
+        debugPoint.params.put("value", String.format("%s", value));
+        addDebugPoint(name, debugPoint);
     }
 
     public static void removeDebugPoint(String name) {

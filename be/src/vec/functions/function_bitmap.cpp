@@ -31,7 +31,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
@@ -174,15 +173,12 @@ struct ToBitmapWithCheck {
                     if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
                         res_data[i].add(int_value);
                     } else {
-                        std::stringstream ss;
-                        ss << "The input: " << std::string(raw_str, str_size)
-                           << " is not valid, to_bitmap only support bigint value from 0 to "
-                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
-                              "column with negative values or cannot load negative values to "
-                              "column "
-                              "with to_bitmap MV on it.";
-                        LOG(WARNING) << ss.str();
-                        return Status::InternalError(ss.str());
+                        return Status::InvalidArgument(
+                                "The input: {} is not valid, to_bitmap only support bigint value "
+                                "from 0 to 18446744073709551615 currently, cannot create MV with "
+                                "to_bitmap on column with negative values or cannot load negative "
+                                "values to column with to_bitmap MV on it.",
+                                std::string(raw_str, str_size));
                     }
                 }
             }
@@ -199,20 +195,17 @@ struct ToBitmapWithCheck {
                     if (LIKELY(int_value >= 0)) {
                         res_data[i].add(int_value);
                     } else {
-                        std::stringstream ss;
-                        ss << "The input: " << int_value
-                           << " is not valid, to_bitmap only support bigint value from 0 to "
-                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
-                              "column with negative values or cannot load negative values to "
-                              "column "
-                              "with to_bitmap MV on it.";
-                        LOG(WARNING) << ss.str();
-                        return Status::InternalError(ss.str());
+                        return Status::InvalidArgument(
+                                "The input: {} is not valid, to_bitmap only support bigint value "
+                                "from 0 to 18446744073709551615 currently, cannot create MV with "
+                                "to_bitmap on column with negative values or cannot load negative "
+                                "values to column with to_bitmap MV on it.",
+                                int_value);
                     }
                 }
             }
         } else {
-            return Status::InternalError("not support type");
+            return Status::InvalidArgument("not support type");
         }
         return Status::OK();
     }
@@ -368,7 +361,7 @@ public:
             const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
             const ColumnString::Offsets& offsets = str_column.get_offsets();
-            static_cast<void>(Impl::vector(data, offsets, res, null_map, input_rows_count));
+            RETURN_IF_ERROR(Impl::vector(data, offsets, res, null_map, input_rows_count));
         } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeArray>) {
             auto argument_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
@@ -379,20 +372,22 @@ public:
                     static_cast<const ColumnNullable&>(array_column.get_data());
             const auto& nested_column = nested_nullable_column.get_nested_column();
             const auto& nested_null_map = nested_nullable_column.get_null_map_column().get_data();
-            if (check_column<ColumnInt8>(nested_column)) {
-                static_cast<void>(Impl::template vector<ColumnInt8>(
+
+            WhichDataType which_type(argument_type);
+            if (which_type.is_int8()) {
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
+                                                                  nested_null_map, res, null_map));
+            } else if (which_type.is_uint8()) {
+                RETURN_IF_ERROR(Impl::template vector<ColumnUInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (check_column<ColumnUInt8>(nested_column)) {
-                static_cast<void>(Impl::template vector<ColumnUInt8>(
+            } else if (which_type.is_int16()) {
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt16>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (check_column<ColumnInt16>(nested_column)) {
-                static_cast<void>(Impl::template vector<ColumnInt16>(
+            } else if (which_type.is_int32()) {
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt32>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (check_column<ColumnInt32>(nested_column)) {
-                static_cast<void>(Impl::template vector<ColumnInt32>(
-                        offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (check_column<ColumnInt64>(nested_column)) {
-                static_cast<void>(Impl::template vector<ColumnInt64>(
+            } else if (which_type.is_int64()) {
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt64>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -582,7 +577,7 @@ struct BitmapAndNot {
             mid_data &= rvec[i];
             res[i] = lvec[i];
             res[i] -= mid_data;
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
@@ -593,7 +588,7 @@ struct BitmapAndNot {
             mid_data &= rval;
             res[i] = lvec[i];
             res[i] -= mid_data;
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
@@ -604,7 +599,7 @@ struct BitmapAndNot {
             mid_data &= rvec[i];
             res[i] = lval;
             res[i] -= mid_data;
-            mid_data.clear();
+            mid_data.reset();
         }
     }
 };
@@ -628,7 +623,7 @@ struct BitmapAndNotCount {
             mid_data = lvec[i];
             mid_data &= rvec[i];
             res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData* res) {
@@ -638,7 +633,7 @@ struct BitmapAndNotCount {
             mid_data = lval;
             mid_data &= rvec[i];
             res[i] = lval.andnot_cardinality(mid_data);
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData* res) {
@@ -648,7 +643,7 @@ struct BitmapAndNotCount {
             mid_data = lvec[i];
             mid_data &= rval;
             res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.clear();
+            mid_data.reset();
         }
     }
 };
@@ -705,12 +700,7 @@ Status execute_bitmap_op_count_null_to_zero(
         size_t input_rows_count,
         const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
                 exec_impl_func) {
-    NullPresence null_presence = get_null_presence(block, arguments);
-
-    if (null_presence.has_null_constant) {
-        block.get_by_position(result).column =
-                block.get_by_position(result).type->create_column_const(input_rows_count, 0);
-    } else if (null_presence.has_nullable) {
+    if (have_null_column(block, arguments)) {
         auto [temporary_block, new_args, new_result] =
                 create_block_with_nested_columns(block, arguments, result);
         RETURN_IF_ERROR(exec_impl_func(context, temporary_block, new_args, new_result,

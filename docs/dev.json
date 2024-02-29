@@ -19,6 +19,10 @@
     "message": "Docker 部署",
     "description": "Make docker image and quickly start Doris's Docker cluster"
   },
+  "sidebar.docs.category.Deploy Doris on Kubernetes": {
+    "message": "基于 Kubernetes 部署",
+    "description": "The label for category Deploy Doris on Kubernetes in sidebar docs"
+  },
   "sidebar.docs.category.Source Code Compilation": {
     "message": "源码编译",
     "description": "The label for category Compile in sidebar docs"
@@ -47,6 +51,10 @@
     "message": "按方式导入",
     "description": "The label for category Import Way in sidebar docs"
   },
+  "sidebar.docs.category.Import Advanced": {
+    "message": "高级导入",
+    "description": "The label for category Import Advanced in sidebar docs"
+  },
   "sidebar.docs.category.Export": {
     "message": "导出",
     "description": "The label for category Export in sidebar docs"
@@ -70,6 +78,10 @@
   "sidebar.docs.category.Join Optimization": {
     "message": "Join 优化",
     "description": "The label for category Join Optimization in sidebar docs"
+  },
+  "sidebar.docs.category.Async Materialized View": {
+    "message": "异步物化视图",
+    "description": "The label for category Async Materialized View in sidebar docs"
   },
   "sidebar.docs.category.Data Cache": {
     "message": "数据缓存",
@@ -302,6 +314,10 @@
   "sidebar.docs.category.Multi Catalog": {
     "message": "多源数据目录",
     "description": "The label for category Lakehouse.Multi Catalog in sidebar docs"
+  },
+  "sidebar.docs.category.Cloud Service Authentication": {
+    "message": "云服务认证接入",
+    "description": "The label for category Lakehouse.Cloud Service Authentication in sidebar docs"
   },
   "sidebar.docs.category.External Table": {
     "message": "外部表",

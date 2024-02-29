@@ -19,6 +19,10 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmapSubsetIterator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.AbstractReceiver;
 import org.apache.doris.qe.ConnectContext;
 
@@ -68,16 +72,17 @@ public class SubgraphEnumerator {
             traceBuilder.append("Query Graph Graphviz: ").append(hyperGraph.toDottyHyperGraph()).append("\n");
         }
         receiver.reset();
-        List<Node> nodes = hyperGraph.getNodes();
+        List<AbstractNode> nodes = hyperGraph.getNodes();
         // Init all nodes in Receiver
-        for (Node node : nodes) {
-            receiver.addGroup(node.getNodeMap(), node.getGroup());
+        for (AbstractNode node : nodes) {
+            DPhyperNode dPhyperNode = (DPhyperNode) node;
+            receiver.addGroup(node.getNodeMap(), dPhyperNode.getGroup());
         }
         int size = nodes.size();
 
         // Init edgeCalculator
-        edgeCalculator = new EdgeCalculator(hyperGraph.getEdges());
-        for (Node node : nodes) {
+        edgeCalculator = new EdgeCalculator(hyperGraph.getJoinEdges());
+        for (AbstractNode node : nodes) {
             edgeCalculator.initSubgraph(node.getNodeMap());
         }
 
@@ -146,7 +151,7 @@ public class SubgraphEnumerator {
             edgeCalculator.unionEdges(cmp, subset);
             if (receiver.contain(newCmp)) {
                 // We check all edges for finding an edge.
-                List<Edge> edges = edgeCalculator.connectCsgCmp(csg, newCmp);
+                List<JoinEdge> edges = edgeCalculator.connectCsgCmp(csg, newCmp);
                 if (edges.isEmpty()) {
                     continue;
                 }
@@ -182,7 +187,7 @@ public class SubgraphEnumerator {
         for (int nodeIndex : LongBitmap.getReverseIterator(neighborhoods)) {
             long cmp = LongBitmap.newBitmap(nodeIndex);
             // whether there is an edge between csg and cmp
-            List<Edge> edges = edgeCalculator.connectCsgCmp(csg, cmp);
+            List<JoinEdge> edges = edgeCalculator.connectCsgCmp(csg, cmp);
             if (!edges.isEmpty()) {
                 if (!receiver.emitCsgCmp(csg, cmp, edges)) {
                     return false;
@@ -238,7 +243,7 @@ public class SubgraphEnumerator {
     }
 
     static class EdgeCalculator {
-        final List<Edge> edges;
+        final List<JoinEdge> edges;
         // It cached all edges that contained by this subgraph, Note we always
         // use bitset store edge map because the number of edges can be very large
         // We split these into simple edges (only one node on each side) and complex edges (others)
@@ -251,7 +256,7 @@ public class SubgraphEnumerator {
         // complex edges
         HashMap<Long, BitSet> overlapEdges = new HashMap<>();
 
-        EdgeCalculator(List<Edge> edges) {
+        EdgeCalculator(List<JoinEdge> edges) {
             this.edges = edges;
         }
 
@@ -323,10 +328,10 @@ public class SubgraphEnumerator {
             overlapEdges.put(subgraph, overlaps);
         }
 
-        public List<Edge> connectCsgCmp(long csg, long cmp) {
+        public List<JoinEdge> connectCsgCmp(long csg, long cmp) {
             Preconditions.checkArgument(
                     containSimpleEdges.containsKey(csg) && containSimpleEdges.containsKey(cmp));
-            List<Edge> foundEdges = new ArrayList<>();
+            List<JoinEdge> foundEdges = new ArrayList<>();
             BitSet edgeMap = new BitSet();
             edgeMap.or(containSimpleEdges.get(csg));
             edgeMap.and(containSimpleEdges.get(cmp));
@@ -384,4 +389,3 @@ public class SubgraphEnumerator {
         }
     }
 }
-

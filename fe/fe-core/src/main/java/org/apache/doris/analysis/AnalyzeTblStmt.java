@@ -21,21 +21,20 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -89,6 +88,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     private boolean isAllColumns;
 
     // after analyzed
+    private long catalogId;
     private long dbId;
     private TableIf table;
 
@@ -105,19 +105,23 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     public AnalyzeTblStmt(AnalyzeProperties analyzeProperties, TableName tableName, List<String> columnNames, long dbId,
-            TableIf table) {
+            TableIf table) throws AnalysisException {
         super(analyzeProperties);
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.dbId = dbId;
         this.table = table;
         this.isAllColumns = columnNames == null;
+        String catalogName = tableName.getCtl();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(catalogName);
+        this.catalogId = catalog.getId();
     }
 
     @Override
     @SuppressWarnings({"rawtypes"})
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
@@ -130,6 +134,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         String tblName = tableName.getTbl();
         CatalogIf catalog = analyzer.getEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(catalogName);
+        this.catalogId = catalog.getId();
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
@@ -143,26 +148,26 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         }
         checkAnalyzePriv(tableName.getDb(), tableName.getTbl());
         if (columnNames == null) {
-            // Filter unsupported type columns.
-            columnNames = table.getBaseSchema(false).stream()
+            columnNames = table.getSchemaAllIndexes(false).stream()
+                // Filter unsupported type columns.
                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                 .map(Column::getName)
                 .collect(Collectors.toList());
-        }
-        table.readLock();
-        try {
-            List<String> baseSchema = table.getBaseSchema(false)
-                    .stream().map(Column::getName).collect(Collectors.toList());
-            Optional<String> optional = columnNames.stream()
-                    .filter(entity -> !baseSchema.contains(entity)).findFirst();
-            if (optional.isPresent()) {
-                String columnName = optional.get();
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                        columnName, FeNameFormat.getColumnNameRegex());
+        } else {
+            table.readLock();
+            try {
+                List<String> baseSchema = table.getSchemaAllIndexes(false)
+                        .stream().map(Column::getName).collect(Collectors.toList());
+                Optional<String> optional = columnNames.stream()
+                        .filter(entity -> !baseSchema.contains(entity)).findFirst();
+                if (optional.isPresent()) {
+                    String columnName = optional.get();
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, tableName.getTbl());
+                }
+                checkColumn();
+            } finally {
+                table.readUnlock();
             }
-            checkColumn();
-        } finally {
-            table.readUnlock();
         }
         analyzeProperties.check();
 
@@ -183,12 +188,14 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     private void checkColumn() throws AnalysisException {
         boolean containsUnsupportedTytpe = false;
         for (String colName : columnNames) {
-            Column column = table.getColumn(colName);
+            Column column = table instanceof OlapTable
+                    ? ((OlapTable) table).getVisibleColumn(colName)
+                    : table.getColumn(colName);
             if (column == null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                         colName, FeNameFormat.getColumnNameRegex());
             }
-            if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
+            if (StatisticsUtil.isUnsupportedType(column.getType())) {
                 containsUnsupportedTytpe = true;
             }
         }
@@ -196,7 +203,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             if (ConnectContext.get() == null
                     || !ConnectContext.get().getSessionVariable().enableAnalyzeComplexTypeColumn) {
                 columnNames = columnNames.stream()
-                        .filter(c -> !StatisticsUtil.isUnsupportedType(table.getColumn(c).getType()))
+                        .filter(c -> !StatisticsUtil.isUnsupportedType(table instanceof OlapTable
+                            ? ((OlapTable) table).getVisibleColumn(c).getType()
+                            : table.getColumn(c).getType()))
                         .collect(Collectors.toList());
             } else {
                 throw new AnalysisException(
@@ -229,8 +238,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     public Set<String> getColumnNames() {
-        return columnNames == null ? table.getBaseSchema(false)
-                .stream().map(Column::getName).collect(Collectors.toSet()) : Sets.newHashSet(columnNames);
+        return Sets.newHashSet(columnNames);
     }
 
     public Set<String> getPartitionNames() {
@@ -328,5 +336,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     public boolean isAllColumns() {
         return isAllColumns;
+    }
+
+    public long getCatalogId() {
+        return catalogId;
     }
 }

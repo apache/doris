@@ -21,8 +21,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
+import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -31,8 +31,6 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,13 +64,11 @@ public class ProfileManager {
     }
 
     public static class ProfileElement {
-        public ProfileElement(RuntimeProfile profile) {
+        public ProfileElement(Profile profile) {
             this.profile = profile;
         }
 
-        private final RuntimeProfile profile;
-        // cache the result of getProfileContent method
-        private volatile String profileContent = null;
+        private final Profile profile;
         public Map<String, String> infoStrings = Maps.newHashMap();
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
@@ -81,22 +77,14 @@ public class ProfileManager {
 
         // lazy load profileContent because sometimes profileContent is very large
         public String getProfileContent() {
-
-            // no need to lock because the possibility of concurrent read is very low
-            if (profileContent == null) {
-                // Simple profile will change the structure of the profile.
-                try {
-                    profileContent = profile.getProfileByLevel();
-                } catch (Exception e) {
-                    LOG.warn("profile get error : " + e.toString());
-                }
-            }
-            return profileContent;
+            // Not cache the profile content because it may change during insert
+            // into select statement, we need use this to check process.
+            // And also, cache the content will double usage of the memory in FE.
+            return profile.getProfileByLevel();
         }
 
         public String getProfileBrief() {
-            Gson gson = new GsonBuilder().setPrettyPrinting().create();
-            return gson.toJson(profile.toBrief());
+            return profile.getProfileBrief();
         }
 
         public double getError() {
@@ -136,33 +124,24 @@ public class ProfileManager {
         queryIdToProfileMap = new ConcurrentHashMap<>();
     }
 
-    public ProfileElement createElement(RuntimeProfile profile) {
+    public ProfileElement createElement(Profile profile) {
         ProfileElement element = new ProfileElement(profile);
-        RuntimeProfile summaryProfile = profile.getChildList().get(0).first;
-        for (String header : SummaryProfile.SUMMARY_KEYS) {
-            element.infoStrings.put(header, summaryProfile.getInfoString(header));
-        }
-        List<Pair<RuntimeProfile, Boolean>> childList = summaryProfile.getChildList();
-        if (!childList.isEmpty()) {
-            RuntimeProfile executionProfile = childList.get(0).first;
-            for (String header : SummaryProfile.EXECUTION_SUMMARY_KEYS) {
-                element.infoStrings.put(header, executionProfile.getInfoString(header));
-            }
-        }
-
-        MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile);
+        element.infoStrings.putAll(profile.getSummaryProfile().getAsInfoStings());
+        MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile.getRootProfile());
         try {
             builder.build();
         } catch (Exception e) {
             element.errMsg = e.getMessage();
-            LOG.debug("failed to build profile tree", e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("failed to build profile tree", e);
+            }
             return element;
         }
         element.builder = builder;
         return element;
     }
 
-    public void pushProfile(RuntimeProfile profile) {
+    public void pushProfile(Profile profile) {
         if (profile == null) {
             return;
         }

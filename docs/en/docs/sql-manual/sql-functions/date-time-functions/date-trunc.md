@@ -26,11 +26,7 @@ under the License.
 
 ## date_trunc
 
-<version since="1.2.0"> 
-
 date_trunc
-
-</version>
 
 ### Description
 #### Syntax
@@ -42,8 +38,8 @@ Truncates datetime in the specified time unit.
 
 datetime is a legal date expression.
 
-unit is the time unit you want to truncate. The optional values are as follows: [`second`,`minute`,`hour`,`day`,`week`,`month`,`quarter`,`year`]。
-If unit does not meet the above optional values, the result will return NULL.
+unit is the time unit you want to truncate. The optional values are as follows: [`second`,`minute`,`hour`,`day`,`week`,`month`,`quarter`,`year`].
+
 ### example
 
 ```
@@ -104,4 +100,5 @@ mysql> select date_trunc('2010-12-02 19:28:30', 'year');
 +-------------------------------------------------+
 ```
 ### keywords
-    DATE_TRUNC,DATE,DATETIME
+
+DATE_TRUNC,DATE,DATETIME

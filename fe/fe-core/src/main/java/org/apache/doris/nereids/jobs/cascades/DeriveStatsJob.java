@@ -30,6 +30,7 @@ import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.HashMap;
@@ -102,20 +103,19 @@ public class DeriveStatsJob extends Job {
                 }
             }
         } else {
+            ConnectContext connectContext = context.getCascadesContext().getConnectContext();
+            SessionVariable sessionVariable = connectContext.getSessionVariable();
             StatsCalculator statsCalculator = StatsCalculator.estimate(groupExpression,
-                    context.getCascadesContext().getConnectContext().getSessionVariable().getForbidUnknownColStats(),
-                    context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap(),
-                    context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump(),
+                    sessionVariable.getForbidUnknownColStats(),
+                    connectContext.getTotalColumnStatisticMap(),
+                    sessionVariable.isPlayNereidsDump(),
                     cteIdToStats,
                     context.getCascadesContext());
             STATS_STATE_TRACER.log(StatsStateEvent.of(groupExpression,
                     groupExpression.getOwnerGroup().getStatistics()));
-            if (ConnectContext.get().getSessionVariable().isEnableMinidump()
-                    && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
-                context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap()
-                    .putAll(statsCalculator.getTotalColumnStatisticMap());
-                context.getCascadesContext().getConnectContext().getTotalHistogramMap()
-                    .putAll(statsCalculator.getTotalHistogramMap());
+            if (sessionVariable.isEnableMinidump() && !sessionVariable.isPlayNereidsDump()) {
+                connectContext.getTotalColumnStatisticMap().putAll(statsCalculator.getTotalColumnStatisticMap());
+                connectContext.getTotalHistogramMap().putAll(statsCalculator.getTotalHistogramMap());
             }
 
             if (groupExpression.getPlan() instanceof Project) {

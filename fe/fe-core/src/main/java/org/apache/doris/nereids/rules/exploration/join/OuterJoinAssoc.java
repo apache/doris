@@ -79,14 +79,14 @@ public class OuterJoinAssoc extends OneExplorationRuleFactory {
                                 .addAll(topJoin.getOtherJoinConjuncts()).build();
                         Set<Slot> notNullSlots = ExpressionUtils.inferNotNullSlots(on,
                                 ctx.cascadesContext);
-                        if (!conditionSlot.equals(notNullSlots)) {
+                        if (conditionSlot.isEmpty() || !conditionSlot.equals(notNullSlots)) {
                             return null;
                         }
                     }
 
-                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c, null);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
-                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(a, newBottomJoin);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(a, newBottomJoin, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     setReorderContext(newTopJoin, newBottomJoin);
                     return newTopJoin;
