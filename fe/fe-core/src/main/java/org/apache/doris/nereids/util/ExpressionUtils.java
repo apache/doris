@@ -494,7 +494,7 @@ public class ExpressionUtils {
         List<MarkJoinSlotReference> markJoinSlotReferenceList =
                 ((Set<MarkJoinSlotReference>) predicate
                         .collect(MarkJoinSlotReference.class::isInstance)).stream()
-                        .collect(Collectors.toList());
+                                .collect(Collectors.toList());
         int markSlotSize = markJoinSlotReferenceList.size();
         int maxMarkSlotCount = 4;
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)

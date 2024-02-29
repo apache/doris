@@ -164,9 +164,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv equal and sql equal
     def query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey  
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-17'
         """
@@ -180,9 +180,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv equal and sql not equal
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate != '2023-10-17'
         """
@@ -193,9 +193,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv equal and sql equal and number is difference
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-19'
         """
@@ -205,9 +205,9 @@ suite("filter_equal_or_notequal_case") {
     }
 
     mtmv_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate != '2023-10-17'
         """
@@ -218,9 +218,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv not equal and sql equal
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-17'
         """
@@ -231,9 +231,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv not equal and sql not equal
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate != '2023-10-17'
         """
@@ -245,9 +245,9 @@ suite("filter_equal_or_notequal_case") {
 
 
     mtmv_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-17'
         """
@@ -258,9 +258,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql equal and filter not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-16'
         """
@@ -271,9 +271,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql equal and filter in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-17'
         """
@@ -298,9 +298,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-16'
         """
@@ -311,9 +311,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate < '2023-10-16'
         """
@@ -324,9 +324,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-17'
         """
@@ -338,9 +338,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate < '2023-10-17'
         """
@@ -365,9 +365,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate < '2023-10-19'
         """
@@ -378,9 +378,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey  
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-17'
         """
@@ -391,9 +391,9 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-17' and l_shipdate < '2023-10-19'
         """
@@ -405,9 +405,9 @@ suite("filter_equal_or_notequal_case") {
 
     // sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate in ('2023-10-17')
         """
