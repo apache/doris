@@ -121,6 +121,7 @@ private:
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
     friend class PInternalServiceImpl;
+    friend class RowIdStorageReader;
     friend class Tablet;
     friend class TabletSchema;
 
@@ -410,6 +411,7 @@ private:
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
     friend class PInternalServiceImpl;
+    friend class RowIdStorageReader;
     friend class TabletSchema;
 
     const TupleId _id;
