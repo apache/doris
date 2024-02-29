@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -55,6 +56,7 @@ struct DeleteConditions {
 // NOTE：
 //    * In the first step, before calling delete_handler.init(), you should lock the tablet's header file.
 class DeleteHandler {
+    ENABLE_FACTORY_CREATOR(DeleteHandler);
     // These static method is used to generate delete predicate pb during write or push handler
 public:
     // generated DeletePredicatePB by TCondition
