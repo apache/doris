@@ -40,12 +40,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.RowBatch;
@@ -161,8 +161,10 @@ public class CacheAnalyzer {
         }
 
         public void debug() {
-            LOG.debug("table {}, partition id {}, ver {}, time {}, partition num {}, sumOfPartitionNum: {}",
-                    table.getName(), latestPartitionId, latestVersion, latestTime, partitionNum, sumOfPartitionNum);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("table {}, partition id {}, ver {}, time {}, partition num {}, sumOfPartitionNum: {}",
+                        table.getName(), latestPartitionId, latestVersion, latestTime, partitionNum, sumOfPartitionNum);
+            }
         }
     }
 
@@ -202,11 +204,15 @@ public class CacheAnalyzer {
 
     private CacheMode innerCheckCacheMode(long now) {
         if (!enableCache()) {
-            LOG.debug("cache is disabled. queryid {}", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("cache is disabled. queryid {}", DebugUtil.printId(queryId));
+            }
             return CacheMode.NoNeed;
         }
         if (!(parsedStmt instanceof SelectStmt) || scanNodes.size() == 0) {
-            LOG.debug("not a select stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("not a select stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
+            }
             return CacheMode.NoNeed;
         }
         this.selectStmt = (SelectStmt) parsedStmt;
@@ -239,11 +245,15 @@ public class CacheAnalyzer {
 
         // TODO:wxy support partition cache for hive table later
         if (!(latestTable.table instanceof OlapTable)) {
-            LOG.debug("only support partition cache for olap table now. queryid {}", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("only support partition cache for olap table now. queryid {}", DebugUtil.printId(queryId));
+            }
             return CacheMode.None;
         }
         if (!enablePartitionCache()) {
-            LOG.debug("partition query cache is disabled. queryid {}", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("partition query cache is disabled. queryid {}", DebugUtil.printId(queryId));
+            }
             return CacheMode.None;
         }
 
@@ -251,37 +261,47 @@ public class CacheAnalyzer {
         //Only one table can be updated in Config.cache_last_version_interval_second range
         for (int i = 1; i < tblTimeList.size(); i++) {
             if ((now - tblTimeList.get(i).latestTime) < Config.cache_last_version_interval_second * 1000L) {
-                LOG.debug("the time of other tables is newer than {} s, queryid {}",
-                        Config.cache_last_version_interval_second, DebugUtil.printId(queryId));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("the time of other tables is newer than {} s, queryid {}",
+                            Config.cache_last_version_interval_second, DebugUtil.printId(queryId));
+                }
                 return CacheMode.None;
             }
         }
         OlapTable olapTable = (OlapTable) latestTable.table;
         if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
-            LOG.debug("the partition of OlapTable not RANGE type, queryid {}", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("the partition of OlapTable not RANGE type, queryid {}", DebugUtil.printId(queryId));
+            }
             return CacheMode.None;
         }
         partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         List<Column> columns = partitionInfo.getPartitionColumns();
         //Partition key has only one column
         if (columns.size() != 1) {
-            LOG.debug("more than one partition column {}, queryid {}", columns.size(),
-                    DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("more than one partition column {}, queryid {}", columns.size(),
+                        DebugUtil.printId(queryId));
+            }
             return CacheMode.None;
         }
         partColumn = columns.get(0);
         //Check if group expr contain partition column
         if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
-            LOG.debug("group by columns does not contains all partition column, queryid {}",
-                    DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("group by columns does not contains all partition column, queryid {}",
+                        DebugUtil.printId(queryId));
+            }
             return CacheMode.None;
         }
         //Check if whereClause have one CompoundPredicate of partition column
         List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
         getPartitionKeyFromSelectStmt(this.selectStmt, partColumn, compoundPredicates);
         if (compoundPredicates.size() != 1) {
-            LOG.debug("empty or more than one predicates contain partition column, queryid {}",
-                    DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("empty or more than one predicates contain partition column, queryid {}",
+                        DebugUtil.printId(queryId));
+            }
             return CacheMode.None;
         }
         partitionPredicate = compoundPredicates.get(0);
@@ -399,8 +419,10 @@ public class CacheAnalyzer {
         }
 
         if (!(olapScanNodeSize == scanNodes.size() || hiveScanNodeSize == scanNodes.size())) {
-            LOG.debug("only support olap/hive table with non-federated query, other types are not supported now, "
-                    + "queryId {}", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("only support olap/hive table with non-federated query, other types are not supported now, "
+                        + "queryId {}", DebugUtil.printId(queryId));
+            }
             return Collections.emptyList();
         }
 
@@ -412,8 +434,11 @@ public class CacheAnalyzer {
                     && ((OlapScanNode) node).getSelectedPartitionNum() > 1
                     && selectStmt != null
                     && selectStmt.hasGroupByClause()) {
-                LOG.debug("more than one partition scanned when qeury has agg, partition cache cannot use, queryid {}",
-                        DebugUtil.printId(queryId));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("more than one partition scanned when qeury has agg, "
+                                    + "partition cache cannot use, queryid {}",
+                            DebugUtil.printId(queryId));
+                }
                 return Collections.emptyList();
             }
             CacheTable cTable = node instanceof OlapScanNode
@@ -451,13 +476,17 @@ public class CacheAnalyzer {
                 rowCount += value.getRowsCount();
                 dataSize += value.getDataSize();
             }
-            LOG.debug("hit cache, mode {}, queryid {}, all count {}, value count {}, row count {}, data size {}",
-                    cacheMode, DebugUtil.printId(queryId),
-                    cacheResult.getAllCount(), cacheResult.getValuesCount(),
-                    rowCount, dataSize);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("hit cache, mode {}, queryid {}, all count {}, value count {}, row count {}, data size {}",
+                        cacheMode, DebugUtil.printId(queryId),
+                        cacheResult.getAllCount(), cacheResult.getValuesCount(),
+                        rowCount, dataSize);
+            }
         } else {
-            LOG.debug("miss cache, mode {}, queryid {}, code {}, msg {}", cacheMode,
-                    DebugUtil.printId(queryId), status.getErrorCode(), status.getErrorMsg());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("miss cache, mode {}, queryid {}, code {}, msg {}", cacheMode,
+                        DebugUtil.printId(queryId), status.getErrorCode(), status.getErrorMsg());
+            }
             cacheResult = null;
         }
         return cacheResult;
@@ -667,4 +696,3 @@ public class CacheAnalyzer {
         cache.updateCache();
     }
 }
-

@@ -24,6 +24,7 @@ import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
@@ -1682,9 +1683,9 @@ public class AuthTest {
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
         String role = "role0";
         String resourceName = "spark0";
-        ResourcePattern resourcePattern = new ResourcePattern(resourceName);
+        ResourcePattern resourcePattern = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
         String anyResource = "*";
-        ResourcePattern anyResourcePattern = new ResourcePattern(anyResource);
+        ResourcePattern anyResourcePattern = new ResourcePattern(anyResource, ResourceTypeEnum.GENERAL);
         List<AccessPrivilegeWithCols> usagePrivileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
@@ -1701,7 +1702,7 @@ public class AuthTest {
         }
 
         // 2. grant usage_priv on resource 'spark0' to 'testUser'@'%'
-        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges);
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1713,7 +1714,7 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource 'spark0' from 'testUser'@'%'
-        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges);
+        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1728,7 +1729,7 @@ public class AuthTest {
             List<AccessPrivilegeWithCols> notAllowedPrivileges = Lists
                     .newArrayList(new AccessPrivilegeWithCols(
                             AccessPrivilege.fromName(Privilege.notBelongToResourcePrivileges[i].getName())));
-            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges);
+            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges, ResourceTypeEnum.GENERAL);
             try {
                 grantStmt.analyze(analyzer);
                 Assert.fail(String.format("Can not grant/revoke %s to/from any other users or roles",
@@ -1758,7 +1759,7 @@ public class AuthTest {
             Assert.fail();
         }
         // grant usage_priv on resource 'spark0' to role 'role0'
-        grantStmt = new GrantStmt(null, role, resourcePattern, usagePrivileges);
+        grantStmt = new GrantStmt(null, role, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1780,7 +1781,7 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource 'spark0' from role 'role0'
-        revokeStmt = new RevokeStmt(null, role, resourcePattern, usagePrivileges);
+        revokeStmt = new RevokeStmt(null, role, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1822,7 +1823,7 @@ public class AuthTest {
         }
 
         // 2. grant usage_priv on resource '*' to 'testUser'@'%'
-        grantStmt = new GrantStmt(userIdentity, null, anyResourcePattern, usagePrivileges);
+        grantStmt = new GrantStmt(userIdentity, null, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1836,7 +1837,7 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 3. revoke usage_priv on resource '*' from 'testUser'@'%'
-        revokeStmt = new RevokeStmt(userIdentity, null, anyResourcePattern, usagePrivileges);
+        revokeStmt = new RevokeStmt(userIdentity, null, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1870,7 +1871,7 @@ public class AuthTest {
             Assert.fail();
         }
         // grant usage_priv on resource '*' to role 'role0'
-        grantStmt = new GrantStmt(null, role, anyResourcePattern, usagePrivileges);
+        grantStmt = new GrantStmt(null, role, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1892,7 +1893,7 @@ public class AuthTest {
         Assert.assertTrue(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource '*' from role 'role0'
-        revokeStmt = new RevokeStmt(null, role, anyResourcePattern, usagePrivileges);
+        revokeStmt = new RevokeStmt(null, role, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1936,7 +1937,7 @@ public class AuthTest {
         // 1. grant db table priv to resource
         List<AccessPrivilegeWithCols> privileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
-        grantStmt = new GrantStmt(userIdentity, null, resourcePattern, privileges);
+        grantStmt = new GrantStmt(userIdentity, null, resourcePattern, privileges, ResourceTypeEnum.GENERAL);
         hasException = false;
         try {
             grantStmt.analyze(analyzer);

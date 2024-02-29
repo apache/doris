@@ -137,7 +137,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     bool enable_lazy_mat)
+                     bool enable_lazy_mat, std::vector<orc::TypeKind>* unsupported_pushdown_types)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -148,7 +148,8 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _ctz(ctz),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
-          _is_dict_cols_converted(false) {
+          _is_dict_cols_converted(false),
+          _unsupported_pushdown_types(unsupported_pushdown_types) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
@@ -524,8 +525,20 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
 
 template <PrimitiveType primitive_type>
 std::vector<OrcPredicate> value_range_to_predicate(
-        const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type) {
+        const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type,
+        std::vector<orc::TypeKind>* unsupported_pushdown_types) {
     std::vector<OrcPredicate> predicates;
+
+    if (unsupported_pushdown_types != nullptr) {
+        for (vector<orc::TypeKind>::iterator it = unsupported_pushdown_types->begin();
+             it != unsupported_pushdown_types->end(); ++it) {
+            if (*it == type->getKind()) {
+                // Unsupported type
+                return predicates;
+            }
+        }
+    }
+
     orc::PredicateDataType predicate_data_type;
     auto type_it = TYPEKIND_TO_PREDICATE_TYPE.find(type->getKind());
     if (type_it == TYPEKIND_TO_PREDICATE_TYPE.end()) {
@@ -667,8 +680,8 @@ bool OrcReader::_init_search_argument(
         }
         std::visit(
                 [&](auto& range) {
-                    std::vector<OrcPredicate> value_predicates =
-                            value_range_to_predicate(range, type_it->second);
+                    std::vector<OrcPredicate> value_predicates = value_range_to_predicate(
+                            range, type_it->second, _unsupported_pushdown_types);
                     for (auto& range_predicate : value_predicates) {
                         predicates.emplace_back(range_predicate);
                     }
@@ -1925,8 +1938,10 @@ Status OrcReader::on_string_dicts_loaded(
                 auto data_type = slot_desc->get_data_type_ptr();
                 if (data_type->is_nullable()) {
                     temp_block.insert(
-                            {ColumnNullable::create(std::move(dict_value_column),
-                                                    ColumnUInt8::create(dict_value_column_size, 0)),
+                            {ColumnNullable::create(
+                                     std::move(
+                                             dict_value_column), // NOLINT(bugprone-use-after-move)
+                                     ColumnUInt8::create(dict_value_column_size, 0)),
                              std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                              ""});
                 } else {
@@ -2155,10 +2170,10 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
     const int* dict_data = dict_column->get_data().data();
     string_values.reserve(num_values);
     size_t max_value_length = 0;
-    auto* null_map_data = null_map->data();
     if (orc_column_type->getKind() == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
         if (null_map) {
+            auto* null_map_data = null_map->data();
             for (int i = 0; i < num_values; ++i) {
                 if (!null_map_data[i]) {
                     char* val_ptr;
@@ -2192,6 +2207,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
         }
     } else {
         if (null_map) {
+            auto* null_map_data = null_map->data();
             for (int i = 0; i < num_values; ++i) {
                 if (!null_map_data[i]) {
                     char* val_ptr;

@@ -46,7 +46,7 @@
           "type": "long"
         },
         "c_unsigned_long": {
-          "type": "unsigned_long"
+          "type": "long"
         },
         "c_float": {
           "type": "float"

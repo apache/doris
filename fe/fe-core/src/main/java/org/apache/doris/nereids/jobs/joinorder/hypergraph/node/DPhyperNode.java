@@ -44,7 +44,7 @@ public class DPhyperNode extends AbstractNode {
     }
 
     public DPhyperNode withGroup(Group group) {
-        return new DPhyperNode(index, group, edges);
+        return new DPhyperNode(index, group, getEdges());
     }
 
     public Group getGroup() {

@@ -220,6 +220,12 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             need_ordered_result = false;
         }
 
+        if (_direct_mode) {
+            // direct mode indicates that the storage layer does not need to merge,
+            // it's ok for rowset to return unordered result
+            need_ordered_result = false;
+        }
+
         if (read_params.read_orderby_key) {
             need_ordered_result = true;
         }

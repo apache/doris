@@ -33,7 +33,7 @@ CREATE TABLE stream_load_uniq_tbl_basic_sequence
     kd12 DATETIME        NOT NULL DEFAULT "2023-08-24 12:00:00",
     kd13 DATEV2          NOT NULL DEFAULT "2023-08-24",
     kd14 DATETIMEV2      NOT NULL DEFAULT "2023-08-24 12:00:00",
-    kd15 CHAR(300)       NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
+    kd15 CHAR(255)       NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
     kd16 VARCHAR(300)    NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
     kd17 STRING          NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
     kd18 JSON            NULL,

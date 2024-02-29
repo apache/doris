@@ -24,10 +24,11 @@
 namespace doris {
 
 class HttpRequest;
+class StorageEngine;
 
-class ChecksumAction : public HttpHandlerWithAuth {
+class ChecksumAction final : public HttpHandlerWithAuth {
 public:
-    explicit ChecksumAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+    explicit ChecksumAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
                             TPrivilegeType::type type);
 
     ~ChecksumAction() override = default;
@@ -36,6 +37,8 @@ public:
 
 private:
     int64_t do_checksum(int64_t tablet_id, int64_t version, int32_t schema_hash, HttpRequest* req);
+
+    StorageEngine& _engine;
 }; // end class ChecksumAction
 
 } // end namespace doris

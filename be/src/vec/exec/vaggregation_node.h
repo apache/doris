@@ -437,6 +437,7 @@ protected:
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
 
 private:
     friend class pipeline::AggSinkOperator;
@@ -479,7 +480,6 @@ private:
     RuntimeProfile::Counter* _serialize_result_timer = nullptr;
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
     RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _max_row_size_counter = nullptr;

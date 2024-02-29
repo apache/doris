@@ -17,6 +17,7 @@
 
 suite("subquery_basic_pullup_and_subquery") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
 
     sql """DROP TABLE IF EXISTS t1;"""

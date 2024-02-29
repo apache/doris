@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -32,6 +33,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.collect.ImmutableSet;
+
+import java.util.Collections;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -55,12 +59,25 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                     LogicalAggregate<Plan> agg = ctx.root;
                     Set<Expression> exprs = agg.getAggregateFunctions().stream().flatMap(f -> f.children().stream())
                             .collect(Collectors.toSet());
-                    Set<Expression> isNotNull = ExpressionUtils.inferNotNull(exprs, ctx.cascadesContext);
-                    if (isNotNull.size() == 0 || (agg.child() instanceof Filter && isNotNull.equals(
-                            ((Filter) agg.child()).getConjuncts()))) {
+                    Set<Expression> isNotNulls = ExpressionUtils.inferNotNull(exprs, ctx.cascadesContext);
+                    Set<Expression> predicates = Collections.emptySet();
+                    if ((agg.child() instanceof Filter)) {
+                        predicates = ((Filter) agg.child()).getConjuncts();
+                    }
+                    ImmutableSet.Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
+                    for (Expression isNotNull : isNotNulls) {
+                        if (!predicates.contains(isNotNull)) {
+                            isNotNull = ((Not) isNotNull).withGeneratedIsNotNull(true);
+                            if (!predicates.contains(isNotNull)) {
+                                needGenerateNotNullsBuilder.add(isNotNull);
+                            }
+                        }
+                    }
+                    Set<Expression> needGenerateNotNulls = needGenerateNotNullsBuilder.build();
+                    if (needGenerateNotNulls.isEmpty()) {
                         return null;
                     }
-                    return agg.withChildren(PlanUtils.filter(isNotNull, agg.child()).get());
+                    return agg.withChildren(PlanUtils.filter(needGenerateNotNulls, agg.child()).get());
                 }).toRule(RuleType.INFER_AGG_NOT_NULL);
     }
 }

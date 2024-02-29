@@ -76,6 +76,16 @@ public class InPredicate extends Expression {
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if (children().get(0).getDataType().isStructType()) {
+            // we should check in value list is all struct type
+            for (int i = 1; i < children().size(); i++) {
+                if (!children().get(i).getDataType().isStructType() && !children().get(i).getDataType().isNullType()) {
+                    throw new AnalysisException("in predicate struct should compare with struct type list, but got : "
+                            + children().get(i).getDataType().toSql());
+                }
+            }
+            return;
+        }
         children().forEach(c -> {
             if (c.getDataType().isObjectType()) {
                 throw new AnalysisException("in predicate could not contains object type: " + this.toSql());

@@ -18,17 +18,18 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -51,7 +52,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -116,11 +116,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // table(view)'s comment
     @SerializedName(value = "comment")
     protected String comment = "";
-    // sql for creating this table, default is "";
-    protected String ddlSql = "";
 
-    @SerializedName(value = "constraints")
-    private HashMap<String, Constraint> constraintsMap = new HashMap<>();
+    @SerializedName(value = "ta")
+    protected TableAttributes tableAttributes = new TableAttributes();
 
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
@@ -337,12 +335,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public Constraint getConstraint(String name) {
-        return constraintsMap.get(name);
+        return getConstraintsMap().get(name);
     }
 
     @Override
     public Map<String, Constraint> getConstraintsMapUnsafe() {
-        return constraintsMap;
+        return tableAttributes.getConstraintsMap();
     }
 
     public TableType getType() {
@@ -353,13 +351,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return fullSchema;
     }
 
-    public String getDdlSql() {
-        return ddlSql;
-    }
-
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
         return getBaseSchema(Util.showHiddenColumns());
+    }
+
+    @Override
+    public List<Column> getSchemaAllIndexes(boolean full) {
+        return getBaseSchema();
     }
 
     public List<Column> getBaseSchema(boolean full) {
@@ -395,11 +394,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public long getRowCount() {
-        return 0;
-    }
-
-    public long getCacheRowCount() {
-        return getRowCount();
+        return fetchRowCount();
     }
 
     public long getAvgRowLength() {
@@ -462,9 +457,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         for (Column column : fullSchema) {
             column.write(out);
         }
-
         Text.writeString(out, comment);
-
+        // write table attributes
+        Text.writeString(out, GsonUtils.GSON.toJson(tableAttributes));
         // write create time
         out.writeLong(createTime);
     }
@@ -495,7 +490,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             hasCompoundKey = true;
         }
         comment = Text.readString(in);
+        // table attribute only support after version 127
+        if (FeMetaVersion.VERSION_127 <= Env.getCurrentEnvJournalVersion()) {
+            String json = Text.readString(in);
+            this.tableAttributes = GsonUtils.GSON.fromJson(json, TableAttributes.class);
 
+        }
         // read create time
         this.createTime = in.readLong();
     }
@@ -550,10 +550,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.id = id;
     }
 
-    public CreateTableStmt toCreateTableStmt(String dbName) {
-        throw new NotImplementedException("toCreateTableStmt not implemented");
-    }
-
     @Override
     public String toString() {
         return "Table [id=" + id + ", name=" + name + ", type=" + type + "]";
@@ -583,7 +579,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         OlapTable olapTable = (OlapTable) this;
 
         if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-            LOG.debug("table {} is a colocate table, skip tablet checker.", name);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("table {} is a colocate table, skip tablet checker.", name);
+            }
             return false;
         }
 
@@ -601,24 +599,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         throw new NotImplementedException("createAnalysisTask not implemented");
-    }
-
-    /**
-     * for NOT-ANALYZED Olap table, return estimated row count,
-     * for other table, return 1
-     * @return estimated row count
-     */
-    public long estimatedRowCount() {
-        long cardinality = 0;
-        if (this instanceof OlapTable) {
-            OlapTable table = (OlapTable) this;
-            for (long selectedPartitionId : table.getPartitionIds()) {
-                final Partition partition = table.getPartition(selectedPartitionId);
-                final MaterializedIndex baseIndex = partition.getBaseIndex();
-                cardinality += baseIndex.getRowCount();
-            }
-        }
-        return Math.max(cardinality, 1);
     }
 
     @Override
@@ -646,5 +626,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public List<Long> getChunkSizes() {
         throw new NotImplementedException("getChunkSized not implemented");
+    }
+
+    @Override
+    public long fetchRowCount() {
+        return 0;
     }
 }

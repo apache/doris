@@ -113,6 +113,11 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         return dmlCommandType;
     }
 
+    public LogicalOlapTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
+                dmlCommandType, Optional.empty(), Optional.empty(), child());
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

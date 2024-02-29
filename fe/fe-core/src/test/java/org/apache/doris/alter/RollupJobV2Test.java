@@ -59,7 +59,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -86,8 +86,8 @@ public class RollupJobV2Test {
     private static String fileName = "./RollupJobV2Test";
 
     private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
-    private static GlobalTransactionMgr masterTransMgr;
-    private static GlobalTransactionMgr slaveTransMgr;
+    private static GlobalTransactionMgrIface masterTransMgr;
+    private static GlobalTransactionMgrIface slaveTransMgr;
     private static Env masterEnv;
     private static Env slaveEnv;
 
@@ -327,7 +327,8 @@ public class RollupJobV2Test {
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
 
-        RollupJobV2 rollupJobV2 = new RollupJobV2("", 1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
+        RollupJobV2 rollupJobV2 = AlterJobV2Factory.createRollupJobV2(
+                "", 1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
                 KeysType.AGG_KEYS, keysCount,
                 new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
                         0));

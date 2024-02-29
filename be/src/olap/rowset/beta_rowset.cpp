@@ -92,6 +92,26 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
     return Status::OK();
 }
 
+Status BetaRowset::get_inverted_index_size_by_index_id(int64_t index_id, size_t* index_size) {
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::Error<INIT_FAILED>("get fs failed");
+    }
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto seg_path = segment_file_path(seg_id);
+        int64_t file_size = 0;
+        const auto* index = _schema->get_inverted_index_with_index_id(index_id, "");
+        if (index == nullptr || index->index_type() != IndexType::INVERTED) {
+            continue;
+        }
+        std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_name(
+                seg_path, index_id, index->get_index_suffix());
+        RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
+        *index_size += file_size;
+    }
+    return Status::OK();
+}
+
 Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {

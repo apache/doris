@@ -25,11 +25,13 @@ import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
@@ -135,5 +137,13 @@ public interface CommandVisitor<R, C> {
 
     default R visitCallCommand(CallCommand callCommand, C context) {
         return visitCommand(callCommand, context);
+    }
+
+    default R visitCreateProcedureCommand(CreateProcedureCommand createProcedureCommand, C context) {
+        return visitCommand(createProcedureCommand, context);
+    }
+
+    default R visitDropProcedureCommand(DropProcedureCommand dropProcedureCommand, C context) {
+        return visitCommand(dropProcedureCommand, context);
     }
 }

@@ -1566,10 +1566,7 @@ suite("test_stream_load", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
-                assertEquals(100, json.NumberTotalRows)
-                assertEquals(100, json.NumberFilteredRows)
-                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]Encountered unqualified data, stop processing"))
             }
         }
     } finally {

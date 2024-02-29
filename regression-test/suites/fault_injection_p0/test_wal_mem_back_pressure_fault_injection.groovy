@@ -123,4 +123,35 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
 
     thread1.join()
 
+    // new test
+ 
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            `k` int ,
+            `v` int ,
+        ) engine=olap
+        DISTRIBUTED BY HASH(`k`) 
+        BUCKETS 5 
+        properties("replication_num" = "1")
+        """
+
+    GetDebugPoint().clearDebugPointsForAllBEs()
+
+    def exception = false;
+    sql """ set group_commit = async_mode; """
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("VWalWriter.write_wal.fail")
+            sql """insert into ${tableName} values(1,1)"""
+            assertFalse(true);
+        } catch (Exception e) {
+            logger.info(e.getMessage())
+            assertTrue(e.getMessage().contains('Failed to write wal!'))
+            exception = true;
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("VWalWriter.write_wal.fail")
+            assertTrue(exception)
+        }
+
 }

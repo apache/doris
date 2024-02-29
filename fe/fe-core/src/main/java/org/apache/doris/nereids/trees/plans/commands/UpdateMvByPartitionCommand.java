@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.TableIf;
@@ -72,9 +71,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * @return command
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<Long> partitionIds,
-            Map<OlapTable, String> tableWithPartKey) {
+            Map<TableIf, String> tableWithPartKey) {
         NereidsParser parser = new NereidsParser();
-        Map<OlapTable, Set<Expression>> predicates =
+        Map<TableIf, Set<Expression>> predicates =
                 constructTableWithPredicates(mv, partitionIds, tableWithPartKey);
         List<String> parts = constructPartsForMv(mv, partitionIds);
         Plan plan = parser.parseSingle(mv.getQuerySql());
@@ -94,12 +93,12 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 .collect(ImmutableList.toImmutableList());
     }
 
-    private static Map<OlapTable, Set<Expression>> constructTableWithPredicates(MTMV mv,
-            Set<Long> partitionIds, Map<OlapTable, String> tableWithPartKey) {
+    private static Map<TableIf, Set<Expression>> constructTableWithPredicates(MTMV mv,
+            Set<Long> partitionIds, Map<TableIf, String> tableWithPartKey) {
         Set<PartitionItem> items = partitionIds.stream()
                 .map(id -> mv.getPartitionInfo().getItem(id))
                 .collect(ImmutableSet.toImmutableSet());
-        ImmutableMap.Builder<OlapTable, Set<Expression>> builder = new ImmutableMap.Builder<>();
+        ImmutableMap.Builder<TableIf, Set<Expression>> builder = new ImmutableMap.Builder<>();
         tableWithPartKey.forEach((table, colName) ->
                 builder.put(table, constructPredicates(items, colName))
         );
@@ -137,13 +136,13 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         }
     }
 
-    static class PredicateAdder extends DefaultPlanRewriter<Map<OlapTable, Set<Expression>>> {
+    static class PredicateAdder extends DefaultPlanRewriter<Map<TableIf, Set<Expression>>> {
         @Override
-        public Plan visitUnboundRelation(UnboundRelation unboundRelation, Map<OlapTable, Set<Expression>> predicates) {
+        public Plan visitUnboundRelation(UnboundRelation unboundRelation, Map<TableIf, Set<Expression>> predicates) {
             List<String> tableQualifier = RelationUtil.getQualifierName(ConnectContext.get(),
                     unboundRelation.getNameParts());
             TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv());
-            if (table instanceof OlapTable && predicates.containsKey(table)) {
+            if (predicates.containsKey(table)) {
                 return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.get(table))),
                         unboundRelation);
             }

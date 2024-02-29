@@ -20,8 +20,10 @@ package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.MetaIdMappingsLog;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -124,7 +126,7 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
             return false;
         }
 
-        // `that` event can be batched if this event's partitions contains all of the partitions which `that` event has
+        // `that` event can be batched if this event's partitions contains all the partitions which `that` event has
         // else just remove `that` event's relevant partitions
         for (String partitionName : getAllPartitionNames()) {
             if (thatPartitionEvent instanceof AddPartitionEvent) {
@@ -135,5 +137,18 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
         }
 
         return getAllPartitionNames().containsAll(thatPartitionEvent.getAllPartitionNames());
+    }
+
+    @Override
+    protected List<MetaIdMappingsLog.MetaIdMapping> transferToMetaIdMappings() {
+        List<MetaIdMappingsLog.MetaIdMapping> metaIdMappings = Lists.newArrayList();
+        for (String partitionName : this.getAllPartitionNames()) {
+            MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
+                        MetaIdMappingsLog.OPERATION_TYPE_DELETE,
+                        MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
+                        dbName, tblName, partitionName);
+            metaIdMappings.add(metaIdMapping);
+        }
+        return ImmutableList.copyOf(metaIdMappings);
     }
 }

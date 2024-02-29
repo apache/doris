@@ -60,6 +60,96 @@ PROPERTIES (
 );
 ```
 
+### Use `JDBC`
+
+To reduce the CPU cost of SQL parsing and query planning, we provide the `PreparedStatement` in the FE. When using `PreparedStatement`, the SQL and its plan will be cached in the session level memory cache and will be reused later on, which reduces the CPU cost of FE. The following is an example of using PreparedStatement in JDBC:
+
+1. Setup JDBC url and enable server side prepared statement
+
+```
+url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true
+```
+
+2. Set `group_commit` session variable, there are two ways to do it:
+
+* Add `sessionVariables=group_commit=async_mode` in JDBC url
+
+```
+url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true&sessionVariables=group_commit=async_mode
+```
+
+* Use `SET group_commit = async_mode;` command
+
+```
+try (Statement statement = conn.createStatement()) {
+    statement.execute("SET group_commit = async_mode;");
+}
+```
+
+3. Using `PreparedStatement`
+
+```java
+private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
+private static final String URL_PATTERN = "jdbc:mysql://%s:%d/%s?useServerPrepStmts=true";
+private static final String HOST = "127.0.0.1";
+private static final int PORT = 9087;
+private static final String DB = "db";
+private static final String TBL = "dt";
+private static final String USER = "root";
+private static final String PASSWD = "";
+private static final int INSERT_BATCH_SIZE = 10;
+
+private static void groupCommitInsert() throws Exception {
+    Class.forName(JDBC_DRIVER);
+    try (Connection conn = DriverManager.getConnection(String.format(URL_PATTERN, HOST, PORT, DB), USER, PASSWD)) {
+        // set session variable 'group_commit'
+        try (Statement statement = conn.createStatement()) {
+            statement.execute("SET group_commit = async_mode;");
+        }
+
+        String query = "insert into " + TBL + " values(?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
+                stmt.setInt(1, i);
+                stmt.setString(2, "name" + i);
+                stmt.setInt(3, i + 10);
+                int result = stmt.executeUpdate();
+                System.out.println("rows: " + result);
+            }
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}   
+
+private static void groupCommitInsertBatch() throws Exception {
+    Class.forName(JDBC_DRIVER);
+    // add rewriteBatchedStatements=true and cachePrepStmts=true in JDBC url
+    // set session variables by sessionVariables=group_commit=async_mode in JDBC url
+    try (Connection conn = DriverManager.getConnection(
+            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", HOST, PORT, DB), USER, PASSWD)) {
+
+        String query = "insert into " + TBL + " values(?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            for (int j = 0; j < 5; j++) {
+                // 10 rows per insert
+                for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
+                    stmt.setInt(1, i);
+                    stmt.setString(2, "name" + i);
+                    stmt.setInt(3, i + 10);
+                    stmt.addBatch();
+                }
+                int[] result = stmt.executeBatch();
+            }
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+
+See [Synchronize Data Using Insert Method](../import-scenes/jdbc-load.md) for more details about **JDBC**.
+
 ### INSERT INTO VALUES
 
 * async_mode
@@ -245,103 +335,26 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mo
 
 See [Stream Load](stream-load-manual.md) for more detailed syntax used by **Http Stream**.
 
-### Use `PreparedStatement`
+## Group commit condition
 
-To reduce the CPU cost of SQL parsing and query planning, we provide the `PreparedStatement` in the FE. When using `PreparedStatement`, the SQL and its plan will be cached in the session level memory cache and will be reused later on, which reduces the CPU cost of FE. The following is an example of using PreparedStatement in JDBC:
+The data will be automatically committed either when the time interval (default is 10 seconds) or the data size (default is 64 MB) conditions meet.
 
-1. Setup JDBC url and enable server side prepared statement
-
-```
-url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true
-```
-
-2. Set `group_commit` session variable, there are two ways to do it:
-
-* Add `sessionVariables=group_commit=async_mode` in JDBC url
-
-```
-url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true&sessionVariables=group_commit=async_mode
-```
-
-* Use `SET group_commit = async_mode;` command
-
-```
-try (Statement statement = conn.createStatement()) {
-    statement.execute("SET group_commit = async_mode;");
-}
-```
-
-3. Using `PreparedStatement`
-
-```java
-private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
-private static final String URL_PATTERN = "jdbc:mysql://%s:%d/%s?useServerPrepStmts=true";
-private static final String HOST = "127.0.0.1";
-private static final int PORT = 9087;
-private static final String DB = "db";
-private static final String TBL = "dt";
-private static final String USER = "root";
-private static final String PASSWD = "";
-private static final int INSERT_BATCH_SIZE = 10;
-
-private static void groupCommitInsert() throws Exception {
-    Class.forName(JDBC_DRIVER);
-    try (Connection conn = DriverManager.getConnection(String.format(URL_PATTERN, HOST, PORT, DB), USER, PASSWD)) {
-        // set session variable 'group_commit'
-        try (Statement statement = conn.createStatement()) {
-            statement.execute("SET group_commit = async_mode;");
-        }
-
-        String query = "insert into " + TBL + " values(?, ?, ?)";
-        try (PreparedStatement stmt = conn.prepareStatement(query)) {
-            for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
-                stmt.setInt(1, i);
-                stmt.setString(2, "name" + i);
-                stmt.setInt(3, i + 10);
-                int result = stmt.executeUpdate();
-                System.out.println("rows: " + result);
-            }
-        }
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
-}   
-
-private static void groupCommitInsertBatch() throws Exception {
-    Class.forName(JDBC_DRIVER);
-    // add rewriteBatchedStatements=true and cachePrepStmts=true in JDBC url
-    // set session variables by sessionVariables=group_commit=async_mode in JDBC url
-    try (Connection conn = DriverManager.getConnection(
-            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", HOST, PORT, DB), USER, PASSWD)) {
-
-        String query = "insert into " + TBL + " values(?, ?, ?)";
-        try (PreparedStatement stmt = conn.prepareStatement(query)) {
-            for (int j = 0; j < 5; j++) {
-                // 10 rows per insert
-                for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
-                    stmt.setInt(1, i);
-                    stmt.setString(2, "name" + i);
-                    stmt.setInt(3, i + 10);
-                    stmt.addBatch();
-                }
-                int[] result = stmt.executeBatch();
-            }
-        }
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
-}
-```
-
-See [Synchronize Data Using Insert Method](../import-scenes/jdbc-load.md) for more details about **JDBC**.
-
-## Modify the group commit interval
+### Modify the time interval condition
 
 The default group commit interval is 10 seconds. Users can modify the configuration of the table:
 
 ```sql
 # Modify the group commit interval to 2 seconds
-ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
+ALTER TABLE dt SET ("group_commit_interval_ms" = "2000");
+```
+
+### Modify the data size condition
+
+The default group commit data size is 64 MB. Users can modify the configuration of the table:
+
+```sql
+# Modify the group commit data size to 128MB
+ALTER TABLE dt SET ("group_commit_data_bytes" = "134217728");
 ```
 
 ## Limitations
@@ -362,7 +375,7 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
   * Two phase commit
 
-  * Specify the label
+  * Specify the label  by set header `-H "label:my_label"`
 
   * Column update
 
@@ -413,3 +426,76 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 * Description: The `max_filter_ratio` limit can only work if the total rows of `group commit` is less than this value.
 * Default: 10000
 
+## Performance
+
+We have separately tested the write performance of group commit in high-concurrency scenarios with small data volumes using `Stream Load` and `JDBC` (in `async mode`).
+
+### Stream Load
+
+#### Environment
+
+* 1 FE: 8-core CPU, 16 GB RAM, 1 200 GB SSD disk
+* 3 BE: 16-core CPU, 64 GB RAM, 1 2 TB SSD disk
+* 1 Client: 8-core CPU, 64 GB RAM, 1 100 GB SSD disk
+
+#### DataSet
+
+* `httplogs`, 31 GB, 247249096 (247 million) rows
+
+#### Test Tool
+
+* [doris-streamloader](https://github.com/apache/doris-streamloader)
+
+#### Test Method
+
+* Setting different single-concurrency data size and concurrency num between `non group_commit` and `group_commit` modes.
+
+#### Test Result
+
+| Load Way           | Single-concurrency Data Size | Concurrency | Cost Seconds | Rows / Seconds | MB / Seconds |
+|--------------------|------------------------------|-------------|--------------------|----------------|--------------|
+| `group_commit`     | 10 KB                        | 10          | 3707               | 66,697         | 8.56         |
+| `group_commit`     | 10 KB                        | 30          | 3385               | 73,042         | 9.38         |
+| `group_commit`     | 100 KB                       | 10          | 473                | 522,725        | 67.11        |
+| `group_commit`     | 100 KB                       | 30          | 390                | 633,972        | 81.39        |
+| `group_commit`     | 500 KB                       | 10          | 323                | 765,477        | 98.28        |
+| `group_commit`     | 500 KB                       | 30          | 309                | 800,158        | 102.56       |
+| `group_commit`     | 1 MB                         | 10          | 304                | 813,319        | 104.24       |
+| `group_commit`     | 1 MB                         | 30          | 286                | 864,507        | 110.88       |
+| `group_commit`     | 10 MB                        | 10          | 290                | 852,583        | 109.28       |
+| `non group_commit` | 1 MB                         | 10          | `-235 error`       |                |              |
+| `non group_commit` | 10 MB                        | 10          | 519                | 476,395        | 61.12        |
+| `non group_commit` | 10 MB                        | 30          | `-235 error`       |                |              |
+
+In the above test, the CPU usage of BE fluctuates between 10-40%.
+
+The `group_commit` effectively enhances import performance while reducing the number of versions, thereby alleviating the pressure on compaction.
+
+### JDBC
+
+#### Environment
+
+* 1 FE: 8-core CPU, 16 GB RAM, 1 200 GB SSD disk
+* 1 BE: 16-core CPU, 64 GB RAM, 1 2 TB SSD disk
+* 1 Client: 16-core CPU, 64 GB RAM, 1 100 GB SSD disk
+
+#### DataSet
+
+* The data of tpch sf10 `lineitem` table, 20 files, 14 GB, 120 million rows
+
+#### Test Method
+
+* [DataX](https://github.com/alibaba/DataX)
+
+#### Test Method
+
+* Use `txtfilereader` wtite data to `mysqlwriter`, config different concurrenncy and rows for per `INSERT` sql.
+
+#### Test Result
+
+
+| Rows per insert | Concurrency | Rows / Second | MB / Second |
+|-----------------|-------------|---------------|-------------|
+| 100             | 20          | 106931        | 11.46       |
+
+In the above test, the CPU usage of BE fluctuates between 10-20%, FE fluctuates between 60-70%.

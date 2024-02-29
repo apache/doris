@@ -30,7 +30,8 @@ suite("q22") {
 
 
     
-sql 'set be_number_for_test=3'
+    sql 'set be_number_for_test=3'
+    sql "set runtime_filter_type=8"
 sql 'set forbid_unknown_col_stats=false;'
 sql 'set enable_runtime_filter_prune=true'
 sql 'set enable_stats=false'

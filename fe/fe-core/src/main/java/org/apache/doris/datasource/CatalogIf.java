@@ -17,6 +17,10 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -24,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -172,9 +177,17 @@ public interface CatalogIf<T extends DatabaseIf> {
     }
 
     // Return a copy of all db collection.
-    public Collection<DatabaseIf<? extends TableIf>> getAllDbs();
+    Collection<DatabaseIf<? extends TableIf>> getAllDbs();
 
-    public boolean enableAutoAnalyze();
+    boolean enableAutoAnalyze();
 
-    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
+    ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
+
+    void createDb(CreateDbStmt stmt) throws DdlException;
+
+    void dropDb(DropDbStmt stmt) throws DdlException;
+
+    void createTable(CreateTableStmt stmt) throws UserException;
+
+    void dropTable(DropTableStmt stmt) throws DdlException;
 }

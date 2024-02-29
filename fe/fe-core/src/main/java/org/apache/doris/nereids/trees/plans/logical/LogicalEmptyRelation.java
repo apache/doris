@@ -66,7 +66,7 @@ public class LogicalEmptyRelation extends LogicalRelation
     }
 
     public LogicalEmptyRelation withProjects(List<? extends NamedExpression> projects) {
-        return new LogicalEmptyRelation(relationId, projects, Optional.empty(), Optional.empty());
+        return new LogicalEmptyRelation(relationId, projects);
     }
 
     @Override

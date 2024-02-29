@@ -45,8 +45,8 @@ DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& s
 void DataTypeSerDe::convert_array_to_rapidjson(const vectorized::Array& array,
                                                rapidjson::Value& target,
                                                rapidjson::Document::AllocatorType& allocator) {
+    target.SetArray();
     for (const vectorized::Field& item : array) {
-        target.SetArray();
         rapidjson::Value val;
         convert_field_to_rapidjson(item, val, allocator);
         target.PushBack(val, allocator);

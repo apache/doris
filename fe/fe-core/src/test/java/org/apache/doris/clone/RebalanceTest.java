@@ -152,7 +152,7 @@ public class RebalanceTest {
 
         olapTable = new OlapTable(2, "fake table", new ArrayList<>(), KeysType.DUP_KEYS, new RangePartitionInfo(),
                 new HashDistributionInfo());
-        db.createTable(olapTable);
+        db.registerTable(olapTable);
 
         // 1 table, 3 partitions p0,p1,p2
         MaterializedIndex materializedIndex = new MaterializedIndex(olapTable.getId(), null);

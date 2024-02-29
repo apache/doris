@@ -51,6 +51,7 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
@@ -64,17 +65,9 @@
 namespace doris {
 using namespace ErrorCode;
 
-std::unique_ptr<DeltaWriterV2> DeltaWriterV2::open(
-        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-        RuntimeState* state) {
-    std::unique_ptr<DeltaWriterV2> writer(
-            new DeltaWriterV2(req, streams, StorageEngine::instance(), state));
-    return writer;
-}
-
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             StorageEngine* storage_engine, RuntimeState* state)
+                             RuntimeState* state)
         : _state(state),
           _req(*req),
           _tablet_schema(new TabletSchema),
@@ -109,7 +102,7 @@ Status DeltaWriterV2::init() {
     if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
         return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
     }
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param,
+    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
                                  *_streams[0]->tablet_schema(_req.index_id));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
@@ -128,13 +121,18 @@ Status DeltaWriterV2::init() {
     context.tablet_schema_hash = _req.schema_hash;
     context.enable_unique_key_merge_on_write = _streams[0]->enable_unique_mow(_req.index_id);
     context.rowset_type = RowsetTypePB::BETA_ROWSET;
-    context.rowset_id = StorageEngine::instance()->next_rowset_id();
+    context.rowset_id = ExecEnv::GetInstance()->storage_engine().next_rowset_id();
     context.data_dir = nullptr;
     context.partial_update_info = _partial_update_info;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
+    ThreadPool* wg_thread_pool_ptr = nullptr;
+    if (_state->get_query_ctx()) {
+        wg_thread_pool_ptr = _state->get_query_ctx()->get_non_pipe_exec_thread_pool();
+    }
     RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
+                                           wg_thread_pool_ptr,
                                            _streams[0]->enable_unique_mow(_req.index_id)));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;

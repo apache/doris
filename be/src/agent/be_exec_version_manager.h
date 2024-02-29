@@ -63,10 +63,14 @@ private:
  *    b. array contains/position/countequal function return nullable in less situations.
  *    c. cleared old version of Version 2.
  *    d. unix_timestamp function support timestamp with float for datetimev2, and change nullable mode.
- * 4: start from doris 2.1.x
- *    a. change shuffle serialize/deserialize way 
+ *    e. change shuffle serialize/deserialize way 
+ *    f. shrink some function's nullable mode.
+ *    g. do local merge of remote runtime filter
 */
-inline const int BeExecVersionManager::max_be_exec_version = 4;
-inline const int BeExecVersionManager::min_be_exec_version = 0;
+constexpr inline int BeExecVersionManager::max_be_exec_version = 3;
+constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
+
+/// functional
+constexpr inline int USE_NEW_SERDE = 3; // release on DORIS version 2.1
 
 } // namespace doris

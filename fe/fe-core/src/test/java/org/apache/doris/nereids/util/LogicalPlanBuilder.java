@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -49,6 +50,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -99,12 +101,23 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
+    public LogicalPlanBuilder markJoin(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
+        ImmutableList<EqualTo> hashConjuncts = ImmutableList.of(
+                new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
+
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
+                Collections.emptyList(), Collections.emptyList(),
+                new DistributeHint(DistributeType.NONE), Optional.of(new MarkJoinSlotReference("fake")),
+                this.plan, right, null);
+        return from(join);
+    }
+
     public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
         ImmutableList<EqualTo> hashConjuncts = ImmutableList.of(
                 new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
-                this.plan, right);
+                this.plan, right, null);
         return from(join);
     }
 
@@ -115,19 +128,19 @@ public class LogicalPlanBuilder {
                 .collect(Collectors.toList());
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
-                this.plan, right);
+                this.plan, right, null);
         return from(join);
     }
 
     public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjucts) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjucts,
-                new DistributeHint(DistributeType.NONE), Optional.empty(), this.plan, right);
+                new DistributeHint(DistributeType.NONE), Optional.empty(), this.plan, right, null);
         return from(join);
     }
 
     public LogicalPlanBuilder joinEmptyOn(LogicalPlan right, JoinType joinType) {
-        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, this.plan, right);
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, this.plan, right, null);
         return from(join);
     }
 

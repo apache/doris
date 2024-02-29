@@ -117,9 +117,9 @@ public class SchemaChangeJobV2Test {
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
         masterEnv = CatalogTestUtil.createTestCatalog();
         slaveEnv = CatalogTestUtil.createTestCatalog();
-        masterTransMgr = masterEnv.getGlobalTransactionMgr();
+        masterTransMgr = (GlobalTransactionMgr) masterEnv.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterEnv.getEditLog());
-        slaveTransMgr = slaveEnv.getGlobalTransactionMgr();
+        slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         addColumnClause.analyze(analyzer);
@@ -399,7 +399,8 @@ public class SchemaChangeJobV2Test {
         file.deleteOnExit();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
-        SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2("", 1, 1, 1, "test", 600000);
+        SchemaChangeJobV2 schemaChangeJobV2 = AlterJobV2Factory.createSchemaChangeJobV2(
+                "", 1, 1, 1, "test", 600000);
         schemaChangeJobV2.setStorageFormat(TStorageFormat.V2);
         Deencapsulation.setField(schemaChangeJobV2, "jobState", AlterJobV2.JobState.FINISHED);
         Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();

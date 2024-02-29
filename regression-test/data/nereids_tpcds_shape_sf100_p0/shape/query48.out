@@ -21,7 +21,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
-------------------------filter(((ca_state IN ('IA', 'MD', 'MN') OR ca_state IN ('IL', 'TX', 'VA')) OR ca_state IN ('IN', 'MI', 'WI')) and (customer_address.ca_country = 'United States'))
+------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('IA', 'IL', 'IN', 'MD', 'MI', 'MN', 'TX', 'VA', 'WI'))
 --------------------------PhysicalOlapScan[customer_address]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject

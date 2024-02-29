@@ -45,8 +45,8 @@ const std::string PARAM_COMPACTION_FULL = "full";
 /// See compaction-action.md for details.
 class CompactionAction : public HttpHandlerWithAuth {
 public:
-    CompactionAction(CompactionActionType ctype, ExecEnv* exec_env, TPrivilegeHier::type hier,
-                     TPrivilegeType::type ptype);
+    CompactionAction(CompactionActionType ctype, ExecEnv* exec_env, StorageEngine& engine,
+                     TPrivilegeHier::type hier, TPrivilegeType::type ptype);
 
     ~CompactionAction() override = default;
 
@@ -65,10 +65,8 @@ private:
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
 
-    /// check param and fetch tablet_id from req
-    Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id);
-
 private:
+    StorageEngine& _engine;
     CompactionActionType _type;
 };
 

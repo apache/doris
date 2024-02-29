@@ -78,8 +78,6 @@ suite("test_load_stream_back_pressure_fault_injection", "nonConcurrent") {
             } catch(Exception e) {
                 logger.info(e.getMessage())
                 assertTrue(e.getMessage().contains("Communications link failure"))
-            } finally {
-                GetDebugPoint().disableDebugPointForAllBEs("TabletStream.append_data.long_wait")
             }
         })
         thread1.start()
@@ -98,6 +96,8 @@ suite("test_load_stream_back_pressure_fault_injection", "nonConcurrent") {
         }
     } catch(Exception e) {
         logger.info(e.getMessage())
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("TabletStream.append_data.long_wait")
     }
 
     try {
@@ -109,8 +109,6 @@ suite("test_load_stream_back_pressure_fault_injection", "nonConcurrent") {
             } catch(Exception e) {
                 logger.info(e.getMessage())
                 assertTrue(e.getMessage().contains("Communications link failure"))
-            } finally {
-                GetDebugPoint().disableDebugPointForAllBEs("TabletStream.add_segment.long_wait")
             }
         })
         thread1.start()
@@ -129,6 +127,8 @@ suite("test_load_stream_back_pressure_fault_injection", "nonConcurrent") {
         }
     } catch(Exception e) {
         logger.info(e.getMessage())
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("TabletStream.add_segment.long_wait")
     }
 
     sql """ DROP TABLE IF EXISTS `baseall` """

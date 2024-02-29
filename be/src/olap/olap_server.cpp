@@ -39,6 +39,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/utils.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -59,6 +60,7 @@
 #include "olap/schema_change.h"
 #include "olap/single_replica_compaction.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
@@ -140,10 +142,7 @@ Status StorageEngine::start_bg_threads() {
     LOG(INFO) << "disk stat monitor thread started";
 
     // convert store map to vector
-    std::vector<DataDir*> data_dirs;
-    for (auto& tmp_store : _store_map) {
-        data_dirs.push_back(tmp_store.second);
-    }
+    std::vector<DataDir*> data_dirs = get_stores();
 
     auto base_compaction_threads = get_base_compaction_threads_num(data_dirs.size());
     auto cumu_compaction_threads = get_cumu_compaction_threads_num(data_dirs.size());
@@ -268,7 +267,7 @@ Status StorageEngine::start_bg_threads() {
 }
 
 void StorageEngine::_cache_clean_callback() {
-    int32_t interval = config::cache_prune_stale_interval;
+    int32_t interval = config::cache_periodic_prune_stale_sweep_sec;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         if (interval <= 0) {
             LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
@@ -279,7 +278,6 @@ void StorageEngine::_cache_clean_callback() {
         CacheManager::instance()->for_each_cache_prune_stale();
 
         // Dynamically modify the config to clear the cache, each time the disable cache will only be cleared once.
-        // TODO, Support page cache and other caches.
         if (config::disable_segment_cache) {
             if (!_clear_segment_cache) {
                 CacheManager::instance()->clear_once(CachePolicy::CacheType::SEGMENT_CACHE);
@@ -288,6 +286,16 @@ void StorageEngine::_cache_clean_callback() {
         } else {
             _clear_segment_cache = false;
         }
+        if (config::disable_storage_page_cache) {
+            if (!_clear_page_cache) {
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::DATA_PAGE_CACHE);
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::INDEXPAGE_CACHE);
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE);
+                _clear_page_cache = true;
+            }
+        } else {
+            _clear_page_cache = false;
+        }
     }
 }
 
@@ -295,7 +303,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     uint32_t max_interval = config::max_garbage_sweep_interval;
     uint32_t min_interval = config::min_garbage_sweep_interval;
 
-    if (!(max_interval >= min_interval && min_interval > 0)) {
+    if (max_interval < min_interval || min_interval <= 0) {
         LOG(WARNING) << "garbage sweep interval config is illegal: [max=" << max_interval
                      << " min=" << min_interval << "].";
         min_interval = 1;
@@ -555,11 +563,10 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
     std::unordered_set<TTabletId> tablet_submitted_cumu;
     std::unordered_set<TTabletId> tablet_submitted_base;
-    std::vector<DataDir*> data_dirs;
-    for (auto& tmp_store : _store_map) {
-        data_dirs.push_back(tmp_store.second);
-        _tablet_submitted_cumu_compaction[tmp_store.second] = tablet_submitted_cumu;
-        _tablet_submitted_base_compaction[tmp_store.second] = tablet_submitted_base;
+    std::vector<DataDir*> data_dirs = get_stores();
+    for (auto& data_dir : data_dirs) {
+        _tablet_submitted_cumu_compaction[data_dir] = tablet_submitted_cumu;
+        _tablet_submitted_base_compaction[data_dir] = tablet_submitted_base;
     }
 
     int round = 0;
@@ -744,7 +751,7 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
                 "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
 
-    auto compaction = std::make_shared<SingleReplicaCompaction>(tablet, compaction_type);
+    auto compaction = std::make_shared<SingleReplicaCompaction>(*this, tablet, compaction_type);
     auto st = compaction->prepare_compact();
 
     auto clean_single_replica_compaction = [tablet, this]() {
@@ -949,7 +956,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
                 tablet->tablet_id(), compaction_type);
     }
-    std::shared_ptr<Compaction> compaction;
+    std::shared_ptr<CompactionMixin> compaction;
     int64_t permits = 0;
     Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
                                                                  compaction, permits);
@@ -1040,8 +1047,9 @@ Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker
 Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                                  SegCompactionCandidatesSharedPtr segments) {
     uint64_t submission_time = GetCurrentTimeMicros();
-    return _seg_compaction_thread_pool->submit_func(std::bind<void>(
-            &StorageEngine::_handle_seg_compaction, this, worker, segments, submission_time));
+    return _seg_compaction_thread_pool->submit_func([this, worker, segments, submission_time] {
+        static_cast<void>(_handle_seg_compaction(worker, segments, submission_time));
+    });
 }
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
@@ -1053,7 +1061,7 @@ Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& re
     }
 
     IndexBuilderSharedPtr index_builder = std::make_shared<IndexBuilder>(
-            tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
+            *this, tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
     RETURN_IF_ERROR(_handle_index_change(index_builder));
     return Status::OK();
 }
@@ -1130,7 +1138,168 @@ void StorageEngine::_remove_unused_remote_files_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
         LOG(INFO) << "begin to remove unused remote files";
-        Tablet::remove_unused_remote_files();
+        do_remove_unused_remote_files();
+    }
+}
+
+void StorageEngine::do_remove_unused_remote_files() {
+    auto tablets = tablet_manager()->get_all_tablet([](Tablet* t) {
+        return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
+               t->tablet_state() == TABLET_RUNNING &&
+               t->cooldown_conf_unlocked().cooldown_replica_id == t->replica_id();
+    });
+    TConfirmUnusedRemoteFilesRequest req;
+    req.__isset.confirm_list = true;
+    // tablet_id -> [fs, unused_remote_files]
+    using unused_remote_files_buffer_t = std::unordered_map<
+            int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::FileInfo>>>;
+    unused_remote_files_buffer_t buffer;
+    int64_t num_files_in_buffer = 0;
+    // assume a filename is 0.1KB, buffer size should not larger than 100MB
+    constexpr int64_t max_files_in_buffer = 1000000;
+
+    auto calc_unused_remote_files = [&req, &buffer, &num_files_in_buffer, this](Tablet* t) {
+        auto storage_policy = get_storage_policy(t->storage_policy_id());
+        if (storage_policy == nullptr) {
+            LOG(WARNING) << "could not find storage_policy, storage_policy_id="
+                         << t->storage_policy_id();
+            return;
+        }
+        auto resource = get_storage_resource(storage_policy->resource_id);
+        auto dest_fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
+        if (dest_fs == nullptr) {
+            LOG(WARNING) << "could not find resource, resouce_id=" << storage_policy->resource_id;
+            return;
+        }
+        DCHECK(atol(dest_fs->id().c_str()) == storage_policy->resource_id);
+        DCHECK(dest_fs->type() != io::FileSystemType::LOCAL);
+
+        std::shared_ptr<io::RemoteFileSystem> fs;
+        auto st = get_remote_file_system(t->storage_policy_id(), &fs);
+        if (!st.ok()) {
+            LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
+                         << t->tablet_id() << " : " << st;
+            return;
+        }
+
+        std::vector<io::FileInfo> files;
+        // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
+        //  Maybe we should also list files in previously uploaded resources.
+        bool exists = true;
+        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
+        if (!st.ok()) {
+            LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
+                         << t->tablet_id() << " : " << st;
+            return;
+        }
+        if (!exists || files.empty()) {
+            return;
+        }
+        // get all cooldowned rowsets
+        RowsetIdUnorderedSet cooldowned_rowsets;
+        UniqueId cooldown_meta_id;
+        {
+            std::shared_lock rlock(t->get_header_lock());
+            for (auto&& rs_meta : t->tablet_meta()->all_rs_metas()) {
+                if (!rs_meta->is_local()) {
+                    cooldowned_rowsets.insert(rs_meta->rowset_id());
+                }
+            }
+            if (cooldowned_rowsets.empty()) {
+                return;
+            }
+            cooldown_meta_id = t->tablet_meta()->cooldown_meta_id();
+        }
+        auto [cooldown_replica_id, cooldown_term] = t->cooldown_conf();
+        if (cooldown_replica_id != t->replica_id()) {
+            return;
+        }
+        // {cooldown_replica_id}.{cooldown_term}.meta
+        std::string remote_meta_path =
+                fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);
+        // filter out the paths that should be reserved
+        auto filter = [&, this](io::FileInfo& info) {
+            std::string_view filename = info.file_name;
+            if (filename.ends_with(".meta")) {
+                return filename == remote_meta_path;
+            }
+            auto rowset_id = extract_rowset_id(filename);
+            if (rowset_id.hi == 0) {
+                return false;
+            }
+            return cooldowned_rowsets.contains(rowset_id) ||
+                   pending_remote_rowsets().contains(rowset_id);
+        };
+        files.erase(std::remove_if(files.begin(), files.end(), std::move(filter)), files.end());
+        if (files.empty()) {
+            return;
+        }
+        files.shrink_to_fit();
+        num_files_in_buffer += files.size();
+        buffer.insert({t->tablet_id(), {std::move(dest_fs), std::move(files)}});
+        auto& info = req.confirm_list.emplace_back();
+        info.__set_tablet_id(t->tablet_id());
+        info.__set_cooldown_replica_id(cooldown_replica_id);
+        info.__set_cooldown_meta_id(cooldown_meta_id.to_thrift());
+    };
+
+    auto confirm_and_remove_files = [&buffer, &req, &num_files_in_buffer]() {
+        TConfirmUnusedRemoteFilesResult result;
+        LOG(INFO) << "begin to confirm unused remote files. num_tablets=" << buffer.size()
+                  << " num_files=" << num_files_in_buffer;
+        auto st = MasterServerClient::instance()->confirm_unused_remote_files(req, &result);
+        if (!st.ok()) {
+            LOG(WARNING) << st;
+            return;
+        }
+        for (auto id : result.confirmed_tablets) {
+            if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
+                auto& fs = it->second.first;
+                auto& files = it->second.second;
+                std::vector<io::Path> paths;
+                paths.reserve(files.size());
+                // delete unused files
+                LOG(INFO) << "delete unused files. root_path=" << fs->root_path()
+                          << " tablet_id=" << id;
+                io::Path dir = remote_tablet_path(id);
+                for (auto& file : files) {
+                    auto file_path = dir / file.file_name;
+                    LOG(INFO) << "delete unused file: " << file_path.native();
+                    paths.push_back(std::move(file_path));
+                }
+                st = fs->batch_delete(paths);
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
+                                 << st;
+                }
+                buffer.erase(it);
+            }
+        }
+    };
+
+    // batch confirm to reduce FE's overhead
+    auto next_confirm_time = std::chrono::steady_clock::now() +
+                             std::chrono::seconds(config::confirm_unused_remote_files_interval_sec);
+    for (auto& t : tablets) {
+        if (t.use_count() <= 1 // this means tablet has been dropped
+            || t->cooldown_conf_unlocked().cooldown_replica_id != t->replica_id() ||
+            t->tablet_state() != TABLET_RUNNING) {
+            continue;
+        }
+        calc_unused_remote_files(t.get());
+        if (num_files_in_buffer > 0 && (num_files_in_buffer > max_files_in_buffer ||
+                                        std::chrono::steady_clock::now() > next_confirm_time)) {
+            confirm_and_remove_files();
+            buffer.clear();
+            req.confirm_list.clear();
+            num_files_in_buffer = 0;
+            next_confirm_time =
+                    std::chrono::steady_clock::now() +
+                    std::chrono::seconds(config::confirm_unused_remote_files_interval_sec);
+        }
+    }
+    if (num_files_in_buffer > 0) {
+        confirm_and_remove_files();
     }
 }
 
@@ -1166,7 +1335,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         tablet_to_follow.reserve(n + 1);
 
         for (auto& t : tablets) {
-            if (t->replica_id() == t->cooldown_conf_unlocked().first) {
+            if (t->replica_id() == t->cooldown_conf_unlocked().cooldown_replica_id) {
                 auto score = t->calc_cold_data_compaction_score();
                 if (score < 4) {
                     continue;
@@ -1201,27 +1370,37 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_compact) {
             LOG(INFO) << "submit cold data compaction. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(
-                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                        auto compaction = std::make_shared<ColdDataCompaction>(t);
+            static_cast<void>(_cold_data_compaction_thread_pool->submit_func(
+                    [&, t = std::move(tablet), this]() {
+                        auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
                         {
                             std::lock_guard lock(tablet_submitted_mtx);
                             tablet_submitted.insert(t->tablet_id());
                         }
+                        Defer defer {[&] {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.erase(t->tablet_id());
+                        }};
                         std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
                                                               std::try_to_lock);
                         if (!cold_compaction_lock.owns_lock()) {
                             LOG(WARNING) << "try cold_compaction_lock failed, tablet_id="
                                          << t->tablet_id();
+                            return;
                         }
-                        auto st = compaction->compact();
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.erase(t->tablet_id());
-                        }
+
+                        auto st = compaction->prepare_compact();
                         if (!st.ok()) {
-                            LOG(WARNING) << "failed to do cold data compaction. tablet_id="
+                            LOG(WARNING) << "failed to prepare cold data compaction. tablet_id="
                                          << t->tablet_id() << " err=" << st;
+                            return;
+                        }
+
+                        st = compaction->execute_compact();
+                        if (!st.ok()) {
+                            LOG(WARNING) << "failed to execute cold data compaction. tablet_id="
+                                         << t->tablet_id() << " err=" << st;
+                            return;
                         }
                     }));
         }
@@ -1343,7 +1522,7 @@ void StorageEngine::_process_async_publish() {
             }
 
             auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    tablet, partition_id, transaction_id, version);
+                    *this, tablet, partition_id, transaction_id, version);
             static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
                     [=]() { async_publish_task->handle(); }));
             tablet_iter->second.erase(task_iter);

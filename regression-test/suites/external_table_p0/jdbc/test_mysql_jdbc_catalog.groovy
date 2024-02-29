@@ -166,14 +166,29 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
             order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
             order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
-            order_qt_ex_tb21  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
+            order_qt_ex_tb21_1  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
+            order_qt_ex_tb21_2  """ select `key`, `id` from ${ex_tb21} where `key` like 2 order by id;"""
+            order_qt_ex_tb21_3  """ select `key`, `id` from ${ex_tb21} where `key` in (1,2) order by id;"""
+            order_qt_ex_tb21_4  """ select `key`, `id` from ${ex_tb21} where abs(`key`) = 2 order by id;"""
+            order_qt_ex_tb21_5  """ select `key`, `id` from ${ex_tb21} where `key` between 1 and 2 order by id;"""
+            order_qt_ex_tb21_6  """ select `key`, `id` from ${ex_tb21} where `key` = case when id = 1 then 1 else 0 end order by id;"""
+            order_qt_ex_tb21_7  """ select (`key` +1) as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
+            order_qt_ex_tb21_8  """ select `key` as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
             order_qt_information_schema """ show tables from information_schema; """
-            order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
             order_qt_dt """select * from ${dt}; """
             order_qt_dt_null """select * from ${dt_null} order by 1; """
             order_qt_test_dz """select * from ${test_zd} order by 1; """
             order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
             order_qt_test_filter_not_old_plan """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${ex_tb13} where name not like '%张三0%' order by 1; """
+            explain {
+                sql("select `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
+                contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""
+            }
+
+            explain {
+                sql("select /*+ SET_VAR(enable_ext_func_pred_pushdown = false) */ `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
+                contains """SELECT `datetime` FROM `doris_test`.`all_types`"""
+            }
 
             // test insert
             String uuid1 = UUID.randomUUID().toString();
@@ -367,7 +382,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 		}
         try {
             sql """ use ${ex_db_name}"""
-            sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
+            sql """ set enable_ext_func_pred_pushdown = "true"; """
             order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
             order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
             order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
@@ -386,25 +401,114 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             explain {
                 sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
 
-                contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (timestamp0 > '2022-01-01 00:00:00')"
+                contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
             }
             explain {
                 sql ("select k6, k8 from test1 where nvl(k6, null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(k6, NULL) = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, NULL) = 1))"
             }
             explain {
                 sql ("select k6, k8 from test1 where nvl(nvl(k6, null),null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(ifnull(k6, NULL), NULL) = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(ifnull(`k6`, NULL), NULL) = 1))"
             }
-            sql """ admin set frontend config ("enable_func_pushdown" = "false"); """
+            sql """ set enable_ext_func_pred_pushdown = "false"; """
             explain {
                 sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (`k8` = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
             }
-            sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
+            sql """ set enable_ext_func_pred_pushdown = "true"; """
+            // test date_add
+            sql """ set disable_nereids_rules='NORMALIZE_REWRITE_RULES'; """
+            order_qt_date_add_year """ select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1; """
+            explain {
+                sql("select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 year) = '2023-01-01')"
+            }
+            order_qt_date_add_month """ select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1; """
+            explain {
+                sql("select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 month) = '2022-02-01')"
+            }
+            order_qt_date_add_week """ select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1; """
+            explain {
+                sql("select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 week) = '2022-01-08')"
+            }
+            order_qt_date_add_day """ select * from test_zd where date_add(d_z,interval 1 day) = '2022-01-02' order by 1; """
+            explain {
+                sql("select * from test_zd where date_add(d_z,interval 1 day) = '2022-01-02' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 day) = '2022-01-02')"
+            }
+            order_qt_date_add_hour """ select * from test_zd where date_add(d_z,interval 1 hour) = '2022-01-01 01:00:00' order by 1; """
+            explain {
+                sql("select * from test_zd where date_add(d_z,interval 1 hour) = '2022-01-01 01:00:00' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 hour) = '2022-01-01 01:00:00')"
+            }
+            order_qt_date_add_min """ select * from test_zd where date_add(d_z,interval 1 minute) = '2022-01-01 00:01:00' order by 1; """
+            explain {
+                sql("select * from test_zd where date_add(d_z,interval 1 minute) = '2022-01-01 00:01:00' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 minute) = '2022-01-01 00:01:00')"
+            }
+            order_qt_date_add_sec """ select * from test_zd where date_add(d_z,interval 1 second) = '2022-01-01 00:00:01' order by 1; """
+            explain {
+                sql("select * from test_zd where date_add(d_z,interval 1 second) = '2022-01-01 00:00:01' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 second) = '2022-01-01 00:00:01')"
+            }
+            // date_sub
+            order_qt_date_sub_year """ select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1; """
+            explain {
+                sql("select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 year) = '2021-01-01')"
+            }
+            order_qt_date_sub_month """ select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1; """
+            explain {
+                sql("select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 month) = '2021-12-01')"
+            }
+            order_qt_date_sub_week """ select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1; """
+            explain {
+                sql("select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 week) = '2021-12-25')"
+            }
+            order_qt_date_sub_day """ select * from test_zd where date_sub(d_z,interval 1 day) = '2021-12-31' order by 1; """
+            explain {
+                sql("select * from test_zd where date_sub(d_z,interval 1 day) = '2021-12-31' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 day) = '2021-12-31')"
+            }
+            order_qt_date_sub_hour """ select * from test_zd where date_sub(d_z,interval 1 hour) = '2021-12-31 23:00:00' order by 1; """
+            explain {
+                sql("select * from test_zd where date_sub(d_z,interval 1 hour) = '2021-12-31 23:00:00' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 hour) = '2021-12-31 23:00:00')"
+            }
+            order_qt_date_sub_min """ select * from test_zd where date_sub(d_z,interval 1 minute) = '2021-12-31 23:59:00' order by 1; """
+            explain {
+                sql("select * from test_zd where date_sub(d_z,interval 1 minute) = '2021-12-31 23:59:00' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 minute) = '2021-12-31 23:59:00')"
+            }
+            order_qt_date_sub_sec """ select * from test_zd where date_sub(d_z,interval 1 second) = '2021-12-31 23:59:59' order by 1; """
+            explain {
+                sql("select * from test_zd where date_sub(d_z,interval 1 second) = '2021-12-31 23:59:59' order by 1;")
+
+                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 second) = '2021-12-31 23:59:59')"
+            }
+            sql """ set disable_nereids_rules=''; """
+
         } finally {
 			res_dbs_log = sql "show databases;"
 			for(int i = 0;i < res_dbs_log.size();i++) {
@@ -413,6 +517,90 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 			}
 		}
         sql """ drop catalog if exists mysql_fun_push_catalog; """
+
+        // test insert null
+
+        sql """drop catalog if exists ${catalog_name} """
+
+        sql """create catalog if not exists ${catalog_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver"
+        );"""
+
+        sql """switch ${catalog_name}"""
+        sql """ use ${ex_db_name}"""
+
+        order_qt_auto_default_t1 """insert into ${auto_default_t}(name) values('a'); """
+        test {
+            sql "insert into ${auto_default_t}(name,dt) values('a', null);"
+            exception "Column `dt` is not nullable, but the inserted value is nullable."
+        }
+        test {
+            sql "insert into ${auto_default_t}(name,dt) select '1', null;"
+            exception "Column `dt` is not nullable, but the inserted value is nullable."
+        }
+        explain {
+            sql "insert into ${auto_default_t}(name,dt) select col1,col12 from ex_tb15;"
+            contains "PreparedStatement SQL: INSERT INTO `doris_test`.`auto_default_t`(`name`,`dt`) VALUES (?, ?)"
+        }
+        order_qt_auto_default_t2 """insert into ${auto_default_t}(name,dt) select col1, coalesce(col12,'2022-01-01 00:00:00') from ex_tb15 limit 1;"""
+        sql """drop catalog if exists ${catalog_name} """
+
+        // test lower_case_meta_names
+
+        sql """ drop catalog if exists mysql_lower_case_catalog """
+        sql """ CREATE CATALOG mysql_lower_case_catalog PROPERTIES (
+                    "type"="jdbc",
+                    "user"="root",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "lower_case_meta_names" = "true",
+                    "meta_names_mapping" = '{"databases": [{"remoteDatabase": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","mapping": "doris_2"},{"remoteDatabase": "doris","mapping": "doris_3"}],"tables": [{"remoteDatabase": "Doris","remoteTable": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","remoteTable": "Doris","mapping": "doris_2"},{"remoteDatabase": "Doris","remoteTable": "doris","mapping": "doris_3"}]}'
+            );
+        """
+
+        qt_sql "show databases from mysql_lower_case_catalog;"
+        qt_sql "show tables from mysql_lower_case_catalog.doris_2;"
+        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_1 order by id;"
+        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_2 order by id;"
+        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_3 order by id;"
+
+        sql """ drop catalog if exists mysql_lower_case_catalog; """
+        sql """ drop catalog if exists mysql_lower_case_catalog2; """
+        test {
+            sql """ CREATE CATALOG mysql_lower_case_catalog2 PROPERTIES (
+                        "type"="jdbc",
+                        "user"="root",
+                        "password"="123456",
+                        "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "com.mysql.cj.jdbc.Driver",
+                        "lower_case_table_names" = "true",
+                        "meta_names_mapping" = '{"databases": [{"remoteDatabase": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","mapping": "doris_2"},{"remoteDatabase": "doris","mapping": "doris_3"}],"tables": [{"remoteDatabase": "Doris","remoteTable": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","remoteTable": "Doris","mapping": "doris_2"},{"remoteDatabase": "Doris","remoteTable": "doris","mapping": "doris_3"}]}'
+                    );
+                """
+            exception "Jdbc catalog property lower_case_table_names is not supported, please use lower_case_meta_names instead"
+            }
+        sql """ drop catalog if exists mysql_lower_case_catalog2; """
+        sql """ drop catalog if exists mysql_lower_case_catalog3; """
+        sql """ CREATE CATALOG mysql_lower_case_catalog3 PROPERTIES (
+                    "type"="jdbc",
+                    "user"="root",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "lower_case_meta_names" = "true",
+                    "meta_names_mapping" = "{\\\"databases\\\": [{\\\"remoteDatabase\\\": \\\"DORIS\\\",\\\"mapping\\\": \\\"doris_1\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"mapping\\\": \\\"doris_2\\\"},{\\\"remoteDatabase\\\": \\\"doris\\\",\\\"mapping\\\": \\\"doris_3\\\"}],\\\"tables\\\": [{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"DORIS\\\",\\\"mapping\\\": \\\"doris_1\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"Doris\\\",\\\"mapping\\\": \\\"doris_2\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"doris\\\",\\\"mapping\\\": \\\"doris_3\\\"}]}"
+                    );
+                """
+        sql """ drop catalog if exists mysql_lower_case_catalog3; """
     }
 }
 

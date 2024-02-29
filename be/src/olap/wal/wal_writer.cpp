@@ -48,28 +48,34 @@ Status WalWriter::init() {
 }
 
 Status WalWriter::finalize() {
+    if (!_file_writer) {
+        return Status::InternalError("wal writer is null,fail to close file={}", _file_name);
+    }
     auto st = _file_writer->close();
     if (!st.ok()) {
-        LOG(WARNING) << "fail to close file " << _file_name;
+        LOG(WARNING) << "fail to close wal " << _file_name;
     }
     return Status::OK();
 }
 
 Status WalWriter::append_blocks(const PBlockArray& blocks) {
-    size_t total_size = 0;
-    for (const auto& block : blocks) {
-        total_size += LENGTH_SIZE + block->ByteSizeLong() + CHECKSUM_SIZE;
+    if (!_file_writer) {
+        return Status::InternalError("wal writer is null,fail to write file={}", _file_name);
     }
+    size_t total_size = 0;
     size_t offset = 0;
     for (const auto& block : blocks) {
         uint8_t len_buf[sizeof(uint64_t)];
         uint64_t block_length = block->ByteSizeLong();
+        total_size += LENGTH_SIZE + block_length + CHECKSUM_SIZE;
         encode_fixed64_le(len_buf, block_length);
         RETURN_IF_ERROR(_file_writer->append({len_buf, sizeof(uint64_t)}));
         offset += LENGTH_SIZE;
+
         std::string content = block->SerializeAsString();
         RETURN_IF_ERROR(_file_writer->append(content));
         offset += block_length;
+
         uint8_t checksum_buf[sizeof(uint32_t)];
         uint32_t checksum = crc32c::Value(content.data(), block_length);
         encode_fixed32_le(checksum_buf, checksum);
@@ -85,6 +91,9 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
 }
 
 Status WalWriter::append_header(uint32_t version, std::string col_ids) {
+    if (!_file_writer) {
+        return Status::InternalError("wal writer is null,fail to write file={}", _file_name);
+    }
     size_t total_size = 0;
     uint64_t length = col_ids.size();
     total_size += k_wal_magic_length;

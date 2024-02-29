@@ -123,7 +123,7 @@ suite("test_javaudf_int") {
         qt_select_global_4 """ SELECT abs(java_udf_int_test_global(3)) result FROM ${tableName} ORDER BY result; """
 
     } finally {
-        try_sql("DROP GLOBAL FUNCTION IF EXISTS java_udf_int_test_global(tinyint);")
+        try_sql("DROP GLOBAL FUNCTION IF EXISTS java_udf_int_test_global(int);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_tinyint_test(tinyint);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_smallint_test(smallint);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_bigint_test(bigint);")

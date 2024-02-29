@@ -31,6 +31,8 @@ public class MultiCastPlanFragment extends PlanFragment {
     public MultiCastPlanFragment(PlanFragment planFragment) {
         super(planFragment.getFragmentId(), planFragment.getPlanRoot(), planFragment.getDataPartition(),
                 planFragment.getBuilderRuntimeFilterIds(), planFragment.getTargetRuntimeFilterIds());
+        this.hasColocatePlanNode = planFragment.hasColocatePlanNode;
+        this.hasNullAwareLeftAntiJoin = planFragment.hasNullAwareLeftAntiJoin;
         this.outputPartition = DataPartition.RANDOM;
         this.children.addAll(planFragment.getChildren());
     }

@@ -25,8 +25,7 @@
 #include "io/fs/path.h"
 #include "util/slice.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 class LocalFileWriter final : public FileWriter {
 public:
@@ -42,11 +41,9 @@ private:
     void _abort();
     Status _close(bool sync);
 
-private:
     int _fd; // owned
     bool _dirty = false;
-    const bool _sync_data;
+    const bool _sync_data = false;
 };
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

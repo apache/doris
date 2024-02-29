@@ -128,6 +128,7 @@ struct TResultFileSinkOptions {
 
     16: optional bool delete_existing_files;
     17: optional string file_suffix;
+    18: optional bool with_bom;
 }
 
 struct TMemoryScratchSink {
@@ -158,17 +159,21 @@ struct TDataStreamSink {
 
   3: optional bool ignore_not_found
 
-    // per-destination projections
-    4: optional list<Exprs.TExpr> output_exprs
+  // per-destination projections
+  4: optional list<Exprs.TExpr> output_exprs
 
-    // project output tuple id
-    5: optional Types.TTupleId output_tuple_id
+  // project output tuple id
+  5: optional Types.TTupleId output_tuple_id
 
-    // per-destination filters
-    6: optional list<Exprs.TExpr> conjuncts
+  // per-destination filters
+  6: optional list<Exprs.TExpr> conjuncts
 
-    // per-destination runtime filters
-    7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
+  // per-destination runtime filters
+  7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
+
+  // used for partition_type = TABLET_SINK_SHUFFLE_PARTITIONED
+  8: optional Descriptors.TOlapTableSchemaParam schema
+  9: optional Descriptors.TOlapTablePartitionParam partition
 }
 
 struct TMultiCastDataStreamSink {

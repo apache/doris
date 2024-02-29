@@ -47,7 +47,8 @@ public:
     TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, LoadStreamMgr* load_stream_mgr,
                  RuntimeProfile* profile);
 
-    Status init(OlapTableSchemaParam* schema, int64_t index_id, int64_t partition_id);
+    Status init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
+                int64_t partition_id);
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);

@@ -57,8 +57,8 @@ public:
         while (end > begin && std::isspace(ipv4_str[end])) {
             --end;
         }
-        if (!vectorized::parseIPv4whole(ipv4_str + begin, ipv4_str + end + 1,
-                                        reinterpret_cast<unsigned char*>(&parse_value))) {
+        if (!vectorized::parse_ipv4_whole(ipv4_str + begin, ipv4_str + end + 1,
+                                          reinterpret_cast<unsigned char*>(&parse_value))) {
             return false;
         }
         value = static_cast<vectorized::IPv4>(parse_value);
@@ -74,7 +74,7 @@ public:
         char* start = buf;
         char* end = buf;
         const auto* src = reinterpret_cast<const unsigned char*>(&value);
-        vectorized::formatIPv4(src, end);
+        vectorized::format_ipv4(src, end);
         size_t len = end - start;
         return {buf, len};
     }
@@ -92,8 +92,8 @@ public:
         while (end > begin && std::isspace(ipv4_str[end])) {
             --end;
         }
-        return vectorized::parseIPv4whole(ipv4_str + begin, ipv4_str + end + 1,
-                                          reinterpret_cast<unsigned char*>(&parse_value));
+        return vectorized::parse_ipv4_whole(ipv4_str + begin, ipv4_str + end + 1,
+                                            reinterpret_cast<unsigned char*>(&parse_value));
     }
 
 private:

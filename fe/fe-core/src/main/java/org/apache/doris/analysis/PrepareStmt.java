@@ -218,7 +218,9 @@ public class PrepareStmt extends StatementBase {
             inner.getPlaceHolders().get(i).setLiteral(values.get(i));
         }
         if (!values.isEmpty()) {
-            LOG.debug("assign values {}", values.get(0).toSql());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("assign values {}", values.get(0).toSql());
+            }
         }
     }
 

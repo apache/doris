@@ -78,7 +78,7 @@ https://www.apache.org/dist/doris/1.xx/
 http://www.apache.org/dyn/closer.cgi/doris/1.xx/apache-doris-1.xx-src.tar.gz
 ```
 
-Ssource package:
+Source package:
 
 ```
 http://www.apache.org/dyn/closer.cgi/doris/1.xx/apache-doris-1.xx-src.tar.gz

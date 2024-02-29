@@ -55,7 +55,7 @@ public class IndexDef {
         this.ifNotExists = ifNotExists;
         this.columns = columns;
         if (indexType == null) {
-            this.indexType = IndexType.BITMAP;
+            this.indexType = IndexType.INVERTED;
         } else {
             this.indexType = indexType;
         }
@@ -222,18 +222,18 @@ public class IndexDef {
                     || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN
                     || colType.isVariantType())) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
-                        + "invalid column: " + indexColName);
-            } else if (indexType == IndexType.INVERTED
-                    && ((keysType == KeysType.AGG_KEYS && !column.isKey())
-                        || (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite))) {
-                throw new AnalysisException(indexType.toString()
-                    + " index only used in columns of DUP_KEYS table"
-                    + " or UNIQUE_KEYS table with merge_on_write enabled"
-                    + " or key columns of AGG_KEYS table. invalid column: " + indexColName);
-            } else if (keysType == KeysType.AGG_KEYS && !column.isKey() && indexType != IndexType.INVERTED) {
-                throw new AnalysisException(indexType.toString()
-                    + " index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
-                    + " AGG_KEYS table. invalid column: " + indexColName);
+                        + "invalid index: " + indexName);
+            }
+            if (!column.isKey()) {
+                if (keysType == KeysType.AGG_KEYS) {
+                    throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
+                        + " or key columns of AGG_KEYS table. invalid index: " + indexName);
+                } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
+                               && indexType == IndexType.INVERTED && properties != null
+                               && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                    throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
+                        + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + indexName);
+                }
             }
 
             if (indexType == IndexType.INVERTED) {
@@ -243,10 +243,6 @@ public class IndexDef {
                         && colType != PrimitiveType.STRING) {
                     throw new AnalysisException(colType + " is not supported in ngram_bf index. "
                                                     + "invalid column: " + indexColName);
-                } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {
-                    throw new AnalysisException(
-                        "ngram_bf index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
-                        + " AGG_KEYS table. invalid column: " + indexColName);
                 }
                 if (properties.size() != 2) {
                     throw new AnalysisException("ngram_bf index should have gram_size and bf_size properties");

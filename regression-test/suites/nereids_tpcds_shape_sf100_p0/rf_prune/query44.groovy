@@ -28,6 +28,7 @@ suite("query44") {
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
+    sql 'set runtime_filter_type=8'
     sql 'set enable_runtime_filter_prune=true'
 
     def ds = """select  asceding.rnk, i1.i_product_name best_performing, i2.i_product_name worst_performing

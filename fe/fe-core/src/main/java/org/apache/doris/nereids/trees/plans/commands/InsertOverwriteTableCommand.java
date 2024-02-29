@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -111,6 +112,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
         PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink<?>) plan.get());
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
+        InternalDatabaseUtil
+                .checkDatabase(targetTable.getQualifiedDbName(), ConnectContext.get());
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),

@@ -42,12 +42,6 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ClauseType clauseType) throws AnalysisException {
-        // Only check element at of variant all rewrited to slots
-        List<Expr> elementAtFunctions = Lists.newArrayList();
-        getElementAtFunction(expr, elementAtFunctions);
-        if (!elementAtFunctions.isEmpty()) {
-            throw new AnalysisException("element_at should not appear in common rewrite stage");
-        }
         return expr;
     }
 

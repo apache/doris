@@ -51,6 +51,8 @@ suite("test_nested_type_with_rowstore") {
             }
     }
 
+    sql "sync"
+
     // select and check
     qt_sql """ select * from ct_table order by id;"""
     // point sql

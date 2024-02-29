@@ -170,7 +170,6 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
 
     while (columns[_child_slots.size()]->size() < state->batch_size()) {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state("VTableFunctionNode, while getting next batch."));
 
         if (_child_block->rows() == 0) {
             break;

@@ -32,13 +32,7 @@ namespace vectorized {
 class VScanner;
 }
 
-using TabletSPtr = std::shared_ptr<Tablet>;
 using VScannerSPtr = std::shared_ptr<vectorized::VScanner>;
-
-struct TabletWithVersion {
-    TabletSPtr tablet;
-    int64_t version;
-};
 
 template <typename ParentType>
 class ParallelScannerBuilder {

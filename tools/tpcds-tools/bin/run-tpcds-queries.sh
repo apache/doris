@@ -134,8 +134,12 @@ backup_session_variables() {
         k="${line/set global /}"
         k="${k%=*}"
         v=$(get_session_variable "${k}")
-        echo "set global ${k}=${v};" >>"${backup_session_variables_file}"
+        echo "set global ${k}='${v}';" >>"${backup_session_variables_file}"
     done < <(grep -v '^ *#' <"${TPCDS_OPT_CONF}")
+}
+clean_up() {
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"source ${backup_session_variables_file};"
+    rm -f "${backup_session_variables_file}"
 }
 backup_session_variables
 
@@ -195,10 +199,8 @@ for i in ${query_array[@]}; do
     fi
 done
 
+clean_up
+
 echo "Total cold run time: ${cold_run_sum} ms"
 echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpcds queries.'
-
-echo "Restore session variables"
-run_sql "source ${backup_session_variables_file};"
-rm -f "${backup_session_variables_file}"

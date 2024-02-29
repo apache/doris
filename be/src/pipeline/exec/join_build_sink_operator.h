@@ -28,14 +28,16 @@ namespace pipeline {
 template <typename LocalStateType>
 class JoinBuildSinkOperatorX;
 
-template <typename DependencyType, typename Derived>
-class JoinBuildSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
+template <typename SharedStateType, typename Derived>
+class JoinBuildSinkLocalState : public PipelineXSinkLocalState<SharedStateType> {
 public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
+    const std::vector<IRuntimeFilter*>& runtime_filters() const { return _runtime_filters; }
+
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<DependencyType>(parent, state) {}
+            : PipelineXSinkLocalState<SharedStateType>(parent, state) {}
     ~JoinBuildSinkLocalState() override = default;
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
@@ -43,6 +45,7 @@ protected:
     RuntimeProfile::Counter* _build_rows_counter = nullptr;
     RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
     RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
+    std::vector<IRuntimeFilter*> _runtime_filters;
 };
 
 template <typename LocalStateType>
@@ -75,6 +78,8 @@ protected:
     // 2. In build phase, we stop materialize build side when we meet the first null value and set _has_null_in_build_side to true.
     // 3. In probe phase, if _has_null_in_build_side is true, join node returns empty block directly. Otherwise, probing will continue as the same as generic left anti join.
     const bool _short_circuit_for_null_in_build_side;
+
+    const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
 } // namespace pipeline

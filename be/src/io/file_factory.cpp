@@ -93,7 +93,8 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
+        RETURN_IF_ERROR(
+                io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr, &fs));
         RETURN_IF_ERROR(fs->create_file(path, &file_writer));
         break;
     }
@@ -188,7 +189,7 @@ Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params,
                                        std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                        io::FileReaderSPtr* reader, RuntimeProfile* profile) {
     std::shared_ptr<io::HdfsFileSystem> fs;
-    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, fd.fs_name, profile, &fs));
+    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", fd.fs_name, profile, &fs));
     RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
     *hdfs_file_system = std::move(fs);
     return Status::OK();

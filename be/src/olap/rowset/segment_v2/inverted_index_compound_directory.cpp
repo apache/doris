@@ -106,7 +106,7 @@ void DorisCompoundFileWriter::sort_files(std::vector<FileInfo>& file_infos) {
     });
 }
 
-void DorisCompoundFileWriter::writeCompoundFile() {
+size_t DorisCompoundFileWriter::writeCompoundFile() {
     // list files in current dir
     std::vector<std::string> files;
     directory->list(&files);
@@ -171,6 +171,7 @@ void DorisCompoundFileWriter::writeCompoundFile() {
         _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
     }
     std::unique_ptr<lucene::store::IndexOutput> output(out);
+    size_t start = output->getFilePointer();
     output->writeVInt(file_count);
     // write file entries
     int64_t data_offset = header_len;
@@ -203,7 +204,10 @@ void DorisCompoundFileWriter::writeCompoundFile() {
     // NOTE: need to decrease ref count, but not to delete here,
     // because index cache may get the same directory from DIRECTORIES
     _CLDECDELETE(out_dir)
+    auto compound_file_size = output->getFilePointer() - start;
     output->close();
+    //LOG(INFO) << (idx_path / idx_name).c_str() << " size:" << compound_file_size;
+    return compound_file_size;
 }
 
 void DorisCompoundFileWriter::copyFile(const char* fileName, lucene::store::IndexOutput* output,
@@ -641,7 +645,7 @@ void DorisCompoundDirectory::close() {
     if (useCompoundFileWriter) {
         auto* cfsWriter = _CLNEW DorisCompoundFileWriter(this);
         // write compound file
-        cfsWriter->writeCompoundFile();
+        compound_file_size = cfsWriter->writeCompoundFile();
         // delete index path, which contains separated inverted index files
         deleteDirectory();
         _CLDELETE(cfsWriter)

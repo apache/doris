@@ -46,11 +46,9 @@ public:
 
     Status write(vectorized::Block& block) override;
 
+    Status finish(RuntimeState* state) override { return ODBCConnector::finish_trans(); }
+
     Status close(Status s) override { return ODBCConnector::close(s); }
-
-    bool in_transaction() override { return TableConnector::_is_in_transaction; }
-
-    Status commit_trans() override { return ODBCConnector::finish_trans(); }
 };
 } // namespace vectorized
 } // namespace doris

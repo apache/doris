@@ -160,22 +160,35 @@ KEY(k1,k2)
 ```
 
 ##### partition
-There are two partition methods for materialized views. If no partition is specified, there is only one partition by default. If a partition field is specified, 
-it will automatically deduce which base table the field comes from and synchronize all partitions of the base table (constraint: the base table can only have one partition field and cannot allow null values)
+There are two types of partitioning methods for materialized views. If no partitioning is specified, there will be a default single partition. If a partitioning field is specified, the system will automatically deduce the source base table of that field and synchronize all partitions of the base table (currently supporting `OlapTable` and `hive`). (Limitation: If the base table is an `OlapTable`, it can only have one partition field)
 
 For example, if the base table is a range partition with a partition field of `create_time` and partitioning by day, and `partition by(ct) as select create_time as ct from t1` is specified when creating a materialized view, 
 then the materialized view will also be a range partition with a partition field of 'ct' and partitioning by day
+
+The selection of partition fields and the definition of materialized views must meet the following constraints to be successfully created; 
+otherwise, an error "Unable to find a suitable base table for partitioning" will occur:
+
+- At least one of the base tables used by the materialized view must be a partitioned table.
+- Partitioned tables used by the materialized view must employ list or range partitioning strategies.
+- The top-level partition column in the materialized view can only have one partition field.
+- The SQL of the materialized view needs to use partition columns from the base table.
+- If GROUP BY is used, the partition column fields must be after the GROUP BY.
+- If window functions are used, the partition column fields must be after the PARTITION BY.
+- Data changes should occur on partitioned tables. If they occur on non-partitioned tables, the materialized view needs to be fully rebuilt.
+- Using the fields that generate nulls in the JOIN as partition fields in the materialized view prohibits partition incremental updates.
 
 #### property
 The materialized view can specify both the properties of the table and the properties unique to the materialized view.
 
 The properties unique to materialized views include:
 
-`grace_period`: Maximum delay time allowed for materialized view data during query rewriting
+`grace_period`: When performing query rewrites, there is a maximum allowed delay time (measured in seconds) for the data of the materialized view. If there is a discrepancy between the data of partition A and the base table, and the last refresh time of partition A of the materialized view was 1, while the current system time is 2, then this partition will not undergo transparent rewriting. However, if the grace_period is greater than or equal to 1, this partition will be used for transparent rewriting.
 
 `excluded_trigger_tables`: Table names ignored during data refresh, separated by commas. For example, ` table1, table2`
 
-`refresh_partition_num`: The number of partitions refreshed in a single insert statement, defaults to 1
+`refresh_partition_num`: The number of partitions refreshed by a single insert statement is set to 1 by default. When refreshing a materialized view, the system first calculates the list of partitions to be refreshed and then splits it into multiple insert statements that are executed in sequence according to this configuration. If any insert statement fails, the entire task will stop executing. The materialized view ensures the transactionality of individual insert statements, meaning that failed insert statements will not affect partitions that have already been successfully refreshed.
+
+`workload_group`: The name of the workload_group used by the materialized view when performing refresh tasks. This is used to limit the resources used for refreshing data in the materialized view, in order to avoid affecting the operation of other business processes. For details on how to create and use workload_group, refer to [WORKLOAD-GROUP](../../../../admin-manual/workload-group.md)
 
 ##### query
 

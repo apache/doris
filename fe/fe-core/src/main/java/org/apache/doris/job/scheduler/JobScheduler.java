@@ -184,8 +184,8 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         }
         for (Map.Entry<Long, T> entry : jobMap.entrySet()) {
             T job = entry.getValue();
-            if (job.getJobStatus().equals(JobStatus.FINISHED)) {
-                clearFinishedJob(job);
+            if (job.getJobStatus().equals(JobStatus.FINISHED) || job.getJobStatus().equals(JobStatus.STOPPED)) {
+                clearEndJob(job);
                 continue;
             }
             if (!job.getJobStatus().equals(JobStatus.RUNNING) && !job.getJobConfig().checkIsTimerJob()) {
@@ -195,7 +195,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         }
     }
 
-    private void clearFinishedJob(T job) {
+    private void clearEndJob(T job) {
         if (job.getFinishTimeMs() + FINISHED_JOB_CLEANUP_THRESHOLD_TIME_MS < System.currentTimeMillis()) {
             return;
         }

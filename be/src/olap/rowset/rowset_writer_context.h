@@ -38,45 +38,35 @@ class LocalSchemaChangeRecorder;
 }
 
 struct RowsetWriterContext {
-    RowsetWriterContext()
-            : tablet_id(0),
-              tablet_schema_hash(0),
-              index_id(0),
-              partition_id(0),
-              rowset_type(BETA_ROWSET),
-              rowset_state(PREPARED),
-              version(Version(0, 0)),
-              txn_id(0),
-              tablet_uid(0, 0),
-              segments_overlap(OVERLAP_UNKNOWN),
-              schema_lock(new std::mutex) {
+    RowsetWriterContext() : schema_lock(new std::mutex) {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }
 
     RowsetId rowset_id;
-    int64_t tablet_id;
-    int64_t tablet_schema_hash;
-    int64_t index_id;
-    int64_t partition_id;
-    RowsetTypePB rowset_type;
+    int64_t tablet_id {0};
+    int64_t tablet_schema_hash {0};
+    int64_t index_id {0};
+    int64_t partition_id {0};
+    RowsetTypePB rowset_type {BETA_ROWSET};
     io::FileSystemSPtr fs;
     std::string rowset_dir;
     TabletSchemaSPtr tablet_schema;
     TabletSchemaSPtr original_tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
-    RowsetStatePB rowset_state;
+    RowsetStatePB rowset_state {PREPARED};
     // properties for non-pending rowset
-    Version version;
+    Version version {0, 0};
 
     // properties for pending rowset
-    int64_t txn_id;
+    int64_t txn_id {0};
+    int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
-    TabletUid tablet_uid;
+    TabletUid tablet_uid {0, 0};
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.
-    SegmentsOverlapPB segments_overlap;
+    SegmentsOverlapPB segments_overlap {OVERLAP_UNKNOWN};
     // segment file use uint32 to represent row number, therefore the maximum is UINT32_MAX.
     // the default is set to INT32_MAX to avoid overflow issue when casting from uint32_t to int.
     // test cases can change this value to control flush timing

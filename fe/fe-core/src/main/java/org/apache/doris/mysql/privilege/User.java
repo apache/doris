@@ -48,6 +48,9 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
     @SerializedName(value = "password")
     private Password password;
 
+    @SerializedName(value = "userid")
+    private String origUserId = "";
+
     public User() {
     }
 
@@ -63,6 +66,16 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
             this.domainUserIdentity = domainUserIdent;
         }
     }
+
+    // ====== CLOUD ======
+    public String getUserId() {
+        return origUserId;
+    }
+
+    public void setUserId(String userId) {
+        this.origUserId = userId;
+    }
+    // ====== CLOUD ======
 
 
     public Password getPassword() {
@@ -135,7 +148,8 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("userIdentity: ").append(userIdentity).append(", isSetByDomainResolver: ")
-                .append(isSetByDomainResolver).append(", domainUserIdentity: ").append(domainUserIdentity);
+                .append(isSetByDomainResolver).append(", domainUserIdentity: ").append(domainUserIdentity)
+            .append(", userId: ").append(origUserId);
         return sb.toString();
     }
 

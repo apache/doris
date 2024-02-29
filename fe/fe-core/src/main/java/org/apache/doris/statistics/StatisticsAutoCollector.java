@@ -23,11 +23,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
@@ -59,24 +59,32 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     @Override
     protected void collect() {
-        if (!StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
-            analysisTaskExecutor.clear();
-            return;
-        }
-        if (StatisticsUtil.enableAutoAnalyze()) {
+        if (canCollect()) {
             analyzeAll();
         }
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private void analyzeAll() {
+    protected boolean canCollect() {
+        return StatisticsUtil.enableAutoAnalyze()
+            && StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
+    }
+
+    protected void analyzeAll() {
         List<CatalogIf> catalogs = getCatalogsInOrder();
         for (CatalogIf ctl : catalogs) {
+            if (!canCollect()) {
+                analysisTaskExecutor.clear();
+                break;
+            }
             if (!ctl.enableAutoAnalyze()) {
                 continue;
             }
             List<DatabaseIf> dbs = getDatabasesInOrder(ctl);
             for (DatabaseIf<TableIf> databaseIf : dbs) {
+                if (!canCollect()) {
+                    analysisTaskExecutor.clear();
+                    break;
+                }
                 if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
                     continue;
                 }
@@ -109,6 +117,10 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
         for (AnalysisInfo analysisInfo : analysisInfos) {
             try {
+                if (!canCollect()) {
+                    analysisTaskExecutor.clear();
+                    break;
+                }
                 analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
                 if (analysisInfo == null) {
                     continue;
@@ -175,8 +187,9 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setDBId(db.getId())
                 .setTblId(table.getId())
                 .setColName(
-                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                .map(Column::getName).collect(Collectors.joining(","))
+                        table.getSchemaAllIndexes(false).stream()
+                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                            .map(Column::getName).collect(Collectors.joining(","))
                 )
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
@@ -197,7 +210,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     @VisibleForTesting
     protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        // Skip tables that are too width.
+        // Skip tables that are too wide.
         if (table.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
             return null;
         }

@@ -52,18 +52,13 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+
 class DataTypeJsonb;
 class DataTypeTime;
 class TableFunction;
 template <typename T>
 class DataTypeDecimal;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
-
 using InputDataSet = std::vector<std::vector<AnyType>>; // without result
 using CellSet = std::vector<AnyType>;
 using Expect = AnyType;
@@ -71,6 +66,7 @@ using Row = std::pair<CellSet, Expect>;
 using DataSet = std::vector<Row>;
 using InputTypeSet = std::vector<AnyType>;
 
+// FIXME: should use exception or expected to deal null value.w
 int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
@@ -300,7 +296,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
             if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
                 const auto& expect_data = any_cast<String>(data_set[i].second);
                 auto s = column->get_data_at(i);
-                if (expect_data.size() == 0) {
+                if (expect_data.empty()) {
                     // zero size result means invalid
                     EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
                 } else {
@@ -321,7 +317,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
                     const ColumnBitmap* bitmap_col = nullptr;
                     if constexpr (nullable) {
-                        auto nullable_column = assert_cast<const ColumnNullable*>(column.get());
+                        const auto* nullable_column =
+                                assert_cast<const ColumnNullable*>(column.get());
                         bitmap_col = assert_cast<const ColumnBitmap*>(
                                 nullable_column->get_nested_column_ptr().get());
                     } else {
@@ -344,7 +341,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         if constexpr (nullable) {
             bool is_null = data_set[i].second.type() == &typeid(Null);
             EXPECT_EQ(is_null, column->is_null_at(i)) << " at row " << i;
-            if (!is_null) check_column_data();
+            if (!is_null) {
+                check_column_data();
+            }
         } else {
             check_column_data();
         }

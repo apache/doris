@@ -28,6 +28,6 @@ public class EliminateSortUnderSubquery extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalSubQueryAlias(logicalSort())
                 .then(subq -> subq.withChildren(subq.child().child(0)))
-                .toRule(RuleType.ELIMINATE_ORDER_BY_CONSTANT);
+                .toRule(RuleType.ELIMINATE_SUBQUERY_ORDER_BY);
     }
 }

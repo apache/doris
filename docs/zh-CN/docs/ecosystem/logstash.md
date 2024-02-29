@@ -98,6 +98,12 @@ copy logstash-output-doris-{version}.gem 到 logstash 安装目录下
 `strict_mode` | 严格模式，默认为false。
 `timezone` | 指定本次导入所使用的时区，默认为东八区。
 `exec_mem_limit` | 导入内存限制，默认为 2GB，单位为字节。
+`format` | 指定导入数据格式，支持csv、json、 csv_with_names、csv_with_names_and_types、parquet、orc，默认是csv。
+`jsonpaths` | 匹配模式需要通过jsonpaths参数匹配对应的value。
+`json_root` | 用于指定json document的根节点，默认值为""
+`fuzzy_parse` | 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高 json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式。
+`num_as_string` | 为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
+
 
 其他配置
 

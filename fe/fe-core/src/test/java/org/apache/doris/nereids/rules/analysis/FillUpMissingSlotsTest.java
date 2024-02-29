@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
@@ -513,6 +514,28 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                                 ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, countStar))))
                                 ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(countStar.toSlot(), true, true))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
+        sql = "SELECT abs(a1) xx, sum(a2) FROM t1 GROUP BY xx ORDER BY MIN(xx)";
+        a1 = new SlotReference(
+                new ExprId(1), "a1", TinyIntType.INSTANCE, true,
+                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+        );
+        Alias xx = new Alias(new ExprId(3), new Abs(a1), "xx");
+        a2 = new SlotReference(
+                new ExprId(2), "a2", TinyIntType.INSTANCE, true,
+                ImmutableList.of("test_resolve_aggregate_functions", "t1")
+        );
+        sumA2 = new Alias(new ExprId(4), new Sum(a2), "sum(a2)");
+
+        Alias minXX = new Alias(new ExprId(5), new Min(xx.toSlot()), "min(xx)");
+        PlanChecker.from(connectContext).analyze(sql).printlnTree().matches(logicalProject(
+                logicalSort(logicalProject(logicalAggregate(logicalProject(logicalOlapScan())
+                        .when(FieldChecker.check("projects", Lists.newArrayList(xx, a2, a1))))))
+                                .when(FieldChecker.check("orderKeys",
+                                        ImmutableList
+                                                .of(new OrderKey(minXX.toSlot(), true, true)))))
+                                                        .when(FieldChecker.check("projects",
+                                                                Lists.newArrayList(xx.toSlot(),
+                                                                        sumA2.toSlot()))));
     }
 
     @Test

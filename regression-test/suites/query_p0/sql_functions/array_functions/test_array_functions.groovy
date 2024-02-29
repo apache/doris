@@ -335,4 +335,88 @@ suite("test_array_functions") {
 
     qt_sql """ select array_position(kadcml, kdcmls1), kadcml, kdcmls1 from fn_test;"""
 
+   /*
+    test scope:
+    1.array_range function with datetimev2 type
+    2.sequence function(alias of array_range) with int and datetimev2 type
+   */
+    sql "SET enable_nereids_planner=true"
+    def tableName5 = "tbl_test_sequence"
+    sql """drop TABLE if EXISTS ${tableName5};"""
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName5} (
+                `test_id` int(11) NULL COMMENT "",
+                `k1` int(11) NULL COMMENT "",
+                `k2` int(11) NULL COMMENT "",
+                `k3` int(11) NULL COMMENT "",
+                `k4` datetimev2(0) NULL COMMENT "",
+                `k5` datetimev2(3) NULL COMMENT "",
+                `k6` datetimev2(6) NULL COMMENT "",              
+                `step` int(11) NULL COMMENT ""              
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`test_id`)
+            DISTRIBUTED BY HASH(`test_id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            );
+        """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(1,-1,3,5); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(2,1,3,5); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(3,2,10,2); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(4,3,NULL,NULL); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(5,4,6,1); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(6,5,10,1); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(7,6,NULL,1); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(8,7,10,NULL); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(9,NULL,10,2); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(10,8,2,2); """
+    sql """ INSERT INTO ${tableName5} (test_id, k1, k2, k3) VALUES(11,9,10,6); """
+    sql """ INSERT INTO ${tableName5} (test_id, k4, k5) VALUES(12, '2022-05-15 12:00:00', '2022-05-18 12:00:00.123'); """
+    sql """ INSERT INTO ${tableName5} (test_id, k4, k6) VALUES(13, '2022-05-15 12:00:00', '2022-05-18 12:00:00.123456'); """
+    sql """ INSERT INTO ${tableName5} (test_id, k4, k5, step) VALUES(14, '2022-05-15 12:00:00', '2022-05-18 12:00:00.123', 1); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(15, '2022-04-22 12:00:00.123', '2022-05-08 12:00:00.123456', 1); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(16, '2022-01-15 12:00:00.123', '2022-05-18 12:00:00.123456', 2); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(17, '2015-05-15 12:00:00.123', '2022-05-18 12:00:00.123456', 3); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(18, '2022-05-18 12:00:00.123', '2022-05-18 23:10:00.123456', 4); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(19, '2022-05-18 12:00:00.123', '2022-05-18 12:16:00', 5); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(20, '2022-05-18 12:00:10', '2022-05-18 12:00:30', 6); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(21, '2022-05-18 12:00:10', '2022-05-21 12:00:30', 2); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(22, '2022-05-22 12:00:10', '2022-05-25 12:00:30', 2); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(23, '2022-05-23 12:00:10', '2022-05-26 12:00:30', 2); """
+    sql """ INSERT INTO ${tableName5} (test_id, k5, k6, step) VALUES(24, '2022-05-27 12:00:10', '2022-05-30 12:00:30', 2); """
+
+    qt_table_select "SELECT k1, sequence(k1) from ${tableName5} where test_id < 12 ORDER BY test_id; "
+    qt_table_select "SELECT k1, sequence(k1,k2) from ${tableName5} where test_id < 12 ORDER BY test_id; "
+    qt_table_select "SELECT k1, sequence(k1,k2,k3) from ${tableName5} where test_id < 12 ORDER BY test_id; "
+    qt_table_select "SELECT k4, k5, sequence(k4, k5) from ${tableName5} where test_id = 12; "
+    qt_table_select "SELECT k4, k6, sequence(k4, k6) from ${tableName5} where test_id = 13; "
+    qt_table_select "SELECT k4, k5, step, sequence(k4, k5, interval step day) from ${tableName5} where test_id = 14; "
+    qt_table_select "SELECT k5, k6, step, sequence(k5, k6, interval step week) from ${tableName5} where test_id = 15; "
+    qt_table_select "SELECT k5, k6, step, sequence(k5, k6, interval step month) from ${tableName5} where test_id = 16; "
+    qt_table_select "SELECT k5, k6, step, sequence(k5, k6, interval step year) from ${tableName5} where test_id = 17; "
+    qt_table_select "SELECT k5, k6, step, sequence(k5, k6, interval step hour) from ${tableName5} where test_id = 18; "
+    qt_table_select "SELECT k5, k6, step, sequence(k5, k6, interval step minute) from ${tableName5} where test_id = 19; "
+    qt_table_select "SELECT k5, k6, step, sequence(k5, k6, interval step second) from ${tableName5} where test_id = 20; "
+    qt_table_select "SELECT k5, k6, step, sequence(k5, k6, interval step day) from ${tableName5} where test_id between 21 and 24 order by test_id; "
+    qt_const_select "select array_range(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0))); "
+    qt_const_select "select array_range(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 1 day); "
+    qt_const_select "select sequence(10); "
+    qt_const_select "select sequence(3, 10); "
+    qt_const_select "select sequence(3, 10, 2); "
+    qt_const_select "select sequence(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0))); "
+    qt_const_select "select sequence(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 1 day); "
+    qt_const_select "select sequence(cast('2022-05-01 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 2 week); "
+    qt_const_select "select sequence(cast('2022-01-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 3 month); "
+    qt_const_select "select sequence(cast('2019-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 2 year); "
+    qt_const_select "select sequence(cast('2022-05-18 12:00:10' as datetimev2(0)), cast('2022-05-18 22:00:30' as datetimev2(0)), interval 4 hour); "
+    qt_const_select "select sequence(cast('2022-05-18 12:00:10' as datetimev2(0)), cast('2022-05-18 12:16:30' as datetimev2(0)), interval 5 minute); "
+    qt_const_select "select sequence(cast('2022-05-18 12:00:10' as datetimev2(0)), cast('2022-05-18 12:00:30' as datetimev2(0)), interval 6 second); "
+    qt_const_select "select sequence(cast('2022-05-18 12:00:10' as datetimev2(0)), cast('2022-05-18 22:00:30' as datetimev2(0)), interval -4 hour); "
+    qt_const_select "select sequence(cast('2022-35-38 12:00:10' as datetimev2(0)), cast('2022-05-18 22:00:30' as datetimev2(0)), interval 4 hour); "
+    qt_const_select "select sequence(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-35-37 12:00:00' as datetimev2(0))); "
+    qt_const_select "select sequence(1, 10, interval 10 day); "
+    qt_const_select "select sequence(cast('2022-35-38 12:00:10' as datetimev2(0)), cast('2022-05-18 22:00:30' as datetimev2(0))); "
+    qt_const_select "select sequence(1, 10, 0); "
+    qt_const_select "select sequence(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 0 day); "
 }

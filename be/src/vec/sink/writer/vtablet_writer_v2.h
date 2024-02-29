@@ -140,8 +140,6 @@ private:
     Status _select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                            Streams& streams);
 
-    Status _failed_reason(int64_t tablet_id);
-
     Status _close_load(const Streams& streams);
 
     Status _cancel(Status status);
@@ -188,6 +186,7 @@ private:
     int64_t _number_output_rows = 0;
 
     MonotonicStopWatch _row_distribution_watch;
+    MonotonicStopWatch _timeout_watch;
 
     RuntimeProfile::Counter* _input_rows_counter = nullptr;
     RuntimeProfile::Counter* _output_rows_counter = nullptr;

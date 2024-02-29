@@ -22,8 +22,8 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <boost/regex.hpp>
 #include <limits>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -43,11 +43,6 @@ using apache::thrift::ThriftDebugString;
 using std::vector;
 using std::string;
 using std::stringstream;
-
-using std::regex;
-using std::regex_error;
-using std::regex_match;
-using std::smatch;
 
 using ::google::protobuf::RepeatedPtrField;
 
@@ -293,7 +288,7 @@ Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCon
 
 Status DeleteHandler::parse_condition(const std::string& condition_str, TCondition* condition) {
     bool matched = true;
-    smatch what;
+    boost::smatch what;
 
     try {
         // Condition string format, the format is (column_name)(op)(value)
@@ -303,15 +298,15 @@ Status DeleteHandler::parse_condition(const std::string& condition_str, TConditi
         //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
         const char* const CONDITION_STR_PATTERN =
                 R"(([\w$#%]+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
-        regex ex(CONDITION_STR_PATTERN);
-        if (regex_match(condition_str, what, ex)) {
+        boost::regex ex(CONDITION_STR_PATTERN);
+        if (boost::regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {
                 matched = false;
             }
         } else {
             matched = false;
         }
-    } catch (regex_error& e) {
+    } catch (boost::regex_error& e) {
         VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what()
                     << "]";
         matched = false;

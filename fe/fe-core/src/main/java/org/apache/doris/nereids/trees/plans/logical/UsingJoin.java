@@ -33,7 +33,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -48,13 +47,12 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     private final ImmutableList<Expression> otherJoinConjuncts;
     private final ImmutableList<Expression> hashJoinConjuncts;
     private final DistributeHint hint;
-    private final Optional<MarkJoinSlotReference> markJoinSlotReference;
 
     public UsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
             List<Expression> expressions, List<Expression> hashJoinConjuncts,
             DistributeHint hint) {
         this(joinType, leftChild, rightChild, expressions,
-                hashJoinConjuncts, Optional.empty(), Optional.empty(), hint, Optional.empty());
+                hashJoinConjuncts, Optional.empty(), Optional.empty(), hint);
     }
 
     /**
@@ -63,13 +61,12 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     public UsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
             List<Expression> expressions, List<Expression> hashJoinConjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
-            DistributeHint hint, Optional<MarkJoinSlotReference> markJoinSlotReference) {
+            DistributeHint hint) {
         super(PlanType.LOGICAL_USING_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = joinType;
         this.otherJoinConjuncts = ImmutableList.copyOf(expressions);
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.hint = hint;
-        this.markJoinSlotReference = markJoinSlotReference;
     }
 
     @Override
@@ -114,20 +111,20 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UsingJoin(joinType, child(0), child(1), otherJoinConjuncts,
-                hashJoinConjuncts, groupExpression, Optional.of(getLogicalProperties()), hint, markJoinSlotReference);
+                hashJoinConjuncts, groupExpression, Optional.of(getLogicalProperties()), hint);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UsingJoin(joinType, children.get(0), children.get(1), otherJoinConjuncts,
-                hashJoinConjuncts, groupExpression, logicalProperties, hint, markJoinSlotReference);
+                hashJoinConjuncts, groupExpression, logicalProperties, hint);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new UsingJoin(joinType, children.get(0), children.get(1), otherJoinConjuncts,
-                hashJoinConjuncts, groupExpression, Optional.of(getLogicalProperties()), hint, markJoinSlotReference);
+                hashJoinConjuncts, groupExpression, Optional.of(getLogicalProperties()), hint);
     }
 
     @Override
@@ -160,11 +157,15 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     }
 
     public boolean isMarkJoin() {
-        return markJoinSlotReference.isPresent();
+        return false;
     }
 
     public Optional<MarkJoinSlotReference> getMarkJoinSlotReference() {
-        return markJoinSlotReference;
+        return Optional.empty();
+    }
+
+    public List<Expression> getMarkJoinConjuncts() {
+        return ExpressionUtils.EMPTY_CONDITION;
     }
 
     @Override
@@ -175,10 +176,5 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     @Override
     public boolean hasDistributeHint() {
         return hint != null;
-    }
-
-    @Override
-    public boolean hasJoinCondition() {
-        return !CollectionUtils.isEmpty(hashJoinConjuncts);
     }
 }

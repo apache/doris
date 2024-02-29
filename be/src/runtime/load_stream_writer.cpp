@@ -28,6 +28,7 @@
 #include <string>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -71,8 +72,9 @@ using namespace ErrorCode;
 
 LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profile)
         : _req(*context), _rowset_writer(nullptr) {
-    _rowset_builder =
-            std::make_unique<RowsetBuilder>(*StorageEngine::instance(), *context, profile);
+    // TODO(plat1ko): CloudStorageEngine
+    _rowset_builder = std::make_unique<RowsetBuilder>(
+            ExecEnv::GetInstance()->storage_engine().to_local(), *context, profile);
 }
 
 LoadStreamWriter::~LoadStreamWriter() = default;
@@ -211,7 +213,8 @@ Status LoadStreamWriter::close() {
     RETURN_IF_ERROR(_rowset_builder->build_rowset());
     RETURN_IF_ERROR(_rowset_builder->submit_calc_delete_bitmap_task());
     RETURN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap());
-    RETURN_IF_ERROR(_rowset_builder->commit_txn());
+    // FIXME(plat1ko): No `commit_txn` operation in cloud mode, need better abstractions
+    RETURN_IF_ERROR(static_cast<RowsetBuilder*>(_rowset_builder.get())->commit_txn());
 
     return Status::OK();
 }

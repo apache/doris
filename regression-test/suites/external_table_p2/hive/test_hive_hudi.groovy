@@ -42,6 +42,12 @@ suite("test_hive_hudi", "p2,external,hive,hudi") {
         // test complex types
         qt_complex_types """select * from complex_type_rt order by name desc limit 100"""
 
+        // hudi table created by flink hive catalog
+        qt_flink_hive_catalog """select * from hive_ctl_table order by uuid"""
+
+        // hudi table created by flink hudi catalog
+        qt_flink_hudi_catalog """select * from hudi_ctl_table order by uuid"""
+
         // skip logs
         sql """drop catalog if exists ${catalog_name};"""
         sql """

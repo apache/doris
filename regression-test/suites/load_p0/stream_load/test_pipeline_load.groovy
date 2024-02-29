@@ -18,7 +18,7 @@
 suite("test_pipeline_load", "nonConcurrent") {
 
     // Stream load with enable_pipeline_load = true
-    def config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'enable_pipeline_load'; """
+    def config_row = sql """ SHOW FRONTEND CONFIG LIKE 'enable_pipeline_load'; """
     String old_value = config_row[0][1]
     sql """ ADMIN SET FRONTEND CONFIG ("enable_pipeline_load" = "true"); """
     def tableName = "pipeline_all_types"
@@ -151,7 +151,7 @@ suite("test_pipeline_load", "nonConcurrent") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("[END_OF_FILE]Encountered unqualified data"))
+                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]Encountered unqualified data"))
                 assertEquals(0, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)

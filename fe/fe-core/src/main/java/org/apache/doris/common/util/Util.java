@@ -351,7 +351,9 @@ public class Util {
                 }
             }
         }
-        LOG.debug("get result from url {}: {}", urlStr, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get result from url {}: {}", urlStr, sb.toString());
+        }
         return sb.toString();
     }
 

@@ -30,8 +30,6 @@ public interface WorkloadAction {
             throws UserException {
         if (WorkloadActionType.CANCEL_QUERY.equals(workloadActionMeta.action)) {
             return WorkloadActionCancelQuery.createWorkloadAction();
-        } else if (WorkloadActionType.MOVE_QUERY_TO_GROUP.equals(workloadActionMeta.action)) {
-            return WorkloadActionMoveQueryToGroup.createWorkloadAction(workloadActionMeta.actionArgs);
         } else if (WorkloadActionType.SET_SESSION_VARIABLE.equals(workloadActionMeta.action)) {
             return WorkloadActionSetSessionVar.createWorkloadAction(workloadActionMeta.actionArgs);
         }

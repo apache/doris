@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`VARCHAR substring(VARCHAR str, INT pos[, INT len])`
+`VARCHAR substring(VARCHAR str, INT pos, [INT len])`
 
 没有 `len` 参数时返回从位置 `pos` 开始的字符串 `str` 的一个子字符串，
 在有 `len` 参数时返回从位置 `pos` 开始的字符串 `str` 的一个长度为 `len` 子字符串，
@@ -36,6 +36,8 @@ under the License.
 `pos` 的值为 0 返回一个空字符串。
 
 对于所有形式的 SUBSTRING()，要从中提取子字符串的字符串中第一个字符的位置为1。
+
+该函数还有一个别名 `SUBSTR`
 
 ### example
 
@@ -65,7 +67,7 @@ mysql> select substring('abc1', 5);
 +-----------------------------+
 | substring('abc1', 5)        |
 +-----------------------------+
-| NULL                        |
+|                             |
 +-----------------------------+
 
 mysql> select substring('abc1def', 2, 2);
@@ -76,4 +78,4 @@ mysql> select substring('abc1def', 2, 2);
 +-----------------------------+
 ```
 ### keywords
-    SUBSTRING, STRING
+    SUBSTRING, STRING, SUBSTR

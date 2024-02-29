@@ -93,17 +93,17 @@ public:
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-        return local_state.sink(state, in_block, source_state);
+        return local_state.sink(state, in_block, eos);
     }
 
 private:
     friend class OlapTableSinkV2LocalState;
     template <typename Writer, typename Parent>
+        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
     const RowDescriptor& _row_desc;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;

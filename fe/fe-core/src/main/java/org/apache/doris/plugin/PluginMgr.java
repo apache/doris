@@ -27,7 +27,9 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
-import org.apache.doris.qe.AuditLogBuilder;
+import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLogBuilder;
+import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -104,10 +106,22 @@ public class PluginMgr implements Writable {
     }
 
     private void initBuiltinPlugins() {
-        // AuditLog
+        // AuditLog: log audit log to file
         AuditLogBuilder auditLogBuilder = new AuditLogBuilder();
         if (!registerBuiltinPlugin(auditLogBuilder.getPluginInfo(), auditLogBuilder)) {
             LOG.warn("failed to register audit log builder");
+        }
+
+        // AuditLoader: log audit log to internal table
+        AuditLoaderPlugin auditLoaderPlugin = new AuditLoaderPlugin();
+        if (!registerBuiltinPlugin(auditLoaderPlugin.getPluginInfo(), auditLoaderPlugin)) {
+            LOG.warn("failed to register audit log builder");
+        }
+
+        // sql dialect converter
+        HttpDialectConverterPlugin httpDialectConverterPlugin = new HttpDialectConverterPlugin();
+        if (!registerBuiltinPlugin(httpDialectConverterPlugin.getPluginInfo(), httpDialectConverterPlugin)) {
+            LOG.warn("failed to register http dialect converter plugin");
         }
 
         // other builtin plugins
@@ -217,11 +231,17 @@ public class PluginMgr implements Writable {
         }
 
         PluginLoader loader = new BuiltinPluginLoader(Config.plugin_dir, pluginInfo, plugin);
-        PluginLoader checkLoader = plugins[pluginInfo.getTypeId()].putIfAbsent(pluginInfo.getName(), loader);
+        try {
+            loader.install();
+        } catch (Exception e) {
+            LOG.warn("failed to register builtin plugin {}", pluginInfo.getName(), e);
+            return false;
+        }
         // add dialect plugin
         if (plugin instanceof DialectConverterPlugin) {
             addDialectPlugin((DialectConverterPlugin) plugin, pluginInfo);
         }
+        PluginLoader checkLoader = plugins[pluginInfo.getTypeId()].putIfAbsent(pluginInfo.getName(), loader);
         return checkLoader == null;
     }
 

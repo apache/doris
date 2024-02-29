@@ -33,4 +33,3 @@ public interface CoordInterface {
     // some resource.
     public default void close() {}
 }
-

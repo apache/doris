@@ -36,16 +36,11 @@ OPTS="$(getopt \
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
-RUN_IN_AWS=0
 RUN_CONSOLE=0
 while true; do
     case "$1" in
     --daemon)
         RUN_DAEMON=1
-        shift
-        ;;
-    --aws)
-        RUN_IN_AWS=1
         shift
         ;;
     --console)
@@ -89,6 +84,8 @@ if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
 fi
 
 # add java libs
+# Must add hadoop libs, because we should load specified jars
+# instead of jars in hadoop libs, such as avro
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
 
@@ -240,10 +237,7 @@ else
     LIMIT="/bin/limit3 -c 0 -n 65536"
 fi
 
-## If you are not running in aws cloud, disable this env since https://github.com/aws/aws-sdk-cpp/issues/1410.
-if [[ "${RUN_IN_AWS}" -eq 0 ]]; then
-    export AWS_EC2_METADATA_DISABLED=true
-fi
+export AWS_MAX_ATTEMPTS=2
 
 ## set asan and ubsan env to generate core file
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
@@ -304,7 +298,12 @@ CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
 
-if [[ "${java_version}" -gt 8 ]]; then
+if [[ "${java_version}" -gt 16 ]]; then
+    if [[ -z ${JAVA_OPTS_FOR_JDK_17} ]]; then
+        JAVA_OPTS_FOR_JDK_17="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens=java.base/java.net=ALL-UNNAMED"
+    fi
+    final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
+elif [[ "${java_version}" -gt 8 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
         JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS}"
     fi
@@ -345,9 +344,6 @@ else
     JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
 fi
-
-export AWS_EC2_METADATA_DISABLED=true
-export AWS_MAX_ATTEMPTS=2
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &

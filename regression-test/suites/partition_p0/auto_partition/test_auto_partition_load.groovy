@@ -21,7 +21,7 @@ suite("test_auto_partition_load") {
     sql """
         CREATE TABLE `${tblName1}` (
             `k1` INT,
-            `k2` DATETIME,
+            `k2` DATETIME NOT NULL,
             `k3` DATETIMEV2(6)
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)

@@ -60,7 +60,7 @@ struct PositiveImpl;
 /// Used to indicate undefined operation
 struct InvalidType;
 
-template <template <typename> class Op, typename Name, bool is_injective>
+template <template <typename> class Op, typename Name>
 class FunctionUnaryArithmetic : public IFunction {
     static constexpr bool allow_decimal = std::is_same_v<Op<Int8>, NegativeImpl<Int8>> ||
                                           std::is_same_v<Op<Int8>, AbsImpl<Int8>> ||
@@ -83,7 +83,6 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 1; }
-    bool get_is_injective(const Block&) override { return is_injective; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr result;

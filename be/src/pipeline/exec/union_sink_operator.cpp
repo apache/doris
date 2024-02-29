@@ -143,8 +143,7 @@ Status UnionSinkOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                SourceState source_state) {
+Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -167,7 +166,7 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
                                      _cur_child_id, _get_first_materialized_child_idx(),
                                      children_count());
     }
-    if (UNLIKELY(source_state == SourceState::FINISHED)) {
+    if (UNLIKELY(eos)) {
         //if _cur_child_id eos, need check to push block
         //Now here can't check _output_block rows, even it's row==0, also need push block
         //because maybe sink is eos and queue have none data, if not push block

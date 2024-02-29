@@ -29,7 +29,8 @@ suite("query61") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
-    sql 'set dump_nereids_memo=true'
+    sql 'set runtime_filter_type=8'
+    sql 'set dump_nereids_memo=false'
     def ds = """select  promotions,total,cast(promotions as decimal(15,4))/cast(total as decimal(15,4))*100
 from
   (select sum(ss_ext_sales_price) promotions

@@ -244,6 +244,12 @@ suite("test_subquery") {
     sql """insert into table_9_undef_undef values (0,3,"his",'g'),(1,8,'p','n'),(2,null,"get","got"),(3,3,'r','r'),(4,null,"or","get"),(5,0,'j',"yeah"),(6,null,'w','x'),(7,8,'q',"for"),(8,3,'p',"that");"""
 
     qt_select_sub"""SELECT DISTINCT alias1.`pk` AS field1,     alias2.`col_int_undef_signed` AS field2 FROM table_23_undef_undef AS alias1,     table_20_undef_undef AS alias2 WHERE (         EXISTS (             SELECT DISTINCT SQ1_alias1.`col_varchar_10__undef_signed` AS SQ1_field1             FROM table_9_undef_undef AS SQ1_alias1             WHERE SQ1_alias1.`col_varchar_10__undef_signed` = alias1.`col_varchar_10__undef_signed`             )         )     OR alias1.`col_varchar_1024__undef_signed` = "TmxRwcNZHC"     AND (         alias1.`col_varchar_10__undef_signed` <> "rnZeukOcuM"         AND alias2.`col_varchar_10__undef_signed` != "dbPAEpzstk"         ) ORDER BY alias1.`pk`,     field1,     field2 LIMIT 2 OFFSET 7; """
+    qt_select_sub2 """select count(*) from table_9_undef_undef SQ1_alias1
+                        LEFT JOIN ( table_20_undef_undef AS SQ1_alias2 RIGHT OUTER
+                        JOIN table_23_undef_undef AS SQ1_alias3
+                            ON SQ1_alias3.`pk` = SQ1_alias2.`pk` )
+                            ON SQ1_alias1.`pk` = SQ1_alias2.`pk`;"""
+
     sql """drop table if exists table_23_undef_undef"""
     sql """drop table if exists table_20_undef_undef"""
     sql """drop table if exists table_9_undef_undef"""

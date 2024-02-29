@@ -20,20 +20,25 @@ package org.apache.doris.statistics;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.StringJoiner;
 
 public class StatsId {
 
+    @SerializedName("id")
     public final String id;
+    @SerializedName("catalogId")
     public final long catalogId;
+    @SerializedName("dbId")
     public final long dbId;
+    @SerializedName("tblId")
     public final long tblId;
+    @SerializedName("idxId")
     public final long idxId;
-
+    @SerializedName("colId")
     public final String colId;
-
-    // nullable
+    @SerializedName("partId")
     public final String partId;
 
     @VisibleForTesting

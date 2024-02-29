@@ -33,11 +33,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * ExecutionProfile is used to collect profile of a complete query plan(including query or load).
@@ -71,6 +74,12 @@ public class ExecutionProfile {
     // A countdown latch to mark the completion of each fragment. use for pipelineX
     // fragmentId -> dummy value
     private MarkedCountDownLatch<Integer, Long> profileFragmentDoneSignal;
+
+    // fragmentId -> The number of BE without 'done.
+    private Map<Integer, Integer> befragmentDone;
+
+    // lock befragmentDone
+    private ReadWriteLock lock;
 
     // use to merge profile from multi be
     private List<Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
@@ -231,8 +240,20 @@ public class ExecutionProfile {
 
     public void markFragments(int fragments) {
         profileFragmentDoneSignal = new MarkedCountDownLatch<>(fragments);
+        lock = new ReentrantReadWriteLock();
+        befragmentDone = new HashMap<>();
         for (int fragmentId = 0; fragmentId < fragments; fragmentId++) {
             profileFragmentDoneSignal.addMark(fragmentId, -1L /* value is meaningless */);
+            befragmentDone.put(fragmentId, 0);
+        }
+    }
+
+    public void addFragments(int fragmentId) {
+        lock.writeLock().lock();
+        try {
+            befragmentDone.put(fragmentId, befragmentDone.get(fragmentId) + 1);
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 
@@ -282,8 +303,16 @@ public class ExecutionProfile {
 
     public void markOneFragmentDone(int fragmentId) {
         if (profileFragmentDoneSignal != null) {
-            if (!profileFragmentDoneSignal.markedCountDown(fragmentId, -1L)) {
-                LOG.warn("Mark fragment {} done failed", fragmentId);
+            lock.writeLock().lock();
+            try {
+                befragmentDone.put(fragmentId, befragmentDone.get(fragmentId) - 1);
+                if (befragmentDone.get(fragmentId) == 0) {
+                    if (!profileFragmentDoneSignal.markedCountDown(fragmentId, -1L)) {
+                        LOG.warn("Mark fragment {} done failed", fragmentId);
+                    }
+                }
+            } finally {
+                lock.writeLock().unlock();
             }
         }
     }

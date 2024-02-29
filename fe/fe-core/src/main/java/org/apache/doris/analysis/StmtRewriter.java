@@ -224,7 +224,9 @@ public class StmtRewriter {
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage());
         }
-        LOG.debug("Outer query is changed to {}", inlineViewRef.tableRefToSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Outer query is changed to {}", inlineViewRef.tableRefToSql());
+        }
 
         /*
          * Columns which belong to outer query can substitute for output columns of inline view
@@ -255,7 +257,9 @@ public class StmtRewriter {
         }
         havingClause.reset();
         Expr newWherePredicate = havingClause.substitute(smap, analyzer, false);
-        LOG.debug("Having predicate is changed to " + newWherePredicate.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Having predicate is changed to " + newWherePredicate.toSql());
+        }
         ArrayList<OrderByElement> newOrderByElements = null;
         if (orderByElements != null) {
             newOrderByElements = Lists.newArrayList();
@@ -263,7 +267,9 @@ public class StmtRewriter {
                 OrderByElement newOrderByElement = new OrderByElement(orderByElement.getExpr().reset().substitute(smap),
                         orderByElement.getIsAsc(), orderByElement.getNullsFirstParam());
                 newOrderByElements.add(newOrderByElement);
-                LOG.debug("Order by element is changed to " + newOrderByElement.toSql());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Order by element is changed to " + newOrderByElement.toSql());
+                }
             }
         }
         List<SelectListItem> newSelectItems = Lists.newArrayList();
@@ -271,7 +277,9 @@ public class StmtRewriter {
             SelectListItem newItem = new SelectListItem(selectList.getItems().get(i).getExpr().reset().substitute(smap),
                     columnLabels.get(i));
             newSelectItems.add(newItem);
-            LOG.debug("New select item is changed to " + newItem.toSql());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("New select item is changed to " + newItem.toSql());
+            }
         }
         SelectList newSelectList = new SelectList(newSelectItems, selectList.isDistinct());
 
@@ -291,7 +299,9 @@ public class StmtRewriter {
 
         // equal where subquery
         result = rewriteSelectStatement(result, analyzer);
-        LOG.debug("The final stmt is " + result.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("The final stmt is " + result.toSql());
+        }
         return result;
     }
 
@@ -634,7 +644,9 @@ public class StmtRewriter {
     private static boolean mergeExpr(SelectStmt stmt, Expr expr,
             Analyzer analyzer, TupleDescriptor markTuple) throws AnalysisException {
         // LOG.warn("dhc mergeExpr stmt={} expr={}", stmt, expr);
-        LOG.debug("SUBQUERY mergeExpr stmt={} expr={}", stmt.toSql(), expr.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("SUBQUERY mergeExpr stmt={} expr={}", stmt.toSql(), expr.toSql());
+        }
         Preconditions.checkNotNull(expr);
         Preconditions.checkNotNull(analyzer);
         Preconditions.checkState(expr.getSubquery().getAnalyzer() != null,
@@ -1338,7 +1350,17 @@ public class StmtRewriter {
                     null,
                     null,
                     LimitElement.NO_LIMIT);
-            selectStmt.fromClause.set(i, new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt));
+            InlineViewRef inlineViewRef = new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt);
+            inlineViewRef.setJoinOp(tableRef.joinOp);
+            inlineViewRef.setLeftTblRef(tableRef.leftTblRef);
+            inlineViewRef.setOnClause(tableRef.onClause);
+            tableRef.joinOp = null;
+            tableRef.leftTblRef = null;
+            tableRef.onClause = null;
+            if (selectStmt.fromClause.size() > i + 1) {
+                selectStmt.fromClause.get(i + 1).setLeftTblRef(inlineViewRef);
+            }
+            selectStmt.fromClause.set(i, inlineViewRef);
             selectStmt.analyze(analyzer);
             reAnalyze = true;
         }

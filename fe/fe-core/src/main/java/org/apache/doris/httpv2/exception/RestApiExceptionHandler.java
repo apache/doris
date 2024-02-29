@@ -37,28 +37,28 @@ public class RestApiExceptionHandler {
     @ExceptionHandler(UnauthorizedException.class)
     @ResponseBody
     public Object unauthorizedHandler(UnauthorizedException e) {
-        LOG.debug("unauthorized exception", e);
+        LOG.warn("unauthorized exception", e);
         return ResponseEntityBuilder.unauthorized(e.getMessage());
     }
 
     @ExceptionHandler(UserException.class)
     @ResponseBody
     public Object userExceptionHandler(UserException e) {
-        LOG.debug("user exception", e);
+        LOG.warn("user exception", e);
         return ResponseEntityBuilder.ok(e.getMessage());
     }
 
     @ExceptionHandler(BadRequestException.class)
     @ResponseBody
     public Object badRequestExceptionHandler(BadRequestException e) {
-        LOG.debug("bad request exception", e);
+        LOG.warn("bad request exception", e);
         return ResponseEntityBuilder.badRequest(e.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
     @ResponseBody
     public Object unexpectedExceptionHandler(Exception e) {
-        LOG.debug("unexpected exception", e);
+        LOG.warn("unexpected exception", e);
         return ResponseEntityBuilder.internalError(e.getMessage());
     }
 }

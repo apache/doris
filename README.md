@@ -35,7 +35,7 @@ Apache Doris is an easy-to-use, high-performance and real-time analytical databa
 
 All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.
 
-🎉 Version 2.0.3 released now. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-2.0.3) here. The 2.0 version has achieved over 10x performance improvements on standard Benchmark, comprehensive enhancement in log analysis and lakehouse scenarios, more efficient and stable data update and write efficiency, support for more comprehensive multi-tenant and resource isolation mechanisms, and take a new step in the direction of resource elasticity and storage computing separation. It has also been added a series of usability features for enterprise users. We welcome all users who have requirements for the new features of the 2.0 version to deploy and upgrade.
+🎉 Version 2.0.5 released now. Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/release-2.0.5) here. The 2.0 version has achieved over 10x performance improvements on standard Benchmark, comprehensive enhancement in log analysis and lakehouse scenarios, more efficient and stable data update and write efficiency, support for more comprehensive multi-tenant and resource isolation mechanisms, and take a new step in the direction of resource elasticity and storage computing separation. It has also been added a series of usability features for enterprise users. We welcome all users who have requirements for the new features of the 2.0 version to deploy and upgrade.
 
 🎉 Version 1.2.7 released now! It is fully evolved release and all users are encouraged to upgrade to this release. Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/release-1.2.7) here. 
 
@@ -151,13 +151,13 @@ Apache Doris now has a wide user base in China and around the world, and as of t
 
 The users of Apache Doris: 🔗[Users](https://doris.apache.org/users)
 
-Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://github.com/apache/doris/issues/10229)
+Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://github.com/apache/doris/discussions/27683)
  
 ## 👣 Get Started
 
 ### 📚 Docs
 
-All Documentation   🔗[Docs](https://doris.apache.org/docs/dev/get-starting/)  
+All Documentation   🔗[Docs](https://doris.apache.org/docs/get-starting/quick-start)  
 
 ### ⬇️ Download 
 

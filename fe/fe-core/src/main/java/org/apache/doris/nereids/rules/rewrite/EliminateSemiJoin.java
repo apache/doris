@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.List;
 
@@ -35,6 +36,7 @@ public class EliminateSemiJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 // right will be converted to left
+                .whenNot(LogicalJoin::isMarkJoin)
                 .when(join -> join.getJoinType().isLeftSemiOrAntiJoin())
                 .when(join -> join.getHashJoinConjuncts().isEmpty())
                 .then(join -> {
@@ -55,8 +57,10 @@ public class EliminateSemiJoin extends OneRewriteRuleFactory {
                     } else {
                         return null;
                     }
-                    if (joinType == JoinType.LEFT_SEMI_JOIN && condition
-                            || (joinType == JoinType.LEFT_ANTI_JOIN && !condition)) {
+                    if (joinType == JoinType.LEFT_SEMI_JOIN && condition) {
+                        // the right table may be empty, we need keep plan unchanged
+                        return null;
+                    } else if (joinType == JoinType.LEFT_ANTI_JOIN && !condition) {
                         return join.left();
                     } else if (joinType == JoinType.LEFT_SEMI_JOIN && !condition
                             || (joinType == JoinType.LEFT_ANTI_JOIN && condition)) {

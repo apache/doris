@@ -228,7 +228,7 @@ public class AdminStmtTest extends TestWithFeService {
             Files.createFile(path);
             DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
-            SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(10000, 100001, ReplicaStatus.BAD);
+            SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(10000, 100001, ReplicaStatus.BAD, 100L);
             log.write(out);
             out.flush();
             out.close();
@@ -240,6 +240,7 @@ public class AdminStmtTest extends TestWithFeService {
             Assertions.assertEquals(log.getBackendId(), readLog.getBackendId());
             Assertions.assertEquals(log.getTabletId(), readLog.getTabletId());
             Assertions.assertEquals(log.getReplicaStatus(), readLog.getReplicaStatus());
+            Assertions.assertEquals(log.getUserDropTime(), readLog.getUserDropTime());
 
             in.close();
         } finally {

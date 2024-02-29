@@ -79,7 +79,7 @@ template <typename T>
 void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                      size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
         keys[i].size += sizeof(T);
     }
 }
@@ -89,7 +89,7 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
                                                    const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
             keys[i].size += sizeof(T);
         }
     }
@@ -129,12 +129,6 @@ UInt64 ColumnDecimal<T>::get64(size_t n) const {
 template <typename T>
 void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
     hash.update(data[n]);
-}
-
-template <typename T>
-void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                                const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
 template <typename T>
@@ -435,18 +429,6 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
     }
 
     return res;
-}
-
-template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
-                                 IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);
-    typename Self::Container& res_data = res.get_data();
-    res_data.resize(target_size);
-
-    for (size_t i = 0; i < target_size; ++i) {
-        res_data[i] = data[indexs[i]];
-    }
 }
 
 template <typename T>

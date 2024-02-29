@@ -21,6 +21,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -80,6 +81,12 @@ public class LogicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
         return new LogicalDeferMaterializeResultSink<>(
                 logicalResultSink.withChildren(ImmutableList.of(children.get(0))),
                 olapTable, selectedIndexId, Optional.empty(), Optional.empty(), children.get(0));
+    }
+
+    @Override
+    public LogicalDeferMaterializeResultSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
+        return new LogicalDeferMaterializeResultSink<>(logicalResultSink, olapTable, selectedIndexId,
+                Optional.empty(), Optional.empty(), child());
     }
 
     @Override

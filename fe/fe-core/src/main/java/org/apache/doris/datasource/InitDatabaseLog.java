@@ -41,6 +41,7 @@ public class InitDatabaseLog implements Writable {
         HUDI,
         PAIMON,
         TEST,
+        INFO_SCHEMA_DB,
         UNKNOWN;
     }
 

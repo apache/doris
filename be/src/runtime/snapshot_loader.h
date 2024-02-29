@@ -18,7 +18,6 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stdint.h>
 
 #include <map>
 #include <memory>
@@ -26,7 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "olap/tablet.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 namespace io {
@@ -34,6 +33,7 @@ class RemoteFileSystem;
 } // namespace io
 
 class TRemoteTabletSnapshot;
+class StorageEngine;
 
 struct FileStat {
     std::string name;
@@ -64,10 +64,9 @@ class ExecEnv;
  */
 class SnapshotLoader {
 public:
-    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id);
-    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
-                   const TNetworkAddress& broker_addr,
-                   const std::map<std::string, std::string>& broker_prop);
+    SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
+                   const TNetworkAddress& broker_addr = {},
+                   const std::map<std::string, std::string>& broker_prop = {});
 
     ~SnapshotLoader();
 
@@ -94,8 +93,6 @@ private:
     Status _get_existing_files_from_local(const std::string& local_path,
                                           std::vector<std::string>* local_files);
 
-    bool _end_with(const std::string& str, const std::string& match);
-
     Status _replace_tablet_id(const std::string& file_name, int64_t tablet_id,
                               std::string* new_file_name);
 
@@ -107,6 +104,7 @@ private:
     Status _list_with_checksum(const std::string& dir, std::map<std::string, FileStat>* md5_files);
 
 private:
+    StorageEngine& _engine;
     ExecEnv* _env = nullptr;
     int64_t _job_id;
     int64_t _task_id;

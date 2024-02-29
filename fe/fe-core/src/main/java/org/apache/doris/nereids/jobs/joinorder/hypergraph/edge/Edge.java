@@ -79,6 +79,10 @@ public abstract class Edge {
         return LongBitmap.getCardinality(leftExtendedNodes) == 1 && LongBitmap.getCardinality(rightExtendedNodes) == 1;
     }
 
+    public boolean isRightSimple() {
+        return LongBitmap.getCardinality(rightExtendedNodes) == 1;
+    }
+
     public void addLeftRejectEdge(JoinEdge edge) {
         leftRejectEdges.add(edge);
     }
@@ -229,4 +233,3 @@ public abstract class Edge {
                 this.getTypeName(), LongBitmap.toString(rightExtendedNodes));
     }
 }
-

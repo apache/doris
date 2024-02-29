@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -52,6 +53,8 @@ public class AlterMTMV implements Writable {
     private MTMVTask task;
     @SerializedName("r")
     private MTMVRelation relation;
+    @SerializedName("ps")
+    private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
 
     public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, MTMVAlterOpType opType) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
@@ -123,6 +126,15 @@ public class AlterMTMV implements Writable {
 
     public void setRelation(MTMVRelation relation) {
         this.relation = relation;
+    }
+
+    public Map<String, MTMVRefreshPartitionSnapshot> getPartitionSnapshots() {
+        return partitionSnapshots;
+    }
+
+    public void setPartitionSnapshots(
+            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
+        this.partitionSnapshots = partitionSnapshots;
     }
 
     @Override

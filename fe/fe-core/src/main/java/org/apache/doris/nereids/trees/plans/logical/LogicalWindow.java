@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -86,8 +87,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public LogicalWindow<Plan> withExpression(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow<>(windowExpressions, isChecked, Optional.empty(),
-                Optional.empty(), child);
+        return new LogicalWindow<>(windowExpressions, isChecked, child);
     }
 
     public LogicalWindow<Plan> withChecked(List<NamedExpression> windowExpressions, Plan child) {
@@ -234,7 +234,6 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         }
         WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
         List<Expression> partitionKeys = windowExpr.getPartitionKeys();
-
         // Now we only support slot type keys
         if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
             return;
@@ -260,6 +259,24 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         }
     }
 
+    private void updateFuncDepsByWindowExpr(NamedExpression namedExpression, ImmutableSet.Builder<FdItem> builder) {
+        if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
+            return;
+        }
+        WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
+        List<Expression> partitionKeys = windowExpr.getPartitionKeys();
+
+        // Now we only support slot type keys
+        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
+            return;
+        }
+        //ImmutableSet<Slot> slotSet = partitionKeys.stream()
+        //        .map(s -> (Slot) s)
+        //        .collect(ImmutableSet.toImmutableSet());
+        // TODO: if partition by keys are unique, output is uniform
+        // TODO: if partition by keys are uniform, output is unique
+    }
+
     @Override
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(
@@ -267,6 +284,21 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         for (NamedExpression namedExpression : windowExpressions) {
             updateFuncDepsByWindowExpr(namedExpression, builder);
         }
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
+        return builder.build();
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
+        builder.addAll(childItems);
+
+        for (NamedExpression namedExpression : windowExpressions) {
+            updateFuncDepsByWindowExpr(namedExpression, builder);
+        }
+
         return builder.build();
     }
 }

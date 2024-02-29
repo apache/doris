@@ -39,7 +39,7 @@ Doris-Operator 是按照 Kubernetes 原则构建的在 Kubernetes 平台之上�
 - 创建 TKE 集群  
 如果你使用腾讯云可以按照腾讯云TKE相关文档创建 [TKE 集群](https://cloud.tencent.com/document/product/457/54231)。
 - 创建私有集群  
-私有集群搭建，我们建议按照官方推荐的方式搭建，比如：[minikube](https://minikube.sigs.k8s.io/docs/start/)，[kOps](https://kubernetes.io/zh-cn/docs/setup/production-environment/tools/kops/)。
+私有集群搭建，我们建议按照官方推荐的方式搭建，比如：[minikube](https://minikube.sigs.k8s.io/docs/start/)，[kOps](https://kops.sigs.k8s.io/)。
 
 ### 部署 Doris-Operator
 **1. 添加 DorisCluster [资源定义](https://kubernetes.io/zh-cn/docs/concepts/extend-kubernetes/api-extension/custom-resources/)**

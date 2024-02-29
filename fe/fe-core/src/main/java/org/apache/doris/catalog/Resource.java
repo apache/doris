@@ -48,6 +48,8 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     public static final String REFERENCE_SPLIT = "@";
     public static final String INCLUDE_DATABASE_LIST = "include_database_list";
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
+    public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
+    public static final String META_NAMES_MAPPING = "meta_names_mapping";
 
     public enum ResourceType {
         UNKNOWN,
@@ -296,4 +298,6 @@ public abstract class Resource implements Writable, GsonPostProcessable {
             }
         });
     }
+
+    public void applyDefaultProperties() {}
 }

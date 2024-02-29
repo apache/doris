@@ -32,7 +32,8 @@ import com.google.common.collect.ImmutableList;
 public class AuthProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("UserIdentity").add("Password").add("Roles").add("GlobalPrivs").add("CatalogPrivs")
-            .add("DatabasePrivs").add("TablePrivs").add("ColPrivs").add("ResourcePrivs").add("WorkloadGroupPrivs")
+            .add("DatabasePrivs").add("TablePrivs").add("ColPrivs").add("ResourcePrivs").add("CloudClusterPrivs")
+            .add("WorkloadGroupPrivs")
             .build();
 
     private Auth auth;

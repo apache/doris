@@ -53,7 +53,7 @@ public class ShowExportStmtTest {
 
         stmt = new ShowExportStmt(null, binaryPredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW EXPORT FROM `testDb` WHERE `label` = 'abc' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW EXPORT FROM `testDb` WHERE (`label` = 'abc') LIMIT 10", stmt.toString());
         Assert.assertFalse(stmt.isLabelUseLike());
 
         StringLiteral stringLiteralLike = new StringLiteral("ab%");
@@ -67,7 +67,7 @@ public class ShowExportStmtTest {
         BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
         stmt = new ShowExportStmt(null, statePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW EXPORT FROM `testDb` WHERE `state` = 'PENDING' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW EXPORT FROM `testDb` WHERE (`state` = 'PENDING') LIMIT 10", stmt.toString());
     }
 
     @Test

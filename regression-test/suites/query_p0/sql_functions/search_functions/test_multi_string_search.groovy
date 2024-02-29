@@ -71,4 +71,28 @@ suite("test_multi_string_search", "arrow_flight_sql") {
     qt_select "select multi_match_any('ldrzgttlqaphekkkdukgngl', ['gttlqaphekkkdukgn', 'ekkkd', 'gttlqaphe', 'qaphek', 'h', 'kdu', 'he', 'phek', '', 'drzgttlqaphekkkd'])"
     qt_select "select multi_match_any('ololo', ['ololo', 'ololo', 'ololo'])"
     qt_select "select multi_match_any('khljxzxlpcrxpkrfybbfk', ['k'])"
+
+    try {
+        sql "select multi_match_any(content, 'hello') from ${table_name} order by col1"
+    } catch (Exception ex) {
+        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_match_any"))
+    }
+
+    try {
+        sql "select multi_match_any(content, 'hello, !, world, Hello, World') from ${table_name} order by col1"
+    } catch (Exception ex) {
+        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_match_any"))
+    }
+
+    try {
+        sql "select multi_match_any(content, '[hello]') from ${table_name} order by col1"
+    } catch (Exception ex) {
+        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_match_any"))
+    }
+
+    try {
+        sql "select multi_match_any(content, '[hello, !, world, Hello, World]') from ${table_name} order by col1"
+    } catch (Exception ex) {
+        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_match_any"))
+    }
 }

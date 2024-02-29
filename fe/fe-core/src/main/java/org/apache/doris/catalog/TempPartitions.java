@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -78,12 +77,7 @@ public class TempPartitions implements Writable, GsonPostProcessable {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
             if (needDropTablet) {
-                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    for (Tablet tablet : index.getTablets()) {
-                        invertedIndex.deleteTablet(tablet.getId());
-                    }
-                }
+                Env.getCurrentEnv().onErasePartition(partition);
             }
         }
     }

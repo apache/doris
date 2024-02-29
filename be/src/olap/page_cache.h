@@ -37,7 +37,7 @@ namespace doris {
 class PageCacheHandle;
 
 template <typename TAllocator>
-class PageBase : private TAllocator, public LRUCacheValueBase {
+class PageBase : private TAllocator {
 public:
     PageBase() : _data(nullptr), _size(0), _capacity(0) {}
 
@@ -216,11 +216,6 @@ public:
     Slice data() const {
         DataPage* cache_value = (DataPage*)_cache->value(_handle);
         return Slice(cache_value->data(), cache_value->size());
-    }
-
-    void update_last_visit_time() {
-        DataPage* cache_value = (DataPage*)_cache->value(_handle);
-        cache_value->last_visit_time = UnixMillis();
     }
 
 private:

@@ -61,12 +61,19 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String QUEUE_TIMEOUT = "queue_timeout";
 
+    public static final String SCAN_THREAD_NUM = "scan_thread_num";
+
+    public static final String MAX_REMOTE_SCAN_THREAD_NUM = "max_remote_scan_thread_num";
+
+    public static final String MIN_REMOTE_SCAN_THREAD_NUM = "min_remote_scan_thread_num";
+
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
     // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
             .add(CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_MEMORY_OVERCOMMIT).add(MAX_CONCURRENCY)
-            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).build();
+            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
+            .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM).build();
 
     @SerializedName(value = "id")
     private long id;
@@ -88,7 +95,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     private int cpuHardLimit = 0;
 
-    private WorkloadGroup(long id, String name, Map<String, String> properties) {
+    WorkloadGroup(long id, String name, Map<String, String> properties) {
         this(id, name, properties, 0);
     }
 
@@ -196,7 +203,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     throw new DdlException(memLimitErr);
                 }
             } catch (NumberFormatException e) {
-                LOG.debug(memLimitErr, e);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(memLimitErr, e);
+                }
                 throw new DdlException(memLimitErr);
             }
         }
@@ -205,6 +214,45 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             String value = properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase();
             if (!("true".equals(value) || "false".equals(value))) {
                 throw new DdlException("The value of '" + ENABLE_MEMORY_OVERCOMMIT + "' must be true or false.");
+            }
+        }
+
+        if (properties.containsKey(SCAN_THREAD_NUM)) {
+            String value = properties.get(SCAN_THREAD_NUM);
+            try {
+                int intValue = Integer.parseInt(value);
+                if (intValue <= 0 && intValue != -1) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
+            }
+        }
+
+        if (properties.containsKey(MAX_REMOTE_SCAN_THREAD_NUM)) {
+            String value = properties.get(MAX_REMOTE_SCAN_THREAD_NUM);
+            try {
+                int intValue = Integer.parseInt(value);
+                if (intValue <= 0 && intValue != -1) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        MAX_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
+            }
+        }
+
+        if (properties.containsKey(MIN_REMOTE_SCAN_THREAD_NUM)) {
+            String value = properties.get(MIN_REMOTE_SCAN_THREAD_NUM);
+            try {
+                int intValue = Integer.parseInt(value);
+                if (intValue <= 0 && intValue != -1) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        MAX_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
             }
         }
 
@@ -290,6 +338,12 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 row.add("0%");
             } else if (ENABLE_MEMORY_OVERCOMMIT.equals(key) && !properties.containsKey(key)) {
                 row.add("true");
+            } else if (SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
+                row.add("-1");
+            } else if (MAX_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
+                row.add("-1");
+            }  else if (MIN_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
+                row.add("-1");
             } else {
                 row.add(properties.get(key));
             }
@@ -343,6 +397,21 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         if (Config.enable_cpu_hard_limit && cpuHardLimit <= 0) {
             LOG.warn("enable_cpu_hard_limit=true but cpuHardLimit value not illegal,"
                     + "id=" + id + ",name=" + name);
+        }
+
+        String scanThreadNumStr = properties.get(SCAN_THREAD_NUM);
+        if (scanThreadNumStr != null) {
+            tWorkloadGroupInfo.setScanThreadNum(Integer.parseInt(scanThreadNumStr));
+        }
+
+        String maxRemoteScanThreadNumStr = properties.get(MAX_REMOTE_SCAN_THREAD_NUM);
+        if (maxRemoteScanThreadNumStr != null) {
+            tWorkloadGroupInfo.setMaxRemoteScanThreadNum(Integer.parseInt(maxRemoteScanThreadNumStr));
+        }
+
+        String minRemoteScanThreadNumStr = properties.get(MIN_REMOTE_SCAN_THREAD_NUM);
+        if (minRemoteScanThreadNumStr != null) {
+            tWorkloadGroupInfo.setMinRemoteScanThreadNum(Integer.parseInt(minRemoteScanThreadNumStr));
         }
 
         TopicInfo topicInfo = new TopicInfo();

@@ -434,7 +434,7 @@ build_protobuf() {
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -Dprotobuf_BUILD_SHARED_LIBS=OFF \
         -Dprotobuf_BUILD_TESTS=OFF \
-        -Dprotobuf_WITH_ZLIB_DEFAULT=ON \
+        -DZLIB_LIBRARY="${TP_LIB_DIR}/libz.a" \
         -Dprotobuf_ABSL_PROVIDER=package \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ../..
 
@@ -1074,8 +1074,6 @@ build_arrow() {
     strip_lib libarrow.a
     strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
-
-    cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a" "${TP_INSTALL_DIR}/lib64/libjemalloc.a" # TODO delete
 }
 
 # abseil
@@ -1677,11 +1675,11 @@ build_hadoop_libs() {
 
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/*.a"
-    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
-    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
+    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
+    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
 # dragonbox
@@ -1731,6 +1729,46 @@ build_streamvbyte() {
     cd "${BUILD_DIR}"
 
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# jsoncpp
+build_jsoncpp() {
+    check_if_source_exist "${JSONCPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JSONCPP_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# libuuid
+build_libuuid() {
+    check_if_source_exist "${LIBUUID_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${LIBUUID_SOURCE}"
+    CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+    make -j "${PARALLEL}"
+    make install
+}
+
+# ali_sdk
+build_ali_sdk() {
+    build_jsoncpp
+    build_libuuid
+    check_if_source_exist "${ALI_SDK_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
+        LDFLAGS="-L${TP_LIB_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_PRODUCT=core -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DTP_INSTALL_DIR="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1800,6 +1838,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         avx2neon
         libdeflate
         streamvbyte
+        ali_sdk
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

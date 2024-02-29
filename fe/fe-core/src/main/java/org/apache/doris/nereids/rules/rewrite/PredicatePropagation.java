@@ -95,7 +95,10 @@ public class PredicatePropagation {
         slotPredicates.forEach((left, exprs) -> {
             for (Slot right : equalSet.calEqualSet(left)) {
                 for (Expression expr : exprs) {
-                    inferred.add(doInferPredicate(left, right, expr));
+                    Expression inferPredicate = doInferPredicate(left, right, expr);
+                    if (inferPredicate != null) {
+                        inferred.add(inferPredicate);
+                    }
                 }
             }
         });

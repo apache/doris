@@ -53,7 +53,7 @@ class TDataSink;
 class TPipelineFragmentParams;
 
 namespace pipeline {
-struct LocalExchangeSinkDependency;
+class Dependency;
 
 class PipelineXFragmentContext : public PipelineFragmentContext {
 public:
@@ -126,6 +126,7 @@ private:
                                PipelinePtr cur_pipe, DataDistribution data_distribution,
                                bool* do_local_exchange, int num_buckets,
                                const std::map<int, int>& bucket_seq_to_instance_idx,
+                               const std::map<int, int>& shuffle_idx_to_instance_idx,
                                const bool ignore_data_distribution);
     void _inherit_pipeline_properties(const DataDistribution& data_distribution,
                                       PipelinePtr pipe_with_source, PipelinePtr pipe_with_sink);
@@ -133,6 +134,7 @@ private:
                                     PipelinePtr new_pipe, DataDistribution data_distribution,
                                     bool* do_local_exchange, int num_buckets,
                                     const std::map<int, int>& bucket_seq_to_instance_idx,
+                                    const std::map<int, int>& shuffle_idx_to_instance_idx,
                                     const bool ignore_data_distribution);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
@@ -160,12 +162,12 @@ private:
                              RuntimeState* state, DescriptorTbl& desc_tbl,
                              PipelineId cur_pipeline_id);
     Status _plan_local_exchange(int num_buckets,
-                                const std::map<int, int>& bucket_seq_to_instance_idx);
+                                const std::map<int, int>& bucket_seq_to_instance_idx,
+                                const std::map<int, int>& shuffle_idx_to_instance_idx);
     Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
                                 const std::map<int, int>& bucket_seq_to_instance_idx,
+                                const std::map<int, int>& shuffle_idx_to_instance_idx,
                                 const bool ignore_data_distribution);
-
-    bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
     bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
 
@@ -173,7 +175,7 @@ private:
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
 
-    bool _use_global_rf = false;
+    bool _need_local_merge = false;
 
     // It is used to manage the lifecycle of RuntimeFilterMergeController
     std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
@@ -188,8 +190,6 @@ private:
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-
-    std::atomic_bool _canceled = false;
 
     // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
     std::map<PipelineId, std::vector<PipelineId>> _dag;
@@ -223,8 +223,7 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _op_id_to_le_state;
 
     // UniqueId -> runtime mgr
@@ -239,6 +238,9 @@ private:
     std::vector<std::unique_ptr<RuntimeState>> _task_runtime_states;
 
     std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
+
+    // Total instance num running on all BEs
+    int _total_instances = -1;
 };
 
 } // namespace pipeline

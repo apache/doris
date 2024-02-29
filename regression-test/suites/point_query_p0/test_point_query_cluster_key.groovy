@@ -18,16 +18,15 @@
 import java.math.BigDecimal;
 
 suite("test_point_query_cluster_key") {
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
     def set_be_config = { key, value ->
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-    }
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    } 
     try {
         set_be_config.call("disable_storage_row_cache", "false")
         // nereids do not support point query now
@@ -65,6 +64,8 @@ suite("test_point_query_cluster_key") {
         def nprep_sql = { sql_str ->
             def url_without_prep = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb
             connect(user = user, password = password, url = url_without_prep) {
+                // set to false to invalid cache correcly
+                sql "set enable_memtable_on_sink_node = false"
                 sql sql_str
             }
         }

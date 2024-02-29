@@ -40,7 +40,10 @@ enum TPartitionType {
 
   // unordered partition on a set of exprs
   // (only use in bucket shuffle join)
-  BUCKET_SHFFULE_HASH_PARTITIONED
+  BUCKET_SHFFULE_HASH_PARTITIONED,
+
+  // used for shuffle data by parititon and tablet
+  TABLET_SINK_SHUFFLE_PARTITIONED
 }
 
 enum TDistributionType {

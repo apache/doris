@@ -21,7 +21,10 @@
 #include <glog/logging.h>
 
 #include "bvar/bvar.h"
+#include "cloud/cloud_tablets_channel.h"
+#include "cloud/config.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 
@@ -73,6 +76,12 @@ void LoadChannel::_init_profile() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
+    if (config::is_cloud_mode() && params.txn_expiration() <= 0) {
+        return Status::InternalError(
+                "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",
+                params.txn_expiration());
+    }
+
     int64_t index_id = params.index_id();
     std::shared_ptr<BaseTabletsChannel> channel;
     {
@@ -83,9 +92,14 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            // TODO(plat1ko): CloudTabletsChannel
-            channel = std::make_shared<TabletsChannel>(*StorageEngine::instance(), key, _load_id,
-                                                       _is_high_priority, _self_profile);
+            BaseStorageEngine& engine = ExecEnv::GetInstance()->storage_engine();
+            if (config::is_cloud_mode()) {
+                channel = std::make_shared<CloudTabletsChannel>(engine.to_cloud(), key, _load_id,
+                                                                _is_high_priority, _self_profile);
+            } else {
+                channel = std::make_shared<TabletsChannel>(engine.to_local(), key, _load_id,
+                                                           _is_high_priority, _self_profile);
+            }
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});

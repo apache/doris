@@ -52,16 +52,6 @@ class RowsetMetaManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
         LOG(INFO) << "SetUp";
-        config::tablet_map_shard_size = 1;
-        config::txn_map_shard_size = 1;
-        config::txn_shard_size = 1;
-        EngineOptions options;
-        // won't open engine, options.path is needless
-        options.backend_uid = UniqueId::gen_uid();
-        if (k_engine == nullptr) {
-            k_engine = new StorageEngine(options);
-        }
-        ExecEnv::GetInstance()->set_storage_engine(k_engine);
 
         std::string meta_path = "./meta";
         EXPECT_TRUE(std::filesystem::create_directory(meta_path));
@@ -85,12 +75,9 @@ public:
 
     virtual void TearDown() {
         SAFE_DELETE(_meta);
-        SAFE_DELETE(k_engine);
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         EXPECT_TRUE(std::filesystem::remove_all("./meta"));
         LOG(INFO) << "TearDown";
     }
-    StorageEngine* k_engine = nullptr;
 
 private:
     OlapMeta* _meta;

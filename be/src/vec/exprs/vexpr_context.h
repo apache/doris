@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "common/factory_creator.h"
@@ -40,7 +41,7 @@ class VExprContext {
     ENABLE_FACTORY_CREATOR(VExprContext);
 
 public:
-    VExprContext(const VExprSPtr& expr);
+    VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     [[nodiscard]] Status open(RuntimeState* state);
@@ -76,9 +77,13 @@ public:
 
     [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                                   const std::vector<IColumn::Filter*>* filters,
-                                                  const bool accept_null, Block* block,
+                                                  bool accept_null, Block* block,
                                                   IColumn::Filter* result_filter,
                                                   bool* can_filter_all);
+
+    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts, Block* block,
+                                                  ColumnUInt8& null_map,
+                                                  IColumn::Filter& result_filter);
 
     static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                     const std::vector<IColumn::Filter*>* filters, Block* block,
@@ -121,7 +126,7 @@ public:
         _prepared = other._prepared;
         _opened = other._opened;
 
-        for (auto& fn : other._fn_contexts) {
+        for (const auto& fn : other._fn_contexts) {
             _fn_contexts.emplace_back(fn->clone());
         }
 
@@ -152,17 +157,17 @@ private:
     VExprSPtr _root;
 
     /// True if this context came from a Clone() call. Used to manage FunctionStateScope.
-    bool _is_clone;
+    bool _is_clone = false;
 
     /// Variables keeping track of current state.
-    bool _prepared;
-    bool _opened;
+    bool _prepared = false;
+    bool _opened = false;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.
     std::vector<std::unique_ptr<FunctionContext>> _fn_contexts;
 
-    int _last_result_column_id;
+    int _last_result_column_id = -1;
 
     /// The depth of expression-tree.
     int _depth_num = 0;

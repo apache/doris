@@ -23,44 +23,31 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.qe.ConnectContext;
 
 /**
  * Check whether a user is permitted to scan specific tables.
  */
-public class UserAuthentication extends OneAnalysisRuleFactory {
-
-    @Override
-    public Rule build() {
-        return logicalRelation()
-                .when(CatalogRelation.class::isInstance)
-                .thenApply(ctx -> checkPermission((CatalogRelation) ctx.root, ctx.connectContext))
-                .toRule(RuleType.RELATION_AUTHENTICATION);
-    }
-
-    private Plan checkPermission(CatalogRelation relation, ConnectContext connectContext) {
+public class UserAuthentication {
+    /** checkPermission. */
+    public static void checkPermission(TableIf table, ConnectContext connectContext) {
+        if (table == null) {
+            return;
+        }
         // do not check priv when replaying dump file
         if (connectContext.getSessionVariable().isPlayNereidsDump()) {
-            return null;
-        }
-        TableIf table = relation.getTable();
-        if (table == null) {
-            return null;
+            return;
         }
         String tableName = table.getName();
         DatabaseIf db = table.getDatabase();
         // when table inatanceof FunctionGenTable,db will be null
         if (db == null) {
-            return null;
+            return;
         }
         String dbName = db.getFullName();
         CatalogIf catalog = db.getCatalog();
         if (catalog == null) {
-            return null;
+            return;
         }
         String ctlName = catalog.getName();
         // TODO: 2023/7/19 checkColumnsPriv
@@ -71,7 +58,5 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
                     ctlName + ": " + dbName + ": " + tableName);
             throw new AnalysisException(message);
         }
-        return null;
     }
-
 }

@@ -26,6 +26,7 @@ suite("test_leading") {
     // setting planner to nereids
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set runtime_filter_mode=OFF'
 
     // create tables
     sql """drop table if exists t1;"""

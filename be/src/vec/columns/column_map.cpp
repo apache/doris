@@ -271,11 +271,6 @@ void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
-void ColumnMap::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                         const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
 void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                          const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
@@ -458,26 +453,6 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
-void ColumnMap::replicate(const uint32_t* indices, size_t target_size, IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnMap&>(column);
-
-    auto keys_array =
-            ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable());
-
-    auto result_array = ColumnArray::create(res.keys_column->assume_mutable(),
-                                            res.offsets_column->assume_mutable());
-    keys_array->replicate(indices, target_size, result_array->assume_mutable_ref());
-
-    result_array = ColumnArray::create(res.values_column->assume_mutable(),
-                                       res.offsets_column->clone_empty());
-
-    auto values_array =
-            ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable());
-
-    /// FIXME: To reuse the replicate of ColumnArray, the offsets column was replicated twice
-    values_array->replicate(indices, target_size, result_array->assume_mutable_ref());
-}
-
 MutableColumnPtr ColumnMap::get_shrinked_column() {
     MutableColumns new_columns(2);
 
@@ -518,6 +493,12 @@ size_t ColumnMap::byte_size() const {
 size_t ColumnMap::allocated_bytes() const {
     return keys_column->allocated_bytes() + values_column->allocated_bytes() +
            get_offsets().allocated_bytes();
+}
+
+ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
+    return ColumnMap::create(keys_column->convert_to_full_column_if_const(),
+                             values_column->convert_to_full_column_if_const(),
+                             offsets_column->convert_to_full_column_if_const());
 }
 
 } // namespace doris::vectorized

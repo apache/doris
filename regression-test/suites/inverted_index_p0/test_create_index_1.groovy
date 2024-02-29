@@ -120,8 +120,7 @@ suite("test_create_index_1", "inverted_index"){
                 registDate datetime NULL,
                 studentInfo char(100),
                 tearchComment string,
-                INDEX age_idx_1(age) USING BITMAP COMMENT 'age index',
-                INDEX age_idx_2(age) USING INVERTED COMMENT 'age index'
+                INDEX age_idx_1(age) USING INVERTED COMMENT 'age index'
             )
             DUPLICATE KEY(`name`)
             DISTRIBUTED BY HASH(`name`) BUCKETS 10
@@ -130,25 +129,23 @@ suite("test_create_index_1", "inverted_index"){
 
     def show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
-    assertEquals(show_result.size(), 2)
+    assertEquals(show_result.size(), 1)
     assertEquals(show_result[0][2], "age_idx_1")
-    assertEquals(show_result[1][2], "age_idx_2")
     
     // drop index
     sql "drop index age_idx_1 on ${indexTbName1}"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-    sql "drop index age_idx_2 on ${indexTbName1}"
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 0)
 
     // case 2: alter add index
-    sql "create index age_idx on ${indexTbName1}(age) using inverted"
+    sql "create index studentInfo_idx on ${indexTbName1}(studentInfo) using inverted"
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
-    assertEquals(show_result[0][2], "age_idx")
+    assertEquals(show_result[0][2], "studentInfo_idx")
     // case 2.1: create duplicate same index for one colume with same name
     try {
-        sql "create index age_idx on ${indexTbName1}(`age`) using inverted"
+        sql "create index studentInfo_idx on ${indexTbName1}(`studentInfo`) using inverted"
         create_dup_index_result = "success"
     } catch(Exception ex) {
         logger.info("create duplicate same index for one colume with same name, result: " + ex)
@@ -156,7 +153,7 @@ suite("test_create_index_1", "inverted_index"){
 
     // case 2.2: create duplicate same index for one colume with different name
     try {
-        sql "create index age_idx_2 on ${indexTbName1}(`age`) using inverted"
+        sql "create index studentInfo_idx_2 on ${indexTbName1}(`studentInfo`) using inverted"
         create_dup_index_result = "success"
     } catch(Exception ex) {
         logger.info("create duplicate same index for one colume with different name, result: " + ex)
@@ -164,19 +161,19 @@ suite("test_create_index_1", "inverted_index"){
 
     // case 2.3: create duplicate different index for one colume with same name
     try {
-        sql "create index age_idx on ${indexTbName1}(`age`) using bitmap"
+        sql "create index studentInfo_idx on ${indexTbName1}(`studentInfo`) using NGRAM_BF"
         create_dup_index_result = "success"
     } catch(Exception ex) {
         logger.info("create duplicate different index for one colume with same name, result: " + ex)
     }
 
     // 2.4: create duplicate different index for one colume with different name
-    sql "create index age_idx_2 on ${indexTbName1}(`age`) using bitmap"
+    sql "create index studentInfo_idx_2 on ${indexTbName1}(`studentInfo`) using NGRAM_BF"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
 
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result.size(), 2)
-    assertEquals(show_result[0][2], "age_idx")
-    assertEquals(show_result[1][2], "age_idx_2")
+    assertEquals(show_result[0][2], "studentInfo_idx")
+    assertEquals(show_result[1][2], "studentInfo_idx_2")
 }

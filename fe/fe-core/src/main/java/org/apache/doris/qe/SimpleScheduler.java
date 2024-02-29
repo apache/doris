@@ -65,7 +65,9 @@ public class SimpleScheduler {
         if (CollectionUtils.isEmpty(locations) || backends == null || backends.isEmpty()) {
             throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
         }
-        LOG.debug("getHost backendID={}, backendSize={}", backendId, backends.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getHost backendID={}, backendSize={}", backendId, backends.size());
+        }
         Backend backend = backends.get(backendId);
 
         if (isAvailable(backend)) {
@@ -198,7 +200,9 @@ public class SimpleScheduler {
 
         @Override
         public void run() {
-            LOG.debug("UpdateBlacklistThread is start to run");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("UpdateBlacklistThread is start to run");
+            }
             while (true) {
                 try {
                     Thread.sleep(1000L);
@@ -220,8 +224,10 @@ public class SimpleScheduler {
                                 iterator.remove();
                                 LOG.warn("remove backend {} from black list. reach max try time", backendId);
                             } else {
-                                LOG.debug("blacklistBackends backendID={} retryTimes={}",
-                                        backendId, entry.getValue().first);
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("blacklistBackends backendID={} retryTimes={}",
+                                            backendId, entry.getValue().first);
+                                }
                             }
                         }
                     }

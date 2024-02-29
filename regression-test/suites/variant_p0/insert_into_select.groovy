@@ -47,6 +47,6 @@ suite("regression_test_variant_insert_into_select", "variant_type"){
     sql """insert into ${table_name}_str select * from ${table_name}_var"""
     sql """insert into ${table_name}_var select * from ${table_name}_str"""
     sql """insert into ${table_name}_var select * from ${table_name}_var"""
-    qt_sql "select v:a, v:b, v:c from  ${table_name}_var order by k"
+    qt_sql """select v["a"], v["b"], v["c"] from  ${table_name}_var order by k"""
     qt_sql "select v from  ${table_name}_str order by k"
 }

@@ -58,9 +58,25 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
 
 1. 创建一个 hdfs 的远程仓库 example_repo：
 
+   **WITH HDFS(推荐使用)**
    ```sql
    CREATE REPOSITORY `example_repo`
-   WITH BROKER `hdfs_broker`
+   WITH HDFS
+   ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+   PROPERTIES
+   (
+   "fs.defaultFS"="hdfs://hdfs_host:port",
+   "hadoop.username" = "hadoop"
+   );
+   ```
+
+   **WITH BROKER**
+
+   需要先启动一个BROKER进程。
+   
+   ```sql
+   CREATE REPOSITORY `example_repo`
+   WITH BROKER `broker_name`
    ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
    PROPERTIES
    (

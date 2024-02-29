@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -146,6 +147,18 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         Builder fdBuilder = new Builder(
                 child().getLogicalProperties().getFunctionalDependencies());
         getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
+        builder.addAll(childItems);
+
+        return builder.build();
     }
 }

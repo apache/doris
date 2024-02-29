@@ -17,6 +17,7 @@
 
 suite("test_bind_view") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
 
     def table_name = "base_table"
@@ -47,6 +48,13 @@ suite("test_bind_view") {
             "replication_allocation" = "tag.location.default: 1"
         );
     """
+
+    test {
+        sql """
+              select ggg.* from ( select * from ${table_name} ) l;
+        """
+        exception "unknown qualifier:"
+    }
 
     try {
 

@@ -49,21 +49,6 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
         Assertions.assertTrue(localTopN.getPhysicalTopN().isEnableRuntimeFilter());
     }
 
-    // topn rf do not apply on string-like and float column
-    @Test
-    public void testNotUseTopNRf() {
-        String sql = "select * from customer order by c_name limit 5";
-        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
-                .rewrite()
-                .implement();
-        PhysicalPlan plan = checker.getPhysicalPlan();
-        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        Assertions.assertInstanceOf(PhysicalDeferMaterializeTopN.class, plan.children().get(0).child(0));
-        PhysicalDeferMaterializeTopN<? extends Plan> localTopN
-                = (PhysicalDeferMaterializeTopN<? extends Plan>) plan.child(0).child(0);
-        Assertions.assertFalse(localTopN.getPhysicalTopN().isEnableRuntimeFilter());
-    }
-
     @Test
     public void testNotUseTopNRfForComplexCase() {
         String sql = "select * from (select 1) tl join (select * from customer order by c_custkey limit 5) tb";

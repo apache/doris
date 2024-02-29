@@ -47,7 +47,7 @@ suite('test_set_replica_status', 'nonConcurrent') {
             break
         }
         sql """ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "${tabletId}", "backend_id" = "${backendId}", "status" = "bad");"""
-        result = sql_return_maparray """ADMIN SHOW REPLICA STATUS FROM ${tableName}"""
+        result = sql_return_maparray """SHOW REPLICA STATUS FROM ${tableName}"""
         for (def res : result) {
             if (res.TabletId == tabletId && res.BackendId == backendId) {
                 logger.info("admin show replica status ${res}")
@@ -55,7 +55,7 @@ suite('test_set_replica_status', 'nonConcurrent') {
             }
         }
         sql """ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "${tabletId}", "backend_id" = "${backendId}", "status" = "ok");"""
-        result = sql_return_maparray """ADMIN SHOW REPLICA STATUS FROM ${tableName}"""
+        result = sql_return_maparray """SHOW REPLICA STATUS FROM ${tableName}"""
         for (def res : result) {
             if (res.TabletId == tabletId && res.BackendId == backendId) {
                 logger.info("admin show replica status ${res}")
@@ -63,7 +63,7 @@ suite('test_set_replica_status', 'nonConcurrent') {
             }
         }
         sql """ADMIN SET REPLICA VERSION PROPERTIES("tablet_id" = "${tabletId}", "backend_id" = "${backendId}", "last_failed_version" = "10");"""
-        result = sql_return_maparray """ADMIN SHOW REPLICA STATUS FROM ${tableName}"""
+        result = sql_return_maparray """SHOW REPLICA STATUS FROM ${tableName}"""
         for (def res : result) {
             if (res.TabletId == tabletId && res.BackendId == backendId) {
                 logger.info("admin show replica version ${res}")

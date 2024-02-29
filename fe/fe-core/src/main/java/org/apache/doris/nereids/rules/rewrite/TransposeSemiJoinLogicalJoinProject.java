@@ -50,6 +50,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                 .when(join -> join.left().isAllSlots())
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
+                .whenNot(topJoin -> topJoin.isLeadingJoin() || topJoin.left().child().isLeadingJoin())
                 .when(join -> join.left().getProjects().stream().allMatch(expr -> expr instanceof Slot))
                 .then(topSemiJoin -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> project = topSemiJoin.left();
@@ -76,7 +77,11 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                          *  A      B                  A        C
                          */
                         // RIGHT_OUTER_JOIN should be eliminated in rewrite phase
-                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.RIGHT_OUTER_JOIN);
+                        // TODO: when top join is ANTI JOIN,  bottomJoin may be RIGHT_OUTER_JOIN
+                        // Can we also do the transformation?
+                        if (bottomJoin.getJoinType() == JoinType.RIGHT_OUTER_JOIN) {
+                            return null;
+                        }
 
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
                         Plan newTopJoin = bottomJoin.withChildren(newBottomSemiJoin, b);
@@ -92,7 +97,11 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                          *   A      B                             B       C
                          */
                         // LEFT_OUTER_JOIN should be eliminated in rewrite phase
-                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.LEFT_OUTER_JOIN);
+                        // TODO: when top join is ANTI JOIN,  bottomJoin may be RIGHT_OUTER_JOIN
+                        // Can we also do the transformation?
+                        if (bottomJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
+                            return null;
+                        }
 
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(b, c);
                         Plan newTopJoin = bottomJoin.withChildren(a, newBottomSemiJoin);

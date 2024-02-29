@@ -46,10 +46,10 @@ suite("test_analyze_with_agg_complex_type") {
         return (int) Double.parseDouble(r[0][idx]) == expected_value
     }
 
-    assert expected_col_stats(show_result, 2, 1)
-    assert expected_col_stats(show_result, 0, 3)
-    assert expected_col_stats(show_result, 8, 4)
-    assert expected_col_stats(show_result, 4, 5)
-    assert expected_col_stats(show_result, 1, 6)
-    assert expected_col_stats(show_result, 2, 7)
+    assert expected_col_stats(show_result, 2, 2)
+    assert expected_col_stats(show_result, 0, 4)
+    assert expected_col_stats(show_result, 8, 5)
+    assert expected_col_stats(show_result, 4, 6)
+    assert expected_col_stats(show_result, 1, 7)
+    assert expected_col_stats(show_result, 2, 8)
 }

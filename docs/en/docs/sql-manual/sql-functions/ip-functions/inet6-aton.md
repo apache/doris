@@ -41,28 +41,34 @@ If the input string contains a valid IPv4 address, returns its IPv6 equivalent.
 
 ### notice
 
-`will return an error if the input string is not a valid IP address`
+`It is the alias of ipv6_string_to_num_or_null. 
+It will return NULL if the input string is not a valid IP address or NULL, which is the same with MySQL`
 
 ### example
 ```
 mysql> select hex(inet6_aton('1111::ffff'));
-+----------------------------------+
-| hex(inet6_aton('1111::ffff'))    |
-+----------------------------------+
-| 1111000000000000000000000000FFFF |
-+----------------------------------+
++-----------------------------------------------+
+| hex(ipv6_string_to_num_or_null('1111::ffff')) |
++-----------------------------------------------+
+| 1111000000000000000000000000FFFF              |
++-----------------------------------------------+
 1 row in set (0.02 sec)
 
 mysql> select hex(inet6_aton('192.168.0.1'));
-+----------------------------------+
-| hex(inet6_aton('192.168.0.1'))   |
-+----------------------------------+
-| 00000000000000000000FFFFC0A80001 |
-+----------------------------------+
++------------------------------------------------+
+| hex(ipv6_string_to_num_or_null('192.168.0.1')) |
++------------------------------------------------+
+| 00000000000000000000FFFFC0A80001               |
++------------------------------------------------+
 1 row in set (0.02 sec)
 
 mysql> select hex(inet6_aton('notaaddress'));
-ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][E33] Invalid IPv6 value
++--------------------------------------------------+
+| hex(ipv6_string_to_num_or_null('notaaddress'))   |
++--------------------------------------------------+
+| NULL                                             |
++--------------------------------------------------+
+1 row in set (0.02 sec)
 ```
 
 ### keywords

@@ -18,12 +18,16 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -65,6 +69,23 @@ public interface Project {
     }
 
     /**
+     * Check if it is a project that is pull up from scan in analyze rule
+     * e.g. BindSlotWithPaths
+     * And check if contains PushDownToProjectionFunction that can pushed down to project
+     */
+    default boolean hasPushedDownToProjectionFunctions() {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable() != null
+                && ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()
+                && getProjects().stream().allMatch(namedExpr ->
+                namedExpr instanceof SlotReference
+                        || (namedExpr instanceof Alias
+                        && PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())))
+                && getProjects().stream().anyMatch((namedExpr -> namedExpr instanceof Alias
+                && PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())));
+    }
+
+    /**
      * find projects, if not found the slot, then throw AnalysisException
      */
     static List<? extends Expression> findProject(
@@ -88,5 +109,3 @@ public interface Project {
                 });
     }
 }
-
-

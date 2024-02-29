@@ -64,19 +64,5 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class DistinctStreamingAggSourceOperatorX final : public AggSourceOperatorX {
-public:
-    using Base = AggSourceOperatorX;
-    DistinctStreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                        const DescriptorTbl& descs);
-    ~DistinctStreamingAggSourceOperatorX() = default;
-
-    Status init(const TPlanNode& tnode, RuntimeState* state) override;
-
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-    bool _is_streaming_preagg = false;
-};
-
 } // namespace pipeline
 } // namespace doris

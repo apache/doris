@@ -50,11 +50,6 @@ class FunctionContext;
 namespace doris::vectorized {
 class FunctionNullIf : public IFunction {
 public:
-    struct NullPresence {
-        bool has_nullable = false;
-        bool has_null_constant = false;
-    };
-
     static constexpr auto name = "nullif";
 
     static FunctionPtr create() { return std::make_shared<FunctionNullIf>(); }
@@ -69,33 +64,18 @@ public:
         return make_nullable(arguments[0]);
     }
 
-    NullPresence get_null_resense(const ColumnsWithTypeAndName& args) const {
-        NullPresence res;
-
-        for (const auto& elem : args) {
-            if (!res.has_nullable) res.has_nullable = elem.type->is_nullable();
-            if (!res.has_null_constant) res.has_null_constant = elem.type->only_null();
-        }
-
-        return res;
-    }
-
-    DataTypePtr get_return_type_for_equal(const ColumnsWithTypeAndName& arguments) const {
+    static DataTypePtr get_return_type_for_equal(const ColumnsWithTypeAndName& arguments) {
         ColumnsWithTypeAndName args_without_low_cardinality(arguments);
 
         for (ColumnWithTypeAndName& arg : args_without_low_cardinality) {
             bool is_const = arg.column && is_column_const(*arg.column);
-            if (is_const)
+            if (is_const) {
                 arg.column = assert_cast<const ColumnConst&>(*arg.column).remove_low_cardinality();
+            }
         }
 
         if (!arguments.empty()) {
-            NullPresence null_presence = get_null_resense(arguments);
-
-            if (null_presence.has_null_constant) {
-                return make_nullable(std::make_shared<DataTypeNothing>());
-            }
-            if (null_presence.has_nullable) {
+            if (have_null_column(arguments)) {
                 return make_nullable(std::make_shared<doris::vectorized::DataTypeUInt8>());
             }
         }

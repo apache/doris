@@ -122,8 +122,8 @@ public class DatabaseTest {
         List<Column> baseSchema2 = new LinkedList<>();
         OlapTable table2 = new OlapTable(2001L, "baseTable2", baseSchema2, KeysType.DUP_KEYS,
                 new SinglePartitionInfo(), new RandomDistributionInfo(10));
-        db.createTable(table1);
-        db.createTable(table2);
+        db.registerTable(table1);
+        db.registerTable(table2);
         List<Long> tableIdList = Lists.newArrayList(2001L, 2000L);
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
         Assert.assertEquals(2, tableList.size());
@@ -138,7 +138,7 @@ public class DatabaseTest {
         List<Column> baseSchema = new LinkedList<>();
         OlapTable table = new OlapTable(2000L, "baseTable", baseSchema, KeysType.AGG_KEYS,
                 new SinglePartitionInfo(), new RandomDistributionInfo(10));
-        db.createTable(table);
+        db.registerTable(table);
         Table resultTable1 = db.getTableOrMetaException(2000L, Table.TableType.OLAP);
         Table resultTable2 = db.getTableOrMetaException("baseTable", Table.TableType.OLAP);
         Assert.assertEquals(table, resultTable1);
@@ -168,9 +168,9 @@ public class DatabaseTest {
         table.addPartition(partition);
 
         // create
-        Assert.assertTrue(db.createTable(table));
+        Assert.assertTrue(db.registerTable(table));
         // duplicate
-        Assert.assertFalse(db.createTable(table));
+        Assert.assertFalse(db.registerTable(table));
 
         Assert.assertEquals(table, db.getTableNullable(table.getId()));
         Assert.assertEquals(table, db.getTableNullable(table.getName()));
@@ -185,11 +185,11 @@ public class DatabaseTest {
 
         // drop
         // drop not exist tableFamily
-        db.dropTable("invalid");
+        db.unregisterTable("invalid");
         Assert.assertEquals(1, db.getTables().size());
 
-        db.createTable(table);
-        db.dropTable(table.getName());
+        db.registerTable(table);
+        db.unregisterTable(table.getName());
         Assert.assertEquals(0, db.getTables().size());
     }
 
@@ -234,7 +234,7 @@ public class DatabaseTest {
         table.setIndexMeta(1L, "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
         Deencapsulation.setField(table, "baseIndexId", 1);
         table.addPartition(partition);
-        db2.createTable(table);
+        db2.registerTable(table);
         db2.write(dos);
 
         dos.flush();

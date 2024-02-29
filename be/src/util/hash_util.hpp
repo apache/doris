@@ -335,6 +335,16 @@ public:
 #endif
     // xxHash function for a byte array.  For convenience, a 64-bit seed is also
     // hashed into the result.  The mapping may change from time to time.
+    static xxh_u32 xxHash32WithSeed(const char* s, size_t len, xxh_u32 seed) {
+        return XXH32(s, len, seed);
+    }
+
+    // same to the up function, just for null value
+    static xxh_u32 xxHash32NullWithSeed(xxh_u32 seed) {
+        static const int INT_VALUE = 0;
+        return XXH32(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
+    }
+
     static xxh_u64 xxHash64WithSeed(const char* s, size_t len, xxh_u64 seed) {
         return XXH3_64bits_withSeed(s, len, seed);
     }
@@ -344,6 +354,7 @@ public:
         static const int INT_VALUE = 0;
         return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
     }
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

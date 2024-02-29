@@ -42,7 +42,7 @@ SHOW RESOURCES
   WHERE
   [NAME [ = "your_resource_name" | LIKE "name_matcher"]]
   [RESOURCETYPE = ["SPARK"]]
-]
+] | [LIKE "pattern"]
 [ORDER BY ...]
 [LIMIT limit][OFFSET offset];
 ```
@@ -50,11 +50,12 @@ SHOW RESOURCES
 说明：
 
 1. 如果使用 NAME LIKE，则会匹配 RESOURCES 的 Name 包含 name_matcher 的Resource
-2.  如果使用 NAME = ，则精确匹配指定的 Name
+2. 如果使用 NAME = ，则精确匹配指定的 Name
 3. 如果指定了 RESOURCETYPE，则匹配对应的 Resrouce 类型
 4. 可以使用 ORDER BY 对任意列组合进行排序
 5. 如果指定了 LIMIT，则显示 limit 条匹配记录。否则全部显示
 6. 如果指定了 OFFSET，则从偏移量 offset 开始显示查询结果。默认情况下偏移量为0。
+7. 如果使用了 LIKE，则会忽略 WHERE 语句。
 
 ### Example
 
@@ -74,6 +75,12 @@ SHOW RESOURCES
     
     ```sql
     SHOW RESOURCES WHERE NAME = "20140102" ORDER BY `KEY` DESC;
+    ```
+
+4. 使用 LIKE 进行模糊匹配
+
+    ```sql
+    SHOW RESOURCES LIKE "jdbc%";
     ```
 
 ### Keywords

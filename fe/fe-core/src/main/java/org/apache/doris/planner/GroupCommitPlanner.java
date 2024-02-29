@@ -144,7 +144,9 @@ public class GroupCommitPlanner {
                 if (!backend.isDecommissioned()) {
                     ctx.setInsertGroupCommit(this.table.getId(), backend);
                     find = true;
-                    LOG.debug("choose new be {}", backend.getId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("choose new be {}", backend.getId());
+                    }
                     break;
                 }
             }
@@ -153,9 +155,6 @@ public class GroupCommitPlanner {
             }
         }
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
-                .setDbId(db.getId())
-                .setTableId(table.getId())
-                .setBaseSchemaVersion(table.getBaseSchemaVersion())
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
                         .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())
@@ -214,8 +213,10 @@ public class GroupCommitPlanner {
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
                 InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
-                LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
-                        .collect(Collectors.joining(",")));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
+                            .collect(Collectors.joining(",")));
+                }
                 rows.add(data);
             }
         } else {
@@ -228,11 +229,12 @@ public class GroupCommitPlanner {
                 }
             }
             InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList);
-            LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
-                    .collect(Collectors.joining(",")));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
+                        .collect(Collectors.joining(",")));
+            }
             rows.add(data);
         }
         return rows;
     }
 }
-

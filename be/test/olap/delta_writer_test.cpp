@@ -67,8 +67,7 @@ class OlapMeta;
 // And also it should take schema change into account after streaming load.
 
 static const uint32_t MAX_PATH_LEN = 1024;
-
-static std::unique_ptr<StorageEngine> k_engine;
+static StorageEngine* engine_ref = nullptr;
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -83,20 +82,21 @@ static void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    k_engine = std::make_unique<StorageEngine>(options);
-    Status s = k_engine->open();
-    EXPECT_TRUE(s.ok()) << s.to_string();
+    auto engine = std::make_unique<StorageEngine>(options);
+    engine_ref = engine.get();
+    Status s = engine->open();
+    ASSERT_TRUE(s.ok()) << s;
+    ASSERT_TRUE(s.ok()) << s;
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-    static_cast<void>(exec_env->set_storage_engine(k_engine.get()));
-    static_cast<void>(k_engine->start_bg_threads());
+    exec_env->set_storage_engine(std::move(engine));
 }
 
 static void tear_down() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(nullptr);
-    k_engine.reset();
+    engine_ref = nullptr;
     exec_env->set_storage_engine(nullptr);
     EXPECT_EQ(system("rm -rf ./data_test"), 0);
     static_cast<void>(io::global_local_filesystem()->delete_directory(
@@ -482,7 +482,7 @@ TEST_F(TestDeltaWriter, open) {
     profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10003, 270068375, &request);
-    Status res = k_engine->create_tablet(request, profile.get());
+    Status res = engine_ref->create_tablet(request, profile.get());
     EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -490,7 +490,7 @@ TEST_F(TestDeltaWriter, open) {
     DescriptorTbl* desc_tbl = nullptr;
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -504,12 +504,12 @@ TEST_F(TestDeltaWriter, open) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = true;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
 
     // test vec delta writer
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
@@ -518,7 +518,7 @@ TEST_F(TestDeltaWriter, open) {
     res = delta_writer->commit_txn(PSlaveTabletNodes());
     EXPECT_EQ(Status::OK(), res);
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
+    res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
 }
 
@@ -527,7 +527,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10004, 270068376, &request);
-    Status res = k_engine->create_tablet(request, profile.get());
+    Status res = engine_ref->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -536,7 +536,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     //     const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -550,10 +550,10 @@ TEST_F(TestDeltaWriter, vec_write) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -654,24 +654,24 @@ TEST_F(TestDeltaWriter, vec_write) {
     ASSERT_TRUE(res.ok());
 
     // publish version success
-    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
-            write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+    engine_ref->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
+                                                       &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
         TabletPublishStatistics stats;
-        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   write_req.tablet_id, tablet_rs.first.tablet_uid,
-                                                   version, &stats);
+        res = engine_ref->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                     write_req.tablet_id,
+                                                     tablet_rs.first.tablet_uid, version, &stats);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -681,7 +681,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     }
     ASSERT_EQ(1, tablet->num_rows());
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
+    res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
 }
 
@@ -691,7 +691,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     TCreateTabletReq request;
     sleep(20);
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status res = k_engine->create_tablet(request, profile.get());
+    Status res = engine_ref->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -699,7 +699,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     DescriptorTbl* desc_tbl = nullptr;
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -713,10 +713,10 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -747,23 +747,23 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
 
     // publish version success
-    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
-            write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+    engine_ref->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
+                                                       &tablet_related_rs);
     ASSERT_EQ(1, tablet_related_rs.size());
 
     std::cout << "start to publish txn" << std::endl;
     RowsetSharedPtr rowset = tablet_related_rs.begin()->second;
     TabletPublishStatistics pstats;
-    res = k_engine->txn_manager()->publish_txn(
+    res = engine_ref->txn_manager()->publish_txn(
             meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
             tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
     ASSERT_TRUE(res.ok());
@@ -797,7 +797,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     auto seq_v = read_block.get_by_position(4).column->get_int(0);
     ASSERT_EQ(100, seq_v);
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
+    res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
 }
 
@@ -806,7 +806,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     TCreateTabletReq request;
     sleep(20);
     create_tablet_request_with_sequence_col(10006, 270068377, &request, true);
-    Status res = k_engine->create_tablet(request, &profile);
+    Status res = engine_ref->create_tablet(request, &profile);
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -814,7 +814,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     DescriptorTbl* desc_tbl = nullptr;
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -828,15 +828,15 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
     std::unique_ptr<RuntimeProfile> profile1;
     profile1 = std::make_unique<RuntimeProfile>("LoadChannels1");
     std::unique_ptr<RuntimeProfile> profile2;
     profile2 = std::make_unique<RuntimeProfile>("LoadChannels2");
     auto delta_writer1 =
-            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile1.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile1.get(), TUniqueId {});
     auto delta_writer2 =
-            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile2.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile2.get(), TUniqueId {});
 
     // write data in delta writer 1
     {
@@ -890,7 +890,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         res = delta_writer2->wait_flush();
         ASSERT_TRUE(res.ok());
     }
-    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     RowsetSharedPtr rowset1 = nullptr;
@@ -899,19 +899,19 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     // publish version on delta writer 1 success
     {
         Version version;
-        version.first = tablet->rowset_with_max_version()->end_version() + 1;
-        version.second = tablet->rowset_with_max_version()->end_version() + 1;
+        version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+        version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
         std::cout << "start to add rowset version:" << version.first << "-" << version.second
                   << std::endl;
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-        StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
-                write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+        engine_ref->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
+                                                           &tablet_related_rs);
         ASSERT_EQ(1, tablet_related_rs.size());
 
         std::cout << "start to publish txn" << std::endl;
         rowset1 = tablet_related_rs.begin()->second;
         TabletPublishStatistics pstats;
-        res = k_engine->txn_manager()->publish_txn(
+        res = engine_ref->txn_manager()->publish_txn(
                 meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
                 tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
         ASSERT_TRUE(res.ok());
@@ -950,13 +950,13 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(res.ok());
 
         Version version;
-        version.first = tablet->rowset_with_max_version()->end_version() + 1;
-        version.second = tablet->rowset_with_max_version()->end_version() + 1;
+        version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+        version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
         std::cout << "start to add rowset version:" << version.first << "-" << version.second
                   << std::endl;
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-        StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
-                write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+        engine_ref->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
+                                                           &tablet_related_rs);
         ASSERT_EQ(1, tablet_related_rs.size());
 
         std::cout << "start to publish txn" << std::endl;
@@ -964,7 +964,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(delete_bitmap->contains({rowset2->rowset_id(), 0, 0}, 1));
 
         TabletPublishStatistics pstats;
-        res = k_engine->txn_manager()->publish_txn(
+        res = engine_ref->txn_manager()->publish_txn(
                 meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
                 tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
         ASSERT_TRUE(res.ok());
@@ -982,7 +982,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_EQ(1, segments.size());
     }
 
-    auto cur_version = tablet->rowset_with_max_version()->end_version();
+    auto cur_version = tablet->get_rowset_with_max_version()->end_version();
     // read data from rowset 1, verify the data correct
     {
         OlapReaderStatistics stats;
@@ -1039,7 +1039,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_EQ(110, seq_v);
     }
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
+    res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
 }
 } // namespace doris

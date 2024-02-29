@@ -103,8 +103,5 @@ private:
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
     void _do_work(size_t index);
-    // after _try_close_task, task maybe destructed.
-    void _try_close_task(PipelineTask* task, PipelineTaskState state,
-                         Status exec_status = Status::OK());
 };
 } // namespace doris::pipeline

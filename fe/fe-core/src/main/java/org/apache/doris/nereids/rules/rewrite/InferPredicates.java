@@ -78,7 +78,6 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
                 break;
             case LEFT_OUTER_JOIN:
             case LEFT_ANTI_JOIN:
-            case NULL_AWARE_LEFT_ANTI_JOIN:
                 right = inferNewPredicate(right, expressions);
                 break;
             case RIGHT_OUTER_JOIN:
@@ -122,10 +121,9 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     private Plan inferNewPredicate(Plan plan, Set<Expression> expressions) {
         Set<Expression> predicates = expressions.stream()
-                .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(
-                        c.getInputSlots())).collect(Collectors.toSet());
+                .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(c.getInputSlots()))
+                .collect(Collectors.toSet());
         predicates.removeAll(plan.accept(pollUpPredicates, null));
         return PlanUtils.filterOrSelf(predicates, plan);
     }
 }
-

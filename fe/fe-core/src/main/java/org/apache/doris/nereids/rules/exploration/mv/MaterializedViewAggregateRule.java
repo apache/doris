@@ -28,7 +28,7 @@ import java.util.List;
 
 /**
  * This is responsible for aggregate rewriting according to different pattern
- * */
+ */
 public class MaterializedViewAggregateRule extends AbstractMaterializedViewAggregateRule {
 
     public static final MaterializedViewAggregateRule INSTANCE = new MaterializedViewAggregateRule();

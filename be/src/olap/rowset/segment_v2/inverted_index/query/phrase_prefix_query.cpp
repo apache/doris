@@ -17,47 +17,49 @@
 
 #include "phrase_prefix_query.h"
 
+#include "CLucene/util/stringUtil.h"
 #include "olap/rowset//segment_v2/inverted_index/query/prefix_query.h"
 
-namespace doris {
+namespace doris::segment_v2 {
 
-namespace segment_v2 {
-
-PhrasePrefixQuery::PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher)
-        : _searcher(searcher) {}
+PhrasePrefixQuery::PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                                     const TQueryOptions& query_options)
+        : _searcher(searcher),
+          _query(std::make_unique<CL_NS(search)::MultiPhraseQuery>()),
+          _max_expansions(query_options.inverted_index_max_expansions) {}
 
 void PhrasePrefixQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
     if (terms.empty()) {
-        return;
+        _CLTHROWA(CL_ERR_IllegalArgument, "PhrasePrefixQuery::add: terms empty");
     }
 
     for (size_t i = 0; i < terms.size(); i++) {
         if (i < terms.size() - 1) {
             std::wstring ws = StringUtil::string_to_wstring(terms[i]);
             Term* t = _CLNEW Term(field_name.c_str(), ws.c_str());
-            _query.add(t);
-            _CLDECDELETE(t);
+            _query->add(t);
+            _CLLDECDELETE(t);
         } else {
             std::vector<CL_NS(index)::Term*> prefix_terms;
             PrefixQuery::get_prefix_terms(_searcher->getReader(), field_name, terms[i],
                                           prefix_terms, _max_expansions);
             if (prefix_terms.empty()) {
-                continue;
+                std::wstring ws_term = StringUtil::string_to_wstring(terms[i]);
+                Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
+                prefix_terms.push_back(t);
             }
-            _query.add(prefix_terms);
+            _query->add(prefix_terms);
             for (auto& t : prefix_terms) {
-                _CLDECDELETE(t);
+                _CLLDECDELETE(t);
             }
         }
     }
 }
 
 void PhrasePrefixQuery::search(roaring::Roaring& roaring) {
-    _searcher->_search(&_query, [&roaring](const int32_t docid, const float_t /*score*/) {
+    _searcher->_search(_query.get(), [&roaring](const int32_t docid, const float_t /*score*/) {
         roaring.add(docid);
     });
 }
 
-} // namespace segment_v2
-
-} // namespace doris
+} // namespace doris::segment_v2

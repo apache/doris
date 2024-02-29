@@ -365,7 +365,9 @@ public class BDBEnvironment {
                 if (StringUtils.isNumeric(name)) {
                     ret.add(Long.parseLong(name));
                 } else {
-                    // LOG.debug("get database names, skipped {}", name);
+                    if (LOG.isDebugEnabled()) {
+                        // LOG.debug("get database names, skipped {}", name);
+                    }
                 }
             }
         }

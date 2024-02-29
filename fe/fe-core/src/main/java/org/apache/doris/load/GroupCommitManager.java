@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
@@ -30,31 +29,55 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 import java.util.concurrent.Future;
 
 public class GroupCommitManager {
 
-    public enum SchemaChangeStatus {
-        BLOCK, NORMAL
-    }
-
     private static final Logger LOG = LogManager.getLogger(GroupCommitManager.class);
 
-    private final Map<Long, SchemaChangeStatus> statusMap = new ConcurrentHashMap<>();
+    private Set<Long> blockedTableIds = new HashSet<>();
 
     public boolean isBlock(long tableId) {
-        if (statusMap.containsKey(tableId)) {
-            return statusMap.get(tableId) == SchemaChangeStatus.BLOCK;
-        }
-        return false;
+        return blockedTableIds.contains(tableId);
     }
 
-    public void setStatus(long tableId, SchemaChangeStatus status) {
-        LOG.debug("Setting status for tableId {}: {}", tableId, status);
-        statusMap.put(tableId, status);
+    public void blockTable(long tableId) {
+        LOG.info("block group commit for table={} when schema change", tableId);
+        blockedTableIds.add(tableId);
+    }
+
+    public void unblockTable(long tableId) {
+        blockedTableIds.remove(tableId);
+        LOG.info("unblock group commit for table={} when schema change", tableId);
+    }
+
+    /**
+     * Waiting All WAL files to be deleted.
+     */
+    public void waitWalFinished(long tableId) {
+        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
+        while (true) {
+            LOG.info("wait for wal queue size to be empty");
+            boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
+                    .isPreviousWalFinished(tableId, aliveBeIds);
+            if (walFinished) {
+                LOG.info("all wal is finished for table={}", tableId);
+                break;
+            } else if (System.currentTimeMillis() > expireTime) {
+                LOG.warn("waitWalFinished time out for table={}", tableId);
+                break;
+            } else {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    LOG.warn("failed to wait for wal for table={} when schema change", tableId, ie);
+                }
+            }
+        }
     }
 
     /**

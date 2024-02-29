@@ -17,9 +17,11 @@
 
 #include "disjunction_query.h"
 
-namespace doris {
+namespace doris::segment_v2 {
 
-DisjunctionQuery::DisjunctionQuery(IndexReader* reader) : _reader(reader) {}
+DisjunctionQuery::DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                                   const TQueryOptions& query_options)
+        : _searcher(searcher) {}
 
 DisjunctionQuery::~DisjunctionQuery() {
     for (auto& term_doc : _term_docs) {
@@ -43,7 +45,7 @@ void DisjunctionQuery::add(const std::wstring& field_name, const std::vector<std
         std::wstring ws_term = StringUtil::string_to_wstring(term);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
-        TermDocs* term_doc = _reader->termDocs(t);
+        TermDocs* term_doc = _searcher->getReader()->termDocs(t);
         _term_docs.push_back(term_doc);
         _term_iterators.emplace_back(term_doc);
     }
@@ -77,4 +79,4 @@ void DisjunctionQuery::search(roaring::Roaring& roaring) {
     }
 }
 
-} // namespace doris
+} // namespace doris::segment_v2

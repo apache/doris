@@ -191,6 +191,7 @@ extArrowFlightSqlPassword= ""
 
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
 
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.

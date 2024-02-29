@@ -102,7 +102,9 @@ public class InlineViewRef extends TableRef {
     public InlineViewRef(String alias, QueryStmt queryStmt, List<String> colLabels) {
         this(alias, queryStmt);
         explicitColLabels = Lists.newArrayList(colLabels);
-        LOG.debug("inline view explicitColLabels {}", explicitColLabels);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("inline view explicitColLabels {}", explicitColLabels);
+        }
     }
 
     /**
@@ -200,7 +202,7 @@ public class InlineViewRef extends TableRef {
         if (view == null && !hasExplicitAlias()) {
             String dialect = ConnectContext.get().getSessionVariable().getSqlDialect();
             Dialect sqlDialect = Dialect.getByName(dialect);
-            if (Dialect.SPARK_SQL != sqlDialect) {
+            if (Dialect.SPARK != sqlDialect) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
             }
             hasExplicitAlias = true;
@@ -245,10 +247,14 @@ public class InlineViewRef extends TableRef {
         // TODO: relax this a bit by allowing propagation out of the inline view (but
         // not into it)
         List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
-        LOG.debug("inline view query {}", queryStmt.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("inline view query {}", queryStmt.toSql());
+        }
         for (int i = 0; i < getColLabels().size(); ++i) {
             String colName = getColLabels().get(i);
-            LOG.debug("inline view register {}", colName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("inline view register {}", colName);
+            }
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(),
                                             colName, getSubColPath().get(i));
             Expr colExpr = queryStmt.getResultExprs().get(i);

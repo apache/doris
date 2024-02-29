@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <snappy.h>
+#include <streamvbyte.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -190,18 +191,6 @@ void Block::insert(const ColumnWithTypeAndName& elem) {
 void Block::insert(ColumnWithTypeAndName&& elem) {
     index_by_name.emplace(elem.name, data.size());
     data.emplace_back(std::move(elem));
-}
-
-void Block::insert_unique(const ColumnWithTypeAndName& elem) {
-    if (index_by_name.end() == index_by_name.find(elem.name)) {
-        insert(elem);
-    }
-}
-
-void Block::insert_unique(ColumnWithTypeAndName&& elem) {
-    if (index_by_name.end() == index_by_name.find(elem.name)) {
-        insert(std::move(elem));
-    }
 }
 
 void Block::erase(const std::set<size_t>& positions) {
@@ -415,9 +404,9 @@ size_t Block::bytes() const {
             for (const auto& e : data) {
                 ss << e.name + " ";
             }
-            LOG(FATAL) << fmt::format(
-                    "Column {} in block is nullptr, in method bytes. All Columns are {}", elem.name,
-                    ss.str());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
         }
         res += elem.column->byte_size();
     }
@@ -433,9 +422,9 @@ size_t Block::allocated_bytes() const {
             for (const auto& e : data) {
                 ss << e.name + " ";
             }
-            LOG(FATAL) << fmt::format(
-                    "Column {} in block is nullptr, in method allocated_bytes. All Columns are {}",
-                    elem.name, ss.str());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
         }
         res += elem.column->allocated_bytes();
     }
@@ -568,6 +557,16 @@ Columns Block::get_columns() const {
     size_t num_columns = data.size();
     Columns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
+        columns[i] = data[i].column->convert_to_full_column_if_const();
+    }
+    return columns;
+}
+
+Columns Block::get_columns_and_convert() {
+    size_t num_columns = data.size();
+    Columns columns(num_columns);
+    for (size_t i = 0; i < num_columns; ++i) {
+        data[i].column = data[i].column->convert_to_full_column_if_const();
         columns[i] = data[i].column;
     }
     return columns;
@@ -743,7 +742,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
                     const auto result_size = column->assume_mutable()->filter(filter);
                     if (result_size != count) {
                         throw Exception(ErrorCode::INTERNAL_ERROR,
-                                        "result_size not euqal with filter_size, result_size={}, "
+                                        "result_size not equal with filter_size, result_size={}, "
                                         "filter_size={}",
                                         result_size, count);
                     }
@@ -871,7 +870,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     *uncompressed_bytes = content_uncompressed_size;
     const size_t serialize_bytes = buf - column_values.data();
     *compressed_bytes = serialize_bytes;
-    column_values.resize(serialize_bytes);
+    column_values.resize(serialize_bytes + STREAMVBYTE_PADDING);
 
     // compress
     if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {

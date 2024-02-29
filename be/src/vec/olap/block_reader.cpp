@@ -28,6 +28,7 @@
 #include <string>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exprs/function_filter.h"
@@ -62,7 +63,7 @@ BlockReader::~BlockReader() {
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     auto res = (this->*_next_block_func)(block, eof);
-    if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+    if (!config::is_cloud_mode()) {
         if (!res.ok()) [[unlikely]] {
             static_cast<Tablet*>(_tablet.get())->report_error(res);
         }
@@ -233,7 +234,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
-        if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
         return status;
@@ -521,7 +522,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         AggregateFunctionPtr function = _agg_functions[i];
         AggregateDataPtr place = _agg_places[i];
-        auto column_ptr = _stored_data_columns[idx].get();
+        auto* column_ptr = _stored_data_columns[idx].get();
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
@@ -534,13 +535,16 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
             function->reset(place);
         }
     }
+    if (is_close) {
+        _arena.clear();
+    }
 }
 
 bool BlockReader::_get_next_row_same() {
     if (_next_row.is_same) {
         return true;
     } else {
-        auto block = _next_row.block.get();
+        auto* block = _next_row.block.get();
         return block->get_same_bit(_next_row.row_pos);
     }
 }

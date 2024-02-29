@@ -16,6 +16,9 @@
 // under the License.
 
 suite("regression_test_variant_desc", "nonConcurrent"){
+    if (isCloudCluster()) {
+        return
+    }
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -78,14 +81,16 @@ suite("regression_test_variant_desc", "nonConcurrent"){
     }
 
     def set_be_config = { key, value ->
-        String backend_id;
+        // String backend_id;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        // backend_id = backendId_to_backendIP.keySet()[0]
+        for (backend_id in  backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
     }
 
     try {

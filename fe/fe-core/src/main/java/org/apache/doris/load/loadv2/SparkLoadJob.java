@@ -490,7 +490,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                             || !tabletToSentReplicaPushTask.get(tabletId).containsKey(replicaId)) {
                                         long backendId = replica.getBackendId();
                                         long taskSignature = Env.getCurrentGlobalTransactionMgr()
-                                                .getTransactionIDGenerator().getNextTransactionId();
+                                                .getNextTransactionId();
 
                                         PushBrokerReaderParams params = getPushBrokerReaderParams(olapTable, indexId);
                                         // deep copy TBrokerScanRange because filePath and fileSize will be updated
@@ -515,11 +515,13 @@ public class SparkLoadJob extends BulkLoadJob {
                                         tBrokerScanRange.getBrokerAddresses().add(
                                                 new TNetworkAddress(fsBroker.host, fsBroker.port));
 
-                                        LOG.debug("push task for replica {}, broker {}:{},"
-                                                        + " backendId {}, filePath {}, fileSize {}",
-                                                replicaId, fsBroker.host,
-                                                fsBroker.port, backendId, tBrokerRangeDesc.path,
-                                                tBrokerRangeDesc.file_size);
+                                        if (LOG.isDebugEnabled()) {
+                                            LOG.debug("push task for replica {}, broker {}:{},"
+                                                            + " backendId {}, filePath {}, fileSize {}",
+                                                    replicaId, fsBroker.host,
+                                                    fsBroker.port, backendId, tBrokerRangeDesc.path,
+                                                    tBrokerRangeDesc.file_size);
+                                        }
 
                                         PushTask pushTask = new PushTask(backendId, dbId, olapTable.getId(),
                                                 partitionId, indexId, tabletId, replicaId, schemaHash, 0, id,
@@ -667,7 +669,9 @@ public class SparkLoadJob extends BulkLoadJob {
     private void clearJob() {
         Preconditions.checkState(state == JobState.FINISHED || state == JobState.CANCELLED);
 
-        LOG.debug("kill etl job and delete etl files. id: {}, state: {}", id, state);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("kill etl job and delete etl files. id: {}, state: {}", id, state);
+        }
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
         if (state == JobState.CANCELLED) {
             if ((!Strings.isNullOrEmpty(appId) && sparkResource.isYarnMaster()) || sparkLoadAppHandle != null) {
@@ -688,7 +692,9 @@ public class SparkLoadJob extends BulkLoadJob {
             }
         }
 
-        LOG.debug("clear push tasks and infos that not persist. id: {}, state: {}", id, state);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("clear push tasks and infos that not persist. id: {}, state: {}", id, state);
+        }
         writeLock();
         try {
             // clear push task first

@@ -104,9 +104,6 @@ public class InvertedIndexUtil {
         String parser = null;
         if (properties != null) {
             parser = properties.get(INVERTED_INDEX_PARSER_KEY);
-            if (parser == null && !properties.isEmpty()) {
-                throw new AnalysisException("Invalid index properties, parser must not be none");
-            }
             checkInvertedIndexProperties(properties);
         }
 

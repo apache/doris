@@ -525,7 +525,7 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                 new DistributeHint(DistributeType.NONE),
                 Optional.empty(),
                 newUnionNode,
-                pullUpTable);
+                pullUpTable, null);
     }
 
     private LogicalUnion makeNewUnionNode(LogicalUnion origUnion,
@@ -637,7 +637,7 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                         join.getOtherJoinConjuncts(),
                         new DistributeHint(DistributeType.NONE),
                         Optional.empty(),
-                        leftChild, rightChild);
+                        leftChild, rightChild, null);
             }
         }
 

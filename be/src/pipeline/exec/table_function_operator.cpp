@@ -144,8 +144,7 @@ bool TableFunctionLocalState::_is_inner_and_empty() {
 }
 
 Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
-                                                   vectorized::Block* output_block,
-                                                   SourceState& source_state) {
+                                                   vectorized::Block* output_block, bool* eos) {
     auto& p = _parent->cast<TableFunctionOperatorX>();
     vectorized::MutableBlock m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
             output_block, p._output_slots);
@@ -159,7 +158,6 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
 
     while (columns[p._child_slots.size()]->size() < state->batch_size()) {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state("VTableFunctionNode, while getting next batch."));
 
         if (_child_block->rows() == 0) {
             break;
@@ -212,9 +210,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
                                                            output_block->columns()));
 
-    if (_child_source_state == SourceState::FINISHED && _cur_child_offset == -1) {
-        source_state = SourceState::FINISHED;
-    }
+    *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();
 }
 

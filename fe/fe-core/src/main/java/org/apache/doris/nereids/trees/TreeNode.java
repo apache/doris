@@ -200,23 +200,6 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
-     * iterate top down and test predicate if any matched. Top-down traverse implicitly.
-     * @param predicate predicate
-     * @return the first node which match the predicate
-     */
-    default TreeNode<NODE_TYPE> firstMatch(Predicate<TreeNode<NODE_TYPE>> predicate) {
-        if (predicate.test(this)) {
-            return this;
-        }
-        for (NODE_TYPE child : children()) {
-            if (child.anyMatch(predicate)) {
-                return child;
-            }
-        }
-        return this;
-    }
-
-    /**
      * Collect the nodes that satisfied the predicate.
      */
     default <T> T collect(Predicate<TreeNode<NODE_TYPE>> predicate) {

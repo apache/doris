@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Objects;
+
 public class PartitionValue {
     public static final PartitionValue MAX_VALUE = new PartitionValue();
 
@@ -68,5 +70,23 @@ public class PartitionValue {
 
     public boolean isHiveDefaultPartition() {
         return isHiveDefaultPartition;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PartitionValue that = (PartitionValue) o;
+        return isHiveDefaultPartition == that.isHiveDefaultPartition
+                && Objects.equal(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(value, isHiveDefaultPartition);
     }
 }

@@ -35,6 +35,8 @@ import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
 import java.nio.ByteBuffer;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 public class MasterOpExecutor {
@@ -144,7 +146,7 @@ public class MasterOpExecutor {
 
     private TMasterOpRequest buildStmtForwardParams() {
         TMasterOpRequest params = new TMasterOpRequest();
-        //node ident
+        // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setSql(originStmt.originStmt);
@@ -170,7 +172,7 @@ public class MasterOpExecutor {
 
     private TMasterOpRequest buildSyncJournalParmas() {
         final TMasterOpRequest params = new TMasterOpRequest();
-        //node ident
+        // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setSyncJournalOnly(true);
@@ -233,6 +235,10 @@ public class MasterOpExecutor {
         } else {
             return null;
         }
+    }
+
+    public List<ByteBuffer> getQueryResultBufList() {
+        return result.isSetQueryResultBufList() ? result.getQueryResultBufList() : Collections.emptyList();
     }
 
     public void setResult(TMasterOpResult result) {

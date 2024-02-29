@@ -46,6 +46,11 @@ public:
 
     size_t try_release(const std::string& base_path);
 
+    const std::string& get_cache_path() {
+        size_t cur_index = _next_index.fetch_add(1);
+        return _caches[cur_index % _caches.size()]->get_base_path();
+    }
+
     CloudFileCachePtr get_by_path(const IFileCache::Key& key);
     CloudFileCachePtr get_by_path(const std::string& cache_base_path);
     std::vector<IFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
@@ -59,6 +64,7 @@ private:
     std::mutex _cache_mutex;
     std::vector<std::unique_ptr<IFileCache>> _caches;
     std::unordered_map<std::string, CloudFileCachePtr> _path_to_cache;
+    std::atomic_size_t _next_index {0}; // use for round-robin
 };
 
 } // namespace io

@@ -38,16 +38,12 @@ suite("test_update_configs", "p0") {
         if (((List<String>) ele)[0] == "disable_auto_compaction") {
             disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
         }
-        if (((List<String>) ele)[0] == "enable_prefetch") {
-            enablePrefetch = Boolean.parseBoolean(((List<String>) ele)[2])
-        }
         if (((List<String>) ele)[0] == "enable_segcompaction") {
             enableSegcompaction = Boolean.parseBoolean(((List<String>) ele)[2])
         }
     }
-    logger.info("disable_auto_compaction:${disableAutoCompaction}, enable_prefetch:${enablePrefetch}, enable_segcompaction:${enableSegcompaction}")
 
-    curl("POST", String.format("http://%s:%s/api/update_config?%s=%s&%s=%s&%s=%s", beIp, bePort, "disable_auto_compaction", String.valueOf(!disableAutoCompaction), "enable_prefetch", String.valueOf(!enablePrefetch), "enable_segcompaction", String.valueOf(!enableSegcompaction)))
+    curl("POST", String.format("http://%s:%s/api/update_config?%s=%s&%s=%s", beIp, bePort, "disable_auto_compaction", String.valueOf(!disableAutoCompaction), "enable_segcompaction", String.valueOf(!enableSegcompaction)))
 
 
     (code, out, err) = show_be_config(beIp, bePort)
@@ -61,10 +57,6 @@ suite("test_update_configs", "p0") {
             logger.info("disable_auto_compaction: ${((List<String>) ele)[2]}")
             assertEquals(((List<String>) ele)[2], String.valueOf(!disableAutoCompaction))
         }
-        if (((List<String>) ele)[0] == "enable_prefetch") {
-            logger.info("enable_prefetch: ${((List<String>) ele)[3]}")
-            assertEquals(((List<String>) ele)[2], String.valueOf(!enablePrefetch))
-        }
         if (((List<String>) ele)[0] == "enable_segcompaction") {
             // enable_segcompaction is not mutable
             logger.info("enable_segcompaction: ${((List<String>) ele)[3]}")
@@ -72,7 +64,7 @@ suite("test_update_configs", "p0") {
         }
     }
 
-    curl("POST", String.format("http://%s:%s/api/update_config?%s=%s&%s=%s", beIp, bePort, "disable_auto_compaction", String.valueOf(disableAutoCompaction), "enable_prefetch", String.valueOf(enablePrefetch)))
+    curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, "disable_auto_compaction", String.valueOf(disableAutoCompaction)))
 
     (code, out, err) = show_be_config(beIp, bePort)
     assertEquals(code, 0)
@@ -82,9 +74,6 @@ suite("test_update_configs", "p0") {
         assert ele instanceof List<String>
         if (((List<String>) ele)[0] == "disable_auto_compaction") {
             assertEquals(((List<String>) ele)[2], String.valueOf(disableAutoCompaction))
-        }
-        if (((List<String>) ele)[0] == "enable_prefetch") {
-            assertEquals(((List<String>) ele)[2], String.valueOf(enablePrefetch))
         }
     }
 }

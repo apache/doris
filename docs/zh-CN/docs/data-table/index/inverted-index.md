@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] 倒排索引
+# 倒排索引
 
 <version since="2.0.0">
  
@@ -50,10 +50,13 @@ under the License.
 Doris倒排索引的功能简要介绍如下：
 
 - 增加了字符串类型的全文检索
-  - 支持字符串全文检索，包括同时匹配多个关键字MATCH_ALL、匹配任意一个关键字MATCH_ANY、匹配短语词组MATCH_PHRASE
+  - 支持字符串全文检索，包括同时匹配多个关键字MATCH_ALL、匹配任意一个关键字MATCH_ANY
+  - 支持短语查询 MATCH_PHRASE
+  - 支持短语+前缀 MATCH_PHRASE_PREFIX
+  - 支持正则查询 MATCH_REGEXP
   - 支持字符串数组类型的全文检索
   - 支持英文、中文以及Unicode多语言分词
-- 加速普通等值、范围查询，覆盖bitmap索引的功能，未来会代替bitmap索引
+- 加速普通等值、范围查询，覆盖bitmap索引的功能，可代替bitmap索引
   - 支持字符串、数值、日期时间类型的 =, !=, >, >=, <, <= 快速过滤
   - 支持字符串、数字、日期时间数组类型的 =, !=, >, >=, <, <=
 - 支持完善的逻辑组合
@@ -178,6 +181,15 @@ SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword1 keyword2';
 
 -- 1.4 logmsg中同时包含keyword1和keyword2的行，并且按照keyword1在前，keyword2在后的顺序
 SELECT * FROM table_name WHERE logmsg MATCH_PHRASE 'keyword1 keyword2';
+
+-- 1.5 在保持词顺序的前提下，对最后一个词keyword2做前缀匹配，默认找50个前缀词（session变量inverted_index_max_expansions控制）
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE_PREFIX 'keyword1 keyword2';
+
+-- 1.6 如果只填一个词会退化为前缀查询，默认找50个前缀词（session变量inverted_index_max_expansions控制）
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE_PREFIX 'keyword1';
+
+-- 1.7 对分词后的词进行正则匹配，默认匹配50个（session变量inverted_index_max_expansions控制）
+SELECT * FROM table_name WHERE logmsg MATCH_REGEXP 'key*';
 
 
 -- 2. 普通等值、范围、IN、NOT IN，正常的SQL语句即可，例如

@@ -46,7 +46,7 @@ public class ReplicaAllocation implements Writable {
     public static final ReplicaAllocation NOT_SET;
 
     static {
-        DEFAULT_ALLOCATION = new ReplicaAllocation((short) 3);
+        DEFAULT_ALLOCATION = EnvFactory.getInstance().createDefReplicaAllocation();
         NOT_SET = new ReplicaAllocation();
     }
 

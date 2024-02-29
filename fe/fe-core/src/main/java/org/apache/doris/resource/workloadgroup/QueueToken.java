@@ -28,8 +28,13 @@ import java.util.concurrent.locks.ReentrantLock;
 // used to mark QueryQueue offer result
 // if offer failed, then need to cancel query
 // and return failed reason to user client
-public class QueueToken {
+public class QueueToken implements Comparable<QueueToken> {
     private static final Logger LOG = LogManager.getLogger(QueueToken.class);
+
+    @Override
+    public int compareTo(QueueToken other) {
+        return Long.compare(this.tokenId, other.getTokenId());
+    }
 
     enum TokenState {
         ENQUEUE_SUCCESS,
@@ -136,4 +141,7 @@ public class QueueToken {
         return tokenId == other.tokenId;
     }
 
+    public long getTokenId() {
+        return tokenId;
+    }
 }

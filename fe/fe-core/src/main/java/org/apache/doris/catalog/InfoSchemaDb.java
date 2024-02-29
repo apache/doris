@@ -29,12 +29,12 @@ public class InfoSchemaDb extends MysqlCompatibleDatabase {
     @Override
     protected void initTables() {
         for (Table table : SchemaTable.TABLE_MAP.values()) {
-            super.createTable(table);
+            super.registerTable(table);
         }
     }
 
     @Override
-    public boolean createTable(Table table) {
+    public boolean registerTable(TableIf table) {
         return false;
     }
 }

@@ -25,6 +25,7 @@
 
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
@@ -51,12 +52,16 @@ Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& 
                                       VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));
     _expr_name = fmt::format("VRuntimeFilterWrapper({})", _impl->expr_name());
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
                                    FunctionContext::FunctionStateScope scope) {
-    return _impl->open(state, context, scope);
+    DCHECK(_prepare_finished);
+    RETURN_IF_ERROR(_impl->open(state, context, scope));
+    _open_finished = true;
+    return Status::OK();
 }
 
 void VRuntimeFilterWrapper::close(VExprContext* context,
@@ -65,6 +70,7 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 }
 
 Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     if (_always_true) {
         auto res_data_column = ColumnVector<UInt8>::create(block->rows(), 1);
         size_t num_columns_without_result = block->columns();
@@ -79,26 +85,44 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         return Status::OK();
     } else {
         _scan_rows += block->rows();
+
+        if (_getting_const_col) {
+            _impl->set_getting_const_col(true);
+        }
         RETURN_IF_ERROR(_impl->execute(context, block, result_column_id));
+        if (_getting_const_col) {
+            _impl->set_getting_const_col(false);
+        }
+
         uint8_t* data = nullptr;
         const ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*result_column.column)) {
+        if (is_column_const(*result_column.column)) {
+            auto* constant_val = const_cast<char*>(result_column.column->get_data_at(0).data);
+            if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
+                _filtered_rows += block->rows();
+            }
+        } else if (const auto* nullable =
+                           check_and_get_column<ColumnNullable>(*result_column.column)) {
             data = ((ColumnVector<UInt8>*)nullable->get_nested_column_ptr().get())
                            ->get_data()
                            .data();
             _filtered_rows += doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data),
                                                           nullable->get_null_map_data().data(),
                                                           block->rows());
-        } else if (auto* res_col =
+        } else if (const auto* res_col =
                            check_and_get_column<ColumnVector<UInt8>>(*result_column.column)) {
             data = const_cast<uint8_t*>(res_col->get_data().data());
             _filtered_rows += doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data),
                                                           block->rows());
         } else {
-            return Status::InternalError("Invalid type for runtime filters!");
+            return Status::InternalError(
+                    "Invalid type for runtime filters!, and _expr_name is: {}. _data_type is: {}. "
+                    "result_column_id is: {}. block structure: {}.",
+                    _expr_name, _data_type->get_name(), *result_column_id, block->dump_structure());
         }
 
-        calculate_filter(_filtered_rows, _scan_rows, _has_calculate_filter, _always_true);
+        calculate_filter(VRuntimeFilterWrapper::EXPECTED_FILTER_RATE, _filtered_rows, _scan_rows,
+                         _has_calculate_filter, _always_true);
         return Status::OK();
     }
 }

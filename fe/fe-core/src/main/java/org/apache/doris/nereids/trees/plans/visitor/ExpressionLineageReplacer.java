@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -25,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer.ExpressionReplaceContext;
 
@@ -54,6 +57,22 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
                         && targetExpressionMap.containsKey(((NamedExpression) expression).getExprId()))
                 .forEach(expression -> expression.accept(NamedExpressionCollector.INSTANCE, context));
         return super.visit(plan, context);
+    }
+
+    @Override
+    public Expression visitGroupPlan(GroupPlan groupPlan, ExpressionReplaceContext context) {
+        Group group = groupPlan.getGroup();
+        if (group == null) {
+            return visit(groupPlan, context);
+        }
+        List<StructInfo> structInfos = group.getStructInfos();
+        if (structInfos.isEmpty()) {
+            return visit(groupPlan, context);
+        }
+        // TODO only support group has one struct info, will support more struct info later
+        StructInfo structInfo = structInfos.get(0);
+        context.getExprIdExpressionMap().putAll(structInfo.getNamedExprIdAndExprMapping());
+        return visit(groupPlan, context);
     }
 
     /**
@@ -93,7 +112,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
     }
 
     /**
-     * The Collector for target named expressions in the whole plan, and will be used to
+     * The Collector for named expressions in the whole plan, and will be used to
      * replace the target expression later
      * TODO Collect named expression by targetTypes, tableIdentifiers
      */
@@ -128,7 +147,9 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         private Map<ExprId, Expression> exprIdExpressionMap;
         private List<Expression> replacedExpressions;
 
-        /**ExpressionReplaceContext*/
+        /**
+         * ExpressionReplaceContext
+         */
         public ExpressionReplaceContext(List<Expression> targetExpressions,
                 Set<TableType> targetTypes,
                 Set<String> tableIdentifiers) {

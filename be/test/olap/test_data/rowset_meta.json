@@ -17,5 +17,6 @@
         "hi": 10,
         "lo": 10
     },
-    "num_segments": 1
+    "num_segments": 1,
+    "has_variant_type_in_schema": false
 }

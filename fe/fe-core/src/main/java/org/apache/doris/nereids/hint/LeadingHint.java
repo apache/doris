@@ -503,7 +503,8 @@ public class LeadingHint extends Hint {
                             distributeHint,
                             Optional.empty(),
                             newStackTop.second.first,
-                            logicalPlan);
+                            logicalPlan, null);
+                    logicalJoin.getJoinReorderContext().setLeadingJoin(true);
                     distributeIndex = newStackTop.second.second;
                     logicalJoin.setBitmap(LongBitmap.or(getBitmap(newStackTop.second.first), getBitmap(logicalPlan)));
                     if (stackTopLevel > 0) {

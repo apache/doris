@@ -234,7 +234,7 @@ public:
      *                            | data column start address of the variable length column-B |
      *                            | ... |
      */
-    Status get_nex_block(Block* block, size_t* read_rows, bool* eof);
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof);
 
     /**
      * Get performance metrics from java scanner

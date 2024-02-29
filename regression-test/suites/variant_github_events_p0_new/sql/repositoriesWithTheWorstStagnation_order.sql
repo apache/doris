@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
     repo_name,
     sum(created_at_2022) AS stars2022,
     sum(created_at_2015) AS stars2015,

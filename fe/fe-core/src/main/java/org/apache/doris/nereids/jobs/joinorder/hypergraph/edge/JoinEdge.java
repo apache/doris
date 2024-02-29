@@ -37,12 +37,16 @@ import javax.annotation.Nullable;
 public class JoinEdge extends Edge {
 
     private final LogicalJoin<? extends Plan, ? extends Plan> join;
+    private final Set<Slot> leftInputSlots;
+    private final Set<Slot> rightInputSlots;
 
     public JoinEdge(LogicalJoin<? extends Plan, ? extends Plan> join, int index,
             BitSet leftChildEdges, BitSet rightChildEdges, long subTreeNodes,
-            long leftRequireNodes, long rightRequireNodes) {
+            long leftRequireNodes, long rightRequireNodes, Set<Slot> leftInputSlots, Set<Slot> rightInputSlots) {
         super(index, leftChildEdges, rightChildEdges, subTreeNodes, leftRequireNodes, rightRequireNodes);
         this.join = join;
+        this.leftInputSlots = leftInputSlots;
+        this.rightInputSlots = rightInputSlots;
     }
 
     /**
@@ -51,7 +55,8 @@ public class JoinEdge extends Edge {
     public JoinEdge swap() {
         JoinEdge swapEdge = new
                 JoinEdge(join.swap(), getIndex(), getRightChildEdges(),
-                getLeftChildEdges(), getSubTreeNodes(), getRightRequiredNodes(), getLeftRequiredNodes());
+                getLeftChildEdges(), getSubTreeNodes(), getRightRequiredNodes(), getLeftRequiredNodes(),
+                this.rightInputSlots, this.leftInputSlots);
         swapEdge.addLeftRejectEdges(getLeftRejectEdge());
         swapEdge.addRightRejectEdges(getRightRejectEdge());
         return swapEdge;
@@ -62,8 +67,8 @@ public class JoinEdge extends Edge {
     }
 
     public JoinEdge withJoinTypeAndCleanCR(JoinType joinType) {
-        return new JoinEdge(join.withJoinType(joinType), getIndex(), getLeftChildEdges(), getRightChildEdges(),
-                getSubTreeNodes(), getLeftRequiredNodes(), getRightRequiredNodes());
+        return new JoinEdge(join.withJoinType(joinType, null), getIndex(), getLeftChildEdges(), getRightChildEdges(),
+                getSubTreeNodes(), getLeftRequiredNodes(), getRightRequiredNodes(), leftInputSlots, rightInputSlots);
     }
 
     public LogicalJoin<? extends Plan, ? extends Plan> getJoin() {
@@ -111,5 +116,13 @@ public class JoinEdge extends Edge {
         Set<Slot> slots = new HashSet<>();
         join.getExpressions().forEach(expression -> slots.addAll(expression.getInputSlots()));
         return slots;
+    }
+
+    public Set<Slot> getLeftInputSlots() {
+        return leftInputSlots;
+    }
+
+    public Set<Slot> getRightInputSlots() {
+        return rightInputSlots;
     }
 }

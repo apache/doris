@@ -38,7 +38,7 @@ suite("runtime_filter") {
             rf_dws_asset_domain_statistics_daily t1
             INNER JOIN ( 
                 SELECT account_id, account_name
-                FROM dws_asset_domain_statistics_daily
+                FROM rf_dws_asset_domain_statistics_daily
                 WHERE d_s = '2023-12-20'
             ) t2 
             ON (t1.account_id <=> t2.account_id);

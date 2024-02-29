@@ -20,6 +20,8 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.datasource.es.EsShardPartitions;
+import org.apache.doris.datasource.es.EsTablePartitions;
 
 import org.junit.Assert;
 import org.junit.Test;

@@ -73,15 +73,10 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static std::unique_ptr<StorageEngine> k_engine;
 static const std::string kTestDir = "./data_test/data/beta_rowset_test";
 
 class BetaRowsetTest : public testing::Test {
 public:
-    BetaRowsetTest() : _data_dir(std::make_unique<DataDir>(kTestDir)) {
-        static_cast<void>(_data_dir->update_capacity());
-    }
-
     static void SetUpTestSuite() {
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
@@ -96,22 +91,7 @@ public:
         st = io::global_local_filesystem()->create_directory(config::storage_root_path);
         ASSERT_TRUE(st.ok()) << st;
 
-        std::vector<StorePath> paths;
-        paths.emplace_back(config::storage_root_path, -1);
-
-        doris::EngineOptions options;
-        options.store_paths = paths;
-        k_engine = std::make_unique<StorageEngine>(options);
-        Status s = k_engine->open();
-        EXPECT_TRUE(s.ok()) << s.to_string();
-        ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
-
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
-    }
-
-    static void TearDownTestSuite() {
-        k_engine.reset();
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
 protected:
@@ -165,7 +145,6 @@ protected:
                                       RowsetWriterContext* rowset_writer_context) {
         RowsetId rowset_id;
         rowset_id.init(10000);
-        // rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_id = rowset_id;
         rowset_writer_context->tablet_id = 12345;
         rowset_writer_context->tablet_schema_hash = 1111;

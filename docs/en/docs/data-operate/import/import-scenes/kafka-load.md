@@ -28,7 +28,7 @@ under the License.
 
 Users can directly subscribe to message data in Kafka by submitting routine import jobs to synchronize data in near real-time.
 
-Doris itself can ensure that messages in Kafka are subscribed without loss or weight, that is, `Exactly-Once` consumption semantics.
+Doris itself can ensure that messages in Kafka are subscribed without loss or duplicated, that is, `Exactly-Once` consumption semantics.
 
 ## Subscribe to Kafka messages
 

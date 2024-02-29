@@ -14,20 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/DataTypes/DataTypeString.h
-// and modified by Doris
 
 #pragma once
 
-#include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
-#include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
-
-#include <memory>
-#include <string>
 
 #include "common/exception.h"
 #include "common/status.h"
@@ -39,15 +29,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/serde/data_type_fixedlengthobject_serde.h"
-
-namespace doris {
-namespace vectorized {
-class BufferWritable;
-class IColumn;
-class ReadBuffer;
-} // namespace vectorized
-} // namespace doris
+#include "vec/data_types/serde/data_type_string_serde.h"
 
 namespace doris::vectorized {
 
@@ -55,8 +37,8 @@ class DataTypeAggState : public DataTypeString {
 public:
     DataTypeAggState(DataTypes sub_types, bool result_is_nullable, std::string function_name)
             : _result_is_nullable(result_is_nullable),
-              _sub_types(sub_types),
-              _function_name(function_name) {
+              _sub_types(std::move(sub_types)),
+              _function_name(std::move(function_name)) {
         _agg_function = AggregateFunctionSimpleFactory::instance().get(_function_name, _sub_types,
                                                                        _result_is_nullable);
         if (_agg_function == nullptr) {
@@ -73,11 +55,11 @@ public:
                            _function_name, _result_is_nullable, get_types_string());
     }
 
+    std::string get_function_name() const { return _function_name; }
+
     TypeIndex get_type_id() const override { return TypeIndex::AggState; }
 
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_AGG_STATE);
-    }
+    TypeDescriptor get_type_as_type_descriptor() const override { return {TYPE_AGG_STATE}; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_AGG_STATE;

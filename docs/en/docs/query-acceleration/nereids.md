@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -66,7 +66,7 @@ Turn on auto fall back to legacy planner
 SET enable_fallback_to_original_planner=true;
 ```
 
-Recommand execute analyze on table before query on it to get the benefits of cbo
+Executing analyze on table before query is highly recommended when query performance is critical so that we can fully utilize Nereids's CBO capability.
 
 ## Known issues and temporarily unsupported features
 

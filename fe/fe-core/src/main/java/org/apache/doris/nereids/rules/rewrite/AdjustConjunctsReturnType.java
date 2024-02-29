@@ -64,6 +64,9 @@ public class AdjustConjunctsReturnType extends DefaultPlanRewriter<Void> impleme
         List<Expression> otherConjuncts = join.getOtherJoinConjuncts().stream()
                 .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                 .collect(Collectors.toList());
-        return join.withJoinConjuncts(hashConjuncts, otherConjuncts);
+        List<Expression> markConjuncts = join.getMarkJoinConjuncts().stream()
+                .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
+                .collect(Collectors.toList());
+        return join.withJoinConjuncts(hashConjuncts, otherConjuncts, markConjuncts, join.getJoinReorderContext());
     }
 }

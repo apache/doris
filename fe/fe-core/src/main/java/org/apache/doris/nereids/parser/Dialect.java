@@ -36,25 +36,25 @@ public enum Dialect {
      */
     PRESTO("presto"),
     /**
-     * Spark sql parser dialect
+     * Spark3 sql parser dialect
      */
-    SPARK_SQL("spark_sql"),
+    SPARK("spark"),
+    /**
+     * Spark2 sql parser dialect
+     */
+    SPARK2("spark2"),
+    /**
+     * Flink sql parser dialect
+     */
+    FLINK("flink"),
     /**
      * Hive parser dialect
      */
     HIVE("hive"),
     /**
-     * Alibaba max compute parser dialect
-     */
-    MAX_COMPUTE("max_compute"),
-    /**
-     * Mysql parser dialect
-     */
-    MYSQL("mysql"),
-    /**
      * Postgresql parser dialect
      */
-    POSTGRESQL("postgresql"),
+    POSTGRES("postgres"),
     /**
      * Sqlserver parser dialect
      */
@@ -64,13 +64,9 @@ public enum Dialect {
      */
     CLICKHOUSE("clickhouse"),
     /**
-     * Sap hana parser dialect
+     * oracle parser dialect
      */
-    SAP_HANA("sap_hana"),
-    /**
-     * OceanBase parser dialect
-     */
-    OCEANBASE("oceanbase");
+    ORACLE("oracle");
 
     public static final int MAX_DIALECT_SIZE = Dialect.values().length;
 

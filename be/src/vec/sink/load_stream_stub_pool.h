@@ -76,7 +76,7 @@ class LoadStreams {
 public:
     LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStreamStubPool* pool);
 
-    void release(Status status);
+    void release();
 
     Streams& streams() { return _streams; }
 

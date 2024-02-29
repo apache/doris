@@ -18,8 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -136,14 +136,5 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         }
         commonParams.put("lastAnalyzeTimeInMs", String.valueOf(System.currentTimeMillis()));
         return commonParams;
-    }
-
-    @Override
-    protected void afterExecution() {
-        // Table level task doesn't need to sync any value to sync stats, it stores the value in metadata.
-        if (isTableLevelTask) {
-            return;
-        }
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 }

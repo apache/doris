@@ -46,6 +46,7 @@
 #include "util/binary_cast.hpp"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -69,6 +70,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
 
     TQueryGlobals query_globals = params.query_globals;
     _query_id = params.query_id;
+    LOG(INFO) << "fold_query_id: " << print_id(_query_id);
     // init
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
@@ -120,7 +122,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
         }
         expr_result_map->insert({m.first, pexpr_result_map});
     }
-
+    //TODO: will be delete the debug log after find problem of timeout.
+    LOG(INFO) << "finish fold_query_id: " << query_id_string();
     return Status::OK();
 }
 
@@ -134,7 +137,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     fragment_params.params = params;
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     _runtime_state = RuntimeState::create_unique(fragment_params.params, query_options,
-                                                 query_globals, ExecEnv::GetInstance());
+                                                 query_globals, ExecEnv::GetInstance(), nullptr);
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);
@@ -170,22 +173,22 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_TINYINT: {
         int8_t val = *reinterpret_cast<const int8_t*>(src);
-        result = fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_SMALLINT: {
         int16_t val = *reinterpret_cast<const int16_t*>(src);
-        result = fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_INT: {
         int32_t val = *reinterpret_cast<const int32_t*>(src);
-        result = fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_BIGINT: {
         int64_t val = *reinterpret_cast<const int64_t*>(src);
-        result = fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_LARGEINT: {
@@ -194,19 +197,19 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_FLOAT: {
         float val = *reinterpret_cast<const float*>(src);
-        result = fmt::format("{}", val);
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_TIME:
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
-        result = fmt::format("{}", val);
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_TIMEV2: {
         constexpr static auto ratio_to_time = (1000 * 1000);
         double val = *reinterpret_cast<double*>(src);
-        result = fmt::format("{}", val / ratio_to_time);
+        result = fmt::format(FMT_COMPILE("{}"), val / ratio_to_time);
         break;
     }
     case TYPE_CHAR:

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -412,12 +413,12 @@ public class GraphSimplifier {
                     .mapToObj(i -> graph.getJoinEdge(i).getJoin().getHashJoinConjuncts())
                     .flatMap(Collection::stream)
                     .collect(Collectors.toList());
-            join = edge.getJoin().withJoinConjuncts(hashConditions, otherConditions);
+            join = edge.getJoin().withJoinConjuncts(hashConditions, otherConditions, null);
         }
 
         JoinEdge newEdge = new JoinEdge(join, edge.getIndex(),
                 edge.getLeftChildEdges(), edge.getRightChildEdges(), edge.getSubTreeNodes(),
-                edge.getLeftRequiredNodes(), edge.getRightRequiredNodes());
+                edge.getLeftRequiredNodes(), edge.getRightRequiredNodes(), ImmutableSet.of(), ImmutableSet.of());
         newEdge.addLeftExtendNode(leftNodes);
         newEdge.addRightExtendNode(rightNodes);
         return newEdge;

@@ -108,4 +108,46 @@ suite("test_primary_key_simple_case") {
     result = sql """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     assertTrue(result.size() == 7)
     assertTrue(result[6][10] == 25)
+
+    sql """ DROP TABLE IF EXISTS test_unique_key_range_tbl """
+    sql """
+        create table test_unique_key_range_tbl (
+            k1 date not null,
+            k2 bigint not null,
+            v1 int null,
+            v2 int not null
+        ) UNIQUE KEY(`k1`, `k2`)
+        DISTRIBUTED BY HASH(`k2`) BUCKETS 30
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    sql """
+        insert into test_unique_key_range_tbl values
+            ( '2024-02-18' , -7822995176885966013 ,    -10 ,     -4 ),
+            ( '2024-02-18' , -5987215688096912139 ,      8 ,      2 ),
+            ( '2024-02-18' , -5889932400568797810 ,    -10 ,    -10 ),
+            ( '2024-02-18' , -5051784705055344649 ,      1 ,      6 ),
+            ( '2024-02-18' , -4635608137995832373 ,      3 ,      9 ),
+            ( '2024-02-18' , -3836821172182966892 ,    -10 ,    -10 ),
+            ( '2024-02-18' , -3675645188438967877 ,   NULL ,     -4 ),
+            ( '2024-02-18' , -3363157164254363034 ,      5 ,      4 ),
+            ( '2024-02-18' ,  -849169574767655353 ,     -4 ,    -10 ),
+            ( '2024-02-18' ,  -293023807696575395 ,   NULL ,      9 ),
+            ( '2024-02-18' ,  1167104788249072527 ,      0 ,      4 ),
+            ( '2024-02-18' ,  1660707941299238025 ,      9 ,      9 ),
+            ( '2024-02-18' ,  2852819493813807984 ,      0 ,      6 ),
+            ( '2024-02-18' ,  5444305694667795860 ,      9 ,      1 ),
+            ( '2024-02-18' ,  6136152292926889790 ,      2 ,      9 ),
+            ( '2024-02-18' ,  6538123407677174537 ,     -4 ,    -10 ),
+            ( '2024-02-18' ,  7958269158967938474 ,    -10 ,      9 ),
+            ( '2024-02-18' ,  9019386549208004184 ,    -10 ,      5 ),
+            ( '2024-02-18' ,  9208781524087970597 ,      0 ,      5 );
+    """
+
+    qt_pk_key_range """
+        select k1, v1, v2 from test_unique_key_range_tbl where k1 = '2024-02-18' order by 1, 2, 3;
+    """
 }

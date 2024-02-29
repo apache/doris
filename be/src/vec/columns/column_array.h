@@ -142,9 +142,6 @@ public:
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
-
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data = nullptr) const override;
 
@@ -174,7 +171,7 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+
     ColumnPtr convert_to_full_column_if_const() const override;
 
     /** More efficient methods of manipulation */

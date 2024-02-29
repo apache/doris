@@ -61,6 +61,15 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 + "properties(\n"
                 + "    \"replication_num\"=\"1\"\n"
                 + ")");
+        createTable("create table t3 (\n"
+                + "    k1 int,\n"
+                + "    k2 int\n"
+                + ")\n"
+                + "unique key(k1, k2)\n"
+                + "distributed by hash(k1) buckets 4\n"
+                + "properties(\n"
+                + "    \"replication_num\"=\"1\"\n"
+                + ")");
     }
 
     @Test
@@ -160,6 +169,28 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
         PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
+    }
+
+    @Test
+    void cascadeDropTest() throws Exception {
+        addConstraint("alter table t1 add constraint pk primary key (k1)");
+        addConstraint("alter table t2 add constraint fk foreign key (k1) references t1(k1)");
+        dropConstraint("alter table t1 drop constraint pk");
+
+        PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
+
+        addConstraint("alter table t1 add constraint pk primary key (k1)");
+        addConstraint("alter table t1 add constraint fk foreign key (k1) references t1(k1)");
+        addConstraint("alter table t2 add constraint fk foreign key (k1) references t1(k1)");
+        addConstraint("alter table t3 add constraint fk foreign key (k1) references t1(k1)");
+        dropConstraint("alter table t1 drop constraint pk");
+        PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
+        PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
+        PlanChecker.from(connectContext).parse("select * from t3").analyze().matches(
                 logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
     }
 }

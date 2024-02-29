@@ -111,7 +111,8 @@ public class CreateTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
-        Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
+        Assert.assertEquals(PropertyAnalyzer.getInstance().rewriteOlapProperties("", "", null),
+                stmt.getProperties());
     }
 
     @Test
@@ -121,7 +122,8 @@ public class CreateTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
-        Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
+        Assert.assertEquals(PropertyAnalyzer.getInstance().rewriteOlapProperties("", "", null),
+                stmt.getProperties());
         Assert.assertTrue(stmt.toSql().contains("DISTRIBUTED BY RANDOM\nBUCKETS 6"));
     }
 
@@ -273,7 +275,8 @@ public class CreateTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
-        Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
+        Assert.assertEquals(PropertyAnalyzer.getInstance().rewriteOlapProperties("", "", null),
+                stmt.getProperties());
         Assert.assertTrue(stmt.toSql()
                 .contains("rollup( `index1` (`col1`, `col2`) FROM `table1`, `index2` (`col2`, `col3`) FROM `table1`)"));
     }
@@ -287,7 +290,8 @@ public class CreateTableStmtTest {
         Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getPartitionDesc());
-        Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
+        Assert.assertEquals(PropertyAnalyzer.getInstance().rewriteOlapProperties("", "", null),
+                stmt.getProperties());
     }
 
     @Test(expected = AnalysisException.class)

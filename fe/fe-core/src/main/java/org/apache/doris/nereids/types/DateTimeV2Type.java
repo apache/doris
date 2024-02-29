@@ -84,10 +84,13 @@ public class DateTimeV2Type extends DateLikeType {
 
     /**
      * return proper type of datetimev2 for String
-     * may be we need to check for validity?
+     * maybe we need to check for validity?
      */
     public static DateTimeV2Type forTypeFromString(String s) {
         int scale = DateTimeLiteral.determineScale(s);
+        if (scale > MAX_SCALE) {
+            scale = MAX_SCALE;
+        }
         return DateTimeV2Type.of(scale);
     }
 

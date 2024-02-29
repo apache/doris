@@ -80,8 +80,7 @@ private:
     HdfsFileSystemCache() = default;
 
     uint64 _hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name);
-    Status _create_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs,
-                      bool* is_kerberos);
+    Status _create_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs);
     void _clean_invalid();
     void _clean_oldest();
 };
@@ -105,7 +104,9 @@ public:
 
 private:
     FileHandleCache _cache;
-    HdfsFileHandleCache() : _cache(config::max_hdfs_file_handle_cache_num, 16, 3600 * 1000L) {}
+    HdfsFileHandleCache()
+            : _cache(config::max_hdfs_file_handle_cache_num, 16,
+                     config::max_hdfs_file_handle_cache_time_sec * 1000L) {};
 };
 
 Status HdfsFileHandleCache::get_file(const std::shared_ptr<HdfsFileSystem>& fs, const Path& file,
@@ -120,8 +121,9 @@ Status HdfsFileHandleCache::get_file(const std::shared_ptr<HdfsFileSystem>& fs, 
     return Status::OK();
 }
 
-Status HdfsFileSystem::create(const THdfsParams& hdfs_params, const std::string& fs_name,
-                              RuntimeProfile* profile, std::shared_ptr<HdfsFileSystem>* fs) {
+Status HdfsFileSystem::create(const THdfsParams& hdfs_params, std::string id,
+                              const std::string& fs_name, RuntimeProfile* profile,
+                              std::shared_ptr<HdfsFileSystem>* fs) {
 #ifdef USE_HADOOP_HDFS
     if (!config::enable_java_support) {
         return Status::InternalError(
@@ -129,13 +131,13 @@ Status HdfsFileSystem::create(const THdfsParams& hdfs_params, const std::string&
                 "true.");
     }
 #endif
-    (*fs).reset(new HdfsFileSystem(hdfs_params, fs_name, profile));
+    (*fs).reset(new HdfsFileSystem(hdfs_params, std::move(id), fs_name, profile));
     return (*fs)->connect();
 }
 
-HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& fs_name,
-                               RuntimeProfile* profile)
-        : RemoteFileSystem("", "", FileSystemType::HDFS),
+HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string id,
+                               const std::string& fs_name, RuntimeProfile* profile)
+        : RemoteFileSystem("", std::move(id), FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
           _fs_handle(nullptr),
           _profile(profile) {
@@ -166,8 +168,8 @@ Status HdfsFileSystem::connect_impl() {
 }
 
 Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
-                                        const FileWriterOptions*) {
-    *writer = std::make_unique<HdfsFileWriter>(file, getSPtr());
+                                        const FileWriterOptions* opts) {
+    *writer = std::make_unique<HdfsFileWriter>(file, getSPtr(), opts);
     return Status::OK();
 }
 
@@ -390,10 +392,9 @@ HdfsFileSystemHandle* HdfsFileSystem::get_handle() {
 int HdfsFileSystemCache::MAX_CACHE_HANDLE = 64;
 
 Status HdfsFileSystemCache::_create_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
-                                       hdfsFS* fs, bool* is_kerberos) {
+                                       hdfsFS* fs) {
     HDFSCommonBuilder builder;
     RETURN_IF_ERROR(create_hdfs_builder(hdfs_params, fs_name, &builder));
-    *is_kerberos = builder.is_need_kinit();
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
     if (hdfs_fs == nullptr) {
         return Status::IOError("faield to connect to hdfs {}: {}", fs_name, hdfs_error());
@@ -448,20 +449,19 @@ Status HdfsFileSystemCache::get_connection(const THdfsParams& hdfs_params,
         // not find in cache, or fs handle is invalid
         // create a new one and try to put it into cache
         hdfsFS hdfs_fs = nullptr;
-        bool is_kerberos = false;
-        RETURN_IF_ERROR(_create_fs(hdfs_params, fs_name, &hdfs_fs, &is_kerberos));
+        RETURN_IF_ERROR(_create_fs(hdfs_params, fs_name, &hdfs_fs));
         if (_cache.size() >= MAX_CACHE_HANDLE) {
             _clean_invalid();
             _clean_oldest();
         }
         if (_cache.size() < MAX_CACHE_HANDLE) {
             std::unique_ptr<HdfsFileSystemHandle> handle =
-                    std::make_unique<HdfsFileSystemHandle>(hdfs_fs, true, is_kerberos);
+                    std::make_unique<HdfsFileSystemHandle>(hdfs_fs, true);
             handle->inc_ref();
             *fs_handle = handle.get();
             _cache[hash_code] = std::move(handle);
         } else {
-            *fs_handle = new HdfsFileSystemHandle(hdfs_fs, false, is_kerberos);
+            *fs_handle = new HdfsFileSystemHandle(hdfs_fs, false);
         }
     }
     return Status::OK();

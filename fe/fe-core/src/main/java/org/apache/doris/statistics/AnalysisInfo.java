@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -24,7 +25,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,7 +33,6 @@ import org.apache.logging.log4j.core.util.CronExpression;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.lang.reflect.Type;
 import java.text.ParseException;
 import java.util.List;
 import java.util.Map;
@@ -310,16 +309,6 @@ public class AnalysisInfo implements Writable {
         return gson.toJson(colToPartitions);
     }
 
-    private static Map<String, Set<String>> getColToPartition(String colToPartitionStr) {
-        if (colToPartitionStr == null || colToPartitionStr.isEmpty()) {
-            return null;
-        }
-        Gson gson = new Gson();
-        Type type = new TypeToken<Map<String, Set<String>>>() {
-        }.getType();
-        return gson.fromJson(colToPartitionStr, type);
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
@@ -351,5 +340,9 @@ public class AnalysisInfo implements Writable {
     public void markFailed() {
         state = AnalysisState.FAILED;
         endTime = System.currentTimeMillis();
+    }
+
+    public TableIf getTable() {
+        return StatisticsUtil.findTable(catalogId, dbId, tblId);
     }
 }

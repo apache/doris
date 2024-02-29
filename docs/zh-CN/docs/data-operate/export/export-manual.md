@@ -50,6 +50,7 @@ Export 的详细用法可参考 [EXPORT](../../sql-manual/sql-reference/Data-Man
 
 ### 导出到HDFS
 
+**WITH HDFS(推荐使用)**
 ```sql
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
@@ -60,12 +61,11 @@ PROPERTIES
     "label" = "mylabel",
     "column_separator"=",",
     "columns" = "col1,col2",
-    "parallelusm" = "3"
+    "parallelism" = "3"
 )
-WITH BROKER "hdfs"
-(
-    "username" = "user",
-    "password" = "passwd"
+with HDFS (
+"fs.defaultFS"="hdfs://hdfs_host:port",
+"hadoop.username" = "hadoop"
 );
 ```
 
@@ -73,7 +73,30 @@ WITH BROKER "hdfs"
 * `column_separator`：列分隔符。默认为 `\t`。支持不可见字符，比如 '\x07'。
 * `columns`：要导出的列，使用英文状态逗号隔开，如果不填这个参数默认是导出表的所有列。
 * `line_delimiter`：行分隔符。默认为 `\n`。支持不可见字符，比如 '\x07'。
-* `parallelusm`：并发3个线程去导出。
+* `parallelism`：并发3个线程去导出。
+
+**WITH BROKER**
+
+需要先启动一个BROKER进程。
+
+```sql
+EXPORT TABLE db1.tbl1 
+PARTITION (p1,p2)
+[WHERE [expr]]
+TO "hdfs://host/path/to/export/" 
+PROPERTIES
+(
+    "label" = "mylabel",
+    "column_separator"=",",
+    "columns" = "col1,col2",
+    "parallelism" = "3"
+)
+WITH BROKER "broker_name" 
+(
+  "username"="xxx",
+  "password"="yyy"
+);
+```
 
 ### 导出到对象存储
 

@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 
+#include "common/status.h"
 #include "exec/exec_node.h"
 #include "vec/columns/column.h"
 #include "vec/common/columns_hashing.h"
@@ -37,49 +38,87 @@
 namespace doris {
 namespace vectorized {
 static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;
+static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 20000;
+
+struct PartitionSortInfo {
+    ~PartitionSortInfo() = default;
+
+    PartitionSortInfo(VSortExecExprs* vsort_exec_exprs, int64_t limit, int64_t offset,
+                      ObjectPool* pool, const std::vector<bool>& is_asc_order,
+                      const std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
+                      RuntimeState* runtime_state, RuntimeProfile* runtime_profile,
+                      bool has_global_limit, int64_t partition_inner_limit,
+                      TopNAlgorithm::type top_n_algorithm, TPartTopNPhase::type topn_phase)
+            : _vsort_exec_exprs(vsort_exec_exprs),
+              _limit(limit),
+              _offset(offset),
+              _pool(pool),
+              _is_asc_order(is_asc_order),
+              _nulls_first(nulls_first),
+              _row_desc(row_desc),
+              _runtime_state(runtime_state),
+              _runtime_profile(runtime_profile),
+              _has_global_limit(has_global_limit),
+              _partition_inner_limit(partition_inner_limit),
+              _top_n_algorithm(top_n_algorithm),
+              _topn_phase(topn_phase) {}
+
+public:
+    VSortExecExprs* _vsort_exec_exprs = nullptr;
+    int64_t _limit = -1;
+    int64_t _offset = 0;
+    ObjectPool* _pool = nullptr;
+    std::vector<bool> _is_asc_order;
+    std::vector<bool> _nulls_first;
+    const RowDescriptor& _row_desc;
+    RuntimeState* _runtime_state = nullptr;
+    RuntimeProfile* _runtime_profile = nullptr;
+    bool _has_global_limit = false;
+    int64_t _partition_inner_limit = 0;
+    TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::ROW_NUMBER;
+    TPartTopNPhase::type _topn_phase = TPartTopNPhase::TWO_PHASE_GLOBAL;
+};
 
 struct PartitionBlocks {
 public:
-    PartitionBlocks() = default;
+    PartitionBlocks(std::shared_ptr<PartitionSortInfo> partition_sort_info, bool is_first_sorter)
+            : _is_first_sorter(is_first_sorter), _partition_sort_info(partition_sort_info) {}
     ~PartitionBlocks() = default;
 
-    void add_row_idx(size_t row) { selector.push_back(row); }
+    void add_row_idx(size_t row) { _selector.push_back(row); }
 
-    void append_block_by_selector(const vectorized::Block* input_block,
-                                  const RowDescriptor& row_desc, bool is_limit,
-                                  int64_t partition_inner_limit, int batch_size) {
-        if (blocks.empty() || reach_limit()) {
-            init_rows = batch_size;
-            blocks.push_back(Block::create_unique(VectorizedUtils::create_empty_block(row_desc)));
-        }
-        auto columns = input_block->get_columns();
-        auto mutable_columns = blocks.back()->mutate_columns();
-        DCHECK(columns.size() == mutable_columns.size());
-        for (int i = 0; i < mutable_columns.size(); ++i) {
-            columns[i]->append_data_by_selector(mutable_columns[i], selector);
-        }
-        blocks.back()->set_columns(std::move(mutable_columns));
-        init_rows = init_rows - selector.size();
-        total_rows = total_rows + selector.size();
-        selector.clear();
-    }
+    Status append_block_by_selector(const vectorized::Block* input_block, bool eos);
+
+    Status do_partition_topn_sort();
+
+    void create_or_reset_sorter_state();
 
     void append_whole_block(vectorized::Block* input_block, const RowDescriptor& row_desc) {
         auto empty_block = Block::create_unique(VectorizedUtils::create_empty_block(row_desc));
         empty_block->swap(*input_block);
-        blocks.emplace_back(std::move(empty_block));
+        _blocks.emplace_back(std::move(empty_block));
     }
 
     bool reach_limit() {
-        return init_rows <= 0 || blocks.back()->bytes() > INITIAL_BUFFERED_BLOCK_BYTES;
+        return _init_rows <= 0 || _blocks.back()->bytes() > INITIAL_BUFFERED_BLOCK_BYTES;
     }
 
-    size_t get_total_rows() const { return total_rows; }
+    size_t get_total_rows() const { return _total_rows; }
+    size_t get_topn_filter_rows() const { return _topn_filter_rows; }
+    size_t get_do_topn_count() const { return _do_partition_topn_count; }
 
-    IColumn::Selector selector;
-    std::vector<std::unique_ptr<Block>> blocks;
-    size_t total_rows = 0;
-    int init_rows = 4096;
+    IColumn::Selector _selector;
+    std::vector<std::unique_ptr<Block>> _blocks;
+    size_t _total_rows = 0;
+    size_t _current_input_rows = 0;
+    size_t _topn_filter_rows = 0;
+    size_t _do_partition_topn_count = 0;
+    int _init_rows = 4096;
+    bool _is_first_sorter = false;
+
+    std::unique_ptr<SortCursorCmp> _previous_row;
+    std::unique_ptr<PartitionSorter> _partition_topn_sorter = nullptr;
+    std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
 };
 
 using PartitionDataPtr = PartitionBlocks*;
@@ -198,9 +237,9 @@ public:
 
 private:
     void _init_hash_method();
-    Status _split_block_by_partition(vectorized::Block* input_block, int batch_size);
-    void _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
-                                  const vectorized::Block* input_block, int batch_size);
+    Status _split_block_by_partition(vectorized::Block* input_block, bool eos);
+    Status _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
+                                    const vectorized::Block* input_block, bool eos);
     Status get_sorted_block(RuntimeState* state, Block* output_block, bool* eos);
 
     // hash table
@@ -213,6 +252,7 @@ private:
 
     std::vector<std::unique_ptr<PartitionSorter>> _partition_sorts;
     std::vector<PartitionDataPtr> _value_places;
+    std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
     // Expressions and parameters used for build _sort_description
     VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
@@ -222,7 +262,6 @@ private:
     int _num_partition = 0;
     int64_t _partition_inner_limit = 0;
     int _sort_idx = 0;
-    std::unique_ptr<SortCursorCmp> _previous_row;
     std::queue<Block> _blocks_buffer;
     int64_t child_input_rows = 0;
     std::mutex _buffer_mutex;

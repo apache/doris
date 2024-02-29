@@ -99,12 +99,14 @@ Status MergeSorterState::add_sorted_block(Block& block) {
 }
 
 void MergeSorterState::_build_merge_tree_not_spilled(const SortDescription& sort_description) {
-    for (const auto& block : sorted_blocks_) {
+    for (auto& block : sorted_blocks_) {
         cursors_.emplace_back(block, sort_description);
     }
 
     if (sorted_blocks_.size() > 1) {
-        for (auto& cursor : cursors_) priority_queue_.push(MergeSortCursor(&cursor));
+        for (auto& cursor : cursors_) {
+            priority_queue_.emplace(&cursor);
+        }
     }
 }
 

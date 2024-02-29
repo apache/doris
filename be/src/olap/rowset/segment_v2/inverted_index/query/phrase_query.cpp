@@ -19,6 +19,10 @@
 
 namespace doris::segment_v2 {
 
+PhraseQuery::PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                         const TQueryOptions& query_options)
+        : _searcher(searcher) {}
+
 PhraseQuery::~PhraseQuery() {
     for (auto& term_doc : _term_docs) {
         if (term_doc) {

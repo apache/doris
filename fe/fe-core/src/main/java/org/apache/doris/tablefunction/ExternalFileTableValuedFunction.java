@@ -39,9 +39,9 @@ import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
@@ -255,7 +255,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (FileFormatUtils.isCsv(formatString)) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
                     FileFormatConstants.PROP_CSV_SCHEMA, ""));
-            LOG.debug("get csv schema: {}", csvSchema);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get csv schema: {}", csvSchema);
+            }
         }
 
         pathPartitionKeys = Optional.ofNullable(
@@ -472,8 +474,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-            String fsNmae = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
-            tHdfsParams.setFsName(fsNmae);
+            String fsName = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
+            tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
@@ -513,6 +515,4 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 }
-
-
 

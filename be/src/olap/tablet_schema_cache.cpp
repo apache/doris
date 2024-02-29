@@ -17,71 +17,46 @@
 
 #include "olap/tablet_schema_cache.h"
 
-#include "bvar/bvar.h"
+#include <gen_cpp/olap_file.pb.h>
 
-namespace doris {
+#include "bvar/bvar.h"
+#include "olap/tablet_schema.h"
 
 bvar::Adder<int64_t> g_tablet_schema_cache_count("tablet_schema_cache_count");
 bvar::Adder<int64_t> g_tablet_schema_cache_columns_count("tablet_schema_cache_columns_count");
 
-TabletSchemaSPtr TabletSchemaCache::insert(const std::string& key) {
-    std::lock_guard guard(_mtx);
-    auto iter = _cache.find(key);
-    if (iter == _cache.end()) {
-        TabletSchemaSPtr tablet_schema_ptr = std::make_shared<TabletSchema>();
+namespace doris {
+
+std::pair<Cache::Handle*, TabletSchemaSPtr> TabletSchemaCache::insert(const std::string& key) {
+    auto* lru_handle = cache()->lookup(key);
+    TabletSchemaSPtr tablet_schema_ptr;
+    if (lru_handle) {
+        auto* value = (CacheValue*)cache()->value(lru_handle);
+        tablet_schema_ptr = value->tablet_schema;
+    } else {
+        auto* value = new CacheValue;
+        tablet_schema_ptr = std::make_shared<TabletSchema>();
         TabletSchemaPB pb;
         pb.ParseFromString(key);
         tablet_schema_ptr->init_from_pb(pb);
-        _cache[key] = tablet_schema_ptr;
+        value->tablet_schema = tablet_schema_ptr;
+        auto deleter = [](const doris::CacheKey& key, void* value) {
+            auto* cache_value = (CacheValue*)value;
+            g_tablet_schema_cache_count << -1;
+            g_tablet_schema_cache_columns_count << -cache_value->tablet_schema->num_columns();
+            delete cache_value;
+        };
+        lru_handle = cache()->insert(key, value, tablet_schema_ptr->num_columns(), deleter,
+                                     CachePriority::NORMAL, 0);
         g_tablet_schema_cache_count << 1;
         g_tablet_schema_cache_columns_count << tablet_schema_ptr->num_columns();
-        return tablet_schema_ptr;
     }
-    return iter->second;
+    DCHECK(lru_handle != nullptr);
+    return std::make_pair(lru_handle, tablet_schema_ptr);
 }
 
-void TabletSchemaCache::start() {
-    std::thread t(&TabletSchemaCache::_recycle, this);
-    t.detach();
-    LOG(INFO) << "TabletSchemaCache started";
-}
-
-void TabletSchemaCache::stop() {
-    _should_stop = true;
-    while (!_is_stopped) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
-    LOG(INFO) << "TabletSchemaCache stopped";
-}
-
-/**
- * @brief recycle when TabletSchemaSPtr use_count equals 1.
- */
-void TabletSchemaCache::_recycle() {
-    int64_t check_interval = 5;
-    int64_t left_second = config::tablet_schema_cache_recycle_interval;
-    while (!_should_stop) {
-        if (left_second > 0) {
-            std::this_thread::sleep_for(std::chrono::seconds(check_interval));
-            left_second -= check_interval;
-            continue;
-        } else {
-            left_second = config::tablet_schema_cache_recycle_interval;
-        }
-
-        std::lock_guard guard(_mtx);
-        LOG(INFO) << "Tablet Schema Cache Capacity " << _cache.size();
-        for (auto iter = _cache.begin(), last = _cache.end(); iter != last;) {
-            if (iter->second.unique()) {
-                g_tablet_schema_cache_count << -1;
-                g_tablet_schema_cache_columns_count << -iter->second->num_columns();
-                iter = _cache.erase(iter);
-            } else {
-                ++iter;
-            }
-        }
-    }
-    _is_stopped = true;
+void TabletSchemaCache::release(Cache::Handle* lru_handle) {
+    cache()->release(lru_handle);
 }
 
 } // namespace doris

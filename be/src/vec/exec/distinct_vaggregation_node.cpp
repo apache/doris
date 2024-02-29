@@ -35,7 +35,6 @@ DistinctAggregationNode::DistinctAggregationNode(ObjectPool* pool, const TPlanNo
 
 Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
         doris::vectorized::Block* in_block, doris::vectorized::Block* out_block) {
-    SCOPED_TIMER(_exec_timer);
     DCHECK(!_probe_expr_ctxs.empty());
 
     size_t key_size = _probe_expr_ctxs.size();
@@ -59,6 +58,7 @@ Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
     RETURN_IF_CATCH_EXCEPTION(
             _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
 
+    SCOPED_TIMER(_insert_keys_to_column_timer);
     bool mem_reuse = _make_nullable_keys.empty() && out_block->mem_reuse();
     if (mem_reuse) {
         for (int i = 0; i < key_size; ++i) {
@@ -95,12 +95,12 @@ void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Sele
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
                     ctor(key, dummy_mapped_data);
-                    distinct_row.push_back(row);
+                    distinct_row.push_back_without_reserve(row);
                 };
 
                 auto creator_for_null_key = [&](auto& mapped) {
                     mapped = dummy_mapped_data;
-                    distinct_row.push_back(row);
+                    distinct_row.push_back_without_reserve(row);
                 };
 
                 SCOPED_TIMER(_hash_table_emplace_timer);

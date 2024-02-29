@@ -21,6 +21,8 @@
 
 #include <sstream>
 
+#include "util/debug_points.h"
+
 namespace doris {
 namespace vectorized {
 
@@ -63,6 +65,8 @@ Status VWalWriter::init() {
 }
 
 Status VWalWriter::write_wal(vectorized::Block* block) {
+    DBUG_EXECUTE_IF("VWalWriter.write_wal.fail",
+                    { return Status::InternalError("Failed to write wal!"); });
     PBlock pblock;
     size_t uncompressed_bytes = 0, compressed_bytes = 0;
     RETURN_IF_ERROR(block->serialize(_be_exe_version, &pblock, &uncompressed_bytes,

@@ -22,26 +22,15 @@
 
 namespace doris::pipeline {
 
-struct LocalExchangeSourceDependency final : public Dependency {
-public:
-    using SharedState = LocalExchangeSharedState;
-    LocalExchangeSourceDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "LocalExchangeSourceDependency", query_ctx) {}
-    ~LocalExchangeSourceDependency() override = default;
-
-    void block() override;
-};
-
 class Exchanger;
 class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
 class LocalExchangeSourceOperatorX;
-class LocalExchangeSourceLocalState final
-        : public PipelineXLocalState<LocalExchangeSourceDependency> {
+class LocalExchangeSourceLocalState final : public PipelineXLocalState<LocalExchangeSharedState> {
 public:
-    using Base = PipelineXLocalState<LocalExchangeSourceDependency>;
+    using Base = PipelineXLocalState<LocalExchangeSharedState>;
     ENABLE_FACTORY_CREATOR(LocalExchangeSourceLocalState);
     LocalExchangeSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : Base(state, parent) {}
@@ -78,10 +67,9 @@ public:
         return _child_x->intermediate_row_desc();
     }
     RowDescriptor& row_descriptor() override { return _child_x->row_descriptor(); }
-    const RowDescriptor& row_desc() override { return _child_x->row_desc(); }
+    const RowDescriptor& row_desc() const override { return _child_x->row_desc(); }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

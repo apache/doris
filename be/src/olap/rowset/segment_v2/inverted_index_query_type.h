@@ -80,6 +80,21 @@ enum class InvertedIndexQueryType {
     MATCH_REGEXP_QUERY = 9,
 };
 
+inline bool is_range_query(InvertedIndexQueryType query_type) {
+    return (query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||
+            query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
+            query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
+            query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY);
+}
+
+inline bool is_match_query(InvertedIndexQueryType query_type) {
+    return (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY);
+}
+
 inline std::string query_type_to_string(InvertedIndexQueryType query_type) {
     switch (query_type) {
     case InvertedIndexQueryType::UNKNOWN_QUERY: {

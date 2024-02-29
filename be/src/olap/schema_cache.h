@@ -69,7 +69,6 @@ public:
         if (lru_handle) {
             Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
             auto value = (CacheValue*)cache()->value(lru_handle);
-            value->last_visit_time = UnixMillis();
             VLOG_DEBUG << "use cache schema";
             if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
                 return value->tablet_schema;
@@ -88,7 +87,6 @@ public:
             return;
         }
         CacheValue* value = new CacheValue;
-        value->last_visit_time = UnixMillis();
         if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
             value->type = Type::TABLET_SCHEMA;
             value->tablet_schema = schema;
@@ -108,7 +106,7 @@ public:
     // Try to prune the cache if expired.
     Status prune();
 
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         Type type;
         // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;

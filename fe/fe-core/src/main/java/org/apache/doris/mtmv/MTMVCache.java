@@ -63,14 +63,16 @@ public class MTMVCache {
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(mtmv.getQuerySql(), 0));
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
-
+        if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
+            mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
+        }
         Plan mvRewrittenPlan =
                 planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
         Plan mvPlan = mvRewrittenPlan instanceof LogicalResultSink
                 ? (Plan) ((LogicalResultSink) mvRewrittenPlan).child() : mvRewrittenPlan;
         // use rewritten plan output expression currently, if expression rewrite fail,
         // consider to use the analyzed plan for output expressions only
-        List<NamedExpression> mvOutputExpressions = mvPlan.getExpressions().stream()
+        List<NamedExpression> mvOutputExpressions = mvPlan.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
         return new MTMVCache(mvPlan, mvOutputExpressions);

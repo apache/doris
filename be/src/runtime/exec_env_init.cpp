@@ -34,6 +34,8 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -50,6 +52,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
+#include "pipeline/pipeline_tracing.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
@@ -70,6 +73,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
@@ -196,7 +200,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
 
+    // NOTE: runtime query statistics mgr could be visited by query and daemon thread
+    // so it should be created before all query begin and deleted after all query and daemon thread stoppped
+    _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
     init_file_cache_factory();
+    _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
@@ -246,18 +254,24 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
 
-    _tablet_schema_cache = TabletSchemaCache::create_global_schema_cache();
-    _tablet_schema_cache->start();
+    _tablet_schema_cache =
+            TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
 
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
     options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
-    _storage_engine = new StorageEngine(options);
+    if (config::is_cloud_mode()) {
+        std::cout << "start BE in cloud mode" << std::endl;
+        _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
+    } else {
+        std::cout << "start BE in local mode" << std::endl;
+        _storage_engine = std::make_unique<StorageEngine>(options);
+    }
     auto st = _storage_engine->open();
     if (!st.ok()) {
-        LOG(ERROR) << "Lail to open StorageEngine, res=" << st;
+        LOG(ERROR) << "Fail to open StorageEngine, res=" << st;
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
@@ -288,13 +302,6 @@ Status ExecEnv::init_pipeline_task_scheduler() {
             this, _without_group_block_scheduler, t_queue, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
     RETURN_IF_ERROR(_without_group_block_scheduler->start());
-
-    auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
-    _with_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGSchePool");
-    _with_group_task_scheduler = new pipeline::TaskScheduler(this, _with_group_block_scheduler,
-                                                             tg_queue, "PipeGSchePool", nullptr);
-    RETURN_IF_ERROR(_with_group_task_scheduler->start());
-    RETURN_IF_ERROR(_with_group_block_scheduler->start());
 
     _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
     RETURN_IF_ERROR(_global_block_scheduler->start());
@@ -517,7 +524,6 @@ void ExecEnv::destroy() {
 
     SAFE_STOP(_wal_manager);
     _wal_manager.reset();
-    SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
     SAFE_STOP(_broker_mgr);
@@ -531,8 +537,6 @@ void ExecEnv::destroy() {
     // stop pipline step 1, non-cgroup execution
     SAFE_SHUTDOWN(_without_group_block_scheduler.get());
     SAFE_STOP(_without_group_task_scheduler);
-    SAFE_SHUTDOWN(_with_group_block_scheduler.get());
-    SAFE_STOP(_with_group_task_scheduler);
     // stop pipline step 2, cgroup execution
     SAFE_SHUTDOWN(_global_block_scheduler.get());
     SAFE_STOP(_task_group_manager);
@@ -546,7 +550,11 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_stub_pool.reset();
-    SAFE_STOP(_storage_engine);
+
+    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
+    // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
+    _storage_engine.reset();
+
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
@@ -554,9 +562,6 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
 
-    // Free resource after threads are stopped.
-    // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
 
@@ -574,9 +579,9 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
 
-    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset
-    // StorageEngine must be destoried before _cache_manager destory
-    SAFE_DELETE(_storage_engine);
+    // Free resource after threads are stopped.
+    // Some threads are still running, like threads created by _new_load_stream_mgr ...
+    SAFE_DELETE(_tablet_schema_cache);
 
     // _scanner_scheduler must be desotried before _storage_page_cache
     SAFE_DELETE(_scanner_scheduler);
@@ -599,8 +604,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_task_group_manager);
-    SAFE_DELETE(_with_group_task_scheduler);
-    SAFE_DELETE(_without_group_task_scheduler);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
@@ -632,6 +635,13 @@ void ExecEnv::destroy() {
     // access master_info.backend id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
+
+    // NOTE: runtime query statistics mgr could be visited by query and daemon thread
+    // so it should be created before all query begin and deleted after all query and daemon thread stoppped
+    SAFE_DELETE(_runtime_query_statistics_mgr);
+
+    // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
+    SAFE_DELETE(_without_group_task_scheduler);
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }

@@ -9,9 +9,9 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalOlapScan[t2]
 --------PhysicalDistribute[DistributionSpecHash]
-----------NestedLoopJoin[CROSS_JOIN](t3.c3 = t4.c4)
+----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecReplicated]
+------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalOlapScan[t4]
 
 Hint log:

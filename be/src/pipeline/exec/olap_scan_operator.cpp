@@ -136,6 +136,7 @@ Status OlapScanLocalState::_init_profile() {
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
+    _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
     _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "RuntimeFilterInfo", 1);
     return Status::OK();
 }
@@ -323,6 +324,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
     auto build_new_scanner = [&](BaseTabletSPtr tablet, int64_t version,
                                  const std::vector<OlapScanRange*>& key_ranges) {
+        COUNTER_UPDATE(_key_range_counter, key_ranges.size());
         auto scanner = vectorized::NewOlapScanner::create_shared(
                 this, vectorized::NewOlapScanner::Params {
                               state(),
@@ -380,7 +382,7 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
-        //        COUNTER_UPDATE(_tablet_counter, 1);
+        COUNTER_UPDATE(_tablet_counter, 1);
     }
 }
 
@@ -568,7 +570,6 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
         : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
           _olap_scan_node(tnode.olap_scan_node) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
-    _col_distribute_ids = tnode.olap_scan_node.distribute_column_ids;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }

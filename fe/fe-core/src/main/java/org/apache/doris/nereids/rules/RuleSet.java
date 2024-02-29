@@ -93,6 +93,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.PushDownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughGenerate;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughPartitionTopN;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -141,6 +142,7 @@ public class RuleSet {
             new PushDownFilterThroughAggregation(),
             new PushDownFilterThroughRepeat(),
             new PushDownFilterThroughSetOperation(),
+            new PushDownFilterThroughGenerate(),
             new PushDownProjectThroughLimit(),
             new EliminateOuterJoin(),
             new ConvertOuterJoinToAntiJoin(),
@@ -226,10 +228,6 @@ public class RuleSet {
             .addAll(OTHER_REORDER_RULES)
             .build();
 
-    public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
-            .add(JoinCommute.BUSHY.build())
-            .build();
-
     public static final List<Rule> MATERIALIZED_VIEW_RULES = planRuleFactories()
             .add(MaterializedViewOnlyJoinRule.INSTANCE)
             .add(MaterializedViewProjectJoinRule.INSTANCE)
@@ -241,6 +239,10 @@ public class RuleSet {
             .add(MaterializedViewFilterAggregateRule.INSTANCE)
             .add(MaterializedViewProjectFilterAggregateRule.INSTANCE)
             .add(MaterializedViewFilterProjectAggregateRule.INSTANCE)
+            .build();
+
+    public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
+            .add(JoinCommute.BUSHY.build())
             .build();
 
     public List<Rule> getDPHypReorderRules() {

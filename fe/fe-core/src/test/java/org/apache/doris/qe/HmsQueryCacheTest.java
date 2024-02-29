@@ -27,19 +27,19 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable.DLAType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
 
@@ -159,6 +159,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 // mock initSchemaAndUpdateTime and do nothing
                 tbl.initSchemaAndUpdateTime();
                 minTimes = 0;
+
+                tbl.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -203,6 +207,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 // mock initSchemaAndUpdateTime and do nothing
                 tbl2.initSchemaAndUpdateTime();
                 minTimes = 0;
+
+                tbl2.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -254,6 +262,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view1.getUpdateTime();
                 minTimes = 0;
                 result = NOW;
+
+                view1.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -304,6 +316,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view2.getUpdateTime();
                 minTimes = 0;
                 result = NOW;
+
+                view2.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 

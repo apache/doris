@@ -37,12 +37,10 @@ public:
     using SpecificFilter = BloomFilterFunc<T>;
 
     BloomFilterColumnPredicate(uint32_t column_id,
-                               const std::shared_ptr<BloomFilterFuncBase>& filter,
-                               int be_exec_version)
+                               const std::shared_ptr<BloomFilterFuncBase>& filter)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(reinterpret_cast<SpecificFilter*>(_filter.get())),
-              _be_exec_version(be_exec_version) {}
+              _specific_filter(reinterpret_cast<SpecificFilter*>(_filter.get())) {}
     ~BloomFilterColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::BF; }
@@ -52,14 +50,16 @@ public:
         return Status::OK();
     }
 
-    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                      uint16_t size) const override;
-
     bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
         return input_type == T || (is_string_type(input_type) && is_string_type(T));
     }
 
 private:
+    bool _can_ignore() const override { return _filter->is_runtime_filter(); }
+
+    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                             uint16_t size) const override;
+
     template <bool is_nullable>
     uint16_t evaluate(const vectorized::IColumn& column, const uint8_t* null_map, uint16_t* sel,
                       uint16_t size) const {
@@ -97,34 +97,18 @@ private:
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
-    mutable bool _always_true = false;
-    mutable bool _has_calculate_filter = false;
-    int _be_exec_version;
 };
 
 template <PrimitiveType T>
-uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                                                 uint16_t size) const {
-    uint16_t new_size = 0;
-    if (_always_true) {
-        return size;
-    }
+uint16_t BloomFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& column,
+                                                        uint16_t* sel, uint16_t size) const {
     if (column.is_nullable()) {
         const auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
         const auto& null_map_data = nullable_col->get_null_map_column().get_data();
-        new_size =
-                evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
+        return evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
     } else {
-        new_size = evaluate<false>(column, nullptr, sel, size);
+        return evaluate<false>(column, nullptr, sel, size);
     }
-    // If the pass rate is very high, for example > 50%, then the bloomfilter is useless.
-    // Some bloomfilter is useless, for example ssb 4.3, it consumes a lot of cpu but it is
-    // useless.
-    _evaluated_rows += size;
-    _passed_rows += new_size;
-    vectorized::VRuntimeFilterWrapper::calculate_filter(
-            _evaluated_rows - _passed_rows, _evaluated_rows, _has_calculate_filter, _always_true);
-    return new_size;
 }
 
 } //namespace doris

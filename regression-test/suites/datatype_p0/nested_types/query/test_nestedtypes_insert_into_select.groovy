@@ -22,7 +22,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_nestedtypes_insert_into_select", "p0") {
     sql "set enable_nereids_planner=false"
-    sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
 
     // create array struct
     sql "DROP TABLE IF EXISTS ast;"

@@ -19,7 +19,6 @@
 # Build Step: Command Line
 : <<EOF
 #!/bin/bash
-export DEBUG=true
 
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/compile.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
@@ -33,13 +32,13 @@ EOF
 ## compile.sh content ##
 
 if ${DEBUG:-false}; then
-    pull_request_num="28431"
-    commit_id="b052225cd0a180b4576319b5bd6331218dd0d3fe"
+    pr_num_from_trigger="28431"
+    commit_id_from_trigger="b052225cd0a180b4576319b5bd6331218dd0d3fe"
     target_branch="master"
 fi
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 2; fi
-if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 2; fi
-if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 2; fi
+if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 2; fi
+if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 2; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 2; fi
 
 # shellcheck source=/dev/null
@@ -47,7 +46,7 @@ source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/g
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
 merge_pr_to_target_branch_latest() {
-    local pull_request_num="$1"
+    local pr_num_from_trigger="$1"
     local target_branch="$2"
     echo "INFO: merge pull request into ${target_branch}"
     if [[ -z "${teamcity_build_checkoutDir}" ]]; then
@@ -65,13 +64,13 @@ merge_pr_to_target_branch_latest() {
     target_branch_commit_id=$(git rev-parse HEAD)
     git config user.email "ci@selectdb.com"
     git config user.name "ci"
-    echo "git fetch origin refs/pull/${pull_request_num}/head"
-    git fetch origin "refs/pull/${pull_request_num}/head"
+    echo "git fetch origin refs/pull/${pr_num_from_trigger}/head"
+    git fetch origin "refs/pull/${pr_num_from_trigger}/head"
     git merge --no-edit --allow-unrelated-histories FETCH_HEAD
-    echo "INFO: merge refs/pull/${pull_request_num}/head into master: ${target_branch_commit_id}"
+    echo "INFO: merge refs/pull/${pr_num_from_trigger}/head into master: ${target_branch_commit_id}"
     CONFLICTS=$(git ls-files -u | wc -l)
     if [[ "${CONFLICTS}" -gt 0 ]]; then
-        echo "ERROR: merge refs/pull/${pull_request_num}/head into master failed. Aborting"
+        echo "ERROR: merge refs/pull/${pr_num_from_trigger}/head into master failed. Aborting"
         git merge --abort
         return 1
     fi
@@ -91,7 +90,7 @@ else
     docker_image="apache/doris:build-env-ldb-toolchain-latest"
 fi
 if ${merge_target_branch_latest:-true}; then
-    if ! merge_pr_to_target_branch_latest "${pull_request_num}" "${target_branch}"; then
+    if ! merge_pr_to_target_branch_latest "${pr_num_from_trigger}" "${target_branch}"; then
         exit 1
     fi
 else
@@ -103,7 +102,7 @@ git_storage_path=$(grep storage "${teamcity_build_checkoutDir}"/.git/config | re
 sudo docker container prune -f
 sudo docker image prune -f
 sudo docker pull "${docker_image}"
-docker_name=doris-compile-"${commit_id}"
+docker_name=doris-compile-"${commit_id_from_trigger}"
 if sudo docker ps -a --no-trunc | grep "${docker_name}"; then
     sudo docker stop "${docker_name}"
     sudo docker rm "${docker_name}"

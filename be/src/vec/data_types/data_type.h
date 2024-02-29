@@ -199,10 +199,6 @@ public:
 
     virtual bool is_nullable() const { return false; }
 
-    /** Is this type can represent only NULL value? (It also implies is_nullable)
-      */
-    virtual bool only_null() const { return false; }
-
     /* the data type create from type_null, NULL literal*/
     virtual bool is_null_literal() const { return false; }
 
@@ -289,6 +285,10 @@ struct WhichDataType {
     bool is_date_or_datetime() const { return is_date() || is_date_time(); }
     bool is_date_v2_or_datetime_v2() const { return is_date_v2() || is_date_time_v2(); }
 
+    bool is_ipv4() const { return idx == TypeIndex::IPv4; }
+    bool is_ipv6() const { return idx == TypeIndex::IPv6; }
+    bool is_ip() const { return is_ipv4() || is_ipv6(); }
+
     bool is_string() const { return idx == TypeIndex::String; }
     bool is_fixed_string() const { return idx == TypeIndex::FixedString; }
     bool is_string_or_fixed_string() const { return is_string() || is_fixed_string(); }
@@ -311,42 +311,36 @@ struct WhichDataType {
 
 /// IDataType helpers (alternative for IDataType virtual methods with single point of truth)
 
-inline bool is_date(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_date();
-}
-inline bool is_date_v2(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_date_v2();
-}
-inline bool is_date_time_v2(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_date_time_v2();
-}
-inline bool is_date_or_datetime(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_date_or_datetime();
-}
-inline bool is_date_v2_or_datetime_v2(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_date_v2_or_datetime_v2();
-}
-inline bool is_decimal(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_decimal();
-}
-inline bool is_decimal_v2(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_decimal128v2();
-}
-inline bool is_tuple(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_tuple();
-}
-inline bool is_array(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_array();
-}
-inline bool is_map(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_map();
-}
-inline bool is_struct(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_struct();
-}
-inline bool is_nothing(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_nothing();
-}
+#define IS_DATATYPE(name, method)                         \
+    inline bool is_##name(const DataTypePtr& data_type) { \
+        return WhichDataType(data_type).is_##method();    \
+    }
+
+IS_DATATYPE(uint8, uint8)
+IS_DATATYPE(uint16, uint16)
+IS_DATATYPE(uint32, uint32)
+IS_DATATYPE(uint64, uint64)
+IS_DATATYPE(uint128, uint128)
+IS_DATATYPE(int8, int8)
+IS_DATATYPE(int16, int16)
+IS_DATATYPE(int32, int32)
+IS_DATATYPE(int64, int64)
+IS_DATATYPE(int128, int128)
+IS_DATATYPE(date, date)
+IS_DATATYPE(date_v2, date_v2)
+IS_DATATYPE(date_time_v2, date_time_v2)
+IS_DATATYPE(date_or_datetime, date_or_datetime)
+IS_DATATYPE(date_v2_or_datetime_v2, date_v2_or_datetime_v2)
+IS_DATATYPE(decimal, decimal)
+IS_DATATYPE(decimal_v2, decimal128v2)
+IS_DATATYPE(tuple, tuple)
+IS_DATATYPE(array, array)
+IS_DATATYPE(map, map)
+IS_DATATYPE(struct, struct)
+IS_DATATYPE(ipv4, ipv4)
+IS_DATATYPE(ipv6, ipv6)
+IS_DATATYPE(ip, ip)
+IS_DATATYPE(nothing, nothing)
 
 template <typename T>
 bool is_uint8(const T& data_type) {
