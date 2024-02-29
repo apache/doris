@@ -89,7 +89,7 @@ private:
 
 public:
     DeleteHandler() = default;
-    ~DeleteHandler() { finalize(); }
+    ~DeleteHandler();
 
     // Initialize DeleteHandler, use the delete conditions of this tablet whose version less than or equal to
     // 'version' to fill '_del_conds'.
@@ -106,9 +106,6 @@ public:
                 bool with_sub_pred_v2 = false);
 
     [[nodiscard]] bool empty() const { return _del_conds.empty(); }
-
-    // Release an instance of this class.
-    void finalize();
 
     void get_delete_conditions_after_version(
             int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
