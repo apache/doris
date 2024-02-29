@@ -66,15 +66,13 @@ Status MergeSorterState::add_sorted_block(Block& block) {
     if (0 == rows) {
         return Status::OK();
     }
-    if (0 == avg_row_bytes_) {
+    if (external_sort_bytes_threshold_ > 0 && 0 == avg_row_bytes_) {
         avg_row_bytes_ = std::max((std::size_t)1, block.bytes() / rows);
         spill_block_batch_size_ = (BLOCK_SPILL_BATCH_BYTES + avg_row_bytes_ - 1) / avg_row_bytes_;
     }
 
-    auto bytes_used = data_size();
-    auto total_bytes_used = bytes_used + block.bytes();
     if (is_spilled_ || (external_sort_bytes_threshold_ > 0 &&
-                        total_bytes_used >= external_sort_bytes_threshold_)) {
+                        data_size() + block.bytes() >= external_sort_bytes_threshold_)) {
         is_spilled_ = true;
         BlockSpillWriterUPtr spill_block_writer;
         RETURN_IF_ERROR(ExecEnv::GetInstance()->block_spill_mgr()->get_writer(
