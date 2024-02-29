@@ -15,6 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_update", "p0") {
-    // todo:test update
-    sql "show tables"
+    def tbName = "test_update"
+    sql "DROP TABLE IF EXISTS ${tbName}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tbName} (
+                user_id bigint,
+                date1 date,
+                group_id bigint
+            )
+            UNIQUE KEY(user_id)
+            DISTRIBUTED BY HASH(user_id) BUCKETS 5 properties(
+                "function_column.sequence_col"='group_id',
+                "replication_num" = "1",
+                "in_memory"="false"
+            );
+        """
+    sql "insert into ${tbName} values(1,'20240131',100);"
+    sql "insert into ${tbName} values(2,'20240131',100);"
+    qt_sql "select * from ${tbName} order by user_id;"
+    sql "UPDATE ${tbName} SET group_id=200;"
+    sql "insert into ${tbName} values(2,'20240131',100);"
+    qt_sql "select * from ${tbName} order by user_id;"
 }
