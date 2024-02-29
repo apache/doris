@@ -71,6 +71,10 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = Lists.newArrayList(p1);
 
+                mtmv.getPartitionIds();
+                minTimes = 0;
+                result = Lists.newArrayList(1L);
+
                 p1.getId();
                 minTimes = 0;
                 result = 1L;
