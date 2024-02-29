@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public class ExprPartitionDesc extends PartitionDesc {
 
@@ -27,7 +28,31 @@ public class ExprPartitionDesc extends PartitionDesc {
 
     @Override
     public String toSql() {
-        return super.toSql();
+        StringBuilder sb = new StringBuilder();
+        sb.append("PARTITION BY (");
+        int idx = 0;
+        for (Expr expr : partitionExprs) {
+            if (idx != 0) {
+                sb.append(", ");
+            }
+            FunctionCallExpr funcExpr = (FunctionCallExpr) expr;
+            List<Expr> fnParams = funcExpr.getFnParams().exprs();
+            if (fnParams.size() > 0) {
+                sb.append(funcExpr.getFnName()).append("(");
+                for (int i = 0; i < fnParams.size(); i++) {
+                    if (i > 0) {
+                        sb.append(", ");
+                    }
+                    sb.append(fnParams.get(i).toString());
+                }
+                sb.append(")");
+            } else {
+                sb.append("`").append(funcExpr.getFnName()).append("`");
+            }
+            idx++;
+        }
+        sb.append(")\n");
+        return sb.toString();
     }
 
     @Override

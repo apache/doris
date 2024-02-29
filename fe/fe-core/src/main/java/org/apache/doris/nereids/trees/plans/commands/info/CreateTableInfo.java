@@ -806,7 +806,10 @@ public class CreateTableInfo {
      */
     public CreateTableStmt translateToLegacyStmt() {
         PartitionDesc partitionDesc = null;
-        if (partitionColumns != null || isAutoPartition) {
+        if (isExternal && autoPartitionExprs != null) {
+            partitionDesc = new ExprPartitionDesc(
+                    convertToLegacyAutoPartitionExprs(autoPartitionExprs));
+        } else if (partitionColumns != null || isAutoPartition) {
             List<AllPartitionDesc> partitionDescs =
                     partitions != null
                             ? partitions.stream().map(PartitionDefinition::translateToCatalogStyle)
@@ -824,10 +827,7 @@ public class CreateTableInfo {
             }
 
             try {
-                if (isExternal) {
-                    partitionDesc = new ExprPartitionDesc(
-                        convertToLegacyAutoPartitionExprs(autoPartitionExprs));
-                } else if (partitionType.equals(PartitionType.RANGE.name())) {
+                if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
                         partitionDesc = new RangePartitionDesc(
                                 convertToLegacyAutoPartitionExprs(autoPartitionExprs),
@@ -872,9 +872,13 @@ public class CreateTableInfo {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
         } else if (!engineName.equals("olap")) {
-            if (partitionDesc != null || distributionDesc != null) {
+            if (!engineName.equals("hms") && distributionDesc != null) {
                 throw new AnalysisException("Create " + engineName
-                        + " table should not contain partition or distribution desc");
+                    + " table should not contain distribution desc");
+            }
+            if (!engineName.equals("hms") && !engineName.equals("iceberg") && partitionDesc != null) {
+                throw new AnalysisException("Create " + engineName
+                        + " table should not contain partition desc");
             }
         }
 
