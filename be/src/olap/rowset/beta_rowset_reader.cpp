@@ -156,9 +156,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _read_options.col_id_to_predicates.insert(
                         {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
             }
-            auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
             _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
-                    single_column_block_predicate);
+                    SingleColumnBlockPredicate::create_unique(pred));
         }
     }
 
@@ -209,9 +208,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                     _read_options.col_id_to_predicates.insert(
                             {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
                 }
-                auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
                 _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
-                        single_column_block_predicate);
+                        SingleColumnBlockPredicate::create_unique(pred));
             }
         }
     }

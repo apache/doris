@@ -156,8 +156,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         int32_t uid =
                 read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
         AndBlockColumnPredicate and_predicate;
-        auto* single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
-        and_predicate.add_column_predicate(single_predicate);
+        and_predicate.add_column_predicate(
+                SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
         if (_column_readers.contains(uid) &&
             can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
                                        *schema, read_options.io_ctx.reader_type) &&
@@ -202,9 +202,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                     options_with_pruned_predicates.col_id_to_predicates.insert(
                             {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
                 }
-                auto* single_column_block_predicate = new SingleColumnBlockPredicate(pred);
                 options_with_pruned_predicates.col_id_to_predicates[pred->column_id()]
-                        ->add_column_predicate(single_column_block_predicate);
+                        ->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
             }
             return iter->get()->init(options_with_pruned_predicates);
         }
