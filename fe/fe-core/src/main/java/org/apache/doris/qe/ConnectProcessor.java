@@ -634,7 +634,11 @@ public class ConnectProcessor {
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
-                packet = executor.getOutputPacket();
+                if (executor.sendProxyQueryResult()) {
+                    packet = getResultPacket();
+                } else {
+                    packet = executor.getOutputPacket();
+                }
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
@@ -809,8 +813,12 @@ public class ConnectProcessor {
             result.setStatusCode(ctx.getState().getErrorCode().getCode());
             result.setErrMessage(ctx.getState().getErrorMessage());
         }
-        if (executor != null && executor.getProxyResultSet() != null) {
-            result.setResultSet(executor.getProxyResultSet().tothrift());
+        if (executor != null) {
+            if (executor.getProxyShowResultSet() != null) {
+                result.setResultSet(executor.getProxyShowResultSet().tothrift());
+            } else if (!executor.getProxyQueryResultBufList().isEmpty()) {
+                result.setQueryResultBufList(executor.getProxyQueryResultBufList());
+            }
         }
         return result;
     }
