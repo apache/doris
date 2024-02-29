@@ -322,7 +322,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     /**
-     *  RewriteAggFuncWithoutWindowAggFunc
+     * This class use the map(slotMapping) to rewrite all slots in trival-agg.
+     * The purpose of this class is to only rewrite the slots in trival-agg and not to rewrite the slots in window-agg.
      */
     private static class RewriteAggFuncWithoutWindowAggFunc
             extends DefaultExpressionRewriter<Map<Slot, Alias>> {
@@ -343,8 +344,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitWindow(WindowExpression windowExpression,
-                Map<Slot, Alias> slotMapping) {
+        public Expression visitWindow(WindowExpression windowExpression, Map<Slot, Alias> slotMapping) {
             List<Expression> newChildren = new ArrayList<>();
             Expression function = windowExpression.getFunction();
             Expression oldFuncChild = function.child(0);
