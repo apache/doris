@@ -90,8 +90,7 @@ uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uin
         bool ret_flags[selected_size];
         memset(ret_flags, false, selected_size);
         for (int i = 0; i < num_of_column_predicate(); ++i) {
-            auto column_predicate = _block_column_predicate_vec[i];
-            column_predicate->evaluate_or(block, sel, selected_size, ret_flags);
+            _block_column_predicate_vec[i]->evaluate_or(block, sel, selected_size, ret_flags);
         }
 
         uint16_t new_size = 0;
@@ -119,8 +118,7 @@ void OrBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uin
         bool ret_flags[selected_size];
         memset(ret_flags, false, selected_size);
         for (int i = 0; i < num_of_column_predicate(); ++i) {
-            auto column_predicate = _block_column_predicate_vec[i];
-            column_predicate->evaluate_or(block, sel, selected_size, ret_flags);
+            _block_column_predicate_vec[i]->evaluate_or(block, sel, selected_size, ret_flags);
         }
 
         for (int i = 0; i < selected_size; ++i) {
