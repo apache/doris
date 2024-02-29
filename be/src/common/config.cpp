@@ -278,6 +278,7 @@ DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
 DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
+DEFINE_mInt32(quering_rowsets_evict_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_mString(broken_storage_path, "");
 
@@ -1602,20 +1603,23 @@ void update_config(const std::string& field, const std::string& value) {
     }
 }
 
-Status set_fuzzy_config(const std::string& field, const std::string& value) {
-    LOG(INFO) << fmt::format("FUZZY MODE: {} has been set to {}", field, value);
-    return set_config(field, value, false, true);
-}
+Status set_fuzzy_configs() {
+    std::unordered_map<std::string, std::string> fuzzy_field_and_value;
 
-void set_fuzzy_configs() {
-    // random value true or false
-    static_cast<void>(
-            set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false"));
-    static_cast<void>(
-            set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false"));
-    // random value from 8 to 48
-    // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
-    // LOG(INFO) << s.to_string();
+    // if have set enable_fuzzy_mode=true in be.conf, will fuzzy those field and values
+    fuzzy_field_and_value["disable_storage_page_cache"] = ((rand() % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_system_metrics"] = ((rand() % 2) == 0) ? "true" : "false";
+
+    fmt::memory_buffer buf;
+    for (auto it = fuzzy_field_and_value.begin(); it != fuzzy_field_and_value.end(); it++) {
+        const auto& field = it->first;
+        const auto& value = it->second;
+        RETURN_IF_ERROR(set_config(field, value, false, true));
+        fmt::format_to(buf, "{}={}, ", field, value);
+    }
+    LOG(INFO) << fmt::format("FUZZY MODE IN BE: those variables have been changed: ({}).",
+                             fmt::to_string(buf));
+    return Status::OK();
 }
 
 std::mutex* get_mutable_string_config_lock() {

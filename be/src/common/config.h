@@ -321,6 +321,7 @@ DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
 DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
+DECLARE_mInt32(quering_rowsets_evict_interval);
 DECLARE_String(storage_root_path);
 DECLARE_mString(broken_storage_path);
 
@@ -1364,9 +1365,7 @@ std::mutex* get_mutable_string_config_lock();
 
 std::vector<std::vector<std::string>> get_config_info();
 
-Status set_fuzzy_config(const std::string& field, const std::string& value);
-
-void set_fuzzy_configs();
+Status set_fuzzy_configs();
 
 void update_config(const std::string& field, const std::string& value);
 

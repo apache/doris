@@ -382,8 +382,11 @@ int main(int argc, char** argv) {
     doris::init_thrift_logging();
 
     if (doris::config::enable_fuzzy_mode) {
-        LOG(INFO) << "enable_fuzzy_mode is true, set fuzzy configs";
-        doris::config::set_fuzzy_configs();
+        Status status = doris::config::set_fuzzy_configs();
+        if (!status.ok()) {
+            LOG(WARNING) << "Failed to initialize fuzzy config: " << status;
+            exit(1);
+        }
     }
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \

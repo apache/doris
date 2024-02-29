@@ -94,7 +94,6 @@ private:
     void _lease_compaction_thread_callback();
 
     std::atomic_bool _stopped {false};
-    CountDownLatch _stop_background_threads_latch {1};
 
     std::unique_ptr<cloud::CloudMetaMgr> _meta_mgr;
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
