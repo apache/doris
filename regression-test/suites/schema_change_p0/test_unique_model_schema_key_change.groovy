@@ -287,7 +287,7 @@ suite("test_unique_model_schema_key_change","p0") {
              "               (678901234, 'Frank', 1, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
              "               (789012345, 'Grace', 0, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
 
-     //Test the unique model by modify a value type from BOOLEAN to TINYINT
+     //Test the unique model by modify a key type from BOOLEAN to TINYINT
      //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to TINYINT
 /*     sql initTable
      sql initTableData
@@ -298,7 +298,7 @@ suite("test_unique_model_schema_key_change","p0") {
           time 60
      }, insertSql, true,"${tbName}")*/
 
-     //Test the unique model by modify a value type from BOOLEAN to SMALLINT
+     //Test the unique model by modify a key type from BOOLEAN to SMALLINT
      //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to SMALLINT
 /*     sql initTable
      sql initTableData
@@ -309,7 +309,7 @@ suite("test_unique_model_schema_key_change","p0") {
           time 60
      }, insertSql, true,"${tbName}")*/
 
-     //Test the unique model by modify a value type from BOOLEAN to INT
+     //Test the unique model by modify a key type from BOOLEAN to INT
      //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to INT
 /*     sql initTable
      sql initTableData
@@ -321,7 +321,7 @@ suite("test_unique_model_schema_key_change","p0") {
      }, insertSql, true,"${tbName}")*/
 
 
-     //Test the unique model by modify a value type from BOOLEAN to BIGINT
+     //Test the unique model by modify a key type from BOOLEAN to BIGINT
      //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to BIGINT
 /*     sql initTable
      sql initTableData
@@ -333,7 +333,7 @@ suite("test_unique_model_schema_key_change","p0") {
      }, insertSql, true,"${tbName}")*/
 
 
-     //Test the unique model by modify a value type from BOOLEAN to FLOAT
+     //Test the unique model by modify a key type from BOOLEAN to FLOAT
      //TODO  Float or double can not used as a key, use decimal instead
 /*     sql initTable
      sql initTableData
@@ -345,7 +345,7 @@ suite("test_unique_model_schema_key_change","p0") {
      }, insertSql, true,"${tbName}")*/
 
 
-     //Test the unique model by modify a value type from BOOLEAN to DECIMAL
+     //Test the unique model by modify a key type from BOOLEAN to DECIMAL
      //TODO  java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL32
 /*     sql initTable
      sql initTableData
@@ -356,7 +356,7 @@ suite("test_unique_model_schema_key_change","p0") {
           time 60
      }, insertSql, true,"${tbName}")*/
 
-     //Test the unique model by modify a value type from BOOLEAN to CHAR
+     //Test the unique model by modify a key type from BOOLEAN to CHAR
      //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to CHAR
 /*     sql initTable
      sql initTableData
@@ -367,7 +367,7 @@ suite("test_unique_model_schema_key_change","p0") {
           time 60
      }, insertSql, true,"${tbName}")*/
 
-     //Test the unique model by modify a value type from BOOLEAN to STRING
+     //Test the unique model by modify a key type from BOOLEAN to STRING
      //TODO java.sql.SQLException: errCode = 2, detailMessage = String Type should not be used in key column[is_teacher].
 /*     sql initTable
      sql initTableData
@@ -377,6 +377,18 @@ suite("test_unique_model_schema_key_change","p0") {
           sql getTableStatusSql
           time 60
      }, insertSql, true,"${tbName}")*/
+
+     //Test the unique model by modify a key type from BOOLEAN to VARCHAR
+     //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to VARCHAR
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} MODIFY  column is_teacher VARCHAR(32) KEY DEFAULT "0"  """
+     insertSql = "insert into ${tbName} values(123456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     waitForSchemaChangeDone({
+          sql getTableStatusSql
+          time 60
+     }, insertSql, true,"${tbName}")
+
 
 }
 
