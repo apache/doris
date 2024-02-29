@@ -784,3 +784,7 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 15. **如果出现Failed to connect to backend: http://host:webserver_port, 并且Be还是活着的**
 
 可能是因为你配置的be的ip，外部的Flink集群无法访问。这主要是因为当连接fe时，会通过fe解析出be的地址。例如，当你添加的be 地址为`127.0.0.1`，那么Flink通过fe获取的be地址就为`127.0.0.1:webserver_port`， 此时Flink就会去访问这个地址。当出现这个问题时，可以通过在with属性中增加实际对应的be外部ip地`'benodes' = "be_ip:webserver_port, be_ip:webserver_port..."`，整库同步则可增加`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。
+
+16. **如果使用整库同步 MySQL 数据到 Doris，出现 timestamp 类型与源数据相差多个小时**
+
+整库同步默认timezone="UTC+8"，如果你同步的数据不是该时区，可以尝试如下设置相对应的时区，例如：`--mysql-conf debezium.date.format.timestamp.zone="UTC+3"来解决。`
