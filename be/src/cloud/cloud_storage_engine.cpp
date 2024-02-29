@@ -115,6 +115,12 @@ Status CloudStorageEngine::start_bg_threads() {
             [this]() { this->_sync_tablets_thread_callback(); }, &_bg_threads.emplace_back()));
     LOG(INFO) << "sync tablets thread started";
 
+    RETURN_IF_ERROR(Thread::create(
+            "CloudStorageEngine", "evict_querying_rowset_thread",
+            [this]() { this->_evict_quring_rowset_thread_callback(); },
+            &_evict_quering_rowset_thread));
+    LOG(INFO) << "evict quering thread started";
+
     // TODO(plat1ko): lease_compaction_thread
 
     // TODO(plat1ko): check_bucket_enable_versioning_thread
