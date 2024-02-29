@@ -110,6 +110,11 @@ public class CloudReplica extends Replica {
         return pickedBeId;
     }
 
+    public long getBackendId(String beEndpoint) {
+        String cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterIdByBeAddr(beEndpoint);
+        return getBackendIdImpl(cluster);
+    }
+
     @Override
     public long getBackendId() {
         String cluster = null;
@@ -139,18 +144,20 @@ public class CloudReplica extends Replica {
             }
             return -1;
         }
+        return getBackendIdImpl(cluster);
+    }
 
+    private long getBackendIdImpl(String cluster) {
         // check default cluster valid.
-        if (!Strings.isNullOrEmpty(cluster)) {
-            boolean exist = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getCloudClusterNames().contains(cluster);
-            if (!exist) {
-                //can't use this default cluster, plz change another
-                LOG.warn("cluster: {} is not existed", cluster);
-                return -1;
-            }
-        } else {
+        if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("failed to get available be, clusterName: {}", cluster);
+            return -1;
+        }
+        boolean exist = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNames().contains(cluster);
+        if (!exist) {
+            // can't use this default cluster, plz change another
+            LOG.warn("cluster: {} is not existed", cluster);
             return -1;
         }
 

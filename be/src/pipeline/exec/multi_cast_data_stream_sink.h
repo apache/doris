@@ -92,11 +92,16 @@ public:
 
     const RowDescriptor& row_desc() const override { return _row_desc; }
 
-    std::shared_ptr<MultiCastSharedState> create_multi_cast_data_streamer() {
-        auto multi_cast_data_streamer =
+    std::shared_ptr<BasicSharedState> create_shared_state() const override {
+        std::shared_ptr<BasicSharedState> ss =
                 std::make_shared<MultiCastSharedState>(_row_desc, _pool, _cast_sender_count);
-        return multi_cast_data_streamer;
+        ss->id = operator_id();
+        for (auto& dest : dests_id()) {
+            ss->related_op_ids.insert(dest);
+        }
+        return ss;
     }
+
     const TMultiCastDataStreamSink& sink_node() { return _sink; }
 
 private:
