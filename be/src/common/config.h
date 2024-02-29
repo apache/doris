@@ -1364,9 +1364,7 @@ std::mutex* get_mutable_string_config_lock();
 
 std::vector<std::vector<std::string>> get_config_info();
 
-Status set_fuzzy_config(const std::string& field, const std::string& value);
-
-void set_fuzzy_configs();
+Status set_fuzzy_configs();
 
 void update_config(const std::string& field, const std::string& value);
 
