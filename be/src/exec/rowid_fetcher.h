@@ -70,11 +70,7 @@ private:
 
 class RowIdStorageReader {
 public:
-    RowIdStorageReader(BaseStorageEngine* engine) : _engine(engine) {}
-    Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
-
-private:
-    BaseStorageEngine* _engine;
+    static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
 };
 
 } // namespace doris

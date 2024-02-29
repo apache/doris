@@ -29,9 +29,6 @@ public:
 
     ~CloudInternalServiceImpl() override;
 
-    void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
-                       PMultiGetResponse* response, google::protobuf::Closure* done) override;
-
     // TODO(plat1ko): cloud internal service functions
 
 private:

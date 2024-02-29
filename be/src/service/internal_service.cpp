@@ -878,11 +878,11 @@ struct AsyncRPCContext {
     brpc::CallId cid;
 };
 
-void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
-                                                      const PFetchRemoteSchemaRequest* request,
-                                                      PFetchRemoteSchemaResponse* response,
-                                                      google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
+void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                                  const PFetchRemoteSchemaRequest* request,
+                                                  PFetchRemoteSchemaResponse* response,
+                                                  google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         if (request->is_coordinator()) {
@@ -953,13 +953,11 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             if (!target_tablets.empty()) {
                 std::vector<TabletSchemaSPtr> tablet_schemas;
                 for (int64_t tablet_id : target_tablets) {
-                    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id, false);
-                    if (tablet == nullptr) {
-                        // just ignore
-                        LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
+                    auto res = ExecEnv::get_tablet(tablet_id);
+                    if (!res.has_value()) {
                         continue;
                     }
-                    tablet_schemas.push_back(tablet->tablet_schema());
+                    tablet_schemas.push_back(res.value()->tablet_schema());
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
@@ -1720,19 +1718,17 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     }
 }
 
-void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* controller,
-                                         const PMultiGetRequest* request,
-                                         PMultiGetResponse* response,
-                                         google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done, this]() {
+void PInternalService::multiget_data(google::protobuf::RpcController* controller,
+                                     const PMultiGetRequest* request, PMultiGetResponse* response,
+                                     google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([request, response, done]() {
         signal::set_signal_task_id(request->query_id());
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
-        RowIdStorageReader reader(&_engine);
-        Status st = reader.read_by_rowids(*request, response);
+        Status st = RowIdStorageReader::read_by_rowids(*request, response);
         st.to_protobuf(response->mutable_status());
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
     });

@@ -17,39 +17,11 @@
 
 #include "cloud/cloud_internal_service.h"
 
-#include <brpc/closure_guard.h>
-
-#include "cloud/cloud_storage_engine.h"
-#include "common/signal_handler.h"
-#include "exec/rowid_fetcher.h"
-
 namespace doris {
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
         : PInternalService(exec_env), _engine(engine) {}
 
 CloudInternalServiceImpl::~CloudInternalServiceImpl() = default;
-
-void CloudInternalServiceImpl::multiget_data(google::protobuf::RpcController* controller,
-                                             const PMultiGetRequest* request,
-                                             PMultiGetResponse* response,
-                                             google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done, this]() {
-        signal::set_signal_task_id(request->query_id());
-        // multi get data by rowid
-        MonotonicStopWatch watch;
-        watch.start();
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(0);
-        RowIdStorageReader reader(&_engine);
-        Status st = reader.read_by_rowids(*request, response);
-        st.to_protobuf(response->mutable_status());
-        LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
-    });
-    if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
-        return;
-    }
-}
 
 } // namespace doris

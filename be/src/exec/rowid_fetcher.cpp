@@ -358,17 +358,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         watch.start();
         BaseTabletSPtr tablet = scope_timer_run(
                 [&]() {
-                    if (!config::is_cloud_mode()) {
-                        auto tablet =
-                                static_cast<StorageEngine*>(_engine)->tablet_manager()->get_tablet(
-                                        row_loc.tablet_id(), true /*include deleted*/);
-                        return std::dynamic_pointer_cast<BaseTablet>(tablet);
-                    } else {
-                        auto res =
-                                static_cast<CloudStorageEngine*>(_engine)->tablet_mgr().get_tablet(
-                                        row_loc.tablet_id(), true /*include deleted*/);
-                        return std::dynamic_pointer_cast<BaseTablet>(res.value());
-                    }
+                    auto res = ExecEnv::get_tablet(row_loc.tablet_id());
+                    return !res.has_value() ? nullptr
+                                            : std::dynamic_pointer_cast<BaseTablet>(res.value());
                 },
                 &acquire_tablet_ms);
         RowsetId rowset_id;
@@ -378,7 +370,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         }
         // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
         BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
-                [&]() { return _engine->get_quering_rowset(rowset_id); }, &acquire_rowsets_ms));
+                [&]() {
+                    return ExecEnv::GetInstance()->storage_engine().get_quering_rowset(rowset_id);
+                },
+                &acquire_rowsets_ms));
         if (!rowset) {
             LOG(INFO) << "no such rowset " << rowset_id;
             continue;
