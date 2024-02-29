@@ -160,7 +160,7 @@ public:
         return true;
     }
 
-    void add_column_predicate(std::unique_ptr<BlockColumnPredicate>&& column_predicate) {
+    void add_column_predicate(std::unique_ptr<BlockColumnPredicate> column_predicate) {
         _block_column_predicate_vec.emplace_back(column_predicate);
     }
 
