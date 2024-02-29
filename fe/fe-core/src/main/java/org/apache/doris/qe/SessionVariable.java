@@ -3322,10 +3322,17 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setGenerateStatsFactor(int factor) {
+        this.generateStatsFactor = factor;
         if (factor <= 0) {
             LOG.warn("Invalid generate stats factor: {}", factor, new RuntimeException(""));
         }
-        this.generateStatsFactor = factor;
+    }
+
+    public void setGenerateStatsFactor(String factor) {
+        this.generateStatsFactor = Integer.valueOf(factor);
+        if (generateStatsFactor <= 0) {
+            LOG.warn("Invalid generate stats factor: {}", generateStatsFactor, new RuntimeException(""));
+        }
     }
 
     public boolean getEnableDescribeExtendVariantColumn() {
