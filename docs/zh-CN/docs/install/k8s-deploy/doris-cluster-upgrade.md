@@ -54,64 +54,69 @@ under the License.
 ### 升级 BE 
 
 如果保留了集群的 crd（Doris-Operator 定义了 `DorisCluster` 类型资源名称的简写）文件，则可以通过修改该配置文件并且 `kubectl apply` 的命令来进行升级。
-修改 `spec.beSpec.image` 
-1. 将 `selectdb/doris.be-ubuntu:2.0.4` 变为 `selectdb/doris.be-ubuntu:2.1.0` 
+ 
+1. 修改 `spec.beSpec.image`  
 
-```
-$ vim doriscluster-sample.yaml
-```
+  将 `selectdb/doris.be-ubuntu:2.0.4` 变为 `selectdb/doris.be-ubuntu:2.1.0`
+  ```
+  $ vim doriscluster-sample.yaml
+  ```
 
 2. 保存修改后应用本次修改进行be升级:
-```
-$ kubectl apply -f doriscluster-sample.yaml -n doris
-```
-
+  ```
+  $ kubectl apply -f doriscluster-sample.yaml -n doris
+  ```
 也可通过 `kubectl edit dcr` 的方式直接修改。
 
 1. 查看 namespace 为 'doris' 下的 dcr 列表，获取需要更新的 `cluster_name`
-```
-$ kubectl get dcr -n doris
-NAME                  FESTATUS    BESTATUS    CNSTATUS
-doriscluster-sample   available   available
-```
+  ```
+  $ kubectl get dcr -n doris
+  NAME                  FESTATUS    BESTATUS    CNSTATUS
+  doriscluster-sample   available   available
+  ```
+
 2. 修改、保存并生效
-```
-$ kubectl edit dcr doriscluster-sample -n doris
-```
-进入文本编辑器后，将找到`spec.beSpec.image`，将 `selectdb/doris.be-ubuntu:2.0.4` 修改为 `selectdb/doris.be-ubuntu:2.1.0`
+  ```
+  $ kubectl edit dcr doriscluster-sample -n doris
+  ```
+  进入文本编辑器后，将找到`spec.beSpec.image`，将 `selectdb/doris.be-ubuntu:2.0.4` 修改为 `selectdb/doris.be-ubuntu:2.1.0`
 
 3. 查看升级过程和结果：
-```
-$ kubectl get pod -n doris
-```
+  ```
+  $ kubectl get pod -n doris
+  ```
+
 当所有 Pod 都重建完毕进入 Running 状态后，升级完成。
 
 ### 升级 FE 
 
 如果保留了集群的 crd （ Doris-Operator 定义了 `DorisCluster` 类型资源名称的简写）文件，则可以通过修改该配置文件并且 `kubectl apply` 的命令来进行升级。
-修改 `spec.feSpec.image`
-1. 将 `selectdb/doris.fe-ubuntu:2.0.4` 变为 `selectdb/doris.fe-ubuntu:2.1.0`
 
-```
-$ vim doriscluster-sample.yaml
-```
+1. 修改 `spec.feSpec.image`
+
+  将 `selectdb/doris.fe-ubuntu:2.0.4` 变为 `selectdb/doris.fe-ubuntu:2.1.0`
+  ```
+  $ vim doriscluster-sample.yaml
+  ```
 
 2. 保存修改后应用本次修改进行be升级:
-```
-$ kubectl apply -f doriscluster-sample.yaml -n doris
-```
+  ```
+  $ kubectl apply -f doriscluster-sample.yaml -n doris
+  ```
 
 也可通过 `kubectl edit dcr` 的方式直接修改。
 
 1. 修改、保存并生效
-```
-$ kubectl edit dcr doriscluster-sample -n doris
-```
-进入文本编辑器后，将找到`spec.feSpec.image`，将 `selectdb/doris.fe-ubuntu:2.0.4` 修改为 `selectdb/doris.fe-ubuntu:2.1.0`
-2. 查看升级过程和结果：
-```
-$ kubectl get pod -n doris
-```
+  ```
+  $ kubectl edit dcr doriscluster-sample -n doris
+  ```
+  进入文本编辑器后，将找到`spec.feSpec.image`，将 `selectdb/doris.fe-ubuntu:2.0.4` 修改为 `selectdb/doris.fe-ubuntu:2.1.0`
+
+2. 查看升级过程和结果
+  ```
+  $ kubectl get pod -n doris
+  ```
+
 当所有 Pod 都重建完毕进入 Running 状态后，升级完成。
 
 ## 升级完成后

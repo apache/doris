@@ -53,64 +53,71 @@ It is recommended to modify the `image` of the corresponding cluster components 
 ### Upgrade BE
 
 If you retain the cluster's crd (Doris-Operator defines the abbreviation of `DorisCluster` type resource name) file, you can upgrade by modifying the configuration file and running the `kubectl apply` command.
-Modify `spec.beSpec.image`
-1. Change `selectdb/doris.be-ubuntu:2.0.4` to `selectdb/doris.be-ubuntu:2.1.0`
 
-```
-$ vim doriscluster-sample.yaml
-```
+1. Modify `spec.beSpec.image`
+
+  Change `selectdb/doris.be-ubuntu:2.0.4` to `selectdb/doris.be-ubuntu:2.1.0`
+  ```
+  $ vim doriscluster-sample.yaml
+  ```
 
 2. Save the changes and apply the changes to be upgraded:
-```
-$ kubectl apply -f doriscluster-sample.yaml -n doris
-```
+  ```
+  $ kubectl apply -f doriscluster-sample.yaml -n doris
+  ```
 
 It can also be modified directly through `kubectl edit dcr`.
 
 1. Check the dcr list under namespace 'doris' to obtain the `cluster_name` that needs to be updated.
-```
-$ kubectl get dcr -n doris
-NAME FESTATUS BESTATUS CNSTATUS
-doriscluster-sample available available
-```
+  ```
+  $ kubectl get dcr -n doris
+  NAME                  FESTATUS    BESTATUS    CNSTATUS
+  doriscluster-sample   available   available
+  ```
+
 2. Modify, save and take effect
-```
-$ kubectl edit dcr doriscluster-sample -n doris
-```
-After entering the text editor, you will find `spec.beSpec.image` and change `selectdb/doris.be-ubuntu:2.0.4` to `selectdb/doris.be-ubuntu:2.1.0`
+  ```
+  $ kubectl edit dcr doriscluster-sample -n doris
+  ```
+  After entering the text editor, you will find `spec.beSpec.image` and change `selectdb/doris.be-ubuntu:2.0.4` to `selectdb/doris.be-ubuntu:2.1.0`
 
 3. View the upgrade process and results:
-```
-$ kubectl get pod -n doris
-```
+  ```
+  $ kubectl get pod -n doris
+  ```
+
 When all Pods are rebuilt and enter the Running state, the upgrade is complete.
 
 ### Upgrade FE
 
 If you retain the cluster's crd (Doris-Operator defines the abbreviation of the `DorisCluster` type resource name) file, you can upgrade by modifying the configuration file and running the `kubectl apply` command.
-Modify `spec.feSpec.image`
-1. Change `selectdb/doris.fe-ubuntu:2.0.4` to `selectdb/doris.fe-ubuntu:2.1.0`
 
-```
-$ vim doriscluster-sample.yaml
-```
+1. Modify `spec.feSpec.image`
+
+  Change `selectdb/doris.fe-ubuntu:2.0.4` to `selectdb/doris.fe-ubuntu:2.1.0`
+  ```
+  $ vim doriscluster-sample.yaml
+  ```
 
 2. Save the changes and apply the changes to be upgraded:
-```
-$ kubectl apply -f doriscluster-sample.yaml -n doris
-```
+  ```
+  $ kubectl apply -f doriscluster-sample.yaml -n doris
+  ```
 
 It can also be modified directly through `kubectl edit dcr`.
 
 1. Modify, save and take effect
-```
-$ kubectl edit dcr doriscluster-sample -n doris
-```
-After entering the text editor, you will find `spec.feSpec.image` and change `selectdb/doris.fe-ubuntu:2.0.4` to `selectdb/doris.fe-ubuntu:2.1.0`
+  ```
+  $ kubectl edit dcr doriscluster-sample -n doris
+  ```
+
+  After entering the text editor, you will find `spec.feSpec.image` and change `selectdb/doris.fe-ubuntu:2.0.4` to `selectdb/doris.fe-ubuntu:2.1.0`
+
 2. View the upgrade process and results:
-```
-$ kubectl get pod -n doris
-```
+  ```
+  $ kubectl get pod -n doris
+  ```
+
 When all Pods are rebuilt and enter the Running state, the upgrade is complete.
 
 ## After the upgrade is completed
