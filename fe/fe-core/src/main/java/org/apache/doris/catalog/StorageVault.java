@@ -40,7 +40,7 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public abstract class StorageVault implements Writable, GsonPostProcessable {
-    private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
+    private static final Logger LOG = LogManager.getLogger(StorageVault.class);
     public static final String REFERENCE_SPLIT = "@";
     public static final String INCLUDE_DATABASE_LIST = "include_database_list";
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
@@ -68,6 +68,8 @@ public abstract class StorageVault implements Writable, GsonPostProcessable {
     protected StorageVaultType type;
     @SerializedName(value = "id")
     protected String id;
+    @SerializedName(value = "ifNotExists")
+    private boolean ifNotExists;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
@@ -90,16 +92,24 @@ public abstract class StorageVault implements Writable, GsonPostProcessable {
     public StorageVault() {
     }
 
-    public StorageVault(String name, StorageVaultType type) {
+    public StorageVault(String name, StorageVaultType type, boolean ifNotExists) {
         this.name = name;
         this.type = type;
+        this.ifNotExists = ifNotExists;
     }
 
     public static StorageVault fromStmt(CreateStorageVaultStmt stmt) throws DdlException {
-        StorageVault storageVault = getStorageVaultInstance(stmt.getStorageVaultType(), stmt.getStorageVaultName());
+        StorageVault storageVault = getStorageVaultInstance(stmt);
         storageVault.setProperties(stmt.getProperties());
         return storageVault;
     }
+
+    public abstract void alterMetaService() throws DdlException;
+
+    public boolean ifNotExists() {
+        return this.ifNotExists;
+    }
+
 
     public String getId() {
         return this.id;
@@ -116,14 +126,17 @@ public abstract class StorageVault implements Writable, GsonPostProcessable {
      * @return
      * @throws DdlException
      */
-    private static StorageVault getStorageVaultInstance(StorageVaultType type, String name) throws DdlException {
+    private static StorageVault getStorageVaultInstance(CreateStorageVaultStmt stmt) throws DdlException {
+        StorageVaultType type = stmt.getStorageVaultType();
+        String name = stmt.getStorageVaultName();
+        boolean ifNotExists = stmt.isIfNotExists();
         StorageVault vault;
         switch (type) {
             // case S3:
             //     vault = new S3StorageVault(name);
             //     break;
             case HDFS:
-                vault = new HdfsStorageVault(name);
+                vault = new HdfsStorageVault(name, ifNotExists);
                 break;
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);

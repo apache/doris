@@ -581,4 +581,18 @@ public class MetaServiceProxy {
             throw new RpcException(metaAddress.hostname, e.getMessage(), e);
         }
     }
+
+    public Cloud.AlterObjStoreInfoResponse
+            alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+        if (metaServiceHostPort == null) {
+            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
+        }
+        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+        try {
+            final MetaServiceClient client = getProxy(metaAddress);
+            return client.alterObjStoreInfo(request);
+        } catch (Exception e) {
+            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+        }
+    }
 }

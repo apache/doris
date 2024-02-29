@@ -18,12 +18,16 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
@@ -40,6 +44,7 @@ import java.util.Map;
  * );
  */
 public class HdfsStorageVault extends StorageVault {
+    private static final Logger LOG = LogManager.getLogger(HdfsStorageVault.class);
     public static final String HADOOP_FS_PREFIX = "dfs.";
     public static String HADOOP_FS_NAME = "fs.defaultFS";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
@@ -51,9 +56,38 @@ public class HdfsStorageVault extends StorageVault {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    public HdfsStorageVault(String name) {
-        super(name, StorageVault.StorageVaultType.HDFS);
+    public HdfsStorageVault(String name, boolean ifNotExists) {
+        super(name, StorageVault.StorageVaultType.HDFS, ifNotExists);
         properties = Maps.newHashMap();
+    }
+
+    @Override
+    public void alterMetaService() throws DdlException {
+        Cloud.HdfsParams hdfsParams = generateHdfsParam(properties);
+        Cloud.AlterHdfsParams.Builder alterHdfsParamsBuilder = Cloud.AlterHdfsParams.newBuilder();
+        alterHdfsParamsBuilder.setVaultName(name);
+        alterHdfsParamsBuilder.setHdfs(hdfsParams);
+        Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
+                = Cloud.AlterObjStoreInfoRequest.newBuilder();
+        requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
+        requestBuilder.setHdfs(alterHdfsParamsBuilder.build());
+        try {
+            Cloud.AlterObjStoreInfoResponse response =
+                    MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
+            if (!response.hasStatus() || !response.getStatus().hasCode()) {
+                if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
+                        && ifNotExists()) {
+                    return;
+                }
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                    LOG.warn("failed to alter storage vault response: {} ", response);
+                    throw new DdlException(response.getStatus().getMsg());
+                }
+            }
+        } catch (RpcException e) {
+            LOG.warn("failed to alter storage vault due to RpcException: {}", e);
+            throw new DdlException(e.getMessage());
+        }
     }
 
     @Override

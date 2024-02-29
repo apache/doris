@@ -17,9 +17,24 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.CreateStorageVaultStmt;
+import org.apache.doris.common.DdlException;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class StorageVaultMgr {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
+
+    public StorageVaultMgr() {}
+
+    // TODO(ByteYue): The CreateStorageVault should only be handled by master
+    // which indicates we can maintains one <VaultName, VaultId> map in FE master
+
+    public void createStorageVaultResource(CreateStorageVaultStmt stmt) throws Exception {
+        if (stmt.getStorageVaultType() == StorageVault.StorageVaultType.UNKNOWN) {
+            throw new DdlException("Only support S3, HDFS storage vault.");
+        }
+        StorageVault.fromStmt(stmt).alterMetaService();
+    }
 }
