@@ -2029,6 +2029,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         db.checkQuota();
     }
 
+    private Type getChildTypeByName(String name, CreateTableStmt stmt)
+            throws AnalysisException {
+        List<Column> columns = stmt.getColumns();
+        for (Column col : columns) {
+            if (col.nameEquals(name, false)) {
+                return col.getType();
+            }
+        }
+        throw new AnalysisException("Cannot find column `" + name + "` in table's columns");
+    }
+
     // Create olap table and related base index synchronously.
     private void createOlapTable(Database db, CreateTableStmt stmt) throws UserException {
         String tableName = stmt.getTableName();
@@ -2087,8 +2098,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         if (children.get(i) instanceof LiteralExpr) {
                             childTypes[i] = children.get(i).getType();
                         } else if (children.get(i) instanceof SlotRef) {
-                            // now maybe they are invalid type. mock it from table.
-                            childTypes[i] = stmt.getColumns().get(i).getType();
+                            childTypes[i] = getChildTypeByName(children.get(i).getExprName(), stmt);
                         } else {
                             throw new AnalysisException(String.format(
                                     "partition expr %s has unrecognized parameter in slot %d", func.getExprName(), i));
@@ -2097,7 +2107,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Function fn = null;
                     try {
                         fn = func.getBuiltinFunction(func.getFnName().getFunction(), childTypes,
-                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF); // only for test
+                                Function.CompareMode.IS_INDISTINGUISHABLE); // only for test
                     } catch (Exception e) {
                         throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                     }

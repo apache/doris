@@ -344,6 +344,7 @@ suite("test_auto_partition_behavior") {
     }
 
     sql "set experimental_enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false;"
     test{
         sql """
             create table illegal(
@@ -351,6 +352,21 @@ suite("test_auto_partition_behavior") {
                 k1 datetime(6) NOT null
             )
             auto partition by range date_trunc(k0, k1, 'hour')
+            (
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+        exception "partition expr date_trunc is illegal!"
+    }
+    // test displacement of partition function
+    test{
+        sql """
+            create table illegal(
+                k0 datetime(6) NOT null,
+                k1 int NOT null
+            )
+            auto partition by range date_trunc(k1, 'hour')
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
