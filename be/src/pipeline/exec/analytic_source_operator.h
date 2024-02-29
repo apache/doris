@@ -76,7 +76,6 @@ private:
         if (need_more_input) {
             _dependency->block();
             _dependency->set_ready_to_write();
-            _shared_state->sink_dep->set_ready();
         } else {
             _dependency->set_block_to_write();
             _dependency->set_ready();
