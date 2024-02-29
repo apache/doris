@@ -81,7 +81,7 @@ run() {
 }
 export -f run
 # 设置超时时间（以分为单位）
-timeout_minutes=$((${repeat_times_from_trigger:-1} * 90))m
+timeout_minutes=$((${repeat_times_from_trigger:-1} * ${BUILD_TIMEOUT_MINUTES:-180}))m
 timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
 
