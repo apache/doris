@@ -58,11 +58,7 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_prefix_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/query/regexp_query.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
@@ -309,6 +305,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         roaring::Roaring query_match_bitmap;
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
             query_type == InvertedIndexQueryType::EQUAL_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_ANY_QUERY) {
