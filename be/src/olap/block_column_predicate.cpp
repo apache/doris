@@ -129,7 +129,7 @@ void OrBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uin
 
 uint16_t AndBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                                            uint16_t selected_size) const {
-    for (auto block_column_predicate : _block_column_predicate_vec) {
+    for (auto& block_column_predicate : _block_column_predicate_vec) {
         selected_size = block_column_predicate->evaluate(block, sel, selected_size);
     }
     return selected_size;
