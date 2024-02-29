@@ -39,7 +39,6 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -47,7 +46,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -67,36 +65,38 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     protected Expression(Expression... children) {
         super(children);
-        depth = Arrays.stream(children)
-                .mapToInt(e -> e.depth)
-                .max().orElse(0) + 1;
-        width = Arrays.stream(children)
-                .mapToInt(e -> e.width)
-                .sum() + (children.length == 0 ? 1 : 0);
+        int maxChildDepth = 0;
+        int sumChildWidth = 0;
+        for (int i = 0; i < children.length; ++i) {
+            Expression child = children[i];
+            int childDepth = child.depth;
+            maxChildDepth = childDepth > maxChildDepth ? childDepth : maxChildDepth;
+            sumChildWidth += child.width;
+        }
+        this.depth = maxChildDepth + 1;
+        this.width = sumChildWidth + ((children.length == 0) ? 1 : 0);
+
         checkLimit();
         this.inferred = false;
     }
 
     protected Expression(List<Expression> children) {
-        super(children);
-        depth = children.stream()
-                .mapToInt(e -> e.depth)
-                .max().orElse(0) + 1;
-        width = children.stream()
-                .mapToInt(e -> e.width)
-                .sum() + (children.isEmpty() ? 1 : 0);
-        checkLimit();
-        this.inferred = false;
+        this(children, false);
     }
 
     protected Expression(List<Expression> children, boolean inferred) {
         super(children);
-        depth = children.stream()
-                .mapToInt(e -> e.depth)
-                .max().orElse(0) + 1;
-        width = children.stream()
-                .mapToInt(e -> e.width)
-                .sum() + (children.isEmpty() ? 1 : 0);
+        int maxChildDepth = 0;
+        int sumChildWidth = 0;
+        for (int i = 0; i < children.size(); ++i) {
+            Expression child = children.get(i);
+            int childDepth = child.depth;
+            maxChildDepth = childDepth > maxChildDepth ? childDepth : maxChildDepth;
+            sumChildWidth += child.width;
+        }
+        this.depth = maxChildDepth + 1;
+        this.width = sumChildWidth + ((children.isEmpty()) ? 1 : 0);
+
         checkLimit();
         this.inferred = inferred;
     }
@@ -180,21 +180,20 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     }
 
     private boolean checkPrimitiveInputDataTypesWithExpectType(DataType input, DataType expected) {
-        // These type will throw exception when invoke toCatalogDataType()
-        if (expected instanceof AnyDataType) {
-            return expected.acceptsType(input);
+        // support fast check the case: input=TinyIntType, expected=NumericType, for example: `1 + 1`.
+        // if no this check, there will have an exception when invoke NumericType.toCatalogDataType,
+        // when there has lots of expression, the exception become the bottleneck, because an exception
+        // need to record the whole StackFrame.
+        if (expected.acceptsType(input)) {
+            return true;
         }
+
         // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
-        boolean legacyCastCompatible = false;
         try {
-            legacyCastCompatible = input.toCatalogDataType().matchesType(expected.toCatalogDataType());
+            return input.toCatalogDataType().matchesType(expected.toCatalogDataType());
         } catch (Throwable t) {
-            // ignore.
-        }
-        if (!legacyCastCompatible && !expected.acceptsType(input)) {
             return false;
         }
-        return true;
     }
 
     private TypeCheckResult checkInputDataTypesWithExpectTypes(
