@@ -148,7 +148,7 @@ class MutilColumnBlockPredicate : public BlockColumnPredicate {
 public:
     MutilColumnBlockPredicate() = default;
 
-    ~MutilColumnBlockPredicate() override {}
+    ~MutilColumnBlockPredicate() override = default;
 
     bool support_zonemap() const override {
         for (const auto& child_block_predicate : _block_column_predicate_vec) {
