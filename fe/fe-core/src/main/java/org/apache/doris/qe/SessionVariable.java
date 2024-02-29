@@ -626,7 +626,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
     public long sqlMode = SqlModeHelper.MODE_DEFAULT;
 
-    @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE)
+    @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE, needForward = true)
     public String workloadGroup = "";
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
