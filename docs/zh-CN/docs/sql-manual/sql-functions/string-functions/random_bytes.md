@@ -1,7 +1,7 @@
 ---
 {
     "title": "random_bytes",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 
