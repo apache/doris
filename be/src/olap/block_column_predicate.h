@@ -197,6 +197,8 @@ public:
 };
 
 class AndBlockColumnPredicate : public MutilColumnBlockPredicate {
+    ENABLE_FACTORY_CREATOR(AndBlockColumnPredicate);
+
 public:
     uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                       uint16_t selected_size) const override;

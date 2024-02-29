@@ -56,7 +56,7 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
 }
 
 void BetaRowsetReader::reset_read_options() {
-    _read_options.delete_condition_predicates = std::make_shared<AndBlockColumnPredicate>();
+    _read_options.delete_condition_predicates = AndBlockColumnPredicate::create_shared();
     _read_options.column_predicates.clear();
     _read_options.col_id_to_predicates.clear();
     _read_options.del_predicates_for_zone_map.clear();
@@ -154,7 +154,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         for (auto pred : *(_read_context->predicates)) {
             if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
                 _read_options.col_id_to_predicates.insert(
-                        {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+                        {pred->column_id(), AndBlockColumnPredicate::create_shared()});
             }
             _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
                     SingleColumnBlockPredicate::create_unique(pred));
@@ -206,7 +206,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             for (auto pred : *(_read_context->value_predicates)) {
                 if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
                     _read_options.col_id_to_predicates.insert(
-                            {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+                            {pred->column_id(), AndBlockColumnPredicate::create_shared()});
                 }
                 _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
                         SingleColumnBlockPredicate::create_unique(pred));
