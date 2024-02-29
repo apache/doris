@@ -376,9 +376,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         "Not-predicate meet unexpected child: %s", child.toSql());
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
-                    colBuilder.setNdv(originColStats.ndv - childColStats.ndv);
+                    colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
                 } else if (child instanceof InPredicate) {
-                    colBuilder.setNdv(originColStats.ndv - childColStats.ndv);
+                    colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
                     colBuilder.setMinValue(originColStats.minValue)
                             .setMinExpr(originColStats.minExpr)
                             .setMaxValue(originColStats.maxValue)
@@ -389,8 +389,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                             .setMinExpr(originColStats.minExpr)
                             .setMaxValue(originColStats.maxValue)
                             .setMaxExpr(originColStats.maxExpr);
-                } else if (child instanceof EqualTo) {
-                    colBuilder.setNdv(originColStats.ndv - childColStats.ndv);
+                } else if (child instanceof EqualPredicate) {
+                    colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
                     colBuilder.setMinValue(originColStats.minValue)
                             .setMinExpr(originColStats.minExpr)
                             .setMaxValue(originColStats.maxValue)
