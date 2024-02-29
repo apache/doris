@@ -204,7 +204,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 
     // Test for single or and
     //  column < 3 or (column < 5 and column > 3)
-    auto and_block_column_pred1 = new AndBlockColumnPredicate();
+    auto and_block_column_pred1 = AndBlockColumnPredicate::create_unique();
     and_block_column_pred1->add_column_predicate(
             SingleColumnBlockPredicate::create_unique(less_pred.get()));
     and_block_column_pred1->add_column_predicate(
@@ -213,7 +213,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
     OrBlockColumnPredicate or_block_column_pred1;
     or_block_column_pred1.add_column_predicate(
             SingleColumnBlockPredicate::create_unique(less_pred1.get()));
-    or_block_column_pred1.add_column_predicate(and_block_column_pred1);
+    or_block_column_pred1.add_column_predicate(std::move(and_block_column_pred1));
 
     selected_size = or_block_column_pred1.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 4);
@@ -240,14 +240,14 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 
     // Test for and or single
     // (column < 5 or column < 3) and column > 3
-    auto or_block_column_pred = new OrBlockColumnPredicate();
+    auto or_block_column_pred = OrBlockColumnPredicate::create_unique();
     or_block_column_pred->add_column_predicate(
             SingleColumnBlockPredicate::create_unique(less_pred.get()));
     or_block_column_pred->add_column_predicate(
             SingleColumnBlockPredicate::create_unique(less_pred1.get()));
 
     AndBlockColumnPredicate and_block_column_pred;
-    and_block_column_pred.add_column_predicate(or_block_column_pred);
+    and_block_column_pred.add_column_predicate(std::move(or_block_column_pred));
     and_block_column_pred.add_column_predicate(
             SingleColumnBlockPredicate::create_unique(great_pred.get()));
 
