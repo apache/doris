@@ -40,7 +40,6 @@
 #endif
 
 #include "common/config.h"
-#include "io/fs/local_file_system.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
@@ -54,6 +53,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
+#include "runtime/exec_env.h"
 #include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/slice.h"
@@ -111,7 +111,7 @@ public:
     void close() {
         if (_index_writer) {
             _index_writer->close();
-            if (0) {
+            if (config::enable_write_index_searcher_cache) {
                 // open index searcher into cache
                 auto mem_tracker =
                         std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
@@ -213,11 +213,12 @@ public:
             return Status::InternalError("init_fulltext_index directory already exists");
         }
 
+        auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
         _lfs = io::global_local_filesystem();
         auto lfs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
-                config::tmp_file_dir + "/" + _segment_file_name, _index_meta->index_id(),
+                tmp_file_dir / _segment_file_name, _index_meta->index_id(),
                 _index_meta->get_index_suffix());
-        _dir = std::unique_ptr<DorisCompoundDirectory>(DorisCompoundDirectoryFactory::getDirectory(
+        dir = std::unique_ptr<DorisCompoundDirectory>(DorisCompoundDirectoryFactory::getDirectory(
                 _lfs, lfs_index_path.c_str(), use_compound_file_writer, can_use_ram_dir, nullptr,
                 _fs, index_path.c_str()));
         return Status::OK();

@@ -399,7 +399,8 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
 
 void DorisCompoundDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem,
                                                  const char* path) {
-    Status status = fileSystem->create_file(path, &_writer);
+    io::FileWriterOptions opts {.create_empty_file = false};
+    Status status = fileSystem->create_file(path, &_writer, &opts);
     DBUG_EXECUTE_IF(
             "DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
             "init",
@@ -920,7 +921,7 @@ DorisCompoundDirectory* DorisCompoundDirectoryFactory::getDirectory(
     // Write by RAM directory
     // 1. only write separated index files, which is can_use_ram_dir = true.
     // 2. config::inverted_index_ram_dir_enable = true
-    if (can_use_ram_dir) {
+    if (config::inverted_index_ram_dir_enable && can_use_ram_dir) {
         dir = _CLNEW DorisRAMCompoundDirectory();
     } else {
         bool exists = false;
