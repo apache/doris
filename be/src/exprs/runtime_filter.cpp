@@ -331,7 +331,7 @@ public:
         return Status::OK();
     }
 
-    void change_to_bloom_filter(bool need_init_bf = false) {
+    Status change_to_bloom_filter(bool need_init_bf = false) {
         CHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER)
                 << "Can not change to bloom filter because of runtime filter type is "
                 << IRuntimeFilter::to_string(_filter_type);
@@ -339,11 +339,12 @@ public:
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
         if (need_init_bf) {
             // BloomFilter may be not init
-            static_cast<void>(bf->init_with_fixed_length());
+            RETURN_IF_ERROR(bf->init_with_fixed_length());
             insert_to_bloom_filter(bf);
         }
         // release in filter
         _context.hybrid_set.reset();
+        return Status::OK();
     }
 
     Status init_bloom_filter(const size_t build_bf_cardinality) {
@@ -508,12 +509,12 @@ public:
                         VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                    << ") because: in_num(" << _context.hybrid_set->size()
                                    << ") >= max_in_num(" << _max_in_num << ")";
-                        change_to_bloom_filter(true);
+                        RETURN_IF_ERROR(change_to_bloom_filter(true));
                     }
                 } else {
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
-                    change_to_bloom_filter();
+                    RETURN_IF_ERROR(change_to_bloom_filter());
                     RETURN_IF_ERROR(_context.bloom_filter_func->merge(
                             wrapper->_context.bloom_filter_func.get()));
                 }
@@ -1307,8 +1308,9 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     }
 }
 
-void IRuntimeFilter::change_to_bloom_filter() {
-    _wrapper->change_to_bloom_filter();
+Status IRuntimeFilter::change_to_bloom_filter() {
+    RETURN_IF_ERROR(_wrapper->change_to_bloom_filter());
+    return Status::OK();
 }
 
 Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {

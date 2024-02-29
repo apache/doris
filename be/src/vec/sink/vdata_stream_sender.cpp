@@ -798,7 +798,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     if (_peak_memory_usage_counter) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
-    static_cast<void>(DataSink::close(state, exec_status));
+    RETURN_IF_ERROR(DataSink::close(state, exec_status));
     return final_st;
 }
 
