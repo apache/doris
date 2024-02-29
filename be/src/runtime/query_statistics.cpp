@@ -70,11 +70,6 @@ void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
     scan_rows = statistics.scan_rows();
     scan_bytes = statistics.scan_bytes();
     cpu_nanos = statistics.cpu_ms() * NANOS_PER_MILLIS;
-    for (auto& p_node_statistics : statistics.nodes_statistics()) {
-        int64_t node_id = p_node_statistics.node_id();
-        auto node_statistics = add_nodes_statistics(node_id);
-        node_statistics->from_pb(p_node_statistics);
-    }
 }
 
 void QueryStatistics::merge(QueryStatisticsRecvr* recvr) {
