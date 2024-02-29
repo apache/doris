@@ -301,6 +301,7 @@ queryPrimary
 
 querySpecification
     : selectClause
+      intoClause?
       fromClause?
       whereClause?
       aggClause?
@@ -335,6 +336,19 @@ whereClause
 
 fromClause
     : FROM relations
+    ;
+
+// For PL-SQL
+intoClause
+    : bulkCollectClause? INTO (tableRow | identifier) (COMMA (tableRow | identifier))*
+    ;
+
+bulkCollectClause :
+       BULK COLLECT
+     ;
+
+tableRow :
+      identifier LEFT_PAREN INTEGER_VALUE RIGHT_PAREN
     ;
 
 relations
@@ -947,6 +961,7 @@ nonReserved
     | BUCKETS
     | BUILD
     | BUILTIN
+    | BULK
     | CACHED
     | CALL
     | CATALOG
@@ -958,6 +973,7 @@ nonReserved
     | CLUSTER
     | CLUSTERS
     | COLLATION
+    | COLLECT
     | COLUMNS
     | COMMENT
     | COMMIT
