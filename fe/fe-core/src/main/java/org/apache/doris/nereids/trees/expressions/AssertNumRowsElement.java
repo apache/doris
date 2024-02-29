@@ -17,22 +17,14 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
-import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-
-import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Number of rows returned by inspection in subquery.
  */
-public class AssertNumRowsElement extends Expression implements LeafExpression, AlwaysNotNullable {
+public class AssertNumRowsElement {
     /**
      * Assertion type.
      */
@@ -51,7 +43,6 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
 
     public AssertNumRowsElement(long desiredNumOfRows, String subqueryString,
             Assertion assertion) {
-        super(ImmutableList.of());
         this.desiredNumOfRows = desiredNumOfRows;
         this.subqueryString = subqueryString;
         this.assertion = assertion;
@@ -70,30 +61,11 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
     }
 
     @Override
-    public AssertNumRowsElement withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.isEmpty());
-        return this;
-    }
-
-    @Override
     public String toString() {
         return Utils.toSqlString("AssertNumRowsElement",
                 "desiredNumOfRows",
                 Long.toString(desiredNumOfRows),
                 "assertion", assertion);
-    }
-
-    @Override
-    public String toSql() {
-        return toString();
-    }
-
-    @Override
-    public String getExpressionName() {
-        if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(assertion.name().toLowerCase(), DEFAULT_EXPRESSION_NAME));
-        }
-        return this.exprName.get();
     }
 
     @Override
@@ -105,18 +77,13 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
             return false;
         }
         AssertNumRowsElement that = (AssertNumRowsElement) o;
-        return Objects.equals(this.desiredNumOfRows, that.getDesiredNumOfRows())
-                && Objects.equals(this.subqueryString, that.getSubqueryString())
-                && Objects.equals(this.assertion, that.getAssertion());
+        return this.desiredNumOfRows == that.getDesiredNumOfRows()
+                && this.subqueryString.equals(that.getSubqueryString())
+                && this.assertion.equals(that.getAssertion());
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(desiredNumOfRows, subqueryString, assertion);
-    }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitAssertNumRowsElement(this, context);
     }
 }
