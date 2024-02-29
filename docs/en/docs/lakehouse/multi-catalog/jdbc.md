@@ -60,7 +60,7 @@ PROPERTIES ("key"="value", ...)
 
 `driver_url` can be specified in three ways:
 
-1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
+1. File name. For example, `mysql-connector-java-8.0.25.jar`. Place the the JAR file in a directory `jdbc_drivers` under the Doris `fe` and `be` installation directories. I.e. create two directories `/fe/jdbc_drivers` and `/be/jdbc_drivers` and place a JAR file in each of them. You may have to create the `jdbc_drivers` directories manually. Make sure the directories are readable and preferably owned by the Doris user. You can change the location of the driver files by modifying the `jdbc_drivers_dir` property in the `fe.conf` and `be.conf` configuration files.
 
 2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
 
@@ -165,26 +165,26 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 #### Example
 
-* mysql 5.7
+* MySQL 5.7
 
 ```sql
 CREATE CATALOG jdbc_mysql PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
+    "type" = "jdbc",
+    "user" = "root",
+    "password" = "123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
     "driver_url" = "mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 ```
 
-* mysql 8
+* MySQL 8
 
 ```sql
 CREATE CATALOG jdbc_mysql PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
+    "type" = "jdbc",
+    "user" = "root",
+    "password" = "123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
     "driver_url" = "mysql-connector-java-8.0.25.jar",
     "driver_class" = "com.mysql.cj.jdbc.Driver"
@@ -196,8 +196,8 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 |  Doris   |    MySQL     |
 |:--------:|:------------:|
 | Catalog  | MySQL Server |
-| Database |   Database   |
-|  Table   |    Table     |
+| Database | Database     |
+| Table    | Table        |
 
 #### Type Mapping
 
@@ -239,9 +239,9 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 
 ```sql
 CREATE CATALOG jdbc_postgresql PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
+    "type" = "jdbc",
+    "user" = "root",
+    "password" = "123456",
     "jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
     "driver_url" = "postgresql-42.5.1.jar",
     "driver_class" = "org.postgresql.Driver"
@@ -254,9 +254,9 @@ As for data mapping from PostgreSQL to Doris, one Database in Doris corresponds 
 
 |  Doris   | PostgreSQL |
 |:--------:|:----------:|
-| Catalog  |  Database  |
-| Database |   Schema   |
-|  Table   |   Table    |
+| Catalog  | Database   |
+| Database | Schema     |
+| Table    | Table      |
 
 :::tip
 Doris obtains all schemas that PG user can access through the SQL statement: `select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` and map these schemas to doris database.   
@@ -280,7 +280,7 @@ Doris obtains all schemas that PG user can access through the SQL statement: `se
  | varchar/text                            | STRING         |                                           |
  | timestamp                               | DATETIME       |                                           |
  | date                                    | DATE           |                                           |
- | json/josnb                              | JSON           |                                           |
+ | json/jsonb                              | JSON           |                                           |
  | time                                    | STRING         |                                           |
  | interval                                | STRING         |                                           |
  | point/line/lseg/box/path/polygon/circle | STRING         |                                           |
@@ -295,9 +295,9 @@ Doris obtains all schemas that PG user can access through the SQL statement: `se
 
 ```sql
 CREATE CATALOG jdbc_oracle PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
+    "type" = "jdbc",
+    "user" = "root",
+    "password" = "123456",
     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
     "driver_url" = "ojdbc8.jar",
     "driver_class" = "oracle.jdbc.driver.OracleDriver"
@@ -311,8 +311,8 @@ As for data mapping from Oracle to Doris, one Database in Doris corresponds to o
 |  Doris   |  Oracle  |
 |:--------:|:--------:|
 | Catalog  | Database |
-| Database |   User   |
-|  Table   |  Table   |
+| Database | User     |
+| Table    | Table    |
 
 **NOTE:** Synchronizing Oracle's SYNONYM TABLE is not currently supported.
 
@@ -339,8 +339,8 @@ As for data mapping from Oracle to Doris, one Database in Doris corresponds to o
 
 ```sql
 CREATE CATALOG jdbc_sqlserve PROPERTIES (
-    "type"="jdbc",
-    "user"="SA",
+    "type" = "jdbc",
+    "user" = "SA",
     "password"="Doris123456",
     "jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
     "driver_url" = "mssql-jdbc-11.2.3.jre8.jar",
@@ -355,8 +355,8 @@ As for data mapping from SQLServer to Doris, one Database in Doris corresponds t
 |  Doris   | SQLServer |
 |:--------:|:---------:|
 | Catalog  | Database  |
-| Database |  Schema   |
-|  Table   |   Table   |
+| Database | Schema    |
+| Table    | Table     |
 
 #### Type Mapping
 
@@ -382,26 +382,26 @@ As for data mapping from SQLServer to Doris, one Database in Doris corresponds t
 
 Jdbc Catalog also support to connect another Doris database:
 
-* mysql 5.7 Driver
+* MySQL 5.7 Driver
 
 ```sql
 CREATE CATALOG jdbc_doris PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
+    "type" = "jdbc",
+    "user" = "root",
+    "password" = "123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
     "driver_url" = "mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 ```
 
-* mysql 8 Driver
+* MySQL 8 Driver
 
 ```sql
 CREATE CATALOG jdbc_doris PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
+    "type" = "jdbc",
+    "user" = "root",
+    "password" = "123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
     "driver_url" = "mysql-connector-java-8.0.25.jar",
     "driver_class" = "com.mysql.cj.jdbc.Driver"
@@ -438,9 +438,9 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 
 ```sql
 CREATE CATALOG jdbc_clickhouse PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
+    "type" = "jdbc",
+    "user" = "root",
+    "password" = "123456",
     "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
     "driver_url" = "clickhouse-jdbc-0.4.2-all.jar",
     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
@@ -452,8 +452,8 @@ CREATE CATALOG jdbc_clickhouse PROPERTIES (
 |  Doris   |    ClickHouse     |
 |:--------:|:-----------------:|
 | Catalog  | ClickHouse Server |
-| Database |     Database      |
-|  Table   |       Table       |
+| Database | Database          |
+| Table    | Table             |
 
 #### Type Mapping
 
@@ -483,9 +483,9 @@ CREATE CATALOG jdbc_clickhouse PROPERTIES (
 
 ```sql
 CREATE CATALOG jdbc_hana PROPERTIES (
-    "type"="jdbc",
-    "user"="SYSTEM",
-    "password"="SAPHANA",
+    "type" = "jdbc",
+    "user" = "SYSTEM",
+    "password" = "SAPHANA",
     "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
     "driver_url" = "ngdbc.jar",
     "driver_class" = "com.sap.db.jdbc.Driver"
@@ -497,8 +497,8 @@ CREATE CATALOG jdbc_hana PROPERTIES (
 |  Doris   | SAP HANA |
 |:--------:|:--------:|
 | Catalog  | Database |
-| Database |  Schema  |
-|  Table   |  Table   |
+| Database | Schema   |
+| Table    | Table    |
 
 #### Type Mapping
 
@@ -533,9 +533,9 @@ CREATE CATALOG jdbc_hana PROPERTIES (
 
 ```sql
 CREATE CATALOG jdbc_trino PROPERTIES (
-    "type"="jdbc",
-    "user"="hadoop",
-    "password"="",
+    "type" = "jdbc",
+    "user" = "hadoop",
+    "password" = "",
     "jdbc_url" = "jdbc:trino://localhost:9000/hive",
     "driver_url" = "trino-jdbc-389.jar",
     "driver_class" = "io.trino.jdbc.TrinoDriver"
@@ -546,9 +546,9 @@ CREATE CATALOG jdbc_trino PROPERTIES (
 
 ```sql
 CREATE CATALOG jdbc_presto PROPERTIES (
-    "type"="jdbc",
-    "user"="hadoop",
-    "password"="",
+    "type" = "jdbc",
+    "user" = "hadoop",
+    "password" = "",
     "jdbc_url" = "jdbc:presto://localhost:9000/hive",
     "driver_url" = "presto-jdbc-0.280.jar",
     "driver_class" = "com.facebook.presto.jdbc.PrestoDriver"
@@ -561,9 +561,9 @@ When mapping Trino, Doris's Database corresponds to a Schema under the specified
 
 |  Doris   | Trino/Presto |
 |:--------:|:------------:|
-| Catalog  |   Catalog    |
-| Database |    Schema    |
-|  Table   |    Table     |
+| Catalog  | Catalog      |
+| Database | Schema       |
+| Table    | Table        |
 
 
 #### Type Mapping
@@ -592,9 +592,9 @@ When mapping Trino, Doris's Database corresponds to a Schema under the specified
 
 ```sql
 CREATE CATALOG jdbc_oceanbase PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
+    "type" = "jdbc",
+    "user" = "root",
+    "password" = "123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
     "driver_class" = "com.oceanbase.jdbc.Driver"
