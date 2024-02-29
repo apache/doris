@@ -42,6 +42,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionA
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
+import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
@@ -66,7 +67,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.EliminateSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
-import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubquery;
+import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubqueryOrView;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractAndNormalizeWindowExpression;
@@ -78,6 +79,7 @@ import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
+import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
@@ -142,7 +144,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
-                            new EliminateSortUnderSubquery(),
+                            new EliminateSortUnderSubqueryOrView(),
                             new EliminateGroupByConstant(),
                             // MergeProjects depends on this rule
                             new LogicalSubQueryAliasToLogicalProject(),
@@ -230,6 +232,17 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new CorrelateApplyToUnCorrelateApply(),
                             new ApplyToJoin()
                     )
+            ),
+            // before `Subquery unnesting` topic, some correlate slots should have appeared at LogicalApply.left,
+            // but it appeared at LogicalApply.right. After the `Subquery unnesting` topic, all slots is placed in a
+            // normal position, then we can check column privileges by these steps
+            //
+            // 1. use ColumnPruning rule to derive the used slots in LogicalView
+            // 2. and then check the column privileges
+            // 3. finally, we can eliminate the LogicalView
+            topic("Inline view and check column privileges",
+                    custom(RuleType.CHECK_PRIVILEGES, CheckPrivileges::new),
+                    bottomUp(new InlineLogicalView())
             ),
             topic("Eliminate optimization",
                     bottomUp(
