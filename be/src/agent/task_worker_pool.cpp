@@ -927,7 +927,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     request.__isset.tablets = true;
 
     uint64_t report_version = s_report_version;
-    static_cast<void>(engine.tablet_manager()->build_all_report_tablets_info(&request.tablets));
+    engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
     if (report_version < s_report_version) {
         // TODO llj This can only reduce the possibility for report error, but can't avoid it.
         // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this

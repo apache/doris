@@ -182,9 +182,9 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
         }
         static_cast<void>(_sender->close(final_status));
     }
-    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+    state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id()));
+            state->fragment_instance_id());
     RETURN_IF_ERROR(Base::close(state, exec_status));
     return final_status;
 }
