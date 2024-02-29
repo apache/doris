@@ -56,7 +56,7 @@ If you retain the cluster's crd (Doris-Operator defines the abbreviation of `Dor
 
 1. Modify `spec.beSpec.image`
 
-Change `selectdb/doris.be-ubuntu:2.0.4` to `selectdb/doris.be-ubuntu:2.1.0`
+    Change `selectdb/doris.be-ubuntu:2.0.4` to `selectdb/doris.be-ubuntu:2.1.0`
 ```
 $ vim doriscluster-sample.yaml
 ```
@@ -79,7 +79,7 @@ doriscluster-sample   available   available
 ```
 $ kubectl edit dcr doriscluster-sample -n doris
 ```
-After entering the text editor, you will find `spec.beSpec.image` and change `selectdb/doris.be-ubuntu:2.0.4` to `selectdb/doris.be-ubuntu:2.1.0`
+    After entering the text editor, you will find `spec.beSpec.image` and change `selectdb/doris.be-ubuntu:2.0.4` to `selectdb/doris.be-ubuntu:2.1.0`
 
 3. View the upgrade process and results:
 ```
@@ -94,7 +94,7 @@ If you retain the cluster's crd (Doris-Operator defines the abbreviation of the 
 
 1. Modify `spec.feSpec.image`
 
-Change `selectdb/doris.fe-ubuntu:2.0.4` to `selectdb/doris.fe-ubuntu:2.1.0`
+    Change `selectdb/doris.fe-ubuntu:2.0.4` to `selectdb/doris.fe-ubuntu:2.1.0`
 ```
 $ vim doriscluster-sample.yaml
 ```
@@ -110,7 +110,7 @@ It can also be modified directly through `kubectl edit dcr`.
 ```
 $ kubectl edit dcr doriscluster-sample -n doris
 ```
-After entering the text editor, you will find `spec.feSpec.image` and change `selectdb/doris.fe-ubuntu:2.0.4` to `selectdb/doris.fe-ubuntu:2.1.0`
+    After entering the text editor, you will find `spec.feSpec.image` and change `selectdb/doris.fe-ubuntu:2.0.4` to `selectdb/doris.fe-ubuntu:2.1.0`
 
 2. View the upgrade process and results:
 ```

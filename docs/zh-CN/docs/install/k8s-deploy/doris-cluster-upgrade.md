@@ -57,7 +57,7 @@ admin set frontend config("disable_tablet_scheduler" = "true");
  
 1. 修改 `spec.beSpec.image`  
 
-将 `selectdb/doris.be-ubuntu:2.0.4` 变为 `selectdb/doris.be-ubuntu:2.1.0`
+    将 `selectdb/doris.be-ubuntu:2.0.4` 变为 `selectdb/doris.be-ubuntu:2.1.0`
 ```
 $ vim doriscluster-sample.yaml
 ```
@@ -79,7 +79,7 @@ doriscluster-sample   available   available
 ```
 $ kubectl edit dcr doriscluster-sample -n doris
 ```
-进入文本编辑器后，将找到`spec.beSpec.image`，将 `selectdb/doris.be-ubuntu:2.0.4` 修改为 `selectdb/doris.be-ubuntu:2.1.0`
+    进入文本编辑器后，将找到`spec.beSpec.image`，将 `selectdb/doris.be-ubuntu:2.0.4` 修改为 `selectdb/doris.be-ubuntu:2.1.0`
 
 3. 查看升级过程和结果：
 ```
@@ -94,7 +94,7 @@ $ kubectl get pod -n doris
 
 1. 修改 `spec.feSpec.image`
 
-将 `selectdb/doris.fe-ubuntu:2.0.4` 变为 `selectdb/doris.fe-ubuntu:2.1.0`
+    将 `selectdb/doris.fe-ubuntu:2.0.4` 变为 `selectdb/doris.fe-ubuntu:2.1.0`
 ```
 $ vim doriscluster-sample.yaml
 ```
@@ -110,7 +110,7 @@ $ kubectl apply -f doriscluster-sample.yaml -n doris
 ```
 $ kubectl edit dcr doriscluster-sample -n doris
 ```
-进入文本编辑器后，将找到`spec.feSpec.image`，将 `selectdb/doris.fe-ubuntu:2.0.4` 修改为 `selectdb/doris.fe-ubuntu:2.1.0`
+    进入文本编辑器后，将找到`spec.feSpec.image`，将 `selectdb/doris.fe-ubuntu:2.0.4` 修改为 `selectdb/doris.fe-ubuntu:2.1.0`
 
 2. 查看升级过程和结果
 ```
