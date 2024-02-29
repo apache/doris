@@ -1530,8 +1530,17 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * Description: BE 是否开启使用java-jni，开启后允许 c++  与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
 * Default value: true
 
-
 #### `be_thrift_max_pkg_bytes`
 
 * 描述: be节点thrift端口最大接收包大小(字节)
 * 默认值: 20000000
+
+#### `default_tzfiles_path`
+
+* 描述：Doris 自带的时区数据库。如果系统目录下未找到时区文件，则启用该目录下的数据。
+* 默认值："${DORIS_HOME}/zoneinfo"
+
+#### `use_doris_tzfile`
+
+* 描述：是否直接使用 Doris 自带的时区数据库。开启后不再尝试查找系统目录。
+* 默认值：false
