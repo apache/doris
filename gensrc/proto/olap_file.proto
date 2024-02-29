@@ -518,6 +518,7 @@ message TabletMetaCloudPB {
     optional string table_name = 101;
     optional int64 ttl_seconds = 102;
     optional int32 schema_version = 103; // index_id, schema_version -> schema
+    optional string storage_vault_name = 104 [default = ""];
 }
 
 message OLAPRawDeltaHeaderMessage {

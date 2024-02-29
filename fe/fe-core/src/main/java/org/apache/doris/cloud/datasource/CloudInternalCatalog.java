@@ -127,7 +127,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId,
-                    indexId, schemaHash, dataProperty.getStorageMedium());
+                    indexId, schemaHash, dataProperty.getStorageMedium(), dataProperty.getStorageVaultName());
             createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
                     tabletMeta, tabletIdSet);
 
@@ -142,7 +142,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
                         bfColumns, tbl.getBfFpp(), tbl.getIndexes(), columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
-                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion());
+                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
+                        dataProperty.getStorageVaultName());
                 requestBuilder.addTabletMetas(builder);
             }
 
@@ -168,7 +169,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             String storagePolicy, boolean isInMemory, boolean isShadow,
             String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
-            boolean storeRowColumn, int schemaVersion) throws DdlException {
+            boolean storeRowColumn, int schemaVersion, String storageVaultName) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -182,6 +183,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setIsInMemory(isInMemory);
         builder.setTtlSeconds(ttlSeconds);
         builder.setSchemaVersion(schemaVersion);
+        builder.setStorageVaultName(storageVaultName);
 
         UUID uuid = UUID.randomUUID();
         Types.PUniqueId tabletUid = Types.PUniqueId.newBuilder()
@@ -325,7 +327,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             long replicaId = Env.getCurrentEnv().getNextId();
             Replica replica = new CloudReplica(replicaId, null, replicaState, version,
                     tabletMeta.getOldSchemaHash(), tabletMeta.getDbId(), tabletMeta.getTableId(),
-                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i);
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i, tabletMeta.StorageVaultName());
             tablet.addReplica(replica);
         }
     }

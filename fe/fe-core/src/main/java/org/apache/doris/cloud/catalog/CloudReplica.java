@@ -60,6 +60,8 @@ public class CloudReplica extends Replica {
     private long indexId = -1;
     @SerializedName(value = "idx")
     private long idx = -1;
+    @SerializedName(value = "storageVaultName")
+    private String storageVaultName = "";
 
     private Random rand = new Random();
 
@@ -72,17 +74,19 @@ public class CloudReplica extends Replica {
         this(context.replicaId, context.backendId, context.state, context.version,
                 context.schemaHash, context.dbId, context.tableId, context.partitionId,
                 context.indexId,
-                context.originReplica != null ? ((CloudReplica) context.originReplica).getIdx() : -1);
+                context.originReplica != null ? ((CloudReplica) context.originReplica).getIdx() : -1,
+                context.storageVaultName);
     }
 
     public CloudReplica(long replicaId, Long backendId, ReplicaState state, long version, int schemaHash,
-            long dbId, long tableId, long partitionId, long indexId, long idx) {
+            long dbId, long tableId, long partitionId, long indexId, long idx, String storageVaultName) {
         super(replicaId, -1, state, version, schemaHash);
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.indexId = indexId;
         this.idx = idx;
+        this.storageVaultName = storageVaultName;
     }
 
     private boolean isColocated() {
