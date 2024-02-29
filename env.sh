@@ -199,6 +199,31 @@ CLANG_COMPATIBLE_FLAGS="$(echo | "${DORIS_GCC_HOME}/bin/gcc" -Wp,-v -xc++ - -fsy
     grep -E '^\s+/' | awk '{print "-I" $1}' | tr '\n' ' ')"
 export CLANG_COMPATIBLE_FLAGS
 
+# get jdk version, return version as an Integer.
+# 1.8 => 8, 13.0 => 13
+function jdk_version() {
+    local java_cmd="${1}"
+    local result
+    local IFS=$'\n'
+
+    if [[ -z "${java_cmd}" ]]; then
+        result=no_java
+        return 1
+    else
+        local version
+        # remove \r for Cygwin
+        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
+        version="${version//\"/}"
+        if [[ "${version}" =~ ^1\. ]]; then
+            result="$(echo "${version}" | awk -F '.' '{print $2}')"
+        else
+            result="$(echo "${version}" | awk -F '.' '{print $1}')"
+        fi
+    fi
+    echo "${result}"
+    return 0
+}
+
 # if is called from build-thirdparty.sh, no need to check these tools
 if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
     # register keyword is forbidden to use in C++17
@@ -225,6 +250,17 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
         echo "The JAVA_HOME environment variable is not defined correctly"
         echo "This environment variable is needed to run this program"
         echo "NB: JAVA_HOME should point to a JDK not a JRE"
+        exit 1
+    fi
+
+    # check java version
+    echo "Check JAVA version"
+    java_version="$(
+        set -e
+        jdk_version "${JAVA}"
+    )"
+    if [[ "${java_version}" -ne 17 ]]; then
+        echo "ERROR: The JAVA version is ${java_version}, it must be JDK-17."
         exit 1
     fi
 
