@@ -161,7 +161,7 @@ public:
     }
 
     void add_column_predicate(std::unique_ptr<BlockColumnPredicate> column_predicate) {
-        _block_column_predicate_vec.emplace_back(column_predicate);
+        _block_column_predicate_vec.push_back(std::move(column_predicate));
     }
 
     size_t num_of_column_predicate() const { return _block_column_predicate_vec.size(); }
