@@ -472,12 +472,18 @@ public class OlapTable extends Table {
         return null;
     }
 
+    /**
+     * This function is for statistics collection only. To get all the index ids that contains the given columnName.
+     * For base index, return -1 as its id, this is for compatibility with older version of column stats.
+     * @param columnName
+     * @return index id list that contains the given columnName.
+     */
     public List<Long> getMvColumnIndexIds(String columnName) {
         List<Long> ids = Lists.newArrayList();
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
             Column target = meta.getColumnByDefineName(columnName);
             if (target != null) {
-                ids.add(meta.getIndexId());
+                ids.add(meta.getIndexId() == baseIndexId ? -1 : meta.getIndexId());
             }
         }
         return ids;
