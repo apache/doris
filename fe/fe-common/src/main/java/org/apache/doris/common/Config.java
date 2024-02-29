@@ -1798,6 +1798,10 @@ public class Config extends ConfigBase {
         "Max cache number of remote file system."})
     public static long max_remote_file_system_cache_num = 100;
 
+    @ConfField(mutable = false, masterOnly = false, description = {"外表行数缓存最大数量",
+        "Max cache number of external table row count"})
+    public static long max_external_table_row_count_cache_num = 100000;
+
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache

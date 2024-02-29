@@ -1196,7 +1196,7 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public long getRowCount() {
+    public long fetchRowCount() {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();

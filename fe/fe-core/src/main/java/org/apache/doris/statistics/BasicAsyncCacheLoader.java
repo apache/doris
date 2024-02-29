@@ -25,13 +25,13 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
-public abstract class StatisticsCacheLoader<V> implements AsyncCacheLoader<StatisticsCacheKey, V> {
+public abstract class BasicAsyncCacheLoader<K, V> implements AsyncCacheLoader<K, V> {
 
-    private static final Logger LOG = LogManager.getLogger(StatisticsCacheLoader.class);
+    private static final Logger LOG = LogManager.getLogger(BasicAsyncCacheLoader.class);
 
     @Override
     public @NonNull CompletableFuture<V> asyncLoad(
-            @NonNull StatisticsCacheKey key,
+            @NonNull K key,
             @NonNull Executor executor) {
         CompletableFuture<V> future = CompletableFuture.supplyAsync(() -> {
             long startTime = System.currentTimeMillis();
@@ -45,5 +45,5 @@ public abstract class StatisticsCacheLoader<V> implements AsyncCacheLoader<Stati
         return future;
     }
 
-    protected abstract V doLoad(StatisticsCacheKey k);
+    protected abstract V doLoad(K k);
 }
