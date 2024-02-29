@@ -195,7 +195,6 @@ private:
     static const uint32_t MAX_SHARD_NUM = 1024;
 
     OlapMeta* _meta = nullptr;
-    RowsetIdGenerator* _id_generator = nullptr;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity = nullptr;
