@@ -379,6 +379,13 @@ public class StatisticsAutoCollectorTest {
             public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
                 return new OlapAnalysisTask(info);
             }
+
+            @Mock
+            public List<Long> getMvColumnIndexIds(String columnName) {
+                ArrayList<Long> objects = new ArrayList<>();
+                objects.add(-1L);
+                return objects;
+            }
         };
 
         new MockUp<StatisticsUtil>() {
@@ -443,6 +450,13 @@ public class StatisticsAutoCollectorTest {
             @Mock
             public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
                 return new OlapAnalysisTask(info);
+            }
+
+            @Mock
+            public List<Long> getMvColumnIndexIds(String columnName) {
+                ArrayList<Long> objects = new ArrayList<>();
+                objects.add(-1L);
+                return objects;
             }
         };
 
