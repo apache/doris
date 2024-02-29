@@ -25,6 +25,7 @@
 #include <list>
 #include <memory>
 #include <ostream>
+#include <unordered_map>
 #include <vector>
 
 #include "io/fs/buffered_reader.h"
@@ -262,24 +263,41 @@ public:
             : ParquetColumnReader(row_ranges, ctz, io_ctx) {}
     ~StructColumnReader() override { close(); }
 
-    Status init(std::vector<std::unique_ptr<ParquetColumnReader>>&& child_readers,
-                FieldSchema* field);
+    Status init(
+            std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>&& child_readers,
+            FieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
                             bool* eof, bool is_dict_filter) override;
 
     const std::vector<level_t>& get_rep_level() const override {
-        return _child_readers[0]->get_rep_level();
+        for (const auto& reader : _child_readers) {
+            const auto& rep_level = reader.second->get_rep_level();
+            if (!rep_level.empty()) {
+                return rep_level;
+            }
+        }
+        return _child_readers.begin()->second->get_rep_level();
     }
     const std::vector<level_t>& get_def_level() const override {
-        return _child_readers[0]->get_def_level();
+        for (const auto& reader : _child_readers) {
+            const auto& def_level = reader.second->get_def_level();
+            if (!def_level.empty()) {
+                return def_level;
+            }
+        }
+
+        return _child_readers.begin()->second->get_def_level();
     }
 
     Statistics statistics() override {
         Statistics st;
         for (const auto& reader : _child_readers) {
-            Statistics cst = reader->statistics();
-            st.merge(cst);
+            // make sure the field is read
+            if (!reader.second->get_rep_level().empty()) {
+                Statistics cst = reader.second->statistics();
+                st.merge(cst);
+            }
         }
         return st;
     }
@@ -287,7 +305,7 @@ public:
     void close() override {}
 
 private:
-    std::vector<std::unique_ptr<ParquetColumnReader>> _child_readers;
+    std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _child_readers;
 };
 
 }; // namespace doris::vectorized
