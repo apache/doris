@@ -14,32 +14,27 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+suite("check_meta", "data_reliability,p3") {
+    List<List<Object>> dbRes = sql "show databases"
+    for (dbRow : dbRes) {
+        def db = dbRow[0]
+        if (db == "__internal_schema" || db == "information_schema") {
+            continue
+        }
+        if (db.contains("external_table")) {
+            continue
+        }
 
-#pragma once
+        List<List<Object>> tableRes = sql """ show tables from ${db} """
+        for (tableRow : tableRes) {
+            def table = tableRow[0]
+            logger.info("select count database: {}, table {}", db, table)
 
-#include <memory>
+            def repeatedTimes = 6;  // replica num * 2
+            for (int i = 0; i < repeatedTimes; i++) {
+                sql """ select count(*) from ${db}.`${table}` """
+            }
+        }
+    }
+}
 
-#include "common/status.h"
-#include "olap/task/engine_task.h"
-
-namespace doris {
-class MemTrackerLimiter;
-class TAlterInvertedIndexReq;
-class TAlterTabletReqV2;
-
-// base class for storage engine
-// add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineAlterTabletTask final : public EngineTask {
-public:
-    Status execute() override;
-
-    EngineAlterTabletTask(const TAlterTabletReqV2& alter_tablet_request);
-    ~EngineAlterTabletTask() override = default;
-
-private:
-    const TAlterTabletReqV2& _alter_tablet_req;
-
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-}; // EngineTask
-
-} // namespace doris

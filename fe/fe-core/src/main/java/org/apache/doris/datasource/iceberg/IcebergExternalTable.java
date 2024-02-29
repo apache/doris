@@ -19,12 +19,9 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ExternalAnalysisTask;
-import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -32,7 +29,6 @@ import org.apache.doris.thrift.TTableType;
 
 import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
 
@@ -72,14 +68,6 @@ public class IcebergExternalTable extends ExternalTable {
             tTableDescriptor.setIcebergTable(icebergTable);
             return tTableDescriptor;
         }
-    }
-
-    @Override
-    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
-        makeSureInitialized();
-        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(),
-                () -> StatisticsUtil.getIcebergColumnStats(colName,
-                        IcebergUtils.getIcebergTable(catalog, dbName, name)));
     }
 
     @Override

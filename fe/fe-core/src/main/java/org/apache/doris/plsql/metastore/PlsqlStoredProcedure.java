@@ -36,11 +36,14 @@ public class PlsqlStoredProcedure implements Writable {
     @SerializedName(value = "name")
     private String name;
 
-    @SerializedName(value = "catalogName")
-    private String catalogName;
+    @SerializedName(value = "catalogId")
+    private long catalogId;
 
-    @SerializedName(value = "dbName")
-    private String dbName;
+    @SerializedName(value = "dbId")
+    private long dbId;
+
+    @SerializedName(value = "packageName")
+    private String packageName;
 
     @SerializedName(value = "ownerName")
     private String ownerName;
@@ -49,13 +52,13 @@ public class PlsqlStoredProcedure implements Writable {
     private String source;
 
     public TPlsqlStoredProcedure toThrift() {
-        return new TPlsqlStoredProcedure().setName(name).setCatalogName(catalogName).setDbName(dbName)
-                .setOwnerName(ownerName).setSource(source);
+        return new TPlsqlStoredProcedure().setName(name).setCatalogId(catalogId).setDbId(dbId)
+                .setPackageName(packageName).setOwnerName(ownerName).setSource(source);
     }
 
     public static PlsqlStoredProcedure fromThrift(TPlsqlStoredProcedure procedure) {
-        return new PlsqlStoredProcedure(procedure.getName(), procedure.getCatalogName(), procedure.getDbName(),
-                procedure.getOwnerName(), procedure.source);
+        return new PlsqlStoredProcedure(procedure.getName(), procedure.getCatalogId(), procedure.getDbId(),
+                procedure.getPackageName(), procedure.getOwnerName(), procedure.source);
     }
 
     @Override

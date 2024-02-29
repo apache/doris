@@ -496,12 +496,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return null;
     }
 
+    /**
+     * This function is for statistics collection only. To get all the index ids that contains the given columnName.
+     * For base index, return -1 as its id, this is for compatibility with older version of column stats.
+     * @param columnName
+     * @return index id list that contains the given columnName.
+     */
     public List<Long> getMvColumnIndexIds(String columnName) {
         List<Long> ids = Lists.newArrayList();
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
             Column target = meta.getColumnByDefineName(columnName);
             if (target != null) {
-                ids.add(meta.getIndexId());
+                ids.add(meta.getIndexId() == baseIndexId ? -1 : meta.getIndexId());
             }
         }
         return ids;
@@ -632,9 +638,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
                     // replicas
                     try {
-                        Map<Tag, List<Long>> tag2beIds =
+                        Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
                                         replicaAlloc, nextIndexs, null, false, false);
+                        Map<Tag, List<Long>> tag2beIds = tag2beIdsAndMedium.first;
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
@@ -1073,7 +1080,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public List<Long> getPartitionIds() {
-        return new ArrayList<>(idToPartition.keySet());
+        readLock();
+        try {
+            return new ArrayList<>(idToPartition.keySet());
+        } finally {
+            readUnlock();
+        }
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -2608,8 +2620,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public Map<Long, PartitionItem> getPartitionItems() {
-        return getPartitionInfo().getIdToItem(false);
+    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
+        readLock();
+        try {
+            return Maps.newHashMap(getPartitionInfo().getIdToItem(false));
+        } finally {
+            readUnlock();
+        }
     }
 
     @Override
@@ -2631,7 +2648,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     @Override
     public String getPartitionName(long partitionId) throws AnalysisException {
-        return getPartitionOrAnalysisException(partitionId).getName();
+        readLock();
+        try {
+            return getPartitionOrAnalysisException(partitionId).getName();
+        } finally {
+            readUnlock();
+        }
     }
 
     @Override

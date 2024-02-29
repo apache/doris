@@ -62,7 +62,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(join -> {
                     LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
-                            join.right(), join.left());
+                            join.right(), join.left(), null);
                     newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
@@ -100,6 +100,9 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     private boolean checkReorder(LogicalJoin<GroupPlan, GroupPlan> join) {
+        if (join.isLeadingJoin()) {
+            return false;
+        }
         return !join.getJoinReorderContext().hasCommute()
                 && !join.getJoinReorderContext().hasExchange();
     }

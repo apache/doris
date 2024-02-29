@@ -446,6 +446,7 @@ void VNodeChannel::open() {
 }
 
 void VNodeChannel::incremental_open() {
+    VLOG_DEBUG << "incremental opening node channel" << _node_id;
     _open_internal(true);
 }
 

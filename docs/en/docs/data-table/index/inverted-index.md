@@ -203,7 +203,7 @@ SELECT * FROM table_name WHERE op_type IN ('add', 'delete');
 
 To evaluate the actual effects of tokenization or to tokenize a block of text, the `tokenize` function can be utilized.
 ```sql
-mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained");
+mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained"');
 +-----------------------------------------------------------------------------------+
 | tokenize('武汉长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')       |
 +-----------------------------------------------------------------------------------+
@@ -211,7 +211,7 @@ mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="f
 +-----------------------------------------------------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained");
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained"');
 +--------------------------------------------------------------------------------------+
 | tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')        |
 +--------------------------------------------------------------------------------------+
@@ -219,7 +219,7 @@ mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"
 +--------------------------------------------------------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="coarse_grained");
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="coarse_grained"');
 +----------------------------------------------------------------------------------------+
 | tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="coarse_grained"')        |
 +----------------------------------------------------------------------------------------+
@@ -227,7 +227,7 @@ mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"
 +----------------------------------------------------------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> SELECT TOKENIZE('I love CHINA','"parser"="english");
+mysql> SELECT TOKENIZE('I love CHINA','"parser"="english"');
 +------------------------------------------------+
 | tokenize('I love CHINA', '"parser"="english"') |
 +------------------------------------------------+
@@ -235,7 +235,7 @@ mysql> SELECT TOKENIZE('I love CHINA','"parser"="english");
 +------------------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> SELECT TOKENIZE('I love CHINA 我爱我的祖国','"parser"="unicode");
+mysql> SELECT TOKENIZE('I love CHINA 我爱我的祖国','"parser"="unicode"');
 +-------------------------------------------------------------------+
 | tokenize('I love CHINA 我爱我的祖国', '"parser"="unicode"')       |
 +-------------------------------------------------------------------+

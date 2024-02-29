@@ -170,12 +170,10 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             id, p._dest_node_id, _sender_id, _state->be_number(), state);
 
     register_channels(_sink_buffer.get());
-    auto* _exchange_sink_dependency = _dependency;
     _queue_dependency =
             Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                       "ExchangeSinkQueueDependency", true, state->get_query_ctx());
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
-    _exchange_sink_dependency->add_child(_queue_dependency);
     if ((p._part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
         _broadcast_dependency =
@@ -186,7 +184,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         for (int i = 0; i < config::num_broadcast_buffer; ++i) {
             _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
         }
-        _exchange_sink_dependency->add_child(_broadcast_dependency);
 
         _wait_broadcast_buffer_timer =
                 ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
@@ -194,19 +191,15 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         size_t dep_id = 0;
         _local_channels_dependency.resize(local_size);
         _wait_channel_timer.resize(local_size);
-        auto deps_for_channels = AndDependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
         for (auto channel : channels) {
             if (channel->is_local()) {
                 _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
                 DCHECK(_local_channels_dependency[dep_id] != nullptr);
-                deps_for_channels->add_child(_local_channels_dependency[dep_id]);
                 _wait_channel_timer[dep_id] = ADD_CHILD_TIMER(
                         _profile, fmt::format("WaitForLocalExchangeBuffer{}", dep_id), timer_name);
                 dep_id++;
             }
         }
-        _exchange_sink_dependency->add_child(deps_for_channels);
     }
     if (p._part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();

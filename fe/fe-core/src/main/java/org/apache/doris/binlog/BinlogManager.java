@@ -397,6 +397,10 @@ public class BinlogManager {
         for (BinlogTombstone tombstone : binlogGcInfo.getTombstones()) {
             long dbId = tombstone.getDbId();
             DBBinlog dbBinlog = gcDbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                LOG.warn("dbBinlog not found. dbId: {}", dbId);
+                continue;
+            }
             dbBinlog.replayGc(tombstone);
         }
     }
