@@ -19,6 +19,7 @@
 #include <list>
 
 #include "common/config.h"
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "util/threadpool.h"
 
