@@ -4907,7 +4907,8 @@ public class Env {
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
-                .buildTimeSeriesCompactionLevelThreshold();
+                .buildTimeSeriesCompactionLevelThreshold()
+                .buildTTLSeconds();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {

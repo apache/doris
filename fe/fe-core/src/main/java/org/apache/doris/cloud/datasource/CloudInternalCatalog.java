@@ -200,6 +200,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setCumulativeLayerPoint(-1);
         builder.setTabletState(isShadow ? OlapFile.TabletStatePB.PB_NOTREADY : OlapFile.TabletStatePB.PB_RUNNING);
         builder.setIsInMemory(isInMemory);
+        LOG.info("lightman ttlseconds {}", ttlSeconds);
         builder.setTtlSeconds(ttlSeconds);
         builder.setSchemaVersion(schemaVersion);
 
