@@ -19,15 +19,12 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 
-/**
- * SELECT * FROM lineorder ORDER BY 'f' -> SELECT * FROM lineorder
- */
-public class EliminateSortUnderSubquery extends OneRewriteRuleFactory {
+/** InlineLogicalView */
+public class InlineLogicalView extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalSubQueryAlias(logicalSort())
-                .then(subq -> subq.withChildren(subq.child().child(0)))
-                .toRule(RuleType.ELIMINATE_SUBQUERY_ORDER_BY);
+        return logicalView().then(LogicalView::child).toRule(RuleType.INLINE_VIEW);
     }
 }
