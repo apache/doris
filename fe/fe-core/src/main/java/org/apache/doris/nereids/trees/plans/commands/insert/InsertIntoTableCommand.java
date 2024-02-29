@@ -166,7 +166,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             }
 
             insertExecutor.beginTransaction();
-            insertExecutor.finalizeSink(sink, physicalSink);
+            insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
         } finally {
             targetTableIf.readUnlock();
         }

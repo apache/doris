@@ -36,11 +36,16 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TOlapTableLocationParam;
+import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -54,6 +59,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -90,7 +96,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     }
 
     @Override
-    public void finalizeSink(DataSink sink, PhysicalSink physicalSink) {
+    public void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
         OlapTableSink olapTableSink = (OlapTableSink) sink;
         PhysicalOlapTableSink physicalOlapTableSink = (PhysicalOlapTableSink) physicalSink;
         OlapInsertCommandContext olapInsertCtx = (OlapInsertCommandContext) insertCtx.orElse(
@@ -111,6 +117,23 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
             if (!olapInsertCtx.isAllowAutoPartition()) {
                 olapTableSink.setAutoPartition(false);
+            }
+            // update
+
+            // set schema and partition info for tablet id shuffle exchange
+            if (fragment.getPlanRoot() instanceof ExchangeNode
+                    && fragment.getDataPartition().getType() == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED) {
+                DataStreamSink dataStreamSink = (DataStreamSink) (fragment.getChild(0).getSink());
+                Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
+                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.createSchema(
+                        database.getId(), olapTableSink.getDstTable(), analyzer));
+                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.createPartition(
+                        database.getId(), olapTableSink.getDstTable(), analyzer));
+                dataStreamSink.setTabletSinkTupleDesc(olapTableSink.getTupleDescriptor());
+                List<TOlapTableLocationParam> locationParams = olapTableSink
+                        .createLocation(olapTableSink.getDstTable());
+                dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
+                dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
             }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);

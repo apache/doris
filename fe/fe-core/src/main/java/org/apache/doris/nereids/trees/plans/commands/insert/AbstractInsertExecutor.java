@@ -27,6 +27,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -82,7 +83,7 @@ public abstract class AbstractInsertExecutor {
     /**
      * finalize sink to complete enough info for sink execution
      */
-    protected abstract void finalizeSink(DataSink sink, PhysicalSink physicalSink);
+    protected abstract void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink);
 
     /**
      * Do something before exec

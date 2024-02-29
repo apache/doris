@@ -26,8 +26,12 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
@@ -76,10 +80,18 @@ public class GroupCommitInserter {
         }
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         return ctx.getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
-                && !ctx.isTxnModel() && sink.getFragment().getPlanRoot() instanceof UnionNode
+                && !ctx.isTxnModel() && isGroupCommitAvailablePlan(physicalOlapTableSink)
                 && physicalOlapTableSink.getPartitionIds().isEmpty() && targetTable.getTableProperty()
                 .getUseSchemaLightChange() && !targetTable.getQualifiedDbName()
                 .equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME);
+    }
+
+    private static boolean isGroupCommitAvailablePlan(PhysicalOlapTableSink<? extends Plan> sink) {
+        Plan child = sink.child();
+        if (child instanceof PhysicalDistribute) {
+            child = child.child(0);
+        }
+        return child instanceof OneRowRelation || (child instanceof PhysicalUnion && child.arity() == 0);
     }
 
     private void handleGroupCommit(ConnectContext ctx, DataSink sink,
