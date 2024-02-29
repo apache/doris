@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
+import org.apache.doris.nereids.trees.expressions.MatchPhraseEdge;
 import org.apache.doris.nereids.trees.expressions.MatchPhrasePrefix;
 import org.apache.doris.nereids.trees.expressions.MatchRegexp;
 import org.apache.doris.nereids.trees.expressions.Mod;
@@ -498,6 +499,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitMatchRegexp(MatchRegexp matchRegexp, C context) {
         return visitMatch(matchRegexp, context);
+    }
+
+    public R visitMatchPhraseEdge(MatchPhraseEdge matchPhraseEdge, C context) {
+        return visitMatch(matchPhraseEdge, context);
     }
 
     public R visitAny(Any any, C context) {
