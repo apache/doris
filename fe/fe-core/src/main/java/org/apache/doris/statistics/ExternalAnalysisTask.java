@@ -59,7 +59,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         if (isTableLevelTask) {
             getTableStats();
         } else {
-            getOrdinaryColumnStats();
+            getColumnStats();
         }
     }
 
@@ -83,8 +83,8 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         job.rowCountDone(this);
     }
 
-    // Get ordinary column stats
-    protected void getOrdinaryColumnStats() throws Exception {
+    // Get column stats
+    protected void getColumnStats() throws Exception {
         StringBuilder sb = new StringBuilder();
         Map<String, String> params = buildStatsParams("NULL");
         params.put("min", getMinFunction());
