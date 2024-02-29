@@ -5050,8 +5050,8 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         InstanceInfoPB instance;
         get_test_instance(instance);
-        ASSERT_EQ(instance.resource_ids().begin(), "2");
-        ASSERT_EQ(instance.storage_vault_names().begin(), "test_alter_add_hdfs_info");
+        ASSERT_EQ(*(instance.resource_ids().begin()), "2");
+        ASSERT_EQ(*(instance.storage_vault_names().begin()), "test_alter_add_hdfs_info");
     }
 
     // to test if the vault id is expected
@@ -5072,8 +5072,8 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         InstanceInfoPB instance;
         get_test_instance(instance);
-        ASSERT_EQ(instance.resource_ids().begin() + 1, "3");
-        ASSERT_EQ(instance.storage_vault_names().begin() + 1, "test_alter_add_hdfs_info_1");
+        ASSERT_EQ(*(instance.resource_ids().begin() + 1), "3");
+        ASSERT_EQ(*(instance.storage_vault_names().begin() + 1), "test_alter_add_hdfs_info_1");
     }
 
     SyncPoint::get_instance()->disable_processing();

@@ -313,6 +313,13 @@ static std::string next_avaiable_vault_id(const InstanceInfoPB& instance) {
 static int add_hdfs_storage_valut(InstanceInfoPB& instance, TxnKv* txn_kv,
                                   const AlterHdfsParams& hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
+    if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+                     [&hdfs_param](const auto& name) { return name == hdfs_param.vault_name(); }) !=
+        instance.storage_vault_names().end()) {
+        code = MetaServiceCode::ALREADY_EXISTED;
+        msg = fmt::format("vault_name={} already created", hdfs_param.vault_name());
+        return -1;
+    }
     std::string key;
     std::string vault_id = next_avaiable_vault_id(instance);
     storage_vault_key({instance.instance_id(), vault_id}, &key);
