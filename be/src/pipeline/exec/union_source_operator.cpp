@@ -182,7 +182,8 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     local_state.reached_limit(block, eos);
     //have executing const expr, queue have no data anymore, and child could be closed
     *eos = (_child_size == 0 && !local_state._need_read_for_const_expr) ||
-           (local_state._shared_state->data_queue.is_all_finish() && !_has_data(state));
+           (_child_size > 0 && local_state._shared_state->data_queue.is_all_finish() &&
+            !_has_data(state));
 
     return Status::OK();
 }
