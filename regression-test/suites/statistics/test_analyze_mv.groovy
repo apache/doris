@@ -227,11 +227,73 @@ suite("test_analyze_mv") {
     wait_mv_finish("test_analyze_mv", "mvTestAgg")
     sql """create materialized view mv6 as select key1, sum(value1) from mvTestAgg group by key1;"""
     wait_mv_finish("test_analyze_mv", "mvTestAgg")
+    sql """alter table mvTestAgg ADD ROLLUP rollup1(key1, value1)"""
+    wait_mv_finish("test_analyze_mv", "mvTestAgg")
     sql """insert into mvTestAgg values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestAgg with sync;"""
     result_sample = sql """show column stats mvTestAgg"""
-    assertEquals(13, result_sample.size())
+    assertEquals(15, result_sample.size())
+
+    result_sample = sql """show column stats mvTestAgg(key1)"""
+    assertEquals(2, result_sample.size())
+    if (result_sample[0][1] == "N/A") {
+        assertEquals("key1", result_sample[0][0])
+        assertEquals("N/A", result_sample[0][1])
+        assertEquals("5.0", result_sample[0][2])
+        assertEquals("4.0", result_sample[0][3])
+        assertEquals("1", result_sample[0][7])
+        assertEquals("1001", result_sample[0][8])
+        assertEquals("key1", result_sample[1][0])
+        assertEquals("rollup1", result_sample[1][1])
+        assertEquals("4.0", result_sample[1][2])
+        assertEquals("4.0", result_sample[1][3])
+        assertEquals("1", result_sample[1][7])
+        assertEquals("1001", result_sample[1][8])
+    } else {
+        assertEquals("key1", result_sample[1][0])
+        assertEquals("N/A", result_sample[1][1])
+        assertEquals("5.0", result_sample[1][2])
+        assertEquals("4.0", result_sample[1][3])
+        assertEquals("1", result_sample[1][7])
+        assertEquals("1001", result_sample[1][8])
+        assertEquals("key1", result_sample[0][0])
+        assertEquals("rollup1", result_sample[0][1])
+        assertEquals("4.0", result_sample[0][2])
+        assertEquals("4.0", result_sample[0][3])
+        assertEquals("1", result_sample[0][7])
+        assertEquals("1001", result_sample[0][8])
+    }
+
+    result_sample = sql """show column stats mvTestAgg(value1)"""
+    assertEquals(2, result_sample.size())
+    if (result_sample[0][1] == "N/A") {
+        assertEquals("value1", result_sample[0][0])
+        assertEquals("N/A", result_sample[0][1])
+        assertEquals("5.0", result_sample[0][2])
+        assertEquals("5.0", result_sample[0][3])
+        assertEquals("6", result_sample[0][7])
+        assertEquals("3001", result_sample[0][8])
+        assertEquals("value1", result_sample[1][0])
+        assertEquals("rollup1", result_sample[1][1])
+        assertEquals("4.0", result_sample[1][2])
+        assertEquals("4.0", result_sample[1][3])
+        assertEquals("28", result_sample[1][7])
+        assertEquals("3001", result_sample[1][8])
+    } else {
+        assertEquals("value1", result_sample[1][0])
+        assertEquals("N/A", result_sample[1][1])
+        assertEquals("5.0", result_sample[1][2])
+        assertEquals("5.0", result_sample[1][3])
+        assertEquals("6", result_sample[1][7])
+        assertEquals("3001", result_sample[1][8])
+        assertEquals("value1", result_sample[0][0])
+        assertEquals("rollup1", result_sample[0][1])
+        assertEquals("4.0", result_sample[0][2])
+        assertEquals("4.0", result_sample[0][3])
+        assertEquals("28", result_sample[0][7])
+        assertEquals("3001", result_sample[0][8])
+    }
 
     result_sample = sql """show column stats mvTestAgg(key2)"""
     assertEquals(1, result_sample.size())

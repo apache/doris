@@ -426,9 +426,8 @@ public class AnalysisManager implements Writable {
             String colName = entry.getKey();
             List<Long> indexIds = Lists.newArrayList();
             // Get index id this column belongs to for OlapTable. Set it to -1 for baseIndex id.
-            if (StatisticsUtil.isMvColumn(table, colName)) {
-                OlapTable olapTable = (OlapTable) table;
-                indexIds = olapTable.getMvColumnIndexIds(colName);
+            if (table instanceof OlapTable) {
+                indexIds = ((OlapTable) table).getMvColumnIndexIds(colName);
             } else {
                 indexIds.add(-1L);
             }
@@ -704,9 +703,8 @@ public class AnalysisManager implements Writable {
 
         for (String column : columns) {
             List<Long> indexIds = Lists.newArrayList();
-            if (StatisticsUtil.isMvColumn(table, column)) {
-                OlapTable olapTable = (OlapTable) table;
-                indexIds = olapTable.getMvColumnIndexIds(column);
+            if (table instanceof OlapTable) {
+                indexIds = ((OlapTable) table).getMvColumnIndexIds(column);
             } else {
                 indexIds.add(-1L);
             }
