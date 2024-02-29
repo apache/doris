@@ -1,6 +1,6 @@
 ---
 {
-    "title": "url_decode",
+    "title": "random_bytes",
     "language": "zh-CN"
 }
 ---
@@ -24,31 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## url_decode
+## random_bytes
 ### description
 
-将URL转换为解码字符串。
+random_bytes函数用于生成随机字节序列。
 
 #### Syntax
 
 ```sql
-VARCHAR url_decode(VARCHAR url)
+VARCHAR random_bytes(INT len)
 ```
 
 ### Parameters
 
-- url: 待解码的url。
+- len: 该参数指定生成的随机字节序列的长度。
 
 ### example
 
 ```
-mysql> mysql> select url_decode('https%3A%2F%2Fdoris.apache.org%2Fzh-CN%2Fdocs%2Fsql-manual%2Fsql-functions%2Fstring-functions');
+mysql> select random_bytes(7);
 +------------------------------------------------+
-| url_decode('https%3A%2F%2Fdoris.apache.org%2Fzh-CN%2Fdocs%2Fsql-manual%2Fsql-functions%2Fstring-functions') |
+| random_bytes(7) |
 +------------------------------------------------+
-| https://doris.apache.org/zh-CN/docs/sql-manual/sql-functions/string-functions                               |
+| 0x53edd97401fb6d                               |
 +------------------------------------------------+
 ```
 
 ### keywords
-    URL DECODE
+    RANDOM BYTES
