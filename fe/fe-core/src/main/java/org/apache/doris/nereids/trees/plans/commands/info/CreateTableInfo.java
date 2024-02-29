@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprPartitionDesc;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IndexDef;
@@ -531,6 +532,16 @@ public class CreateTableInfo {
                         "Create " + engineName + " table should not contain keys desc");
             }
 
+            if (!rollups.isEmpty()) {
+                throw new AnalysisException("External catalog doesn't support rollup tables.");
+            }
+
+            if (engineName.equalsIgnoreCase("iceberg") && distribution != null) {
+                throw new AnalysisException(
+                    "Iceberg doesn't support 'DISTRIBUTE BY', "
+                        + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
+            }
+
             for (ColumnDefinition columnDef : columns) {
                 columnDef.setIsKey(true);
             }
@@ -813,7 +824,10 @@ public class CreateTableInfo {
             }
 
             try {
-                if (partitionType.equals(PartitionType.RANGE.name())) {
+                if (isExternal) {
+                    partitionDesc = new ExprPartitionDesc(
+                        convertToLegacyAutoPartitionExprs(autoPartitionExprs));
+                } else if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
                         partitionDesc = new RangePartitionDesc(
                                 convertToLegacyAutoPartitionExprs(autoPartitionExprs),
