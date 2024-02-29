@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
-import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
@@ -431,10 +430,6 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitListQuery(ListQuery listQuery, C context) {
         return visitSubqueryExpr(listQuery, context);
-    }
-
-    public R visitAssertNumRowsElement(AssertNumRowsElement assertNumRowsElement, C context) {
-        return visit(assertNumRowsElement, context);
     }
 
     public R visitGroupingScalarFunction(GroupingScalarFunction groupingScalarFunction, C context) {
