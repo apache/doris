@@ -105,7 +105,7 @@ Please see the compilation documentation of each component to verify the compila
 After the verification is completed, the following template can be used to send voting emails to the dev@doris:
 
 ```
-Here is my(your github id) vote +1 (binding)"
+Here is my(your Apache ID) vote +1 (binding)"
 
 I checked:
 

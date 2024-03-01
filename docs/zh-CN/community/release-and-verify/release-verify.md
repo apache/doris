@@ -108,7 +108,7 @@ INFO Totally checked 5611 files, valid: 3926, invalid: 0, ignored: 1685, fixed: 
 验证完成后，可以采用以下模板会发 dev@doris 邮件组中的投票邮件：
 
 ```
-Here is my(your github id) vote +1 (binding)"
+Here is my(your Apache ID) vote +1 (binding)"
 
 I checked:
 
