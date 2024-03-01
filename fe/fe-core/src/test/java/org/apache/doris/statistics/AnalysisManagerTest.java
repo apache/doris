@@ -306,7 +306,7 @@ public class AnalysisManagerTest {
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
 
         TableStatsMeta stats3 = new TableStatsMeta(0, new AnalysisInfoBuilder()
-                .setColToPartitions(new HashMap<>()).setEmptyJob(true).setColName("col1").build(), olapTable);
+                .setColToPartitions(new HashMap<>()).setRowCount(0).setColName("col1").build(), olapTable);
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats3));
 
     }
