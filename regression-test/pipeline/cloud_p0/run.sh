@@ -81,7 +81,7 @@ run() {
 }
 export -f run
 # 设置超时时间（以分为单位）
-timeout_minutes=$((${repeat_times_from_trigger:-1} * 90))m
+timeout_minutes=$((${repeat_times_from_trigger:-1} * ${BUILD_TIMEOUT_MINUTES:-180}))m
 timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
 
@@ -91,10 +91,10 @@ if [[ ${exit_flag} != "0" ]]; then
     stop_doris
     print_doris_fe_log
     print_doris_be_log
-    if file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_doris_coredump.tar.gz"); then
+    if file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
-    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_doris_logs.tar.gz"); then
+    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
 fi
