@@ -235,9 +235,10 @@ void BvarMetricRegistry::deregister_entity(const std::shared_ptr<BvarMetricEntit
 }
 
 std::shared_ptr<BvarMetricEntity> BvarMetricRegistry::get_entity(const std::string& name,
-                                                         const Labels& labels,
-                                                         BvarMetricEntityType type) {
-    std::shared_ptr<BvarMetricEntity> dummy = std::make_shared<BvarMetricEntity>(name, type, labels);
+                                                                 const Labels& labels,
+                                                                 BvarMetricEntityType type) {
+    std::shared_ptr<BvarMetricEntity> dummy =
+            std::make_shared<BvarMetricEntity>(name, type, labels);
 
     std::lock_guard<bthread::Mutex> l(mutex_);
     auto entity = entities_.find(dummy);

@@ -27,7 +27,7 @@ namespace doris {
 class DorisBvarMetricsTest : public testing::Test {
 public:
     DorisBvarMetricsTest() = default;
-    virtual ~DorisBvarMetricsTest() = default; 
+    virtual ~DorisBvarMetricsTest() = default;
 };
 
 TEST_F(DorisBvarMetricsTest, Normal) {
@@ -61,8 +61,7 @@ TEST_F(DorisBvarMetricsTest, Normal) {
     }
     {
         g_adder_push_requests_success_total.increment(106);
-        auto metric =
-                server_entity->get_metric("push_requests_success_total");
+        auto metric = server_entity->get_metric("push_requests_success_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("106", metric->value_string().c_str());
     }
@@ -94,16 +93,14 @@ TEST_F(DorisBvarMetricsTest, Normal) {
     {
         g_adder_create_tablet_requests_total.reset();
         g_adder_create_tablet_requests_total.increment(15);
-        auto metric =
-                server_entity->get_metric("create_tablet_requests_total");
+        auto metric = server_entity->get_metric("create_tablet_requests_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("15", metric->value_string().c_str());
     }
     {
         g_adder_drop_tablet_requests_total.reset();
         g_adder_drop_tablet_requests_total.increment(16);
-        auto metric =
-                server_entity->get_metric("drop_tablet_requests_total");
+        auto metric = server_entity->get_metric("drop_tablet_requests_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("16", metric->value_string().c_str());
     }
@@ -115,15 +112,13 @@ TEST_F(DorisBvarMetricsTest, Normal) {
     }
     {
         g_adder_schema_change_requests_total.increment(19);
-        auto metric =
-                server_entity->get_metric("schema_change_requests_total");
+        auto metric = server_entity->get_metric("schema_change_requests_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("19", metric->value_string().c_str());
     }
     {
         g_adder_create_rollup_requests_total.increment(20);
-        auto metric =
-                server_entity->get_metric("create_rollup_requests_total");
+        auto metric = server_entity->get_metric("create_rollup_requests_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("20", metric->value_string().c_str());
     }
@@ -155,8 +150,7 @@ TEST_F(DorisBvarMetricsTest, Normal) {
     }
     {
         g_adder_base_compaction_bytes_total.increment(32);
-        auto metric =
-                server_entity->get_metric("base_compaction_bytes_total");
+        auto metric = server_entity->get_metric("base_compaction_bytes_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("32", metric->value_string().c_str());
     }
@@ -174,4 +168,4 @@ TEST_F(DorisBvarMetricsTest, Normal) {
     }
 }
 
-}
+} // namespace doris

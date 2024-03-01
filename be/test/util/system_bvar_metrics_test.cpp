@@ -42,7 +42,7 @@ extern const char* bvar_k_utload_avg_path;
 extern const char* bvar_k_utvmstat_path;
 
 TEST_F(SystemBvarMetricsTest, normal) {
-        std::string dir_path = GetCurrentRunningDir();
+    std::string dir_path = GetCurrentRunningDir();
     std::string stat_path(dir_path);
     stat_path += "/util/test_data/stat_normal";
     LOG(INFO) << stat_path;
@@ -114,7 +114,8 @@ TEST_F(SystemBvarMetricsTest, normal) {
         EXPECT_STREQ("0", cpu_guest_nice->value_string().c_str());
 
         // memory
-        std::shared_ptr<BvarMetric> memory_allocated_bytes = entity->get_metric("memory_allocated_bytes");
+        std::shared_ptr<BvarMetric> memory_allocated_bytes =
+                entity->get_metric("memory_allocated_bytes");
         EXPECT_TRUE(memory_allocated_bytes != nullptr);
         std::shared_ptr<BvarMetric> memory_pgpgin = entity->get_metric("memory_pgpgin");
         EXPECT_TRUE(memory_pgpgin != nullptr);
@@ -136,7 +137,8 @@ TEST_F(SystemBvarMetricsTest, normal) {
         std::shared_ptr<BvarMetric> receive_bytes = net_entity->get_metric("network_receive_bytes");
         EXPECT_TRUE(receive_bytes != nullptr);
         EXPECT_STREQ("52567436039", receive_bytes->value_string().c_str());
-        std::shared_ptr<BvarMetric> receive_packets = net_entity->get_metric("network_receive_packets");
+        std::shared_ptr<BvarMetric> receive_packets =
+                net_entity->get_metric("network_receive_packets");
         EXPECT_TRUE(receive_packets != nullptr);
         EXPECT_STREQ("65066152", receive_packets->value_string().c_str());
         std::shared_ptr<BvarMetric> send_bytes = net_entity->get_metric("network_send_bytes");
@@ -152,7 +154,8 @@ TEST_F(SystemBvarMetricsTest, normal) {
         std::shared_ptr<BvarMetric> bytes_read = disk_entity->get_metric("disk_bytes_read");
         EXPECT_TRUE(bytes_read != nullptr);
         EXPECT_STREQ("20142745600", bytes_read->value_string().c_str());
-        std::shared_ptr<BvarMetric> reads_completed = disk_entity->get_metric("disk_reads_completed");
+        std::shared_ptr<BvarMetric> reads_completed =
+                disk_entity->get_metric("disk_reads_completed");
         EXPECT_TRUE(reads_completed != nullptr);
         EXPECT_STREQ("759548", reads_completed->value_string().c_str());
         std::shared_ptr<BvarMetric> read_time_ms = disk_entity->get_metric("disk_read_time_ms");
@@ -162,7 +165,8 @@ TEST_F(SystemBvarMetricsTest, normal) {
         std::shared_ptr<BvarMetric> bytes_written = disk_entity->get_metric("disk_bytes_written");
         EXPECT_TRUE(bytes_written != nullptr);
         EXPECT_STREQ("1624753500160", bytes_written->value_string().c_str());
-        std::shared_ptr<BvarMetric> writes_completed = disk_entity->get_metric("disk_writes_completed");
+        std::shared_ptr<BvarMetric> writes_completed =
+                disk_entity->get_metric("disk_writes_completed");
         EXPECT_TRUE(writes_completed != nullptr);
         EXPECT_STREQ("18282936", writes_completed->value_string().c_str());
         std::shared_ptr<BvarMetric> write_time_ms = disk_entity->get_metric("disk_write_time_ms");
@@ -171,7 +175,8 @@ TEST_F(SystemBvarMetricsTest, normal) {
         std::shared_ptr<BvarMetric> io_time_ms = disk_entity->get_metric("disk_io_time_ms");
         EXPECT_TRUE(io_time_ms != nullptr);
         EXPECT_STREQ("19003350", io_time_ms->value_string().c_str());
-        std::shared_ptr<BvarMetric> io_time_weigthed = disk_entity->get_metric("disk_io_time_weigthed");
+        std::shared_ptr<BvarMetric> io_time_weigthed =
+                disk_entity->get_metric("disk_io_time_weigthed");
         EXPECT_TRUE(write_time_ms != nullptr);
         EXPECT_STREQ("1912122964", io_time_weigthed->value_string().c_str());
 
@@ -255,7 +260,8 @@ TEST_F(SystemBvarMetricsTest, no_proc_file) {
         EXPECT_TRUE(cpu_entity == nullptr);
 
         // memory
-        std::shared_ptr<BvarMetric> memory_allocated_bytes = entity->get_metric("memory_allocated_bytes");
+        std::shared_ptr<BvarMetric> memory_allocated_bytes =
+                entity->get_metric("memory_allocated_bytes");
         EXPECT_TRUE(memory_allocated_bytes != nullptr);
         std::shared_ptr<BvarMetric> memory_pgpgin = entity->get_metric("memory_pgpgin");
         EXPECT_TRUE(memory_pgpgin != nullptr);
@@ -300,4 +306,4 @@ TEST_F(SystemBvarMetricsTest, no_proc_file) {
     }
 }
 
-}
+} // namespace doris

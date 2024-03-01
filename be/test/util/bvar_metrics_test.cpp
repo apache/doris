@@ -39,7 +39,8 @@ public:
 TEST_F(BvarMetricsTest, BvarAdderMetricsValue) {
     {
         // int64_6
-        BvarAdderMetric<int64_t> test_metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES, "test_metric");
+        BvarAdderMetric<int64_t> test_metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
+                                             "test_metric");
         EXPECT_EQ(0, test_metric.get_value());
         test_metric.increment(100);
         EXPECT_EQ(100, test_metric.get_value());
@@ -51,7 +52,8 @@ TEST_F(BvarMetricsTest, BvarAdderMetricsValue) {
     }
     {
         // uint64_6
-        BvarAdderMetric<uint64_t> test_metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES, "test_metric");
+        BvarAdderMetric<uint64_t> test_metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
+                                              "test_metric");
         EXPECT_EQ(0, test_metric.get_value());
         test_metric.increment(100);
         EXPECT_EQ(100, test_metric.get_value());
@@ -63,7 +65,8 @@ TEST_F(BvarMetricsTest, BvarAdderMetricsValue) {
     }
     {
         // double
-        BvarAdderMetric<double> test_metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES, "test_metric");
+        BvarAdderMetric<double> test_metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
+                                            "test_metric");
         EXPECT_EQ(0, test_metric.get_value());
         test_metric.increment(1.23);
         EXPECT_EQ(1.23, test_metric.get_value());
@@ -74,7 +77,6 @@ TEST_F(BvarMetricsTest, BvarAdderMetricsValue) {
         EXPECT_EQ(0, test_metric.get_value());
     }
 }
-
 
 template <typename T>
 void mt_updater(int32_t loop, T* metric, std::atomic<uint64_t>* used_time) {
@@ -105,7 +107,8 @@ TEST_F(BvarMetricsTest, BvarAdderMetricsValuePerf) {
     }
     {
         //int64_t
-        BvarAdderMetric<int64_t> metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES, "test_metric");
+        BvarAdderMetric<int64_t> metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
+                                        "test_metric");
         MonotonicStopWatch watch;
         watch.start();
         for (int i = 0; i < kLoopCount; ++i) {
@@ -118,7 +121,8 @@ TEST_F(BvarMetricsTest, BvarAdderMetricsValuePerf) {
     }
     {
         // multi-thread for BvarAdderMetric<int64_t>
-        BvarAdderMetric<int64_t> metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES, "test_metric");
+        BvarAdderMetric<int64_t> metric(BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
+                                        "test_metric");
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
@@ -138,8 +142,8 @@ TEST_F(BvarMetricsTest, BvarMetricsName) {
     {
         // name
         BvarAdderMetric<int64_t> cpu_idle_type(BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
-                                      "fragment_requests_total",
-                                      "Total fragment requests received.");
+                                               "fragment_requests_total",
+                                               "Total fragment requests received.");
 
         EXPECT_EQ("fragment_requests_total", cpu_idle_type.simple_name());
         EXPECT_EQ("fragment_requests_total", cpu_idle_type.combine_name(""));
@@ -147,8 +151,8 @@ TEST_F(BvarMetricsTest, BvarMetricsName) {
     }
     {
         // group_name
-        BvarAdderMetric<int64_t> cpu_idle_type(BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "cpu_idle",
-                                      "CPU's idle time percent", "cpu");
+        BvarAdderMetric<int64_t> cpu_idle_type(BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
+                                               "cpu_idle", "CPU's idle time percent", "cpu");
 
         EXPECT_EQ("cpu", cpu_idle_type.simple_name());
         EXPECT_EQ("cpu", cpu_idle_type.combine_name(""));
@@ -159,7 +163,7 @@ TEST_F(BvarMetricsTest, BvarMetricsName) {
 TEST_F(BvarMetricsTest, MetricEntityWithMetric) {
     BvarMetricEntity entity("test_entity", BvarMetricEntityType::kServer, {});
     BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "cpu_idle");
-    
+
     // Before register
     std::shared_ptr<BvarMetric> metric = entity.get_metric("cpu_idle");
     EXPECT_NE(nullptr, metric);
@@ -258,8 +262,8 @@ TEST_F(BvarMetricsTest, BvarMetricRegistryOutput) {
         // Register one common metric to the entity
         auto entity = registry.register_entity("test_entity");
 
-        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT, "cpu_idle", "", "",
-                                      {}, true);
+        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT,
+                                          "cpu_idle", "", "", {}, true);
         entity->register_metric("cpu_idle", cpu_idle);
         cpu_idle.increment(8);
 
@@ -279,11 +283,11 @@ test_registry_cpu_idle  8
         // Register one metric with group name to the entity
         auto entity = registry.register_entity("test_entity");
 
-        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT, "cpu_idle", "", "cpu",
-                                      {{"mode", "idle"}}, false);
+        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT,
+                                          "cpu_idle", "", "cpu", {{"mode", "idle"}}, false);
         entity->register_metric("cpu_idle", cpu_idle);
         cpu_idle.increment(18);
-                     
+
         EXPECT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu {mode="idle"} 18
 )",
@@ -298,7 +302,8 @@ test_registry_cpu {mode="idle"} 18
         // Register one common metric to an entity with label
         auto entity = registry.register_entity("test_entity", {{"name", "label_test"}});
 
-        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT, "cpu_idle");
+        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT,
+                                          "cpu_idle");
         entity->register_metric("cpu_idle", cpu_idle);
         cpu_idle.increment(28);
 
@@ -317,8 +322,8 @@ test_registry_cpu_idle {name="label_test"} 28
         // Register one common metric with group name to an entity with label
         auto entity = registry.register_entity("test_entity", {{"name", "label_test"}});
 
-        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT, "cpu_idle", "", "cpu",
-                                      {{"mode", "idle"}}, false);
+        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT,
+                                          "cpu_idle", "", "cpu", {{"mode", "idle"}}, false);
         entity->register_metric("cpu_idle", cpu_idle);
         cpu_idle.increment(38);
 
@@ -337,13 +342,13 @@ test_registry_cpu {name="label_test",mode="idle"} 38
         // Register two common metrics to one entity
         auto entity = registry.register_entity("test_entity");
 
-        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT, "cpu_idle", "", "cpu",
-                                      {{"mode", "idle"}});
+        BvarAdderMetric<int64_t> cpu_idle(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT,
+                                          "cpu_idle", "", "cpu", {{"mode", "idle"}});
         entity->register_metric("cpu_idle", cpu_idle);
         cpu_idle.increment(48);
 
-        BvarAdderMetric<int64_t> cpu_guest(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT, "cpu_guest", "",
-                                       "cpu", {{"mode", "guest"}});
+        BvarAdderMetric<int64_t> cpu_guest(BvarMetricType::GAUGE, BvarMetricUnit::PERCENT,
+                                           "cpu_guest", "", "cpu", {{"mode", "guest"}});
         entity->register_metric("cpu_guest", cpu_guest);
         cpu_guest.increment(58);
 
@@ -360,4 +365,4 @@ test_registry_cpu {mode="guest"} 58
     }
 }
 
-}
+} // namespace doris
