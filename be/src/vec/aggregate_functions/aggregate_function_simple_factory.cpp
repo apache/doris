@@ -82,7 +82,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_group_concat(instance);
         register_aggregate_function_quantile_state(instance);
         register_aggregate_function_combinator_distinct(instance);
-        register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_reader_load(
                 instance); // register aggregate function for agg reader
         register_aggregate_function_window_rank(instance);
@@ -109,6 +108,8 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_functions_corr(instance);
         register_aggregate_function_covar_pop(instance);
         register_aggregate_function_covar_samp(instance);
+
+        register_aggregate_function_combinator_foreach(instance);
     });
     return instance;
 }

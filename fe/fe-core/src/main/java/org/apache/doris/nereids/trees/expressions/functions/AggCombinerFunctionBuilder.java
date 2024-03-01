@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
 /**
  * This class used to resolve AggState's combinators
  */
-public class AggStateFunctionBuilder extends FunctionBuilder {
+public class AggCombinerFunctionBuilder extends FunctionBuilder {
     public static final String COMBINATOR_LINKER = "_";
     public static final String STATE = "state";
     public static final String MERGE = "merge";
@@ -51,7 +51,7 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
 
     private final String combinatorSuffix;
 
-    public AggStateFunctionBuilder(String combinatorSuffix, FunctionBuilder nestedBuilder) {
+    public AggCombinerFunctionBuilder(String combinatorSuffix, FunctionBuilder nestedBuilder) {
         this.combinatorSuffix = Objects.requireNonNull(combinatorSuffix, "combinatorSuffix can not be null");
         this.nestedBuilder = Objects.requireNonNull(nestedBuilder, "nestedBuilder can not be null");
     }
@@ -89,7 +89,7 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
                         "foreach must be input array type: '" + nestedName);
             }
             DataType itemType = ((ArrayType) arrayType).getItemType();
-            return new SlotReference("mocked", itemType, itemType.isNullType());
+            return new SlotReference("mocked", itemType, (((ArrayType) arrayType).containsNull()));
         }).collect(Collectors.toList());
         return (AggregateFunction) nestedBuilder.build(nestedName, forEachargs);
     }

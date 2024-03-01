@@ -44,17 +44,20 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
             transform_arguments.push_back((item_type));
         }
         auto nested_function_name = name.substr(0, name.size() - suffix.size());
-        auto nested_function = factory.get(nested_function_name, transform_arguments, true);
+        auto nested_function =
+                factory.get(nested_function_name, transform_arguments, result_is_nullable);
         if (!nested_function) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "The combiner did not find a corresponding function. nested function "
                             "name {} , args {}",
                             nested_function_name, types_name(types));
         }
-        return creator_without_type::create<AggregateFunctionForEach>(
-                transform_arguments, result_is_nullable, nested_function);
+        return creator_without_type::create<AggregateFunctionForEach>(transform_arguments, true,
+                                                                      nested_function);
     };
     factory.register_foreach_function_combinator(
             creator, AggregateFunctionForEach::AGG_FOREACH_SUFFIX, true);
+    factory.register_foreach_function_combinator(
+            creator, AggregateFunctionForEach::AGG_FOREACH_SUFFIX, false);
 }
 } // namespace doris::vectorized

@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.combinator;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -47,7 +47,7 @@ public class StateCombinator extends ScalarFunction
      * constructor of StateCombinator
      */
     public StateCombinator(List<Expression> arguments, AggregateFunction nested) {
-        super(nested.getName() + AggStateFunctionBuilder.STATE_SUFFIX, arguments);
+        super(nested.getName() + AggCombinerFunctionBuilder.STATE_SUFFIX, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
         this.returnType = new AggStateType(nested.getName(), arguments.stream().map(arg -> {

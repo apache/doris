@@ -888,9 +888,8 @@ public class Function implements Writable {
             argTypes.add(new ArrayType(type));
         }
         aggFunction.setArgs(argTypes);
+        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), fnCall.isNullable()));
         aggFunction.setNullableMode(NullableMode.ALWAYS_NULLABLE);
-        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType()));
-        fnCall.setType(aggFunction.getReturnType());
         return fnCall;
     }
 }

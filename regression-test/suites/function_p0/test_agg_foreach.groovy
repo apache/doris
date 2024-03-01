@@ -16,107 +16,28 @@
 // under the License.
 
 suite("test_agg_foreach") {
-    sql """ set enable_nereids_planner=false;"""
-    sql """  set enable_fallback_to_original_planner=true;"""
-   
-    sql """
-        drop table if exists table_with_all_null;
-    """
-    sql """
-    CREATE TABLE IF NOT EXISTS table_with_all_null (
-              `id` INT(11) NULL COMMENT "",
-              `a` array<INT> NULL COMMENT "",
-              `s` array<String>  NULL COMMENT ""
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1",
-            "storage_format" = "V2"
-    );
-    """
-    sql """
-       insert into table_with_all_null values
-        (1,null,null),
-        (2,null,null),
-        (3,null,null);
-    """
-
-    qt_sql """ 
-      select sum_foreach(a) ,  count_foreach(a) , group_concat_foreach(s)   from table_with_all_null;
-    """
-
-
-
-    sql """
-        drop table if exists table_with_all_not_null;
-    """
-
-     sql """
-        CREATE TABLE IF NOT EXISTS table_with_all_not_null (
-              `id` INT(11)  COMMENT "",
-              `a` array<INT>  COMMENT "",
-              `s` array<String>   COMMENT ""
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1",
-            "storage_format" = "V2"
-    );
-    """
-
-    sql """
-    insert into table_with_all_not_null values(1,[1,2,3],["ab","123"]),(2,[20],["cd"]),(3,[100],["efg"]);
-    """
-
-
-    qt_sql """
-       select sum_foreach(a) ,  count_foreach(a) , group_concat_foreach(s)  
-        from table_with_all_not_null;
-    """
-
-
-    sql """
-       drop table if exists table_with_null;
-    """
-
-    sql """
-       CREATE TABLE IF NOT EXISTS table_with_null (
-              `id` INT(11)  COMMENT "",
-              `a` array<INT>  COMMENT "",
-              `s` array<String>   COMMENT ""
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1",
-            "storage_format" = "V2"
-    );
-    """
-    sql """
-   insert into table_with_null values(1,[1,2,3],["ab","123"]),(2,[20],["cd"]),(3,[100],["efg"]) , (4,null,null),(5,[null,2],[null,'c']);
-   """
-
-
-    qt_sql """
-       select sum_foreach(a) ,  count_foreach(a) , group_concat_foreach(s)  from table_with_null;
-    """
-
-
-    // for nereids_planner
+   // for nereids_planner
+   // now support  min min_by maxmax_by avg avg_weighted sum stddev stddev_samp_foreach variance var_samp
+   // covar covar_samp corr
+   // topn topn_array topn_weighted
+   // count  count_by_enum
+   // PERCENTILE PERCENTILE_ARRAY PERCENTILE_APPROX
+   // histogram
+   //  GROUP_BIT_AND GROUP_BIT_OR GROUP_BIT_XOR
 
     sql """ set enable_nereids_planner=true;"""
-    sql """  set enable_fallback_to_original_planner=false;"""
+    sql """ set enable_fallback_to_original_planner=false;"""
    
     sql """
-        drop table if exists table_with_all_null;
+        drop table if exists foreach_table;
     """
+
     sql """
-    CREATE TABLE IF NOT EXISTS table_with_all_null (
-              `id` INT(11) NULL COMMENT "",
-              `a` array<INT> NULL COMMENT "",
-              `s` array<String>  NULL COMMENT ""
+       CREATE TABLE IF NOT EXISTS foreach_table (
+              `id` INT(11) null COMMENT "",
+              `a` array<INT> null  COMMENT "",
+              `b` array<array<INT>>  null COMMENT "",
+              `s` array<String>  null  COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
@@ -126,67 +47,49 @@ suite("test_agg_foreach") {
     );
     """
     sql """
-       insert into table_with_all_null values
-        (1,null,null),
-        (2,null,null),
-        (3,null,null);
-    """
-
-    qt_sql """ 
-      select sum_foreach(a) ,  count_foreach(a) , group_concat_foreach(s)   from table_with_all_null;
-    """
-
-    sql """
-        drop table if exists table_with_all_not_null;
-    """
-
-     sql """
-        CREATE TABLE IF NOT EXISTS table_with_all_not_null (
-              `id` INT(11)  COMMENT "",
-              `a` array<INT>  COMMENT "",
-              `s` array<String>   COMMENT ""
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1",
-            "storage_format" = "V2"
-    );
-    """
-    
-    sql """
-    insert into table_with_all_not_null values(1,[1,2,3],["ab","123"]),(2,[20],["cd"]),(3,[100],["efg"]);
-    """
-
-    qt_sql """
-       select sum_foreach(a) ,  count_foreach(a) , group_concat_foreach(s)  
-        from table_with_all_not_null;
-    """
-
-    sql """
-       drop table if exists table_with_null;
-    """
-
-    sql """
-       CREATE TABLE IF NOT EXISTS table_with_null (
-              `id` INT(11)  COMMENT "",
-              `a` array<INT>  COMMENT "",
-              `s` array<String>   COMMENT ""
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1",
-            "storage_format" = "V2"
-    );
-    """
-    sql """
-    insert into table_with_null values(1,[1,2,3],["ab","123"]),(2,[20],["cd"]),(3,[100],["efg"]) , (4,null,null),(5,[null,2],[null,'c']);
+    insert into foreach_table values
+    (1,[1,2,3],[[1],[1,2,3],[2]],["ab","123"]),
+    (2,[20],[[2]],["cd"]),
+    (3,[100],[[1]],["efg"]) , 
+    (4,null,[null],null),
+    (5,[null,2],[[2],null],[null,'c']);
    """
 
 
-    qt_sql """
-       select sum_foreach(a) ,  count_foreach(a) , group_concat_foreach(s) from table_with_null;
-    """
+   qt_sql """
+       select min_foreach(a), min_by_foreach(a,a),max_foreach(a),max_by_foreach(a,a) , avg_foreach(a),avg_weighted_foreach(a,a) from foreach_table ;
+   """
 
+   qt_sql """
+   select  sum_foreach(a)  , stddev_foreach(a) ,stddev_samp_foreach(a)  , variance_foreach(a) , var_samp_foreach(a) from foreach_table ;
+   """
+
+   qt_sql """
+   select covar_foreach(a,a)  , covar_samp_foreach(a,a) , corr_foreach(a,a) from foreach_table ; 
+   """
+    qt_sql """
+   select topn_foreach(a,a) ,topn_foreach(a,a,a)  , topn_array_foreach(a,a) ,topn_array_foreach(a,a,a)from foreach_table ;
+   """
+
+
+   qt_sql """
+   select count_foreach(a)  , count_by_enum_foreach(a) from foreach_table;
+   """
+   
+   qt_sql """
+      select PERCENTILE_foreach(a,a)  from foreach_table;
+   """
+  
+   qt_sql """
+      select PERCENTILE_ARRAY_foreach(a,b) from foreach_table where id = 1;
+   """
+
+   qt_sql """
+
+   select PERCENTILE_APPROX_foreach(a,a) from foreach_table;
+   """
+
+   qt_sql """
+   select GROUP_BIT_AND_foreach(a), GROUP_BIT_OR_foreach(a), GROUP_BIT_XOR_foreach(a)  from foreach_table;
+   """
 }

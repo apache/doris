@@ -142,9 +142,7 @@ public:
     String get_name() const override { return nested_function->get_name() + AGG_FOREACH_SUFFIX; }
 
     DataTypePtr get_return_type() const override {
-        // For functions like "count," the return value may not actually be nullable.
-        // Here we handle everything as nullable for the sake of convenience.
-        return std::make_shared<DataTypeArray>(make_nullable(nested_function->get_return_type()));
+        return std::make_shared<DataTypeArray>(nested_function->get_return_type());
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
@@ -260,6 +258,6 @@ public:
             nested_function->add(nested_state, nested, i, arena);
             nested_state += nested_size_of_data;
         }
-    }
+    } 
 };
 } // namespace doris::vectorized

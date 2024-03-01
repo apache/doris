@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.combinator;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -37,19 +37,17 @@ import java.util.Objects;
  * combinator foreach
  */
 public class ForEachCombinator extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     private final AggregateFunction nested;
-    private final DataType returnType;
 
     /**
      * constructor of ForEachCombinator
      */
     public ForEachCombinator(List<Expression> arguments, AggregateFunction nested) {
-        super(nested.getName() + AggStateFunctionBuilder.FOREACH_SUFFIX, arguments);
+        super(nested.getName() + AggCombinerFunctionBuilder.FOREACH_SUFFIX, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        this.returnType = ArrayType.of(nested.getDataType());
     }
 
     public static ForEachCombinator create(AggregateFunction nested) {
@@ -59,11 +57,6 @@ public class ForEachCombinator extends AggregateFunction
     @Override
     public ForEachCombinator withChildren(List<Expression> children) {
         return new ForEachCombinator(children, nested);
-    }
-
-    @Override
-    public boolean nullable() {
-        return true;
     }
 
     @Override
@@ -83,7 +76,7 @@ public class ForEachCombinator extends AggregateFunction
 
     @Override
     public DataType getDataType() {
-        return returnType;
+        return ArrayType.of(nested.getDataType(), nested.nullable());
     }
 
     public AggregateFunction getNestedFunction() {
