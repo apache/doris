@@ -115,8 +115,7 @@ public class MTMVPropertyUtil {
     private static void analyzeRefreshPartitionNum(String value) {
         try {
             Integer.parseInt(value);
-        } catch (
-                NumberFormatException e) {
+        } catch (NumberFormatException e) {
             throw new AnalysisException("valid refresh_partition_num: " + value);
         }
     }
