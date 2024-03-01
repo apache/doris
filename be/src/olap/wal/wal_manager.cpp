@@ -386,8 +386,7 @@ Status WalManager::_replay_background() {
         if (_first_replay.compare_exchange_strong(expected, false)) {
             RETURN_IF_ERROR(_load_wals());
         }
-        auto _total_wal_size = get_wal_queue_size(-1);
-        g_wal_total_count.set_value(_total_wal_size);
+        g_wal_total_count.set_value(get_wal_queue_size(-1));
         // replay wal of current process
         std::vector<int64_t> replay_tables;
         {
