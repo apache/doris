@@ -432,18 +432,18 @@ void SystemBvarMetrics::install_cpu_metrics() {
 }
 
 #ifdef BE_TEST
-const char* k_ut_stat_path;
-const char* k_ut_diskstats_path;
-const char* k_ut_net_dev_path;
-const char* k_ut_fd_path;
-const char* k_ut_net_snmp_path;
-const char* k_ut_load_avg_path;
-const char* k_ut_vmstat_path;
+const char* bvar_k_utstat_path;
+const char* bvar_k_utdiskstats_path;
+const char* bvar_k_utnet_dev_path;
+const char* bvar_k_utfd_path;
+const char* bvar_k_utnet_snmp_path;
+const char* bvar_k_utload_avg_path;
+const char* bvar_k_utvmstat_path;
 #endif
 
 void SystemBvarMetrics::update_cpu_metrics() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_stat_path, "r");
+    FILE* fp = fopen(bvar_k_utstat_path, "r");
 #else
     FILE* fp = fopen("/proc/stat", "r");
 #endif
@@ -508,7 +508,7 @@ void SystemBvarMetrics::install_disk_metrics(const std::set<std::string>& disk_d
 
 void SystemBvarMetrics::update_disk_metrics() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_diskstats_path, "r");
+    FILE* fp = fopen(bvar_k_utdiskstats_path, "r");
 #else
     FILE* fp = fopen("/proc/diskstats", "r");
 #endif
@@ -595,7 +595,7 @@ void SystemBvarMetrics::install_net_metrics(const std::vector<std::string>& inte
 void SystemBvarMetrics::update_net_metrics() {
 #ifdef BE_TEST
     // to mock proc
-    FILE* fp = fopen(k_ut_net_dev_path, "r");
+    FILE* fp = fopen(bvar_k_utnet_dev_path, "r");
 #else
     FILE* fp = fopen("/proc/net/dev", "r");
 #endif
@@ -694,7 +694,7 @@ void SystemBvarMetrics::install_fd_metrics(BvarMetricEntity* entity) {
 
 void SystemBvarMetrics::update_fd_metrics() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_fd_path, "r");
+    FILE* fp = fopen(bvar_k_utfd_path, "r");
 #else
     FILE* fp = fopen("/proc/sys/fs/file-nr", "r");
 #endif
@@ -737,7 +737,7 @@ void SystemBvarMetrics::install_snmp_metrics(BvarMetricEntity* entity) {
 void SystemBvarMetrics::update_snmp_metrics() {
 #ifdef BE_TEST
     // to mock proc
-    FILE* fp = fopen(k_ut_net_snmp_path, "r");
+    FILE* fp = fopen(bvar_k_utnet_snmp_path, "r");
 #else
     FILE* fp = fopen("/proc/net/snmp", "r");
 #endif
@@ -814,7 +814,7 @@ void SystemBvarMetrics::install_load_avg_metrics(BvarMetricEntity* entity) {
 
 void SystemBvarMetrics::update_load_avg_metrics() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_load_avg_path, "r");
+    FILE* fp = fopen(bvar_k_utload_avg_path, "r");
 #else
     FILE* fp = fopen("/proc/loadavg", "r");
 #endif
@@ -851,7 +851,7 @@ void SystemBvarMetrics::install_proc_metrics(BvarMetricEntity* entity) {
 
 void SystemBvarMetrics::update_proc_metrics() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_stat_path, "r");
+    FILE* fp = fopen(bvar_k_utstat_path, "r");
 #else
     FILE* fp = fopen("/proc/stat", "r");
 #endif
@@ -902,7 +902,7 @@ void SystemBvarMetrics::update_proc_metrics() {
 
 void SystemBvarMetrics::get_metrics_from_proc_vmstat() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_vmstat_path, "r");
+    FILE* fp = fopen(bvar_k_utvmstat_path, "r");
 #else
     FILE* fp = fopen("/proc/vmstat", "r");
 #endif
@@ -944,7 +944,7 @@ void SystemBvarMetrics::get_metrics_from_proc_vmstat() {
 
 void SystemBvarMetrics::get_cpu_name() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_stat_path, "r");
+    FILE* fp = fopen(bvar_k_utstat_path, "r");
 #else
     FILE* fp = fopen("/proc/stat", "r");
 #endif
