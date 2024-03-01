@@ -21,8 +21,10 @@ suite("test_limit_partition_mtmv") {
     def tableName = "t_test_limit_partition_mtmv_user"
     def mvName = "multi_mv_test_limit_partition_mtmv"
     def dbName = "regression_test_mtmv_p0"
-    sql """drop table if exists `${tableName}`"""
 
+    // list partition date type
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
     sql """
         CREATE TABLE `${tableName}` (
           `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
@@ -58,6 +60,68 @@ suite("test_limit_partition_mtmv") {
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(showPartitionsResult.size(),1)
-    // assertTrue(showPartitionsResult.toString().contains("p_1"))
+    assertTrue(showPartitionsResult.toString().contains("p_99990101"))
 
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName}
+        """
+    def jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_date_type "SELECT * FROM ${mvName} order by k1,k2"
+
+
+
+    // list partition string type
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` VARCHAR(100) NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY list(`k2`)
+        (
+        PARTITION p_99990101 VALUES IN ("99990101"),
+        PARTITION p_20200101 VALUES IN ("20200101")
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,"99990101"),(2,"20200101");
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`k2`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='2',
+            'partition_sync_time_unit'='MONTH',
+            'partition_date_format'='%Y%m%d'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(showPartitionsResult.size(),1)
+    assertTrue(showPartitionsResult.toString().contains("p_99990101"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName}
+        """
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_varchar_type "SELECT * FROM ${mvName} order by k1,k2"
+
+
+
+    // hive partition two level
 }
