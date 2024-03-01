@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.THashType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -338,9 +339,24 @@ public class DistributionSpecHash extends DistributionSpec {
      * Enums for concrete shuffle functions.
      */
     public enum StorageBucketHashType {
+        // CRC32 is for Doris internal storage bucket hash function
         STORAGE_BUCKET_CRC32,
+        // XXHASH64 is the default hash function for Doris computation layer
         STORAGE_BUCKET_XXHASH64,
-        STORAGE_BUCKET_SPARK_MURMUR32
+        // SPARK_MURMUR32 is the hash function for Spark bucketed hive table's storage and computation
+        STORAGE_BUCKET_SPARK_MURMUR32;
+
+        public THashType toThrift() {
+            switch (this) {
+                case STORAGE_BUCKET_CRC32:
+                    return THashType.CRC32;
+                case STORAGE_BUCKET_SPARK_MURMUR32:
+                    return THashType.SPARK_MURMUR32;
+                case STORAGE_BUCKET_XXHASH64:
+                default:
+                    return THashType.XXHASH64;
+            }
+        }
     }
 
 }

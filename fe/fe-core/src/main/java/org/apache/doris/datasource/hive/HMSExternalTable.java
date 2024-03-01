@@ -33,6 +33,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.hive.HiveBucketUtil.HiveBucketType;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
@@ -167,7 +168,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     protected volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
     protected List<Column> partitionColumns;
     private List<Column> bucketColumns;
-    private boolean isSparkTable;
+    private HiveBucketType hiveBucketType = HiveBucketType.NONE;
 
     private DLAType dlaType = DLAType.UNKNOWN;
 
@@ -259,12 +260,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 || (params != null && "COPY_ON_WRITE".equalsIgnoreCase(params.get("flink.table.type")));
     }
 
-    public boolean isSparkTable() {
-        return isSparkTable;
-    }
-
-    public boolean isBucketedTable() {
-        return bucketColumns != null && !bucketColumns.isEmpty() && isSparkTable;
+    public boolean isSparkBucketedTable() {
+        return bucketColumns != null && !bucketColumns.isEmpty() && hiveBucketType == HiveBucketType.SPARK;
     }
 
     /**
@@ -512,7 +509,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private void initBucketingColumns(List<Column> columns) {
         List<String> bucketCols = new ArrayList<>(5);
         int numBuckets = getBucketColumns(bucketCols);
-        if (bucketCols.isEmpty() || !isSparkTable) {
+        if (bucketCols.isEmpty() || hiveBucketType != HiveBucketType.SPARK) {
             bucketColumns = ImmutableList.of();
             distributionInfo = new RandomDistributionInfo(1, true);
             return;
@@ -549,6 +546,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             /* Hive Bucketed Table */
             bucketCols.addAll(descriptor.getBucketCols());
             numBuckets = descriptor.getNumBuckets();
+            hiveBucketType = HiveBucketType.HIVE;
         } else if (remoteTable.isSetParameters()
                 && !Collections.disjoint(SUPPORTED_BUCKET_PROPERTIES, remoteTable.getParameters().keySet())) {
             Map<String, String> parameters = remoteTable.getParameters();
@@ -563,7 +561,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             }
 
             if (numBuckets > 0) {
-                isSparkTable = true;
+                hiveBucketType = HiveBucketType.SPARK;
             }
         }
 
