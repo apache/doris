@@ -2027,7 +2027,7 @@ public class Coordinator implements CoordInterface {
                                 .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
                                         fragmentExecParamsMap.get(scanNode.getFragment().getFragmentId())
                                                 .scanRangeAssignment.size())) && useNereids);
-                        if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
+                        if (node.isPresent() && (!node.get().shouldDisa:bleSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
