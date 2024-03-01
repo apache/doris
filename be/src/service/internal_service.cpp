@@ -748,9 +748,8 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     }
 }
 
-Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
-                                                PTabletKeyLookupResponse* response) {
-    // TODO(yuejing): use PointQueryExecutor lookup_util(_engine); instead
+Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
+                                            PTabletKeyLookupResponse* response) {
     PointQueryExecutor lookup_util;
     RETURN_IF_ERROR(lookup_util.init(request, response));
     RETURN_IF_ERROR(lookup_util.lookup_up());
@@ -761,10 +760,10 @@ Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* r
     return Status::OK();
 }
 
-void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* controller,
-                                             const PTabletKeyLookupRequest* request,
-                                             PTabletKeyLookupResponse* response,
-                                             google::protobuf::Closure* done) {
+void PInternalService::tablet_fetch_data(google::protobuf::RpcController* controller,
+                                         const PTabletKeyLookupRequest* request,
+                                         PTabletKeyLookupResponse* response,
+                                         google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);

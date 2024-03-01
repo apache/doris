@@ -24,6 +24,8 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -53,9 +55,11 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -84,6 +88,9 @@ public class PointQueryExec implements CoordInterface {
     // there are some pre caculated structure in Backend TabletFetch service
     // using this ID to find for this prepared statement
     private UUID cacheID;
+
+    // used for snapshot read in cloud mode
+    private List<Long> versions;
 
     private OlapScanNode getPlanRoot() {
         List<PlanFragment> fragments = planner.getFragments();
@@ -119,6 +126,23 @@ public class PointQueryExec implements CoordInterface {
         }
     }
 
+    private void updateCloudPartitionVersions() throws RpcException {
+        OlapScanNode planRoot = getPlanRoot();
+        List<CloudPartition> partitions = new ArrayList<>();
+        Set<Long> partitionSet = new HashSet<>();
+        OlapTable table = planRoot.getOlapTable();
+        for (Long id : planRoot.getSelectedPartitionIds()) {
+            if (!partitionSet.contains(id)) {
+                partitionSet.add(id);
+                partitions.add((CloudPartition) table.getPartition(id));
+            }
+        }
+        versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+        // Only support single partition at present
+        Preconditions.checkState(versions.size() == 1);
+        LOG.debug("set cloud version {}", versions.get(0));
+    }
+
     void setScanRangeLocations() throws Exception {
         OlapScanNode planRoot = getPlanRoot();
         // compute scan range
@@ -128,6 +152,13 @@ public class PointQueryExec implements CoordInterface {
         }
         Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
         this.tabletID = planRoot.getScanTabletIds().get(0);
+
+        // update partition version if cloud mode
+        if (Config.isCloudMode()
+                && ConnectContext.get().getSessionVariable().enableSnapshotPointQuery) {
+            // TODO: Optimize to reduce the frequency of version checks in the meta service.
+            updateCloudPartitionVersions();
+        }
 
         Preconditions.checkNotNull(locations);
         candidateBackends = new ArrayList<>();
@@ -247,6 +278,9 @@ public class PointQueryExec implements CoordInterface {
                             .setDescTbl(serializedDescTable)
                             .setOutputExpr(serializedOutputExpr)
                             .setIsBinaryRow(isBinaryProtocol);
+            if (versions != null && !versions.isEmpty()) {
+                requestBuilder.setVersion(versions.get(0));
+            }
             if (cacheID != null) {
                 InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
                 uuidBuilder.setUuidHigh(cacheID.getMostSignificantBits());
