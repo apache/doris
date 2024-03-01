@@ -168,7 +168,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
-        LOG.info("close TrinoConnectorJniScanner");
     }
 
     @Override
@@ -186,11 +185,20 @@ public class TrinoConnectorJniScanner extends JniScanner {
         // TODO(ftw): Page is up to 8192 rows, it is best to make 4064 rows
         Page page;
         try {
-            while ((page = source.getNextPage()) != null) {
-                if (page != null) {
-                    // assure the page is in memory before handing to another operator
-                    page = page.getLoadedPage();
+            while (true) {
+                page = source.getNextPage();
+                if (page == null) {
+                    // used for RecordPageSource
+                    // because RecordPageSource will null even if source is not isFinished.
+                    if (!source.isFinished()) {
+                        continue;
+                    } else {
+                        break;
+                    }
                 }
+
+                // assure the page is in memory before handing to another operator
+                page = page.getLoadedPage();
                 if (page.getPositionCount() == 0) {
                     break;
                 }
@@ -322,8 +330,8 @@ public class TrinoConnectorJniScanner extends JniScanner {
             String hiveType = TrinoTypeToHiveTypeTranslator.fromTrinoTypeToHiveType(trinoTypeList.get(i));
             columnTypes[i] = ColumnType.parseType(fields[i], hiveType);
 
-            LOG.info(String.format("Trino type: [%s], hive type: [%s], columnTypes: [%s].",
-                    trinoTypeList.get(i), hiveType, columnTypes[i]));
+            // LOG.info(String.format("Trino type: [%s], hive type: [%s], columnTypes: [%s].",
+            //         trinoTypeList.get(i), hiveType, columnTypes[i]));
         }
         super.types = columnTypes;
     }
