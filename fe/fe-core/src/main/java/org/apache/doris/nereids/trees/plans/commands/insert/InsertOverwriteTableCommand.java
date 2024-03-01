@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands;
+package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -34,6 +34,8 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -91,13 +93,13 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
-        // insert overwrite only support
-        TableIf targetTableIf = InsertExecutor.getTargetTable(logicalQuery, ctx);
+
+        TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
         if (!(targetTableIf instanceof OlapTable)) {
             throw new AnalysisException("insert into overwrite only support OLAP table."
                     + " But current table type is " + targetTableIf.getType());
         }
-        this.logicalQuery = (LogicalPlan) InsertExecutor.normalizePlan(logicalQuery, targetTableIf);
+        this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -165,8 +167,9 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                 sink.getDMLCommandType(),
                 (LogicalPlan) (sink.child(0)));
         // for overwrite situation, we disable auto create partition.
-        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(copySink, labelName);
-        insertCommand.setAllowAutoPartition(false);
+        OlapInsertCommandContext insertCtx = new OlapInsertCommandContext();
+        insertCtx.setAllowAutoPartition(false);
+        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -177,15 +180,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
-        return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
+        return InsertUtils.getPlanForExplain(ctx, this.logicalQuery);
     }
 
     @Override
