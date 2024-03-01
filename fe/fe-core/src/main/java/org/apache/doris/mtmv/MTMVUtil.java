@@ -19,6 +19,8 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.MaxLiteral;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -147,6 +149,12 @@ public class MTMVUtil {
      * @throws AnalysisException
      */
     public static long getExprTimeSec(LiteralExpr expr, Optional<String> dateFormatOptional) throws AnalysisException {
+        if (expr instanceof MaxLiteral) {
+            return Long.MAX_VALUE;
+        }
+        if (expr instanceof NullLiteral) {
+            return Long.MIN_VALUE;
+        }
         if (expr instanceof DateLiteral) {
             return ((DateLiteral) expr).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
         }
