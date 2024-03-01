@@ -225,7 +225,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
-    if (request.__isset.query_options) {
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
         _timeout = request.query_options.execution_timeout;
     }
     const auto& local_params = request.local_params[idx];
