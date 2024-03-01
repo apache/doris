@@ -20,6 +20,7 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaContext;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -67,7 +68,14 @@ public class CloudReplica extends Replica {
     public CloudReplica() {
     }
 
-    public CloudReplica(long replicaId, List<Long> backendIds, ReplicaState state, long version, int schemaHash,
+    public CloudReplica(ReplicaContext context) {
+        this(context.replicaId, context.backendId, context.state, context.version,
+                context.schemaHash, context.dbId, context.tableId, context.partitionId,
+                context.indexId,
+                context.originReplica != null ? ((CloudReplica) context.originReplica).getIdx() : -1);
+    }
+
+    public CloudReplica(long replicaId, Long backendId, ReplicaState state, long version, int schemaHash,
             long dbId, long tableId, long partitionId, long indexId, long idx) {
         super(replicaId, -1, state, version, schemaHash);
         this.dbId = dbId;
@@ -102,6 +110,11 @@ public class CloudReplica extends Replica {
         return pickedBeId;
     }
 
+    public long getBackendId(String beEndpoint) {
+        String cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterIdByBeAddr(beEndpoint);
+        return getBackendIdImpl(cluster);
+    }
+
     @Override
     public long getBackendId() {
         String cluster = null;
@@ -131,18 +144,20 @@ public class CloudReplica extends Replica {
             }
             return -1;
         }
+        return getBackendIdImpl(cluster);
+    }
 
+    private long getBackendIdImpl(String cluster) {
         // check default cluster valid.
-        if (!Strings.isNullOrEmpty(cluster)) {
-            boolean exist = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getCloudClusterNames().contains(cluster);
-            if (!exist) {
-                //can't use this default cluster, plz change another
-                LOG.warn("cluster: {} is not existed", cluster);
-                return -1;
-            }
-        } else {
+        if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("failed to get available be, clusterName: {}", cluster);
+            return -1;
+        }
+        boolean exist = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNames().contains(cluster);
+        if (!exist) {
+            // can't use this default cluster, plz change another
+            LOG.warn("cluster: {} is not existed", cluster);
             return -1;
         }
 

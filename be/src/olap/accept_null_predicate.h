@@ -44,6 +44,8 @@ public:
 
     PredicateType type() const override { return _nested->type(); }
 
+    void set_nested(ColumnPredicate* nested) { _nested.reset(nested); }
+
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
         return _nested->evaluate(iterator, num_rows, roaring);
@@ -148,21 +150,6 @@ public:
     }
 
     std::string get_search_str() const override { return _nested->get_search_str(); }
-
-    std::string debug_string() const override {
-        return "passnull predicate for " + _nested->debug_string();
-    }
-
-    /// Some predicates need to be cloned for each segment.
-    bool need_to_clone() const override { return _nested->need_to_clone(); }
-
-    void clone(ColumnPredicate** to) const override {
-        if (need_to_clone()) {
-            ColumnPredicate* clone_nested;
-            _nested->clone(&clone_nested);
-            *to = new AcceptNullPredicate(clone_nested);
-        }
-    }
 
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,

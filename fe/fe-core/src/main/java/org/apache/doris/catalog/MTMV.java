@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -28,6 +29,7 @@ import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -38,6 +40,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
@@ -47,7 +50,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -107,7 +112,12 @@ public class MTMV extends OlapTable {
     }
 
     public MTMVRefreshInfo getRefreshInfo() {
-        return refreshInfo;
+        readMvLock();
+        try {
+            return refreshInfo;
+        } finally {
+            readMvUnlock();
+        }
     }
 
     public String getQuerySql() {
@@ -115,8 +125,8 @@ public class MTMV extends OlapTable {
     }
 
     public MTMVStatus getStatus() {
+        readMvLock();
         try {
-            readMvLock();
             return status;
         } finally {
             readMvUnlock();
@@ -128,11 +138,21 @@ public class MTMV extends OlapTable {
     }
 
     public MTMVJobInfo getJobInfo() {
-        return jobInfo;
+        readMvLock();
+        try {
+            return jobInfo;
+        } finally {
+            readMvUnlock();
+        }
     }
 
     public MTMVRelation getRelation() {
-        return relation;
+        readMvLock();
+        try {
+            return relation;
+        } finally {
+            readMvUnlock();
+        }
     }
 
     public void setCache(MTMVCache cache) {
@@ -140,12 +160,17 @@ public class MTMV extends OlapTable {
     }
 
     public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
-        return refreshInfo.updateNotNull(newRefreshInfo);
+        writeMvLock();
+        try {
+            return refreshInfo.updateNotNull(newRefreshInfo);
+        } finally {
+            writeMvUnlock();
+        }
     }
 
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
+        writeMvLock();
         try {
-            writeMvLock();
             return this.status.updateNotNull(newStatus);
         } finally {
             writeMvUnlock();
@@ -154,8 +179,8 @@ public class MTMV extends OlapTable {
 
     public void addTaskResult(MTMVTask task, MTMVRelation relation,
             Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
+        writeMvLock();
         try {
-            writeMvLock();
             if (task.getStatus() == TaskStatus.SUCCESS) {
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
@@ -180,41 +205,66 @@ public class MTMV extends OlapTable {
     }
 
     public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {
-        this.mvProperties.putAll(mvProperties);
-        return this.mvProperties;
+        writeMvLock();
+        try {
+            this.mvProperties.putAll(mvProperties);
+            return this.mvProperties;
+        } finally {
+            writeMvUnlock();
+        }
     }
 
     public long getGracePeriod() {
-        if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
-            return Long.parseLong(mvProperties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) * 1000;
-        } else {
-            return 0L;
+        readMvLock();
+        try {
+            if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
+                return Long.parseLong(mvProperties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) * 1000;
+            } else {
+                return 0L;
+            }
+        } finally {
+            readMvUnlock();
         }
     }
 
     public Optional<String> getWorkloadGroup() {
-        if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP) && !StringUtils
-                .isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP))) {
-            return Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP));
+        readMvLock();
+        try {
+            if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP) && !StringUtils
+                    .isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP))) {
+                return Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP));
+            }
+            return Optional.empty();
+        } finally {
+            readMvUnlock();
         }
-        return Optional.empty();
     }
 
     public int getRefreshPartitionNum() {
-        if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM)) {
-            int value = Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
-            return value < 1 ? MTMVTask.DEFAULT_REFRESH_PARTITION_NUM : value;
-        } else {
-            return MTMVTask.DEFAULT_REFRESH_PARTITION_NUM;
+        readMvLock();
+        try {
+            if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM)) {
+                int value = Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
+                return value < 1 ? MTMVTask.DEFAULT_REFRESH_PARTITION_NUM : value;
+            } else {
+                return MTMVTask.DEFAULT_REFRESH_PARTITION_NUM;
+            }
+        } finally {
+            readMvUnlock();
         }
     }
 
     public Set<String> getExcludedTriggerTables() {
-        if (!mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
-            return Sets.newHashSet();
+        readMvLock();
+        try {
+            if (!mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
+                return Sets.newHashSet();
+            }
+            String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
+            return Sets.newHashSet(split);
+        } finally {
+            readMvUnlock();
         }
-        String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
-        return Sets.newHashSet(split);
     }
 
     public MTMVCache getOrGenerateCache() throws AnalysisException {
@@ -232,7 +282,12 @@ public class MTMV extends OlapTable {
     }
 
     public Map<String, String> getMvProperties() {
-        return mvProperties;
+        readMvLock();
+        try {
+            return mvProperties;
+        } finally {
+            readMvUnlock();
+        }
     }
 
     public MTMVPartitionInfo getMvPartitionInfo() {
@@ -241,6 +296,69 @@ public class MTMV extends OlapTable {
 
     public MTMVRefreshSnapshot getRefreshSnapshot() {
         return refreshSnapshot;
+    }
+
+    /**
+     * generateMvPartitionDescs
+     *
+     * @return mvPartitionId ==> mvPartitionKeyDesc
+     */
+    public Map<Long, PartitionKeyDesc> generateMvPartitionDescs() {
+        Map<Long, PartitionItem> mtmvItems = getAndCopyPartitionItems();
+        Map<Long, PartitionKeyDesc> result = Maps.newHashMap();
+        for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
+            result.put(entry.getKey(), entry.getValue().toPartitionKeyDesc());
+        }
+        return result;
+    }
+
+    /**
+     * generateRelatedPartitionDescs
+     * <p>
+     * Different partitions may generate the same PartitionKeyDesc through logical calculations
+     * (such as selecting only one column, or rolling up partitions), so it is a one to many relationship
+     *
+     * @return related PartitionKeyDesc ==> relatedPartitionIds
+     * @throws AnalysisException
+     */
+    public Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs() throws AnalysisException {
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return Maps.newHashMap();
+        }
+        Map<PartitionKeyDesc, Set<Long>> res = new HashMap<>();
+        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems();
+        int relatedColPos = mvPartitionInfo.getRelatedColPos();
+        for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
+            PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
+            if (res.containsKey(partitionKeyDesc)) {
+                res.get(partitionKeyDesc).add(entry.getKey());
+            } else {
+                res.put(partitionKeyDesc, Sets.newHashSet(entry.getKey()));
+            }
+        }
+        return res;
+    }
+
+    /**
+     * Calculate the partition and associated partition mapping relationship of the MTMV
+     * It is the result of real-time comparison calculation, so there may be some costs,
+     * so it should be called with caution
+     *
+     * @return mvPartitionId ==> relationPartitionIds
+     * @throws AnalysisException
+     */
+    public Map<Long, Set<Long>> calculatePartitionMappings() throws AnalysisException {
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return Maps.newHashMap();
+        }
+        Map<Long, Set<Long>> res = Maps.newHashMap();
+        Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs = generateRelatedPartitionDescs();
+        Map<Long, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        for (Entry<Long, PartitionItem> entry : mvPartitionItems.entrySet()) {
+            res.put(entry.getKey(),
+                    relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
+        }
+        return res;
     }
 
     public void readMvLock() {

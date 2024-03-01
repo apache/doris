@@ -84,9 +84,9 @@ public class OuterJoinAssoc extends OneExplorationRuleFactory {
                         }
                     }
 
-                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c, null);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
-                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(a, newBottomJoin);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(a, newBottomJoin, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     setReorderContext(newTopJoin, newBottomJoin);
                     return newTopJoin;

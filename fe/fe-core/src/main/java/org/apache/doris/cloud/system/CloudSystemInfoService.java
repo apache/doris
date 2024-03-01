@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.Tag;
@@ -70,12 +71,12 @@ public class CloudSystemInfoService extends SystemInfoService {
     private InstanceInfoPB.Status instanceStatus;
 
     @Override
-    public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
+    public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
             TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
             throws DdlException {
-        return Maps.newHashMap();
+        return Pair.of(Maps.newHashMap(), storageMedium);
     }
 
     /**
@@ -321,6 +322,15 @@ public class CloudSystemInfoService extends SystemInfoService {
         return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>());
     }
 
+    public String getClusterIdByBeAddr(String beEndpoint) {
+        for (Map.Entry<String, List<Backend>> idBe : clusterIdToBackend.entrySet()) {
+            if (idBe.getValue().stream().anyMatch(be -> be.getAddress().equals(beEndpoint))) {
+                return getClusterNameByClusterId(idBe.getKey());
+            }
+        }
+        return null;
+    }
+
     public List<String> getCloudClusterIds() {
         return new ArrayList<>(clusterIdToBackend.keySet());
     }
@@ -375,6 +385,83 @@ public class CloudSystemInfoService extends SystemInfoService {
     public List<String> getCloudClusterNames() {
         return new ArrayList<>(clusterNameToId.keySet());
     }
+
+    // use cluster $clusterName
+    // return clusterName for userName
+    public String addCloudCluster(final String clusterName, final String userName) throws UserException {
+        lock.lock();
+        if ((Strings.isNullOrEmpty(clusterName) && Strings.isNullOrEmpty(userName))
+                || (!Strings.isNullOrEmpty(clusterName) && !Strings.isNullOrEmpty(userName))) {
+            // clusterName or userName just only need one.
+            lock.unlock();
+            LOG.warn("addCloudCluster args err clusterName {}, userName {}", clusterName, userName);
+            return "";
+        }
+        // First time this method is called, build cloud cluster map
+        if (clusterNameToId.isEmpty() || clusterIdToBackend.isEmpty()) {
+            List<Backend> toAdd = Maps.newHashMap(idToBackendRef)
+                    .values().stream()
+                    .filter(i -> i.getTagMap().containsKey(Tag.CLOUD_CLUSTER_ID))
+                    .filter(i -> i.getTagMap().containsKey(Tag.CLOUD_CLUSTER_NAME))
+                    .collect(Collectors.toList());
+            // The larger bakendId the later it was added, the order matters
+            toAdd.sort((x, y) -> (int) (x.getId() - y.getId()));
+            updateCloudClusterMap(toAdd, new ArrayList<>());
+        }
+
+        String clusterId;
+        if (Strings.isNullOrEmpty(userName)) {
+            // use clusterName
+            LOG.info("try to add a cloud cluster, clusterName={}", clusterName);
+            clusterId = clusterNameToId.get(clusterName);
+            clusterId = clusterId == null ? "" : clusterId;
+            if (clusterIdToBackend.containsKey(clusterId)) { // Cluster already added
+                lock.unlock();
+                LOG.info("cloud cluster already added, clusterName={}, clusterId={}", clusterName, clusterId);
+                return "";
+            }
+        }
+        lock.unlock();
+        LOG.info("begin to get cloud cluster from remote, clusterName={}, userName={}", clusterName, userName);
+
+        // Get cloud cluster info from resource manager
+        Cloud.GetClusterResponse response = getCloudCluster(clusterName, "", userName);
+        if (!response.hasStatus() || !response.getStatus().hasCode()
+                || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("get cluster info from meta failed, clusterName={}, incomplete response: {}",
+                    clusterName, response);
+            throw new UserException("no cluster clusterName: " + clusterName + " or userName: " + userName + " found");
+        }
+
+        // Note: get_cluster interface cluster(option -> repeated), so it has at least one cluster.
+        if (response.getClusterCount() == 0) {
+            LOG.warn("meta service error , return cluster zero, plz check it, "
+                    + "cloud_unique_id={}, clusterId={}, response={}",
+                    Config.cloud_unique_id, Config.cloud_sql_server_cluster_id, response);
+            throw new UserException("get cluster return zero cluster info");
+        }
+
+        ClusterPB cpb = response.getCluster(0);
+        clusterId = cpb.getClusterId();
+        String clusterNameMeta = cpb.getClusterName();
+
+        // Prepare backends
+        Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+        newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterNameMeta);
+        newTagMap.put(Tag.CLOUD_CLUSTER_ID, clusterId);
+        List<Backend> backends = new ArrayList<>();
+        for (Cloud.NodeInfoPB node : cpb.getNodesList()) {
+            Backend b = new Backend(Env.getCurrentEnv().getNextId(), node.getIp(), node.getHeartbeatPort());
+            b.setTagMap(newTagMap);
+            backends.add(b);
+            LOG.info("new backend to add, clusterName={} clusterId={} backend={}",
+                    clusterNameMeta, clusterId, b.toString());
+        }
+
+        updateCloudBackends(backends, new ArrayList<>());
+        return clusterNameMeta;
+    }
+
 
     // Return the ref of concurrentMap clusterIdToBackend
     // It should be thread-safe to iterate.
@@ -457,4 +544,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         // TODO: merge from cloud.
         throw new DdlException("Env.waitForAutoStart unimplemented");
     }
+
+
 }

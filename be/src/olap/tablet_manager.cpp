@@ -993,7 +993,7 @@ Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     return res;
 }
 
-Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
+void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     DCHECK(tablets_info != nullptr);
     VLOG_NOTICE << "begin to build all report tablets info";
 
@@ -1032,7 +1032,6 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
     DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
             tablet_version_num_hist);
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
-    return Status::OK();
 }
 
 Status TabletManager::start_trash_sweep() {

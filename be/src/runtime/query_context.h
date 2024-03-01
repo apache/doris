@@ -33,7 +33,6 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "task_group/task_group.h"
-#include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -61,6 +60,7 @@ struct ReportStatusRequest {
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -70,7 +70,7 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options, TNetworkAddress coord_addr);
+                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline);
 
     ~QueryContext();
 
@@ -196,6 +196,10 @@ public:
 
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
+    vectorized::SimplifiedScanScheduler* get_remote_scan_scheduler() {
+        return _remote_scan_task_scheduler;
+    }
+
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
     void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
@@ -212,9 +216,13 @@ public:
 
     ThreadPool* get_non_pipe_exec_thread_pool();
 
-    int64_t mem_limit() { return _bytes_limit; }
+    int64_t mem_limit() const { return _bytes_limit; }
 
-public:
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
+
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -248,6 +256,7 @@ private:
     ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
     int64_t _bytes_limit = 0;
+    bool _is_pipeline = false;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -279,9 +288,13 @@ private:
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
     ThreadPool* _non_pipe_thread_pool = nullptr;
+    vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
+    // This shared ptr is never used. It is just a reference to hold the object.
+    // There is a weak ptr in runtime filter manager to reference this object.
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 };
 
 } // namespace doris

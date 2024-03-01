@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Lists;
@@ -88,14 +89,14 @@ public class JoinExchange extends OneExplorationRuleFactory {
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
-                            new DistributeHint(DistributeType.NONE), a, c);
+                            new DistributeHint(DistributeType.NONE), a, c, null);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
-                            new DistributeHint(DistributeType.NONE), b, d);
+                            new DistributeHint(DistributeType.NONE), b, d, null);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
                             new DistributeHint(DistributeType.NONE),
-                            newLeftJoin, newRightJoin);
+                            newLeftJoin, newRightJoin, null);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return newTopJoin;
@@ -106,6 +107,10 @@ public class JoinExchange extends OneExplorationRuleFactory {
      * check reorder masks.
      */
     public static boolean checkReorder(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
+        if (topJoin.isLeadingJoin()
+                || isChildLeadingJoin(topJoin.left()) || isChildLeadingJoin(topJoin.right())) {
+            return false;
+        }
         if (topJoin.getJoinReorderContext().hasCommute()
                 || topJoin.getJoinReorderContext().hasLeftAssociate()
                 || topJoin.getJoinReorderContext().hasRightAssociate()
@@ -114,6 +119,24 @@ public class JoinExchange extends OneExplorationRuleFactory {
         } else {
             return true;
         }
+    }
+
+    /**
+     * check whether a child plan is generate by leading
+     * @param child input plan by rule
+     * @return boolean value if child is generate by leading
+     */
+    public static boolean isChildLeadingJoin(Plan child) {
+        if (child instanceof LogicalProject) {
+            if (((LogicalJoin) (child.child(0))).isLeadingJoin()) {
+                return true;
+            }
+        } else if (child instanceof LogicalJoin) {
+            if (((LogicalJoin) child).isLeadingJoin()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

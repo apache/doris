@@ -39,6 +39,15 @@
 3	3
 10	10
 
+-- !join_mark_join1 --
+1	1
+2	2
+3	3
+10	10
+
+-- !join_mark_join2 --
+10	10
+
 -- !nlj_left_semi --
 1
 

@@ -71,6 +71,10 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = Lists.newArrayList(p1);
 
+                mtmv.getPartitionIds();
+                minTimes = 0;
+                result = Lists.newArrayList(1L);
+
                 p1.getId();
                 minTimes = 0;
                 result = 1L;
@@ -151,7 +155,8 @@ public class MTMVPartitionUtilTest {
 
     @Test
     public void testIsSyncWithPartition() throws AnalysisException {
-        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+        boolean isSyncWithPartition = MTMVPartitionUtil
+                .isSyncWithPartitions(mtmv, 1L, baseOlapTable, Sets.newHashSet(2L));
         Assert.assertTrue(isSyncWithPartition);
     }
 
@@ -164,18 +169,19 @@ public class MTMVPartitionUtilTest {
                 result = false;
             }
         };
-        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+        boolean isSyncWithPartition = MTMVPartitionUtil
+                .isSyncWithPartitions(mtmv, 1L, baseOlapTable, Sets.newHashSet(2L));
         Assert.assertFalse(isSyncWithPartition);
     }
 
     @Test
     public void testGeneratePartitionName() {
         List<List<PartitionValue>> inValues = Lists.newArrayList();
-        inValues.add(Lists.newArrayList(new PartitionValue("value11"), new PartitionValue("value12")));
+        inValues.add(Lists.newArrayList(new PartitionValue("20201010 01:01:01"), new PartitionValue("value12")));
         inValues.add(Lists.newArrayList(new PartitionValue("value21"), new PartitionValue("value22")));
         PartitionKeyDesc inDesc = PartitionKeyDesc.createIn(inValues);
         String inName = MTMVPartitionUtil.generatePartitionName(inDesc);
-        Assert.assertEquals("p_value11_value12_value21_value22", inName);
+        Assert.assertEquals("p_20201010010101_value12_value21_value22", inName);
 
         PartitionKeyDesc rangeDesc = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue(1L)),

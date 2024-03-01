@@ -418,8 +418,8 @@ private:
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
 #define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size) (void)0
 #define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) (void)0
-#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size) (void)0
-#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size) (void)0
+#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...) (void)0
+#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...) (void)0
 #define CONSUME_THREAD_MEM_TRACKER(size) (void)0
 #define RELEASE_THREAD_MEM_TRACKER(size) (void)0
 #endif

@@ -476,11 +476,13 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
 
     const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
 
-    if (start + length > src_concrete.get_offsets().size())
-        LOG(FATAL) << "Parameter out of bound in ColumnArray::insert_range_from method. [start("
-                   << std::to_string(start) << ") + length(" << std::to_string(length)
-                   << ") > offsets.size(" << std::to_string(src_concrete.get_offsets().size())
-                   << ")]";
+    if (start + length > src_concrete.get_offsets().size()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameter out of bound in ColumnArray::insert_range_from method. "
+                               "[start({}) + length({}) > offsets.size({})]",
+                               std::to_string(start), std::to_string(length),
+                               std::to_string(src_concrete.get_offsets().size()));
+    }
 
     size_t nested_offset = src_concrete.offset_at(start);
     size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;

@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_compaction_with_multi_index_segments", "p0") {
+suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
     def tableName = "test_index_compaction_with_multi_index_segments"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]

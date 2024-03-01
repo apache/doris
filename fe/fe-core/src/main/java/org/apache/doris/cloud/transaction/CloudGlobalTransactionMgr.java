@@ -37,6 +37,8 @@ import org.apache.doris.cloud.proto.Cloud.GetTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.GetTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.LoadJobSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
+import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
+import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
@@ -49,12 +51,14 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TUniqueId;
@@ -132,6 +136,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         LOG.info("try to begin transaction, dbId: {}, label: {}", dbId, label);
         if (Config.disable_load_job) {
             throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
+        }
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        if (!coordinator.isFromInternal) {
+            InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
 
         switch (sourceType) {
@@ -225,7 +234,41 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void preCommitTransaction2PC(Database db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        Preconditions.checkState(false, "should not implement this in derived class");
+        LOG.info("try to precommit transaction: {}", transactionId);
+        if (Config.disable_load_job) {
+            throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
+        }
+
+        PrecommitTxnRequest.Builder builder = PrecommitTxnRequest.newBuilder();
+        builder.setDbId(db.getId());
+        builder.setTxnId(transactionId);
+
+        if (txnCommitAttachment != null) {
+            if (txnCommitAttachment instanceof LoadJobFinalOperation) {
+                LoadJobFinalOperation loadJobFinalOperation = (LoadJobFinalOperation) txnCommitAttachment;
+                builder.setCommitAttachment(TxnUtil
+                        .loadJobFinalOperationToPb(loadJobFinalOperation));
+            } else {
+                throw new UserException("Invalid txnCommitAttachment");
+            }
+        }
+
+        builder.setPrecommitTimeoutMs(timeoutMillis);
+
+        final PrecommitTxnRequest precommitTxnRequest = builder.build();
+        PrecommitTxnResponse precommitTxnResponse = null;
+        try {
+            LOG.info("precommitTxnRequest: {}", precommitTxnRequest);
+            precommitTxnResponse = MetaServiceProxy
+                    .getInstance().precommitTxn(precommitTxnRequest);
+            LOG.info("precommitTxnResponse: {}", precommitTxnResponse);
+        } catch (RpcException e) {
+            throw new UserException(e.getMessage());
+        }
+
+        if (precommitTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            throw new UserException(precommitTxnResponse.getStatus().getMsg());
+        }
     }
 
     @Override

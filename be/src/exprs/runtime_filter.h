@@ -278,7 +278,7 @@ public:
 
     static Status create_wrapper(const UpdateRuntimeFilterParamsV2* param,
                                  RuntimePredicateWrapper** wrapper);
-    void change_to_bloom_filter();
+    Status change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
     void update_filter(RuntimePredicateWrapper* filter_wrapper, int64_t merge_time,
@@ -362,7 +362,7 @@ protected:
     static Status _create_wrapper(const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
-    void _set_push_down() { _is_push_down = true; }
+    void _set_push_down(bool push_down) { _is_push_down = push_down; }
 
     std::string _format_status() const;
 

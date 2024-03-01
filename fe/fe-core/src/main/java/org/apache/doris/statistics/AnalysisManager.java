@@ -423,9 +423,8 @@ public class AnalysisManager implements Writable {
             String colName = entry.getKey();
             List<Long> indexIds = Lists.newArrayList();
             // Get index id this column belongs to for OlapTable. Set it to -1 for baseIndex id.
-            if (StatisticsUtil.isMvColumn(table, colName)) {
-                OlapTable olapTable = (OlapTable) table;
-                indexIds = olapTable.getMvColumnIndexIds(colName);
+            if (table instanceof OlapTable) {
+                indexIds = ((OlapTable) table).getMvColumnIndexIds(colName);
             } else {
                 indexIds.add(-1L);
             }
@@ -550,8 +549,7 @@ public class AnalysisManager implements Writable {
 
     @VisibleForTesting
     public void updateTableStats(AnalysisInfo jobInfo) {
-        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId,
-                jobInfo.dbId, jobInfo.tblId);
+        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
         // External Table only update table stats when all tasks finished.
         // Because it needs to get the row count from the result of row count task.
         if (tbl instanceof ExternalTable && !jobInfo.state.equals(AnalysisState.FINISHED)) {
@@ -559,7 +557,7 @@ public class AnalysisManager implements Writable {
         }
         TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
         if (tableStats == null) {
-            updateTableStatsStatus(new TableStatsMeta(jobInfo.emptyJob ? 0 : tbl.estimatedRowCount(), jobInfo, tbl));
+            updateTableStatsStatus(new TableStatsMeta(jobInfo.emptyJob ? 0 : tbl.getRowCount(), jobInfo, tbl));
         } else {
             tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);
@@ -703,9 +701,8 @@ public class AnalysisManager implements Writable {
 
         for (String column : columns) {
             List<Long> indexIds = Lists.newArrayList();
-            if (StatisticsUtil.isMvColumn(table, column)) {
-                OlapTable olapTable = (OlapTable) table;
-                indexIds = olapTable.getMvColumnIndexIds(column);
+            if (table instanceof OlapTable) {
+                indexIds = ((OlapTable) table).getMvColumnIndexIds(column);
             } else {
                 indexIds.add(-1L);
             }

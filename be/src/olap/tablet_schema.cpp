@@ -1198,7 +1198,7 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
 }
 
 Status TabletSchema::have_column(const std::string& field_name) const {
-    if (!_field_name_to_index.count(field_name)) {
+    if (!_field_name_to_index.contains(field_name)) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "Not found field_name, field_name:{}, schema:{}", field_name,
                 get_all_field_names());
@@ -1207,7 +1207,7 @@ Status TabletSchema::have_column(const std::string& field_name) const {
 }
 
 const TabletColumn& TabletSchema::column(const std::string& field_name) const {
-    DCHECK(_field_name_to_index.count(field_name) != 0)
+    DCHECK(_field_name_to_index.contains(field_name))
             << ", field_name=" << field_name << ", field_name_to_index=" << get_all_field_names();
     const auto& found = _field_name_to_index.find(field_name);
     return _cols[found->second];
@@ -1229,6 +1229,17 @@ std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
     }
 
     return indexes_for_column;
+}
+
+void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
+                                         const std::vector<TColumn>& t_columns) {
+    copy_from(tablet_schema);
+    if (!t_columns.empty() && t_columns[0].col_unique_id >= 0) {
+        clear_columns();
+        for (const auto& column : t_columns) {
+            append_column(TabletColumn(column));
+        }
+    }
 }
 
 bool TabletSchema::has_inverted_index(const TabletColumn& col) const {

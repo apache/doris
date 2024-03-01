@@ -122,4 +122,9 @@ else
     echo "${SCALE_FACTOR} scale is NOT supported currently"
 fi
 
+echo "Build constraints"
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../constraints/build-pk-constraints.sql
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../constraints/build-uk-constraints.sql
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../constraints/build-fk-constraints.sql
+
 echo "tpcds tables has been created"

@@ -96,7 +96,7 @@ Status PartitionSortSinkOperatorX::open(RuntimeState* state) {
 }
 
 Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* input_block,
-                                        SourceState source_state) {
+                                        bool eos) {
     auto& local_state = get_local_state(state);
     auto current_rows = input_block->rows();
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -122,15 +122,14 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     local_state._dependency->set_ready_to_read();
                 }
             } else {
-                RETURN_IF_ERROR(_split_block_by_partition(input_block, local_state,
-                                                          source_state == SourceState::FINISHED));
+                RETURN_IF_ERROR(_split_block_by_partition(input_block, local_state, eos));
                 RETURN_IF_CANCELLED(state);
                 input_block->clear_column_data();
             }
         }
     }
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         //seems could free for hashtable
         local_state._agg_arena_pool.reset(nullptr);
         local_state._partitioned_data.reset(nullptr);

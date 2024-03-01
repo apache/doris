@@ -87,6 +87,10 @@ private:
     bool _need_read_for_const_expr {true};
     int _const_expr_list_idx {0};
     std::vector<vectorized::VExprContextSPtrs> _const_expr_lists;
+
+    // If this operator has no children, there is no shared state which owns dependency. So we
+    // use this local state to hold this dependency.
+    DependencySPtr _only_const_dependency = nullptr;
 };
 
 class UnionSourceOperatorX final : public OperatorX<UnionSourceLocalState> {
@@ -96,8 +100,7 @@ public:
                          const DescriptorTbl& descs)
             : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {};
     ~UnionSourceOperatorX() override = default;
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -133,7 +136,7 @@ public:
     [[nodiscard]] int get_child_count() const { return _child_size; }
 
 private:
-    bool _has_data(RuntimeState* state) {
+    bool _has_data(RuntimeState* state) const {
         auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
         if (_child_size == 0) {
             return local_state._need_read_for_const_expr;

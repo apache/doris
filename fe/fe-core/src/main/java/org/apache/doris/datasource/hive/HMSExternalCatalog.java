@@ -31,6 +31,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
@@ -50,9 +51,6 @@ import java.util.Objects;
  */
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
-
-    private static final int MIN_CLIENT_POOL_SIZE = 8;
-    protected HMSCachedClient client;
 
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     // broker name for file split and query scan.
@@ -146,10 +144,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             HadoopUGI.tryKrbLogin(this.getName(), AuthenticationConfig.getKerberosConfig(hiveConf,
                     AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
                     AuthenticationConfig.HIVE_KERBEROS_KEYTAB));
-            client = HMSCachedClientFactory.createCachedClient(hiveConf,
-                    Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
-                    jdbcClientConfig);
         }
+        metadataOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
     }
 
     @Override
@@ -161,13 +157,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
             hmsExternalDatabase.getTables().forEach(table -> names.add(table.getName()));
             return names;
         } else {
-            return client.getAllTables(ClusterNamespace.getNameFromFullName(dbName));
+            return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
         }
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        return client.tableExists(ClusterNamespace.getNameFromFullName(dbName), tblName);
+        return metadataOps.tableExist(ClusterNamespace.getNameFromFullName(dbName), tblName);
     }
 
     @Override
@@ -182,11 +178,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public HMSCachedClient getClient() {
         makeSureInitialized();
-        return client;
+        return ((HiveMetadataOps) metadataOps).getClient();
     }
 
     @Override
-    public void dropDatabase(String dbName) {
+    public void unregisterDatabase(String dbName) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("drop database [{}]", dbName);
         }
@@ -195,10 +191,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.warn("drop database [{}] failed", dbName);
         }
         idToDb.remove(dbId);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
     }
 
     @Override
-    public void createDatabase(long dbId, String dbName) {
+    public void registerDatabase(long dbId, String dbName) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create database [{}]", dbName);
         }
@@ -233,9 +230,5 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public String getHiveVersion() {
         return catalogProperty.getOrDefault(HMSProperties.HIVE_VERSION, "");
-    }
-
-    protected List<String> listDatabaseNames() {
-        return client.getAllDatabases();
     }
 }

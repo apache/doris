@@ -69,8 +69,7 @@ public:
     RowDescriptor& row_descriptor() override { return _child_x->row_descriptor(); }
     const RowDescriptor& row_desc() const override { return _child_x->row_desc(); }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

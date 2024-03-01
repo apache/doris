@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 
 import com.google.common.collect.Lists;
@@ -119,7 +120,7 @@ public class SimplifyArithmeticRule extends AbstractExpressionRewriteRule {
                 : Operand.of(true, getAddOrMultiply(isAddOrSub, x, y)));
 
         if (result.isPresent()) {
-            return result.get().expression;
+            return TypeCoercionUtils.castIfNotSameType(result.get().expression, arithmetic.getDataType());
         } else {
             return arithmetic;
         }

@@ -99,6 +99,9 @@ public:
                      const DescriptorTbl& descs)
             : Base(sink_id, tnode.node_id, tnode.node_id),
               _cur_child_id(child_id),
+              _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
+                                      ? tnode.intersect_node.result_expr_lists.size()
+                                      : tnode.except_node.result_expr_lists.size()),
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),
               _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
@@ -115,8 +118,7 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
@@ -132,7 +134,7 @@ private:
                                  vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs);
 
     const int _cur_child_id;
-    int _child_quantity;
+    const int _child_quantity;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;

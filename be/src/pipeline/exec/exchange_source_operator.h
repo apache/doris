@@ -51,17 +51,24 @@ public:
 };
 
 class ExchangeSourceOperatorX;
-class ExchangeLocalState final : public PipelineXLocalState<AndSharedState> {
+class ExchangeLocalState final : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
 
 public:
-    using Base = PipelineXLocalState<AndSharedState>;
+    using Base = PipelineXLocalState<>;
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
+
+    std::vector<Dependency*> dependencies() const override {
+        std::vector<Dependency*> dep_vec;
+        std::for_each(deps.begin(), deps.end(),
+                      [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
+        return dep_vec;
+    }
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
@@ -80,8 +87,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     std::string debug_string(int indentation_level = 0) const override;
 
