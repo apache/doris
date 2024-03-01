@@ -169,6 +169,7 @@ public abstract class AbstractInsertExecutor {
             onComplete();
         } catch (Throwable t) {
             onFail(t);
+            return;
         } finally {
             executor.updateProfile(true);
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
