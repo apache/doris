@@ -1317,6 +1317,14 @@ public class StmtExecutor {
 
     // Because this is called by other thread
     public void cancel() {
+        if (masterOpExecutor != null) {
+            try {
+                masterOpExecutor.cancel();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return;
+        }
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel();

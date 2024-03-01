@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,6 +48,8 @@ public class MasterOpExecutor {
     private final OriginStatement originStmt;
     private final ConnectContext ctx;
     private TMasterOpResult result;
+
+    private TNetworkAddress masterAddr;
 
     private int waitTimeoutMs;
     // the total time of thrift connectTime add readTime and writeTime
@@ -84,17 +87,40 @@ public class MasterOpExecutor {
         waitOnReplaying();
     }
 
+    public void cancel() throws Exception {
+        TUniqueId queryId = ctx.queryId();
+        if (queryId == null) {
+            return;
+        }
+        Preconditions.checkNotNull(masterAddr, "query with id %s is not forwarded to master", queryId);
+        TMasterOpRequest request = new TMasterOpRequest();
+        request.setCancelQeury(true);
+        request.setQueryId(queryId);
+        request.setDb(ctx.getDatabase());
+        request.setUser(ctx.getQualifiedUser());
+        request.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        request.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        // just make the protocol happy
+        request.setSql("");
+        result = forward(masterAddr, request);
+        waitOnReplaying();
+    }
+
     private void waitOnReplaying() throws DdlException {
         LOG.info("forwarding to master get result max journal id: {}", result.maxJournalId);
         ctx.getEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
     }
 
-    // Send request to Master
     private TMasterOpResult forward(TMasterOpRequest params) throws Exception {
-        ctx.getEnv().checkReadyOrThrow();
         String masterHost = ctx.getEnv().getMasterHost();
         int masterRpcPort = ctx.getEnv().getMasterRpcPort();
-        TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
+        masterAddr = new TNetworkAddress(masterHost, masterRpcPort);
+        return forward(masterAddr, params);
+    }
+
+    // Send request to Master
+    private TMasterOpResult forward(TNetworkAddress thriftAddress, TMasterOpRequest params) throws Exception {
+        ctx.getEnv().checkReadyOrThrow();
 
         FrontendService.Client client;
         try {
@@ -176,9 +202,9 @@ public class MasterOpExecutor {
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setSyncJournalOnly(true);
+        params.setDb(ctx.getDatabase());
+        params.setUser(ctx.getQualifiedUser());
         // just make the protocol happy
-        params.setDb("");
-        params.setUser("");
         params.setSql("");
         return params;
     }

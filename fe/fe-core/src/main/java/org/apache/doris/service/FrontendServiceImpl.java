@@ -233,6 +233,7 @@ import org.apache.doris.thrift.TTableRef;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TTxnParams;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
@@ -285,6 +286,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private ExecuteEnv exeEnv;
     // key is txn id,value is index of plan fragment instance, it's used by multi table request plan
     private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap =
+            new ConcurrentHashMap<>(64);
+
+    private final Map<TUniqueId, ConnectContext> proxyQueryIdToConnCtx =
             new ConcurrentHashMap<>(64);
 
     private static TNetworkAddress getMasterAddress() {
@@ -986,6 +990,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setPacket("".getBytes());
             return result;
         }
+        if (params.isSetCancelQeury() && params.isCancelQeury()) {
+            if (!params.isSetQueryId()) {
+                throw new TException("a query id is needed to cancel a query");
+            }
+            TUniqueId queryId = params.getQueryId();
+            ConnectContext ctx = proxyQueryIdToConnCtx.get(queryId);
+            if (ctx != null) {
+                ctx.cancelQuery();
+            }
+            final TMasterOpResult result = new TMasterOpResult();
+            result.setStatusCode(0);
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            // just make the protocol happy
+            result.setPacket("".getBytes());
+            return result;
+        }
 
         // add this log so that we can track this stmt
         if (LOG.isDebugEnabled()) {
@@ -1003,7 +1023,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             throw new TException("unknown ConnectType: " + context.getConnectType());
         }
-
+        Runnable clearCallback = () -> {};
+        if (params.isSetQueryId()) {
+            proxyQueryIdToConnCtx.put(params.getQueryId(), context);
+            clearCallback = () -> proxyQueryIdToConnCtx.remove(params.getQueryId());
+        }
         TMasterOpResult result = processor.proxyExecute(params);
         if (QueryState.MysqlStateType.ERR.name().equalsIgnoreCase(result.getStatus())) {
             context.getState().setError(result.getStatus());
@@ -1011,6 +1035,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             context.getState().setOk();
         }
         ConnectContext.remove();
+        clearCallback.run();
         return result;
     }
 
