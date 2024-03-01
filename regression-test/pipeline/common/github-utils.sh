@@ -52,7 +52,7 @@ function create_an_issue_comment_tpch() {
     local ISSUE_NUMBER="$1"
     local COMMENT_BODY_SUMMARY="$2"
     local COMMENT_BODY_DETAIL="$3"
-    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    local machine="${PERF_BUILD_MECHINE:-'aliyun_ecs.g5.8xlarge_32C128G'}"
     COMMENT_BODY="
 <details>
 <summary>TPC-H: <b>${COMMENT_BODY_SUMMARY}</b></summary>
@@ -71,7 +71,7 @@ function create_an_issue_comment_tpcds() {
     local ISSUE_NUMBER="$1"
     local COMMENT_BODY_SUMMARY="$2"
     local COMMENT_BODY_DETAIL="$3"
-    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    local machine="${PERF_BUILD_MECHINE:-'aliyun_ecs.g5.8xlarge_32C128G'}"
     COMMENT_BODY="
 <details>
 <summary>TPC-DS: <b>${COMMENT_BODY_SUMMARY}</b></summary>
@@ -90,7 +90,7 @@ function create_an_issue_comment_clickbench() {
     local ISSUE_NUMBER="$1"
     local COMMENT_BODY_SUMMARY="$2"
     local COMMENT_BODY_DETAIL="$3"
-    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    local machine="${PERF_BUILD_MECHINE:-'aliyun_ecs.g5.8xlarge_32C128G'}"
     COMMENT_BODY="
 <details>
 <summary>ClickBench: <b>${COMMENT_BODY_SUMMARY}</b></summary>
@@ -108,7 +108,7 @@ ${COMMENT_BODY_DETAIL}
 function create_an_issue_comment_load() {
     local ISSUE_NUMBER="$1"
     local COMMENT_BODY="$2"
-    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    local machine="${PERF_BUILD_MECHINE:-'aliyun_ecs.g5.8xlarge_32C128G'}"
     COMMENT_BODY="
 Load test result on machine: '${machine}'
 \`\`\`
