@@ -113,7 +113,47 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     waitingMTMVTaskFinished(jobName)
     order_qt_mtmv_complete "SELECT * FROM ${mvName} order by k1,day,region"
 
-   sql """drop materialized view if exists ${mvName};"""
-   sql """drop catalog if exists ${catalog_name}"""
+    sql """drop materialized view if exists ${mvName};"""
+    create_table_str = """ CREATE TABLE ${hive_database}.${hive_table} (
+                                 `k1` int)
+                                PARTITIONED BY (
+                                  `day` date,
+                                  `region` string)
+                                STORED AS ORC;
+                        """
+    add_partition_str = """
+                            alter table ${hive_database}.${hive_table} add if not exists
+                            partition(day="2038-01-01",region="bj")
+                            partition(day="2038-01-01",region="sh")
+                            partition(day="2020-01-01",region="bj")
+                            partition(day="2020-01-01",region="sh")
+                        """
+    logger.info("hive sql: " + drop_table_str)
+    hive_docker """ ${drop_table_str} """
+    logger.info("hive sql: " + create_table_str)
+    hive_docker """ ${create_table_str} """
+    logger.info("hive sql: " + add_partition_str)
+    hive_docker """ ${add_partition_str} """
+
+     // partition by day
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`day`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+                        'replication_num' = '1',
+                        'partition_sync_limit'='2',
+                        'partition_sync_time_unit'='YEAR'
+                        )
+            AS
+            SELECT k1,day,region FROM ${catalog_name}.${hive_database}.${hive_table};
+        """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(1, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
+    sql """drop materialized view if exists ${mvName};"""
+    sql """drop catalog if exists ${catalog_name}"""
 }
 
