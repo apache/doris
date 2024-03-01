@@ -54,7 +54,7 @@ ALTER DATABASE db_name SET REPLICA QUOTA quota;
 
 说明：
     重命名数据库后，如需要，请使用 REVOKE 和 GRANT 命令修改相应的用户权限。
-    数据库的默认数据量配额为1024GB，默认副本数量配额为1073741824。
+    数据库的默认数据量配额为1024TB，默认副本数量配额为1073741824。
 
 4) 对已有 database 的 property 进行修改操作
 
