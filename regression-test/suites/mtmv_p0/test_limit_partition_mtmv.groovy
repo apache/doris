@@ -184,7 +184,7 @@ suite("test_limit_partition_mtmv") {
         COMMENT 'OLAP'
         PARTITION BY range(`k2`)
         (
-        PARTITION p2038 VALUES [("2038-01-01"),(MAXVALUE)),
+        PARTITION p2038 VALUES [("2038-01-01"),("2038-01-03")),
         PARTITION p2020 VALUES [("2020-01-01"),("2020-01-03"))
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
@@ -210,7 +210,7 @@ suite("test_limit_partition_mtmv") {
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(1, showPartitionsResult.size())
-    assertTrue(showPartitionsResult.toString().contains("p_20380101_MAXVALUE"))
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380103"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName}
@@ -220,5 +220,21 @@ suite("test_limit_partition_mtmv") {
     waitingMTMVTaskFinished(jobName)
     order_qt_date_range "SELECT * FROM ${mvName} order by k1,k2"
 
-    // hive partition two level
+
+    // alter
+    sql """
+            alter Materialized View ${mvName} set("partition_sync_limit"="");
+        """
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName}
+        """
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380103"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101_20200103"))
+    order_qt_date_range_all "SELECT * FROM ${mvName} order by k1,k2"
 }

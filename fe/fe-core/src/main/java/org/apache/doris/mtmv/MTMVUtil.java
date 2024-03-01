@@ -40,6 +40,8 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -180,14 +182,16 @@ public class MTMVUtil {
      */
     public static MTMVPartitionSyncConfig generateMTMVPartitionSyncConfigByProperties(
             Map<String, String> mvProperties) {
-        int syncLimit = mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT) ? Integer
-                .parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) : -1;
-        MTMVPartitionSyncTimeUnit timeUnit = mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT)
-                ? MTMVPartitionSyncTimeUnit
-                .valueOf(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT).toUpperCase())
-                : MTMVPartitionSyncTimeUnit.DAY;
-        Optional<String> dateFormat = mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT)
-                ? Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT)) : Optional.empty();
+        int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) ? -1
+                : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
+        MTMVPartitionSyncTimeUnit timeUnit =
+                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT))
+                        ? MTMVPartitionSyncTimeUnit.DAY : MTMVPartitionSyncTimeUnit
+                        .valueOf(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT).toUpperCase());
+        Optional<String> dateFormat =
+                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT))
+                        ? Optional.empty()
+                        : Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT));
         return new MTMVPartitionSyncConfig(syncLimit, timeUnit, dateFormat);
     }
 }
