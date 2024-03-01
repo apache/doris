@@ -1085,6 +1085,16 @@ void FragmentMgr::cancel_worker() {
                     to_cancel.push_back(fragment_instance_itr.second->fragment_instance_id());
                 }
             }
+            for (auto& pipeline_itr : _pipeline_map) {
+                if (pipeline_itr.second->is_timeout(now)) {
+                    std::vector<TUniqueId> ins_ids;
+                    reinterpret_cast<pipeline::PipelineXFragmentContext*>(pipeline_itr.second.get())
+                            ->instance_ids(ins_ids);
+                    for (auto& ins_id : ins_ids) {
+                        to_cancel.push_back(ins_id);
+                    }
+                }
+            }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
                     LOG_WARNING("Query {} is timeout", print_id(it->first));
