@@ -56,6 +56,7 @@ public class DoubleLiteral extends Literal {
     public String toString() {
         NumberFormat nf = NumberFormat.getInstance();
         nf.setGroupingUsed(false);
+        nf.setMaximumFractionDigits(16);
         return nf.format(value);
     }
 
