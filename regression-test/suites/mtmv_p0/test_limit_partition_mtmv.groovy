@@ -210,7 +210,7 @@ suite("test_limit_partition_mtmv") {
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(1, showPartitionsResult.size())
-    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380103"))
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_MAXVALUE"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName}
