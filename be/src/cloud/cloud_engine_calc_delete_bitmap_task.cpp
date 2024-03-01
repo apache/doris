@@ -103,7 +103,10 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             auto tablet_calc_delete_bitmap_ptr = std::make_shared<CloudTabletCalcDeleteBitmapTask>(
                     _engine, this, tablet, transaction_id, version);
             auto submit_st = token->submit_func([=]() { tablet_calc_delete_bitmap_ptr->handle(); });
-            CHECK(submit_st.ok());
+            if (!submit_st.ok()) {
+                _res = submit_st;
+                break;
+            }
         }
     }
     // wait for all finished

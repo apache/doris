@@ -32,6 +32,7 @@
 #include "olap/txn_manager.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -1233,6 +1234,25 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
             LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
         }
         self->_remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
+    }
+
+    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update) {
+        DBUG_EXECUTE_IF("Tablet.update_delete_bitmap.partial_update_write_rowset_fail", {
+            if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+                LOG_WARNING("Tablet.update_delete_bitmap.partial_update_write_rowset random failed")
+                        .tag("txn_id", txn_id);
+                return Status::InternalError(
+                        "debug update_delete_bitmap partial update write rowset random failed");
+            }
+        });
+        // build rowset writer and merge transient rowset
+        RETURN_IF_ERROR(rowset_writer->flush());
+        RowsetSharedPtr transient_rowset;
+        RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
+        rowset->merge_rowset_meta(transient_rowset->rowset_meta());
+
+        // erase segment cache cause we will add a segment to rowset
+        SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
     }
 
     RETURN_IF_ERROR(self->save_delete_bitmap(txn_info, txn_id, delete_bitmap, rowset_writer.get(),

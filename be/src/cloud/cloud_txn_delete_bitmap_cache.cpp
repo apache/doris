@@ -83,7 +83,7 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
     } else {
         LOG_INFO("cache missed when get delete bitmap")
                 .tag("txn_id", transaction_id)
-                .tag("tablt_id", tablet_id);
+                .tag("tablet_id", tablet_id);
         // Becasue of the rowset_ids become empty, all delete bitmap
         // will be recalculate in CalcDeleteBitmapTask
         *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
@@ -125,7 +125,7 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
     LOG_INFO("set txn related delete bitmap")
             .tag("txn_id", transaction_id)
             .tag("expiration", txn_expiration)
-            .tag("tablt_id", tablet_id)
+            .tag("tablet_id", tablet_id)
             .tag("delete_bitmap_size", charge);
 }
 
@@ -136,9 +136,7 @@ void CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transactio
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
     CacheKey key(key_str);
 
-    DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
-    *new_delete_bitmap = *delete_bitmap;
-    auto val = new DeleteBitmapCacheValue(new_delete_bitmap, rowset_ids);
+    auto val = new DeleteBitmapCacheValue(delete_bitmap, rowset_ids);
     auto deleter = [](const CacheKey&, void* value) {
         delete (DeleteBitmapCacheValue*)value; // Just delete to reclaim
     };
