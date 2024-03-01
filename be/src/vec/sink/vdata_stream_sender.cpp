@@ -423,9 +423,11 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
         if (_hash_type == THashType::CRC32) {
             _partitioner.reset(
                     new Crc32HashPartitioner<ShuffleChannelIds>(_channel_shared_ptrs.size()));
-        } else {
+        } else if (_hash_type == THashType::SPARK_MURMUR32) {
             _partitioner.reset(new Murmur32HashPartitioner<ShufflePModChannelIds>(
                     _channel_shared_ptrs.size()));
+        } else {
+            return Status::InternalError("Invalid hash type for bucket shuffle: {}", _hash_type);
         }
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {

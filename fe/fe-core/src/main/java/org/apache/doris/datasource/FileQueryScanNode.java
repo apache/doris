@@ -350,12 +350,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
                         ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys,
                         false, isACID) : fileSplit.getPartitionValues();
 
-                boolean isBucketedHiveTable = false;
+                boolean isSparkBucketedHiveTable = false;
                 int bucketNum = 0;
                 TableIf targetTable = getTargetTable();
                 if (targetTable instanceof HMSExternalTable) {
-                    isBucketedHiveTable = ((HMSExternalTable) targetTable).isBucketedTable();
-                    if (isBucketedHiveTable) {
+                    isSparkBucketedHiveTable = ((HMSExternalTable) targetTable).isSparkBucketedTable();
+                    if (isSparkBucketedHiveTable) {
                         bucketNum = HiveBucketUtil.getBucketNumberFromPath(fileSplit.getPath().getName()).getAsInt();
                     }
                 }
@@ -397,7 +397,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                             fileSplit.getStart(), fileSplit.getLength(),
                             Joiner.on("|").join(fileSplit.getHosts()));
                 }
-                if (isBucketedHiveTable) {
+                if (isSparkBucketedHiveTable) {
                     bucketSeq2locations.put(bucketNum, curLocations);
                 }
                 scanRangeLocations.add(curLocations);

@@ -2027,7 +2027,7 @@ public class Coordinator implements CoordInterface {
                                 .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
                                         fragmentExecParamsMap.get(scanNode.getFragment().getFragmentId())
                                                 .scanRangeAssignment.size())) && useNereids);
-                        if (node.isPresent() && (!node.get().shouldDisa:bleSharedScan(context)
+                        if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
@@ -2245,13 +2245,8 @@ public class Coordinator implements CoordInterface {
                 computeScanRangeAssignmentByColocate((OlapScanNode) scanNode, assignedBytesPerHost, replicaNumPerHost);
             }
             if (fragmentContainsBucketShuffleJoin) {
-                if (scanNode instanceof OlapScanNode) {
-                    bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode,
-                            idToBackend, addressToBackendID, replicaNumPerHost);
-                } else if (scanNode instanceof HiveScanNode) {
-                    bucketShuffleJoinController.computeScanRangeAssignmentByBucket((HiveScanNode) scanNode,
-                            idToBackend, addressToBackendID, replicaNumPerHost);
-                }
+                bucketShuffleJoinController.computeScanRangeAssignmentByBucket(scanNode,
+                        idToBackend, addressToBackendID, replicaNumPerHost);
             }
             if (!(fragmentContainsColocateJoin || fragmentContainsBucketShuffleJoin)) {
                 computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost,
@@ -2841,8 +2836,21 @@ public class Coordinator implements CoordInterface {
             this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
         }
 
-        // to ensure the same bucketSeq tablet to the same execHostPort
         private void computeScanRangeAssignmentByBucket(
+                final ScanNode scanNode, ImmutableMap<Long, Backend> idToBackend,
+                Map<TNetworkAddress, Long> addressToBackendID,
+                Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+            if (scanNode instanceof OlapScanNode) {
+                computeScanRangeAssignmentByBucketForOlap((OlapScanNode) scanNode, idToBackend, addressToBackendID,
+                        replicaNumPerHost);
+            } else if (scanNode instanceof HiveScanNode) {
+                computeScanRangeAssignmentByBucketForHive((HiveScanNode) scanNode, idToBackend, addressToBackendID,
+                        replicaNumPerHost);
+            }
+        }
+
+        // to ensure the same bucketSeq tablet to the same execHostPort
+        private void computeScanRangeAssignmentByBucketForOlap(
                 final OlapScanNode scanNode, ImmutableMap<Long, Backend> idToBackend,
                 Map<TNetworkAddress, Long> addressToBackendID,
                 Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
@@ -2893,13 +2901,13 @@ public class Coordinator implements CoordInterface {
             }
         }
 
-        private void computeScanRangeAssignmentByBucket(
+        private void computeScanRangeAssignmentByBucketForHive(
                 final HiveScanNode scanNode, ImmutableMap<Long, Backend> idToBackend,
                 Map<TNetworkAddress, Long> addressToBackendID,
                 Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
             if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
                 int bucketNum = 0;
-                if (scanNode.getHiveTable().isBucketedTable()) {
+                if (scanNode.getHiveTable().isSparkBucketedTable()) {
                     bucketNum = scanNode.getHiveTable().getDefaultDistributionInfo().getBucketNum();
                 } else {
                     throw new NotImplementedException("bucket shuffle for non-bucketed table not supported");

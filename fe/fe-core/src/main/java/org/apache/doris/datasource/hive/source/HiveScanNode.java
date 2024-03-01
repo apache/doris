@@ -425,7 +425,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public DataPartition constructInputPartitionByDistributionInfo() {
-        if (hmsTable.isBucketedTable()) {
+        if (hmsTable.isSparkBucketedTable()) {
             DistributionInfo distributionInfo = hmsTable.getDefaultDistributionInfo();
             if (!(distributionInfo instanceof HashDistributionInfo)) {
                 return DataPartition.RANDOM;
@@ -448,7 +448,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public THashType getHashType() {
-        if (hmsTable.isBucketedTable()
+        if (hmsTable.isSparkBucketedTable()
                 && hmsTable.getDefaultDistributionInfo() instanceof HashDistributionInfo) {
             return THashType.SPARK_MURMUR32;
         }

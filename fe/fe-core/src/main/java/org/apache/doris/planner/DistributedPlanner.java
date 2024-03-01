@@ -625,11 +625,8 @@ public class DistributedPlanner {
         }
 
         PlanNode leftRoot = leftChildFragment.getPlanRoot();
-        // 1.leftRoot be OlapScanNode
-        if (leftRoot instanceof OlapScanNode) {
-            return canBucketShuffleJoin(node, (OlapScanNode) leftRoot, rhsHashExprs);
-        } else if (leftRoot instanceof HiveScanNode) {
-            return canBucketShuffleJoin(node, (HiveScanNode) leftRoot, rhsHashExprs, hashType);
+        if (leftRoot instanceof ScanNode) {
+            return canBucketShuffleJoin(node, (ScanNode) leftRoot, rhsHashExprs, hashType);
         }
 
         // 2.leftRoot be hashjoin node
@@ -637,17 +634,26 @@ public class DistributedPlanner {
             while (leftRoot instanceof HashJoinNode) {
                 leftRoot = leftRoot.getChild(0);
             }
-            if (leftRoot instanceof OlapScanNode) {
-                return canBucketShuffleJoin(node, (OlapScanNode) leftRoot, rhsHashExprs);
-            } else if (leftRoot instanceof HiveScanNode) {
-                return canBucketShuffleJoin(node, (HiveScanNode) leftRoot, rhsHashExprs, hashType);
+            if (leftRoot instanceof ScanNode) {
+                canBucketShuffleJoin(node, (ScanNode) leftRoot, rhsHashExprs, hashType);
             }
         }
 
         return false;
     }
 
-    private boolean canBucketShuffleJoin(HashJoinNode node, HiveScanNode leftScanNode,
+    private boolean canBucketShuffleJoin(HashJoinNode node, ScanNode leftScanNode,
+            List<Expr> rhsJoinExprs, Ref<THashType> hashType) {
+        if (leftScanNode instanceof OlapScanNode) {
+            return canBucketShuffleJoinForOlap(node, (OlapScanNode) leftScanNode, rhsJoinExprs);
+        } else if (leftScanNode instanceof HiveScanNode) {
+            return canBucketShuffleJoinForHive(node, (HiveScanNode) leftScanNode, rhsJoinExprs, hashType);
+        } else {
+            return false;
+        }
+    }
+
+    private boolean canBucketShuffleJoinForHive(HashJoinNode node, HiveScanNode leftScanNode,
                                          List<Expr> rhsJoinExprs, Ref<THashType> hashType) {
         HMSExternalTable leftTable = leftScanNode.getHiveTable();
 
@@ -713,7 +719,7 @@ public class DistributedPlanner {
     }
 
     //the join expr must contian left table distribute column
-    private boolean canBucketShuffleJoin(HashJoinNode node, OlapScanNode leftScanNode,
+    private boolean canBucketShuffleJoinForOlap(HashJoinNode node, OlapScanNode leftScanNode,
                                          List<Expr> rhsJoinExprs) {
         OlapTable leftTable = leftScanNode.getOlapTable();
 
