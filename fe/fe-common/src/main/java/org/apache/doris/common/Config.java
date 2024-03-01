@@ -1168,14 +1168,6 @@ public class Config extends ConfigBase {
     public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
 
     /**
-     * If set to true, the insert stmt with processing error will still return a label to user.
-     * And user can use this label to check the load job's status.
-     * The default value is false, which means if insert operation encounter errors,
-     * exception will be thrown to user client directly without load label.
-     */
-    @ConfField(mutable = true, masterOnly = true) public static boolean using_old_load_usage_pattern = false;
-
-    /**
      * This will limit the max recursion depth of hash distribution pruner.
      * eg: where a in (5 elements) and b in (4 elements) and c in (3 elements) and d in (2 elements).
      * a/b/c/d are distribution columns, so the recursion depth will be 5 * 4 * 3 * 2 = 120, larger than 100,

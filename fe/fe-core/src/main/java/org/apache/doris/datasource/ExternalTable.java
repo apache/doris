@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -25,9 +24,6 @@ import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -55,8 +51,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -86,7 +80,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected long dbId;
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
-    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
     /**
      * No args constructor for persist.
@@ -130,102 +123,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         } catch (AnalysisException e) {
             Util.logAndThrowRuntimeException(LOG, String.format("Exception to get db %s", dbName), e);
         }
-    }
-
-    @Override
-    public void readLock() {
-        this.rwLock.readLock().lock();
-    }
-
-    @Override
-    public boolean tryReadLock(long timeout, TimeUnit unit) {
-        try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try read lock at table[" + name + "]", e);
-            return false;
-        }
-    }
-
-    @Override
-    public void readUnlock() {
-        this.rwLock.readLock().unlock();
-    }
-
-    @Override
-    public void writeLock() {
-        this.rwLock.writeLock().lock();
-    }
-
-    @Override
-    public boolean writeLockIfExist() {
-        writeLock();
-        return true;
-    }
-
-    @Override
-    public boolean tryWriteLock(long timeout, TimeUnit unit) {
-        try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try write lock at table[" + name + "]", e);
-            return false;
-        }
-    }
-
-    @Override
-    public void writeUnlock() {
-        this.rwLock.writeLock().unlock();
-    }
-
-    @Override
-    public boolean isWriteLockHeldByCurrentThread() {
-        return this.rwLock.writeLock().isHeldByCurrentThread();
-    }
-
-    @Override
-    public <E extends Exception> void writeLockOrException(E e) throws E {
-        writeLock();
-    }
-
-    @Override
-    public void writeLockOrDdlException() throws DdlException {
-        writeLockOrException(new DdlException("unknown table, tableName=" + name,
-                                        ErrorCode.ERR_BAD_TABLE_ERROR));
-    }
-
-    @Override
-    public void writeLockOrMetaException() throws MetaNotFoundException {
-        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name,
-                                        ErrorCode.ERR_BAD_TABLE_ERROR));
-    }
-
-    @Override
-    public void writeLockOrAlterCancelException() throws AlterCancelException {
-        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name,
-                                        ErrorCode.ERR_BAD_TABLE_ERROR));
-    }
-
-    @Override
-    public boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
-        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name,
-                                        ErrorCode.ERR_BAD_TABLE_ERROR));
-    }
-
-    @Override
-    public <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
-        if (tryWriteLock(timeout, unit)) {
-            return true;
-        }
-        return false;
-    }
-
-    @Override
-    public boolean tryWriteLockIfExist(long timeout, TimeUnit unit) {
-        if (tryWriteLock(timeout, unit)) {
-            return true;
-        }
-        return false;
     }
 
     @Override
@@ -417,7 +314,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        rwLock = new ReentrantReadWriteLock(true);
         objectCreated = false;
     }
 
