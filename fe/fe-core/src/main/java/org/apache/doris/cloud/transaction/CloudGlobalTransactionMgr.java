@@ -234,7 +234,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void preCommitTransaction2PC(Database db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        //Preconditions.checkState(false, "should not implement this in derived class");
         LOG.info("try to precommit transaction: {}", transactionId);
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
