@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_build_index_fault", "inverted_index, nonConcurrent"){
+suite("test_build_index_fault", "inverted_index, nonConcurrent,p2"){
     // prepare test table
     def timeout = 60000
     def delta_time = 1000
