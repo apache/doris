@@ -52,7 +52,7 @@ suite("test_limit_partition_mtmv") {
             PROPERTIES (
             'replication_num' = '1',
             'partition_sync_limit'='2',
-            'partition_sync_time_unit'='MONTH'
+            'partition_sync_time_unit'='YEAR'
             )
             AS
             SELECT * FROM ${tableName};
@@ -121,6 +121,55 @@ suite("test_limit_partition_mtmv") {
     waitingMTMVTaskFinished(jobName)
     order_qt_varchar_type "SELECT * FROM ${mvName} order by k1,k2"
 
+
+    // list partition int type
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` int NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY list(`k2`)
+        (
+        PARTITION p_20380101 VALUES IN ("20380101"),
+        PARTITION p_20200101 VALUES IN ("20200101")
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,20380101),(2,20200101);
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`k2`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='2',
+            'partition_sync_time_unit'='DAY',
+            'partition_date_format'='%Y%m%d'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(1, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName}
+        """
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_varchar_type "SELECT * FROM ${mvName} order by k1,k2"
 
 
     // hive partition two level
