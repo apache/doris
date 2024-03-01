@@ -44,6 +44,14 @@ public interface MTMVRelatedTableIf extends TableIf {
      */
     Map<Long, PartitionItem> getPartitionItems();
 
+    /**
+     * Obtain a list of partitions filtered by time
+     *
+     * @param pos The position of the partition column to be checked in all partition columns
+     * @param config
+     * @return
+     * @throws AnalysisException
+     */
     default Map<Long, PartitionItem> getPartitionItems(int pos, MTMVPartitionSyncConfig config)
             throws AnalysisException {
         Map<Long, PartitionItem> partitionItems = getPartitionItems();

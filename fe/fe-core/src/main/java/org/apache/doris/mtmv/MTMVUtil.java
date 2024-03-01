@@ -80,6 +80,14 @@ public class MTMVUtil {
         return false;
     }
 
+    /**
+     * Obtain the minimum second from `syncLimit` `timeUnit` ago
+     *
+     * @param timeUnit
+     * @param syncLimit
+     * @return
+     * @throws AnalysisException
+     */
     public static long getNowTruncSubSec(MTMVPartitionSyncTimeUnit timeUnit, int syncLimit)
             throws AnalysisException {
         if (syncLimit < 1) {
@@ -130,6 +138,14 @@ public class MTMVUtil {
         return (DateTimeLiteral) result;
     }
 
+    /**
+     * Convert LiteralExpr to second
+     *
+     * @param expr
+     * @param dateFormatOptional
+     * @return
+     * @throws AnalysisException
+     */
     public static long getExprTimeSec(LiteralExpr expr, Optional<String> dateFormatOptional) throws AnalysisException {
         if (expr instanceof DateLiteral) {
             return ((DateLiteral) expr).unixTimestamp(TimeUtils.getTimeZone()) / 1000;

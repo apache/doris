@@ -113,6 +113,7 @@ public class ListPartitionItem extends PartitionItem {
             }
             if (MTMVUtil.getExprTimeSec(partitionKey.getKeys().get(pos), dateFormatOptional)
                     >= nowTruncSubSec) {
+                // As long as one of the partitionKeys meets the requirements, this partition needs to be retained
                 return true;
             }
         }

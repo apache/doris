@@ -48,6 +48,15 @@ public abstract class PartitionItem implements Comparable<PartitionItem>, Writab
      */
     public abstract PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException;
 
+    /**
+     * Check if the partition meets the time requirements
+     *
+     * @param pos The position of the partition column to be checked in all partition columns
+     * @param dateFormatOptional Convert other types to date format
+     * @param nowTruncSubSec The time to compare
+     * @return
+     * @throws AnalysisException
+     */
     public abstract boolean isSatisfyConfig(int pos, Optional<String> dateFormatOptional, long nowTruncSubSec)
             throws AnalysisException;
 }
