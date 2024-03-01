@@ -224,9 +224,9 @@ public class UpdateStmt extends DdlStmt {
             for (BinaryPredicate setExpr : setExprs) {
                 Expr lhs = setExpr.getChild(0);
                 Column exprColumn = ((SlotRef) lhs).getColumn();
-                if (exprColumn.equals(column) ||
-                        (olapTable.hasSequenceCol() && (column.equals(olapTable.getSequenceCol()) &&
-                                seqColInTable.isPresent() && (exprColumn.equals(seqColInTable.get()))))) {
+                if (exprColumn.equals(column) || (olapTable.hasSequenceCol()
+                        && column.equals(olapTable.getSequenceCol()) && seqColInTable.isPresent()
+                        && exprColumn.equals(seqColInTable.get()))) {
                     expr = setExpr.getChild(1);
                     existInExpr = true;
                 }
