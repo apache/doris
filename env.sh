@@ -224,6 +224,28 @@ function jdk_version() {
     return 0
 }
 
+# check java version
+# must use jdk_17
+function check_jdk_version() {
+    if [[ ! -x "${JAVA}" ]]; then
+        echo "The JAVA_HOME environment variable is not defined correctly"
+        echo "This environment variable is needed to run this program"
+        echo "NB: JAVA_HOME should point to a JDK not a JRE"
+        exit 1
+    fi
+
+    echo "Check JAVA version"
+    java_version="$(
+        set -e
+        jdk_version "${JAVA}"
+    )"
+    if [[ "${java_version}" -ne 17 ]]; then
+        echo "ERROR: The JAVA version is ${java_version}, it must be JDK-17."
+        exit 1
+    fi
+    return 0
+}
+
 # if is called from build-thirdparty.sh, no need to check these tools
 if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
     # register keyword is forbidden to use in C++17
@@ -238,31 +260,41 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
 
     # check java home
     if [[ -z "${JAVA_HOME}" ]]; then
-        JAVA="$(command -v java)"
-        JAVAP="$(command -v javap)"
+        if [[ "${JDK_17}" ]]; then
+            echo "Use JDK_17"
+            JAVA="${JDK_17}/bin/java"
+            JAVAP="${JDK_17}/bin/javap"
+            export JAVA_HOME="${JDK_17}"
+        else
+            JAVA="$(command -v java)"
+            JAVAP="$(command -v javap)"
+        fi
+        check_jdk_version
     else
         JAVA="${JAVA_HOME}/bin/java"
         JAVAP="${JAVA_HOME}/bin/javap"
+
+        echo "Check JAVA_HOME version"
+        java_version="$(
+            set -e
+            jdk_version "${JAVA}"
+        )"
+        if [[ "${java_version}" -ne 17 ]]; then
+            echo "JAVA_HOME does not point to JDK-17."
+            if [[ "${JDK_17}" ]]; then
+                echo "Use JDK_17 environment variable."
+                JAVA="${JDK_17}/bin/java"
+                JAVAP="${JDK_17}/bin/javap"
+                export JAVA_HOME="${JDK_17}"
+                check_jdk_version
+            else
+                echo "ERROR: The JAVA version is ${java_version}, it must be JDK-17."
+                exit 1
+            fi
+        fi
     fi
     export JAVA
 
-    if [[ ! -x "${JAVA}" ]]; then
-        echo "The JAVA_HOME environment variable is not defined correctly"
-        echo "This environment variable is needed to run this program"
-        echo "NB: JAVA_HOME should point to a JDK not a JRE"
-        exit 1
-    fi
-
-    # check java version
-    echo "Check JAVA version"
-    java_version="$(
-        set -e
-        jdk_version "${JAVA}"
-    )"
-    if [[ "${java_version}" -ne 17 ]]; then
-        echo "ERROR: The JAVA version is ${java_version}, it must be JDK-17."
-        exit 1
-    fi
 
     JAVA_VER="$("${JAVAP}" -verbose java.lang.String | grep "major version" | cut -d " " -f5)"
     if [[ "${JAVA_VER}" -lt 52 ]]; then
