@@ -558,7 +558,6 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
      //Test the unique model by modify a value type from TINYINT  to STRING
-     //java.sql.SQLException: errCode = 2, detailMessage = Can not change TINYINT to STRING
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column is_student STRING """
