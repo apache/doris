@@ -19,6 +19,7 @@
 
 #include <absl/time/clock.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <chrono>
@@ -123,6 +124,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
         THROW_IF_ERROR(writer.finalize());
         THROW_IF_ERROR(writer.close());
     } else if (_dump_type == RecordType::Periodic) {
+        //TODO: if long time, per timeslice per file
         auto path = _dir / fmt::format("until{}",
                                        std::chrono::steady_clock::now().time_since_epoch().count());
         int fd = ::open(
