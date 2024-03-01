@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka,mariadb
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka,mariadb,db2
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,iceberg"
+    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb,db2"
         fi
     fi
 fi
@@ -133,6 +133,7 @@ RUN_TRINO=0
 RUN_KAFKA=0
 RUN_SPARK=0
 RUN_MARIADB=0
+RUN_DB2=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -161,6 +162,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_SPARK=1
     elif [[ "${element}"x == "mariadb"x ]];then
         RUN_MARIADB=1
+    elif [[ "${element}"x == "db2"x ]];then
+        RUN_DB2=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -225,6 +228,18 @@ if [[ "${RUN_ORACLE}" -eq 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
         sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
+    fi
+fi
+
+if [[ "${RUN_DB2}" -eq 1 ]]; then
+    # db2
+    cp "${ROOT}"/docker-compose/db2/db2.yaml.tpl "${ROOT}"/docker-compose/db2/db2.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/db2/db2.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo rm "${ROOT}"/docker-compose/db2/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/db2/data/
+        sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env up -d
     fi
 fi
 
