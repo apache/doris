@@ -128,13 +128,13 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
-import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
+import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapScanNode;
@@ -2137,22 +2137,12 @@ public class StmtExecutor {
                     LOG.warn("errors when abort txn", abortTxnException);
                 }
 
-                if (!Config.using_old_load_usage_pattern) {
-                    // if not using old load usage pattern, error will be returned directly to user
-                    StringBuilder sb = new StringBuilder(t.getMessage());
-                    if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
-                        sb.append(". url: " + coord.getTrackingUrl());
-                    }
-                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
-                    return;
+                StringBuilder sb = new StringBuilder(t.getMessage());
+                if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
+                    sb.append(". url: " + coord.getTrackingUrl());
                 }
-
-                /*
-                 * If config 'using_old_load_usage_pattern' is true.
-                 * Doris will return a label to user, and user can use this label to check load job's status,
-                 * which exactly like the old insert stmt usage pattern.
-                 */
-                throwable = t;
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
+                return;
             } finally {
                 if (coord != null) {
                     coord.close();
