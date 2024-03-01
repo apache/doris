@@ -81,7 +81,7 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
                 }
             }
             StorageBucketHashType function = StorageBucketHashType.STORAGE_BUCKET_CRC32;
-            if (hmsExternalTable.isBucketedTable()) {
+            if (hmsExternalTable.isSparkBucketedTable()) {
                 function = StorageBucketHashType.STORAGE_BUCKET_SPARK_MURMUR32;
             }
             return new DistributionSpecHash(hashColumns, DistributionSpecHash.ShuffleType.NATURAL,

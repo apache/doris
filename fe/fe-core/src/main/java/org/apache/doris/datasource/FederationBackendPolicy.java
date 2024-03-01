@@ -200,8 +200,6 @@ public class FederationBackendPolicy {
         } catch (ExecutionException e) {
             throw new UserException("failed to get consistent hash", e);
         }
-        /*consistentBucket = new ConsistentHash<>(Hashing.murmur3_128(), new BucketHash(),
-                new BackendHash(), backends, Config.virtual_node_number);*/
     }
 
     public Backend getNextBe() {

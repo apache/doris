@@ -29,25 +29,10 @@ public class HiveExternalDistributionInfo extends HashDistributionInfo {
     @SerializedName(value = "bucketingVersion")
     private final int bucketingVersion;
 
-    public HiveExternalDistributionInfo() {
-        bucketingVersion = 2;
-    }
-
     public HiveExternalDistributionInfo(int bucketNum, List<Column> distributionColumns, int bucketingVersion) {
         super(bucketNum, distributionColumns);
         this.bucketingVersion = bucketingVersion;
     }
-
-    public HiveExternalDistributionInfo(int bucketNum, boolean autoBucket,
-                                        List<Column> distributionColumns, int bucketingVersion) {
-        super(bucketNum, autoBucket, distributionColumns);
-        this.bucketingVersion = bucketingVersion;
-    }
-
-    public int getBucketingVersion() {
-        return bucketingVersion;
-    }
-
 
     @Override
     public boolean equals(Object o) {

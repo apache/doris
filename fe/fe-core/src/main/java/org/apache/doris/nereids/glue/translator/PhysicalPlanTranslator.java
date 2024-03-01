@@ -2692,17 +2692,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             THashType hashType = THashType.XXHASH64;
             switch (distributionSpecHash.getShuffleType()) {
                 case STORAGE_BUCKETED:
-                    switch (distributionSpecHash.getShuffleFunction()) {
-                        case STORAGE_BUCKET_SPARK_MURMUR32:
-                            hashType = THashType.SPARK_MURMUR32;
-                            break;
-                        case STORAGE_BUCKET_CRC32:
-                            hashType = THashType.CRC32;
-                            break;
-                        case STORAGE_BUCKET_XXHASH64:
-                        default:
-                            break;
-                    }
+                    hashType = distributionSpecHash.getShuffleFunction().toThrift();
                     partitionType = TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
                     break;
                 case EXECUTION_BUCKETED:
