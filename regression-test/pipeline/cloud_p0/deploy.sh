@@ -61,10 +61,11 @@ exit_flag=0
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
     fdb_cluster="$(cat /etc/foundationdb/fdb.cluster)"
     sed -i "s/^fdb_cluster = .*/fdb_cluster = ${fdb_cluster}/" "${DORIS_HOME}"/ms/conf/doris_cloud.conf
-    # this is a temporary config, need to replace in cloud_p0/conf/doris_cloud.conf
-    echo "meta_schema_value_version = 1" >>"${DORIS_HOME}"/ms/conf/doris_cloud.conf
     sed -i "s/^fdb_cluster = .*/fdb_cluster = ${fdb_cluster}/" "${DORIS_HOME}"/recycler/conf/doris_cloud.conf
-    sed -i "s/^brpc_listen_port = .*/fbrpc_listen_port = 6000/" "${DORIS_HOME}"/recycler/conf/doris_cloud.conf
+    cat "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/ms_custom.conf >>"${DORIS_HOME}"/ms/conf/doris_cloud.conf
+    echo >>"${DORIS_HOME}"/ms/conf/doris_cloud.conf
+    cat "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/recycler_custom.conf >>"${DORIS_HOME}"/recycler/conf/doris_cloud.conf
+    echo >>"${DORIS_HOME}"/recycler/conf/doris_cloud.conf
     print_doris_conf
 
     echo "#### 4. start Doris"
@@ -93,7 +94,7 @@ if [[ ${exit_flag} != "0" ]]; then
     stop_doris
     print_doris_fe_log
     print_doris_be_log
-    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_doris_logs.tar.gz"); then
+    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
 fi
