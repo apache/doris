@@ -157,7 +157,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId);
             // dataProperty.setStorageVaultId(storageVaultId);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
-            if (resp.hasStoragevaultId() && !storageVaultIdSet) {
+            if (resp.hasStorageVaultId() && !storageVaultIdSet) {
                 tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
                 storageVaultIdSet = true;
             }
@@ -510,6 +510,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             throw new DdlException(response.getStatus().getMsg());
         }
+        return response;
     }
 
     // END CREATE TABLE
