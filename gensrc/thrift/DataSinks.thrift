@@ -277,6 +277,23 @@ struct TOlapTableSink {
     23: optional double max_filter_ratio
 }
 
+struct TWriteLocation {
+  1: optional string write_path
+  2: optional string target_path
+}
+
+struct THiveTableSink {
+    1: optional string db_name
+    2: optional string table_name
+    3: optional list<string> data_column_names
+    4: optional list<string> partition_column_names
+    5: optional list<Partitions.TWritePartition> partitions
+    6: optional list<Partitions.TWriteBucket> buckets
+    7: optional PlanNodes.TFileFormatType file_format
+    8: optional Types.TCompressionType compression_type
+    9: optional TWriteLocation location
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -289,5 +306,20 @@ struct TDataSink {
   10: optional TResultFileSink result_file_sink
   11: optional TJdbcTableSink jdbc_table_sink
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
+  13: optional THiveTableSink hive_table_sink
 }
 
+struct THivePartitionUpdate {
+    1: optional string name
+    2: optional TUpdateMode update_mode
+    3: optional TWriteLocation location
+    4: optional list<string> file_names
+    5: optional i64 row_count
+    6: optional i64 file_size
+}
+
+enum TUpdateMode {
+    NEW = 0, // add partition
+    APPEND = 1, // alter partition
+    OVERWRITE = 2 // insert overwrite
+}

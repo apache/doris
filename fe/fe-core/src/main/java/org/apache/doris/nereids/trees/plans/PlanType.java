@@ -95,6 +95,7 @@ public enum PlanType {
     // logical sinks
     PHYSICAL_FILE_SINK,
     PHYSICAL_OLAP_TABLE_SINK,
+    PHYSICAL_HIVE_TABLE_SINK,
     PHYSICAL_RESULT_SINK,
 
     // logical others
