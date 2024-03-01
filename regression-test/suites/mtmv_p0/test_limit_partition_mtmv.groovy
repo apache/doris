@@ -39,7 +39,7 @@ suite("test_limit_partition_mtmv") {
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableNameNum} values(1,"9999-01-01"),(2,"2020-01-01");
+        insert into ${tableName} values(1,"9999-01-01"),(2,"2020-01-01");
         """
 
     sql """
