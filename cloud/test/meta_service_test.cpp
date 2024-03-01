@@ -5065,6 +5065,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         HdfsParams params;
 
         hdfs.mutable_hdfs()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;

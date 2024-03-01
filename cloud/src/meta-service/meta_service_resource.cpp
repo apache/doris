@@ -289,24 +289,21 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
 // The next avaiable vault id would be max(max(obj info id), max(vault id)) + 1.
 static std::string next_avaiable_vault_id(const InstanceInfoPB& instance) {
-    std::string vault_id = "1";
-    auto cmp = [](const std::string& prev, const auto& last) {
-        size_t prev_value = std::stoi(prev);
+    size_t vault_id = 0;
+    auto cmp = [](size_t prev, const auto& last) {
         size_t last_id = 0;
-        if constexpr (std::is_same_v<decltype(last), ObjectStoreInfoPB>) {
+        if constexpr (std::is_same_v<std::decay_t<decltype(last)>, ObjectStoreInfoPB>) {
             last_id = std::stoi(last.id());
-        } else if constexpr (std::is_same_v<decltype(last), std::string>) {
+        } else if constexpr (std::is_same_v<std::decay_t<decltype(last)>, std::string>) {
             last_id = std::stoi(last);
-        } else {
-            static_assert("Should never come here");
         }
-
-        return prev_value > last_id ? prev : std::to_string(last_id);
+        return std::max(prev, last_id);
     };
-    return std::accumulate(
+    auto prev = std::accumulate(
             instance.resource_ids().begin(), instance.resource_ids().end(),
             std::accumulate(instance.obj_info().begin(), instance.obj_info().end(), vault_id, cmp),
             cmp);
+    return std::to_string(prev + 1);
 }
 
 static int add_hdfs_storage_valut(InstanceInfoPB& instance, TxnKv* txn_kv,
@@ -335,16 +332,8 @@ static int add_hdfs_storage_valut(InstanceInfoPB& instance, TxnKv* txn_kv,
         LOG(WARNING) << msg << " err=" << err;
         return -1;
     }
-    err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
-
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get instance, instance_id={}, err={}", instance.instance_id(),
-                          err);
-        return -1;
-    }
     txn->put(key, val);
+    LOG(INFO) << "put storage_vault_key=" << hex(key);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit for putting storage vault_id={}, vault_name={}, err={}",
@@ -881,11 +870,14 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     instance.set_name(request->has_name() ? request->name() : "");
     instance.set_status(InstanceInfoPB::NORMAL);
     instance.set_sse_enabled(request->sse_enabled());
-    if (request->has_obj_info() &&
-        0 != create_instance_with_object_info(instance, instance.add_obj_info(),
-                                              request->obj_info(), txn_kv_.get(),
-                                              request->sse_enabled(), code, msg)) {
-        return;
+    if (request->has_obj_info()) {
+        ObjectStoreInfoPB obj_info;
+        if (0 != create_instance_with_object_info(instance, &obj_info, request->obj_info(),
+                                                  txn_kv_.get(), request->sse_enabled(), code,
+                                                  msg)) {
+            return;
+        }
+        instance.mutable_obj_info()->Add(std::move(obj_info));
     }
     // TODO(ByteYue): Reclaim the vault if the following procedure failed
     if (request->has_hdfs_info()) {
