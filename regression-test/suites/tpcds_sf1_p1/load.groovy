@@ -20,7 +20,7 @@
 // and modified by Doris.
 suite("load") {
     def tables=["store", "store_returns", "customer", "date_dim", "web_sales",
-                "catalog_sales", "store_sales", "item", "web_returns", "catalog_returns",
+                "catalog_sales", "store_sales", "store_sales_agg", "item", "web_returns", "catalog_returns",
                 "catalog_page", "web_site", "customer_address", "customer_demographics",
                 "ship_mode", "promotion", "inventory", "time_dim", "income_band",
                 "call_center", "reason", "household_demographics", "warehouse", "web_page"]
@@ -58,6 +58,11 @@ suite("load") {
     sql "set exec_mem_limit=8G;"
 
     for (String tableName in tables) {
+        def fileName = "${getS3Url()}/regression/tpcds/sf1/${tableName}.dat.gz"
+
+        if (tableName == "store_sales_agg") {
+            fileName = "${getS3Url()}/regression/tpcds/sf1/store_sales.dat.gz"
+        }
         streamLoad {
             // you can skip db declaration, because a default db has already been
             // specified in ${DORIS_HOME}/conf/regression-conf.groovy
@@ -79,7 +84,7 @@ suite("load") {
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${getS3Url()}/regression/tpcds/sf1/${tableName}.dat.gz"""
+            file fileName
 
             time 10000 // limit inflight 10s
 

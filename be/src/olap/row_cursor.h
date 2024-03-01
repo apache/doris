@@ -41,6 +41,8 @@ public:
 
     RowCursor();
 
+    RowCursor(RowCursor&& cursor);
+
     // Traverse and destroy the field cursor
     ~RowCursor();
 

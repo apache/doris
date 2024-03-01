@@ -493,7 +493,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     }
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
-    bool is_dup_mow_key = false;
+    bool is_dup_mow_key = true;
     size_t segment_count = 0;
     std::vector<TabletReader::ReadSource> tablets_read_source;
     std::vector<std::vector<size_t>> tablet_rs_seg_count;
@@ -529,11 +529,11 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     // TODO: some tablet may do not have segment, may need split segment all case
     if (_scan_ranges.size() < config::doris_scanner_thread_pool_thread_num) {
         for (auto&& [tablet, version] : tablets_to_scan) {
-            is_dup_mow_key =
+            is_dup_mow_key &=
                     tablet->keys_type() == DUP_KEYS || (tablet->keys_type() == UNIQUE_KEYS &&
                                                         tablet->enable_unique_key_merge_on_write());
             if (!is_dup_mow_key) {
-                break;
+                continue;
             }
 
             if (_shared_scan_opt) {
@@ -557,12 +557,15 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 }
             }
         }
+    } else {
+        is_dup_mow_key = false;
+        enable_parallel_scan = false;
     }
 
     bool has_cpu_limit = _state->query_options().__isset.resource_limit &&
                          _state->query_options().resource_limit.__isset.cpu_limit;
 
-    if (enable_parallel_scan && is_dup_mow_key && !has_cpu_limit && !should_run_serial() &&
+    if (enable_parallel_scan && !has_cpu_limit && !should_run_serial() &&
         _push_down_agg_type == TPushAggOp::NONE) {
         std::vector<OlapScanRange*> key_ranges;
         for (auto& range : _cond_ranges) {

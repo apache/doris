@@ -32,6 +32,7 @@ namespace vectorized {
 class VScanner;
 }
 
+using TabletSPtr = std::shared_ptr<Tablet>;
 using VScannerSPtr = std::shared_ptr<vectorized::VScanner>;
 
 template <typename ParentType>
@@ -57,9 +58,32 @@ public:
     void set_min_rows_per_scanner(int64_t size) { _min_rows_per_scanner = size; }
 
 private:
+    struct SegmentGroup {
+        RowsetSharedPtr rowset;
+        std::vector<Segment*> segments;
+        size_t num_blocks;
+        size_t num_rows;
+        std::string min_key;
+        std::string max_key;
+    };
+
     Status _load();
 
     Status _build_scanners_by_rowid(std::list<VScannerSPtr>& scanners);
+
+    Status _build_scanners_by_key_range(std::list<VScannerSPtr>& scanners);
+
+    std::unique_ptr<SegmentGroup> _create_segment_group_from_rowsets(
+            const std::vector<RowsetSharedPtr>& rowsets);
+
+    Status _parse_segment_group(SegmentGroup& group);
+
+    Status _convert_key_ranges(const TabletSPtr& tablet,
+                               std::vector<std::shared_ptr<RowCursor>>& start_keys,
+                               std::vector<std::shared_ptr<RowCursor>>& end_keys,
+                               std::vector<bool>& include_begin_keys,
+                               std::vector<bool>& include_end_keys,
+                               std::shared_ptr<Schema>& key_schema);
 
     std::shared_ptr<vectorized::NewOlapScanner> _build_scanner(
             BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
@@ -85,6 +109,7 @@ private:
     bool _is_dup_mow_key;
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
+    std::vector<size_t> _tablets_rows;
     std::vector<OlapScanRange*> _key_ranges;
     std::unordered_map<int64_t, std::vector<RowsetSharedPtr>> _all_rowsets;
 };

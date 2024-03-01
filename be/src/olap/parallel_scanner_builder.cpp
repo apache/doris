@@ -17,13 +17,23 @@
 
 #include "parallel_scanner_builder.h"
 
+#include "exec/olap_utils.h"
+#include "olap/iterators.h"
+#include "olap/primary_key_index.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/short_key_index.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "util/key_util.h"
 #include "vec/exec/scan/new_olap_scanner.h"
 
 namespace doris {
 
 using namespace vectorized;
+
+using SplitKey = StorageReadOptions::SplitKey;
+using SplitKeyRange = StorageReadOptions::SplitKeyRange;
 
 template <typename ParentType>
 Status ParallelScannerBuilder<ParentType>::build_scanners(std::list<VScannerSPtr>& scanners) {
@@ -31,8 +41,7 @@ Status ParallelScannerBuilder<ParentType>::build_scanners(std::list<VScannerSPtr
     if (_is_dup_mow_key) {
         return _build_scanners_by_rowid(scanners);
     } else {
-        // TODO: support to split by key range
-        return Status::NotSupported("split by key range not supported yet.");
+        return _build_scanners_by_key_range(scanners);
     }
 }
 
@@ -159,6 +168,178 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
     return Status::OK();
 }
 
+template <typename ParentType>
+Status ParallelScannerBuilder<ParentType>::_build_scanners_by_key_range(
+        std::list<VScannerSPtr>& scanners) {
+    for (size_t i = 0; i != _tablets.size(); ++i) {
+        auto tablet = std::dynamic_pointer_cast<Tablet>(_tablets[i].tablet);
+        auto version = _tablets[i].version;
+
+        DCHECK(_all_rowsets.contains(tablet->tablet_id()));
+        auto& rowsets = _all_rowsets[tablet->tablet_id()];
+        auto segment_group = _create_segment_group_from_rowsets(rowsets);
+
+        if (!segment_group || segment_group->num_rows == 0) {
+            continue;
+        }
+
+        RETURN_IF_ERROR(_parse_segment_group(*segment_group));
+
+        DCHECK_GE(_tablets_rows[i], segment_group->num_rows);
+
+        TabletSchemaSPtr tablet_schema = tablet->tablet_schema();
+        std::vector<std::shared_ptr<RowCursor>> original_start_keys;
+        std::vector<std::shared_ptr<RowCursor>> original_end_keys;
+        std::vector<bool> original_include_begin_keys;
+        std::vector<bool> original_include_end_keys;
+
+        std::vector<SplitKeyRange> split_ranges;
+
+        std::shared_ptr<Schema> key_column_schema;
+        RETURN_IF_ERROR(_convert_key_ranges(tablet, original_start_keys, original_end_keys,
+                                            original_include_begin_keys, original_include_end_keys,
+                                            key_column_schema));
+
+        std::vector<uint32_t> key_columns(tablet_schema->num_short_key_columns());
+        std::iota(key_columns.begin(), key_columns.end(), 0);
+        auto short_key_column_schema =
+                std::make_shared<Schema>(tablet_schema->columns(), key_columns);
+
+        auto total_blocks_count = segment_group->num_blocks;
+        size_t blocks_per_scanner = total_blocks_count * _rows_per_scanner / _tablets_rows[i];
+        blocks_per_scanner = std::max<size_t>(1, blocks_per_scanner);
+
+        for (size_t key_index = 0; key_index != original_start_keys.size(); ++key_index) {
+            auto start_key_cursor = original_start_keys[key_index];
+            auto end_key_cursor = original_end_keys[key_index];
+
+            bool include_begin = original_include_begin_keys[key_index];
+            bool original_end_key_matched = false;
+
+            std::string start_key_string;
+            if (start_key_cursor) {
+                encode_key_with_padding(&start_key_string, *start_key_cursor,
+                                        tablet_schema->num_short_key_columns(), include_begin);
+            }
+
+            std::string end_key_string;
+            if (end_key_cursor) {
+                encode_key_with_padding(&end_key_string, *end_key_cursor,
+                                        tablet_schema->num_short_key_columns(),
+                                        !original_include_end_keys[key_index]);
+            }
+
+            size_t collected_blocks = 0;
+
+            Slice start_key(start_key_string);
+            const Slice end_key(end_key_string);
+
+            auto start_key_schema = key_column_schema;
+            auto end_key_schema = key_column_schema;
+            for (Segment* segment : segment_group->segments) {
+                const ShortKeyIndexDecoder* key_index_decoder = segment->get_short_key_index();
+
+                // `start_key` or `end_key` with empty value mean the minimum(-∞) or maximum value(+∞).
+                // If the `start_key` is empty,
+                // the first row(ordinal = 0) of this segment should equal with or greater than the `start_key`,
+                // so here take the begin as `lower_bound`
+                auto lower_bound = start_key.empty() ? key_index_decoder->begin()
+                                                     : key_index_decoder->lower_bound(start_key);
+
+                // If the `end_key` is empty,
+                // the last row(ordinal = num_rows - 1) will equal with or lesser than the `end_key`,
+                // so here take the end as `upper_bound`.
+                auto upper_bound = end_key.empty() ? key_index_decoder->end()
+                                                   : key_index_decoder->upper_bound(end_key);
+
+                // If `lower_bound` is not valid, it means than cannot find any index which equal with
+                // or greater than the `start_key`. For example: start_key: 1001, segment's key range: 200-1000.
+                // So this segment is not in this key range, we should ignore it.
+                if (!lower_bound.valid() || lower_bound.ordinal() > upper_bound.ordinal()) {
+                    continue;
+                }
+
+                auto previous_key = key_index_decoder->key(lower_bound.ordinal());
+
+                ++lower_bound;
+                while (lower_bound.valid() && lower_bound != upper_bound) {
+                    auto key = key_index_decoder->key(lower_bound.ordinal());
+                    std::shared_ptr<RowCursor> key_cursor;
+                    end_key_schema = short_key_column_schema;
+                    ++lower_bound;
+                    if (key != previous_key) {
+                        previous_key = key;
+                        ++collected_blocks;
+
+                        if (collected_blocks >= blocks_per_scanner) {
+                            DCHECK_LT(start_key.compare(key), 0);
+                            SplitKey lower_key(start_key_cursor, start_key.to_string(),
+                                               start_key_schema, include_begin);
+                            start_key_cursor = nullptr;
+
+                            bool include_end = false;
+                            if (!end_key.empty() && key.compare(end_key) > 0) {
+                                DCHECK(upper_bound.valid());
+                                original_end_key_matched = true;
+                                key = end_key;
+                                key_cursor = end_key_cursor;
+                                end_key_cursor = nullptr;
+                                end_key_schema = key_column_schema;
+                                include_end = original_include_end_keys[key_index];
+                            }
+                            SplitKey upper_key(key_cursor, key.to_string(), end_key_schema,
+                                               include_end);
+                            end_key_cursor = nullptr;
+
+                            split_ranges.emplace_back(std::move(lower_key), std::move(upper_key));
+
+                            collected_blocks = 0;
+                            include_begin = true;
+                            start_key = key;
+                            start_key_schema = end_key_schema;
+
+                            if (key == end_key) {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (upper_bound.valid() && !original_end_key_matched) {
+                    original_end_key_matched = true;
+                    SplitKey lower_key {start_key_cursor, start_key.to_string(), start_key_schema,
+                                        include_begin};
+                    SplitKey upper_key {end_key_cursor, end_key.to_string(), end_key_schema,
+                                        original_include_end_keys[key_index]};
+                    split_ranges.emplace_back(std::move(lower_key), std::move(upper_key));
+                    start_key_cursor = nullptr;
+                    end_key_cursor = nullptr;
+                    break;
+                }
+            }
+
+            if (!original_end_key_matched) {
+                SplitKey lower_key(start_key_cursor, start_key.to_string(), start_key_schema,
+                                   include_begin);
+                SplitKey upper_key(end_key_cursor, end_key.to_string(), end_key_schema,
+                                   original_include_end_keys[key_index]);
+
+                split_ranges.emplace_back(std::move(lower_key), std::move(upper_key));
+            }
+
+            DCHECK_EQ(split_ranges.back().upper_key.key, end_key.to_string());
+        }
+
+        const auto ranges_total_count = split_ranges.size();
+        for (size_t index = 0; index != ranges_total_count; ++index) {
+            auto scanner = _build_scanner(tablet, version, _key_ranges, {});
+            scanner->set_split_key_range(split_ranges[index]);
+            scanners.emplace_back(std::move(scanner));
+        }
+    }
+    return Status::OK();
+}
+
 /**
  * Load rowsets of each tablet with specified version, segments of each rowset.
  */
@@ -167,6 +348,8 @@ Status ParallelScannerBuilder<ParentType>::_load() {
     _total_rows = 0;
     for (auto&& [tablet, version] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
+        _tablets_rows.emplace_back(0);
+        auto& rows = _tablets_rows.back();
         auto& rowsets = _all_rowsets[tablet_id];
         {
             std::shared_lock read_lock(tablet->get_header_lock());
@@ -181,11 +364,131 @@ Status ParallelScannerBuilder<ParentType>::_load() {
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                     std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle, true));
             _total_rows += rowset->num_rows();
+            rows += _total_rows;
         }
     }
 
     _rows_per_scanner = _total_rows / _max_scanners_count;
     _rows_per_scanner = std::max<size_t>(_rows_per_scanner, _min_rows_per_scanner);
+
+    return Status::OK();
+}
+
+template <typename ParentType>
+std::unique_ptr<typename ParallelScannerBuilder<ParentType>::SegmentGroup>
+ParallelScannerBuilder<ParentType>::_create_segment_group_from_rowsets(
+        const std::vector<RowsetSharedPtr>& rowsets) {
+    if (rowsets.empty()) {
+        return {};
+    }
+
+    size_t max_rows = 0;
+    auto segment_group = std::make_unique<SegmentGroup>();
+    for (const auto& rowset : rowsets) {
+        const auto rowset_id = rowset->rowset_id();
+        DCHECK(_segment_cache_handles.contains(rowset_id));
+        auto& cache_handle = _segment_cache_handles[rowset_id];
+        auto& segments = cache_handle.get_segments();
+
+        if (segments.empty()) {
+            continue;
+        }
+
+        if (rowset->is_segments_overlapping()) {
+            auto* largest_segment = segments[0].get();
+            for (size_t i = 1; i != segments.size(); ++i) {
+                if (segments[i]->num_rows() > largest_segment->num_rows()) {
+                    largest_segment = segments[i].get();
+                }
+            }
+
+            if (largest_segment->num_rows() > max_rows) {
+                segment_group->rowset = rowset;
+                segment_group->num_rows = largest_segment->num_rows();
+                segment_group->segments.clear();
+                segment_group->segments.emplace_back(largest_segment);
+                max_rows = largest_segment->num_rows();
+            }
+        } else if (rowset->num_rows() > max_rows) {
+            max_rows = rowset->num_rows();
+            segment_group->rowset = rowset;
+            segment_group->segments.clear();
+            segment_group->segments.reserve(segments.size());
+            segment_group->num_rows = 0;
+            for (auto& segment : segments) {
+                segment_group->num_rows += segment->num_rows();
+                segment_group->segments.emplace_back(segment.get());
+            }
+        }
+    }
+
+    if (max_rows == 0) {
+        return {};
+    }
+
+    DCHECK(segment_group->rowset != nullptr);
+    return segment_group;
+}
+
+template <typename ParentType>
+Status ParallelScannerBuilder<ParentType>::_parse_segment_group(SegmentGroup& group) {
+    for (auto* segment : group.segments) {
+        RETURN_IF_ERROR(segment->load_index());
+        const ShortKeyIndexDecoder* index = segment->get_short_key_index();
+        group.num_blocks += index->num_items();
+    }
+    return Status::OK();
+}
+
+// Convert key ranges from `OlapScanRange` to `RowCursor` and then encode them into `std::string`.
+template <typename ParentType>
+Status ParallelScannerBuilder<ParentType>::_convert_key_ranges(
+        const TabletSPtr& tablet, std::vector<std::shared_ptr<RowCursor>>& start_keys,
+        std::vector<std::shared_ptr<RowCursor>>& end_keys, std::vector<bool>& include_begin_keys,
+        std::vector<bool>& include_end_keys, std::shared_ptr<Schema>& schema) {
+    DCHECK(start_keys.empty());
+    DCHECK(end_keys.empty());
+
+    TabletSchemaSPtr tablet_schema = tablet->tablet_schema();
+
+    std::vector<uint32_t> columns;
+    if (_key_ranges.empty()) {
+        columns.resize(tablet->num_short_key_columns());
+    } else {
+        DCHECK_EQ(_key_ranges.front()->end_scan_range.size(),
+                  _key_ranges.front()->begin_scan_range.size());
+        columns.resize(_key_ranges.front()->end_scan_range.size());
+    }
+
+    std::iota(columns.begin(), columns.end(), 0);
+    schema = std::make_shared<Schema>(tablet_schema->columns(), columns);
+
+    if (_key_ranges.empty()) {
+        /// Empty `std::string` means the min/max value of keys which will be handled in `SegmentIterator`.
+        start_keys.emplace_back(nullptr);
+        end_keys.emplace_back(nullptr);
+        include_begin_keys.emplace_back(true);
+        include_end_keys.emplace_back(true);
+        return Status::OK();
+    }
+
+    for (auto& key_range : _key_ranges) {
+        start_keys.emplace_back(std::make_shared<RowCursor>());
+        end_keys.emplace_back(std::make_shared<RowCursor>());
+
+        include_begin_keys.emplace_back(key_range->begin_include);
+        include_end_keys.emplace_back(key_range->end_include);
+
+        auto& start_key = start_keys.back();
+        auto& end_key = end_keys.back();
+        RETURN_IF_ERROR(start_key->init_scan_key(tablet->tablet_schema(),
+                                                 key_range->begin_scan_range.values(), schema));
+        RETURN_IF_ERROR(start_key->from_tuple(key_range->begin_scan_range));
+
+        RETURN_IF_ERROR(end_key->init_scan_key(tablet->tablet_schema(),
+                                               key_range->end_scan_range.values(), schema));
+        RETURN_IF_ERROR(end_key->from_tuple(key_range->end_scan_range));
+    }
 
     return Status::OK();
 }
