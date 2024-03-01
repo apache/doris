@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("k1s2m3") {
+    sql "set enable_fallback_to_original_planner = false"
 
     sql """ DROP TABLE IF EXISTS d_table; """
 
