@@ -23,9 +23,11 @@
 #include <memory>
 #include <vector>
 
+#include "cloud/cloud_rowset_writer.h"
+#include "cloud/cloud_storage_engine.h"
 #include "common/status.h"
-#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/rowset/vertical_beta_rowset_writer.h"
 #include "olap/rowset/vertical_beta_rowset_writer_helper.h"
 
 namespace doris {
@@ -33,12 +35,10 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-// for vertical compaction
-// TODO(plat1ko): Inherited from template type `T`, `T` is `BetaRowsetWriter` or `CloudBetaRowsetWriter`
-class VerticalBetaRowsetWriter final : public BetaRowsetWriter {
+class CloudVerticalRowsetWriter final : public CloudRowsetWriter {
 public:
-    VerticalBetaRowsetWriter(StorageEngine& engine);
-    ~VerticalBetaRowsetWriter() override;
+    CloudVerticalRowsetWriter();
+    ~CloudVerticalRowsetWriter() override;
 
     Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
                        bool is_key, uint32_t max_rows_per_segment) override;

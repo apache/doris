@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/merger.h"
@@ -38,6 +39,7 @@ class MemTrackerLimiter;
 class RowsetWriter;
 struct RowsetWriterContext;
 class StorageEngine;
+class CloudStorageEngine;
 
 // This class is a base class for compaction.
 // The entrance of this class is compact()
@@ -154,6 +156,36 @@ private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
     PendingRowsetGuard _pending_rs_guard;
+};
+
+class CloudCompactionMixin : public Compaction {
+public:
+    CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet,
+                         const std::string& label);
+
+    ~CloudCompactionMixin() override = default;
+
+    Status execute_compact() override;
+
+protected:
+    CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
+
+    CloudStorageEngine& _engine;
+
+    int64_t _expiration = 0;
+
+private:
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
+
+    virtual void garbage_collection() {};
+
+    Status execute_compact_impl(int64_t permits);
+
+    void build_basic_info();
+
+    virtual Status modify_rowsets();
+
+    int64_t get_compaction_permits();
 };
 
 } // namespace doris
