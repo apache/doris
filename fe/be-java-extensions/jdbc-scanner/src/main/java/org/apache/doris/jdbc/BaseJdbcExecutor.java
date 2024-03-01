@@ -517,4 +517,12 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 throw new RuntimeException("Unknown type value: " + dorisType);
         }
     }
+
+    protected String trimSpaces(String str) {
+        int end = str.length() - 1;
+        while (end >= 0 && str.charAt(end) == ' ') {
+            end--;
+        }
+        return str.substring(0, end + 1);
+    }
 }
