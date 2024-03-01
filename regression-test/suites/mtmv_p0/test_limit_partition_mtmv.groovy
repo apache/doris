@@ -68,7 +68,7 @@ suite("test_limit_partition_mtmv") {
     def jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_date_type "SELECT * FROM ${mvName} order by k1,k2"
+    order_qt_date_list "SELECT * FROM ${mvName} order by k1,k2"
 
 
 
@@ -119,7 +119,7 @@ suite("test_limit_partition_mtmv") {
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_varchar_type "SELECT * FROM ${mvName} order by k1,k2"
+    order_qt_varchar_list "SELECT * FROM ${mvName} order by k1,k2"
 
 
     // list partition int type
@@ -169,7 +169,7 @@ suite("test_limit_partition_mtmv") {
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_varchar_type "SELECT * FROM ${mvName} order by k1,k2"
+    order_qt_varchar_list "SELECT * FROM ${mvName} order by k1,k2"
 
 
     // range partition date type
@@ -184,8 +184,8 @@ suite("test_limit_partition_mtmv") {
         COMMENT 'OLAP'
         PARTITION BY range(`k2`)
         (
-        PARTITION p2038 VALUES ["2038-01-01","2038-01-03"),
-        PARTITION p2020 VALUES ["2020-01-01","2020-01-03")
+        PARTITION p2038 VALUES [("2038-01-01"),(MAXVALUE)),
+        PARTITION p2020 VALUES [("2020-01-01"),("2020-01-03"))
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
@@ -218,7 +218,7 @@ suite("test_limit_partition_mtmv") {
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_date_type "SELECT * FROM ${mvName} order by k1,k2"
+    order_qt_date_range "SELECT * FROM ${mvName} order by k1,k2"
 
     // hive partition two level
 }
