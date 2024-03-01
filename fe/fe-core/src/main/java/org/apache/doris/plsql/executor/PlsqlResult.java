@@ -17,6 +17,7 @@
 
 package org.apache.doris.plsql.executor;
 
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
@@ -27,11 +28,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QueryState;
 
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
 
 // If running from mysql client, first send schema column,
 // and then send the ByteBuffer through the mysql channel.
@@ -44,12 +47,14 @@ public class PlsqlResult implements ResultListener, Console {
     private Metadata metadata = null;
     private StringBuilder msg;
     private StringBuilder error;
+    private List<ErrorCode> errorCodes;
     private boolean isSendFields;
 
     public PlsqlResult() {
         this.msg = new StringBuilder();
         this.error = new StringBuilder();
         this.isSendFields = false;
+        this.errorCodes = Lists.newArrayList();
     }
 
     public void reset() {
@@ -58,6 +63,7 @@ public class PlsqlResult implements ResultListener, Console {
         isSendFields = false;
         error.delete(0, error.length());
         msg.delete(0, msg.length());
+        errorCodes.clear();
     }
 
     public void setProcessor(ConnectProcessor processor) {
@@ -70,6 +76,14 @@ public class PlsqlResult implements ResultListener, Console {
 
     public String getError() {
         return error.toString();
+    }
+
+    public List<ErrorCode> getErrorCodes() {
+        return errorCodes;
+    }
+
+    public ErrorCode getLastErrorCode() {
+        return errorCodes.isEmpty() ? ErrorCode.ERR_UNKNOWN_ERROR : errorCodes.get(errorCodes.size() - 1);
     }
 
     @Override
@@ -106,6 +120,7 @@ public class PlsqlResult implements ResultListener, Console {
 
     @Override
     public void onFinalize() {
+        // If metadata not null, it means that mysql channel sent query results.
         if (metadata == null) {
             return;
         }
@@ -166,24 +181,14 @@ public class PlsqlResult implements ResultListener, Console {
 
     @Override
     public void printError(String msg) {
-        this.error.append(msg);
+        errorCodes.add(ErrorCode.ERR_UNKNOWN_ERROR);
+        this.error.append("\n" + errorCodes.size() + ". " + getLastErrorCode().toString() + ", " + msg);
     }
 
     @Override
-    public void flushConsole() {
-        ConnectContext ctx = processor != null ? processor.getConnectContext() : ConnectContext.get();
-        boolean needSend = false;
-        if (error.length() > 0) {
-            ctx.getState().setError("hplsql exec error, " + error.toString());
-            needSend = true;
-        } else if (msg.length() > 0) {
-            ctx.getState().setOk(0, 0, msg.toString());
-            needSend = true;
-        }
-        if (needSend) {
-            finalizeCommand();
-            reset();
-        }
+    public void printError(ErrorCode errorCode, String msg) {
+        errorCodes.add(errorCode != null ? errorCode : ErrorCode.ERR_UNKNOWN_ERROR);
+        this.error.append("\n" + errorCodes.size() + ". " + getLastErrorCode().toString() + ", " + msg);
     }
 
     private void finalizeCommand() {
