@@ -61,7 +61,7 @@ if ${DEBUG:-false}; then
 fi
 
 # shellcheck source=/dev/null
-# stop_doris, clean_fdb, install_fdb
+# stop_doris, clean_fdb, install_fdb, install_java
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 # shellcheck source=/dev/null
 # check_oss_file_exist
@@ -95,6 +95,9 @@ source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/g
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 if [[ "${target_branch}" == "master" ]]; then
     echo "INFO: PR target branch ${target_branch} is in (master)"
+    install_java
+    JAVA_HOME="${JAVA_HOME:-$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*' | sed -n '1p')}"
+    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export JAVA_HOME=\"${JAVA_HOME}\""
 else
     echo "WARNING: PR target branch ${target_branch} is NOT in (master), skip pipeline."
     bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"

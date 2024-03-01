@@ -109,6 +109,9 @@ if sudo docker ps -a --no-trunc | grep "${docker_name}"; then
 fi
 rm -f custom_env.sh
 cp "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh .
+if [[ "${target_branch}" == "master" ]]; then
+    echo "export JAVA_HOME=/usr/lib/jvm/jdk-17.0.2" >>custom_env.sh
+fi
 rm -rf "${teamcity_build_checkoutDir}"/output
 set -x
 # shellcheck disable=SC2086
