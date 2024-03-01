@@ -45,6 +45,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.sql.Timestamp;
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.ZoneId;
@@ -53,10 +54,12 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
+import java.time.format.SignStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
+import java.time.temporal.WeekFields;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -985,6 +988,7 @@ public class DateLiteral extends LiteralExpr {
 
     private static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException {
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+        WeekFields weekFields;
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {
             char character = pattern.charAt(i);
@@ -1047,7 +1051,8 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendPattern("HH:mm:ss");
                         break;
                     case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
-                        builder.appendValue(ChronoField.ALIGNED_WEEK_OF_YEAR, 2);
+                        weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
+                        builder.appendValue(weekFields.weekOfWeekBasedYear(), 2);
                         break;
                     case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
                         builder.appendValue(IsoFields.WEEK_OF_WEEK_BASED_YEAR, 2);
@@ -1059,6 +1064,9 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendValue(IsoFields.WEEK_BASED_YEAR, 4);
                         break;
                     case 'X':
+                        weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
+                        builder.appendValue(weekFields.weekBasedYear(), 4, 10, SignStyle.EXCEEDS_PAD);
+                        break;
                     case 'Y': // %Y Year, numeric, four digits
                         // %X Year for the week, where Sunday is the first day of the week,
                         // numeric, four digits; used with %v
