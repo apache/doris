@@ -37,7 +37,7 @@ Doris原有的Bitmap聚合函数设计比较通用，但对亿级别以上bitmap
 1. 建表，增加hid列，表示bitmap列值id范围, 作为hash分桶列
 2. 使用场景
 
-### Create table
+### 创建表
 
 建表时需要使用聚合模型，数据类型是 bitmap , 聚合函数是 bitmap_union
 
@@ -56,7 +56,7 @@ DISTRIBUTED BY HASH(`hid`) BUCKETS 3
 
 注：hid数和BUCKETS要设置合理，hid数设置至少是BUCKETS的5倍以上，以使数据hash分桶尽量均衡
 
-### Data Load
+### 导入数据
 
 ```sql
 LOAD LABEL user_tag_bitmap_test
