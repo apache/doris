@@ -1256,6 +1256,9 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 
+// write as inverted index tmp directory
+DECLARE_String(tmp_file_dir);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

@@ -907,6 +907,8 @@ DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
     return config.empty() || config == "file_block_cache";
 });
 
+DEFINE_String(tmp_file_dir, "tmp");
+
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
 
 DEFINE_Bool(enable_time_lut, "true");
