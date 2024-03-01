@@ -330,9 +330,9 @@ public:
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
     ~AggSharedState() override {
-        if (probe_expr_ctxs.empty()) {
+        if (probe_expr_ctxs.empty() && ready_to_execute) {
             _close_without_key();
-        } else {
+        } else if (ready_to_execute) {
             _close_with_serialized_key();
         }
     }
@@ -366,6 +366,7 @@ public:
     };
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
+    std::atomic<bool> ready_to_execute = false;
 
 private:
     void _close_with_serialized_key() {
