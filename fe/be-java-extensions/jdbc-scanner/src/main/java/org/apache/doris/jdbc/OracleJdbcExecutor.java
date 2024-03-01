@@ -120,12 +120,4 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
                 return null;
         }
     }
-
-    private String trimSpaces(String str) {
-        int end = str.length() - 1;
-        while (end >= 0 && str.charAt(end) == ' ') {
-            end--;
-        }
-        return str.substring(0, end + 1);
-    }
 }

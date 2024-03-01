@@ -225,11 +225,11 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
             request, root_pipeline->output_row_desc(), _runtime_state.get(), *_desc_tbl,
             root_pipeline->id()));
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
-    static_cast<void>(root_pipeline->set_sink(_sink));
+    RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
 
     for (PipelinePtr& pipeline : _pipelines) {
         DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
-        static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
+        RETURN_IF_ERROR(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
     }
     if (_enable_local_shuffle()) {
         RETURN_IF_ERROR(_plan_local_exchange(request.num_buckets,
