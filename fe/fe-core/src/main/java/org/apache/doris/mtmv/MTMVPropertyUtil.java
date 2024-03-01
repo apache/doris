@@ -70,6 +70,9 @@ public class MTMVPropertyUtil {
     }
 
     private static void analyzePartitionSyncLimit(String value) {
+        if (StringUtils.isEmpty(value)) {
+            return;
+        }
         try {
             Integer.parseInt(value);
         } catch (NumberFormatException e) {
@@ -82,6 +85,9 @@ public class MTMVPropertyUtil {
     }
 
     private static void analyzePartitionTimeUnit(String value) {
+        if (StringUtils.isEmpty(value)) {
+            return;
+        }
         Optional<MTMVPartitionSyncTimeUnit> mtmvPartitionSyncTimeUnit = MTMVPartitionSyncTimeUnit
                 .fromString(value);
         if (!mtmvPartitionSyncTimeUnit.isPresent()) {
@@ -90,6 +96,9 @@ public class MTMVPropertyUtil {
     }
 
     private static void analyzeWorkloadGroup(String value) {
+        if (StringUtils.isEmpty(value)) {
+            return;
+        }
         if (!StringUtils.isEmpty(value) && !Env.getCurrentEnv().getAccessManager()
                 .checkWorkloadGroupPriv(ConnectContext.get(), value, PrivPredicate.USAGE)) {
             String message = String
@@ -105,6 +114,9 @@ public class MTMVPropertyUtil {
     }
 
     private static void analyzeGracePeriod(String value) {
+        if (StringUtils.isEmpty(value)) {
+            return;
+        }
         try {
             Long.parseLong(value);
         } catch (NumberFormatException e) {
@@ -113,6 +125,9 @@ public class MTMVPropertyUtil {
     }
 
     private static void analyzeRefreshPartitionNum(String value) {
+        if (StringUtils.isEmpty(value)) {
+            return;
+        }
         try {
             Integer.parseInt(value);
         } catch (NumberFormatException e) {
