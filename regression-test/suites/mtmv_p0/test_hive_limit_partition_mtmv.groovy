@@ -80,12 +80,11 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     order_qt_select_base_table "SELECT * FROM ${catalog_name}.${hive_database}.${hive_table}"
 
 
-    // prepare mtmv
+    // string type
     def mvName = "test_hive_limit_partition_mtmv"
     def dbName = "regression_test_mtmv_p0"
     sql """drop materialized view if exists ${mvName};"""
-
-    // partition by day
+    sql """REFRESH catalog ${catalog_name}"""
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD DEFERRED REFRESH AUTO ON MANUAL
@@ -113,6 +112,8 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     waitingMTMVTaskFinished(jobName)
     order_qt_mtmv_complete "SELECT * FROM ${mvName} order by k1,day,region"
 
+
+    // date type
     sql """drop materialized view if exists ${mvName};"""
     create_table_str = """ CREATE TABLE ${hive_database}.${hive_table} (
                                  `k1` int)
@@ -135,7 +136,7 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     logger.info("hive sql: " + add_partition_str)
     hive_docker """ ${add_partition_str} """
 
-     // partition by day
+    sql """REFRESH catalog ${catalog_name}"""
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD DEFERRED REFRESH AUTO ON MANUAL
