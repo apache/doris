@@ -149,8 +149,11 @@ public:
     }
 
     vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
-        DCHECK(_runtime_predicates.contains(source_node_id));
-        return _runtime_predicates[source_node_id];
+        DCHECK(_runtime_predicates.contains(source_node_id) || _runtime_predicates.contains(0));
+        if (_runtime_predicates.contains(source_node_id)) {
+            return _runtime_predicates[source_node_id];
+        }
+        return _runtime_predicates[0];
     }
 
     void init_runtime_predicates(std::vector<int> source_node_ids) {
