@@ -34,10 +34,9 @@ public class TabletMeta {
     private int newSchemaHash;
 
     private TStorageMedium storageMedium;
-    private String storageVaultName;
 
     public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
-            TStorageMedium storageMedium, String storageVaultName) {
+            TStorageMedium storageMedium) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -47,7 +46,6 @@ public class TabletMeta {
         this.newSchemaHash = -1;
 
         this.storageMedium = storageMedium;
-        this.storageVaultName = storageVaultName;
     }
 
     public long getDbId() {
@@ -68,10 +66,6 @@ public class TabletMeta {
 
     public TStorageMedium getStorageMedium() {
         return storageMedium;
-    }
-
-    public String getStorageVaultName() {
-        return storageVaultName;
     }
 
     public void setStorageMedium(TStorageMedium storageMedium) {

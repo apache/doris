@@ -764,10 +764,12 @@ message GetObjStoreInfoResponse {
 message CreateTabletsRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated doris.TabletMetaCloudPB tablet_metas = 2;
+    optional string storage_vault_name = 3;
 }
 
 message CreateTabletsResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional string storage_vault_id = 2;
 }
 
 message UpdateTabletRequest {

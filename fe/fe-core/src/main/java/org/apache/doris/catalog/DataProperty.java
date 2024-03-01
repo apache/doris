@@ -49,8 +49,6 @@ public class DataProperty implements Writable, GsonPostProcessable {
     private String storagePolicy;
     @SerializedName(value = "isMutable")
     private boolean isMutable = true;
-    @SerializedName(value = "storageVaultName")
-    private String storageVaultName;
     private boolean storageMediumSpecified;
 
     private DataProperty() {
@@ -61,7 +59,6 @@ public class DataProperty implements Writable, GsonPostProcessable {
         this.storageMedium = medium;
         this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         this.storagePolicy = "";
-        this.storageVaultName = "";
     }
 
     public DataProperty(DataProperty other) {
@@ -69,7 +66,6 @@ public class DataProperty implements Writable, GsonPostProcessable {
         this.cooldownTimeMs = other.cooldownTimeMs;
         this.storagePolicy = other.storagePolicy;
         this.isMutable = other.isMutable;
-        this.storageVaultName = other.storageVaultName;
     }
 
     /**
@@ -79,16 +75,15 @@ public class DataProperty implements Writable, GsonPostProcessable {
      * @param cooldown cool down time for SSD->HDD
      * @param storagePolicy remote storage policy for remote storage
      */
-    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy, String storageVaultName) {
-        this(medium, cooldown, storagePolicy, true, storageVaultName);
+    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy) {
+        this(medium, cooldown, storagePolicy, true);
     }
 
-    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy, boolean isMutable, String storageVaultName) {
+    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy, boolean isMutable) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
         this.storagePolicy = storagePolicy;
         this.isMutable = isMutable;
-        this.storageVaultName = storageVaultName;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -105,14 +100,6 @@ public class DataProperty implements Writable, GsonPostProcessable {
 
     public void setStoragePolicy(String storagePolicy) {
         this.storagePolicy = storagePolicy;
-    }
-
-    public String getStorageVaultName() {
-        return storageVaultName;
-    }
-
-    public void setStorageVaultName(String storageVaultName) {
-        this.storageVaultName = storageVaultName;
     }
 
     public boolean isStorageMediumSpecified() {
@@ -155,12 +142,11 @@ public class DataProperty implements Writable, GsonPostProcessable {
         storageMedium = TStorageMedium.valueOf(Text.readString(in));
         cooldownTimeMs = in.readLong();
         storagePolicy = "";
-        storageVaultName = "";
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(storageMedium, cooldownTimeMs, storagePolicy, storageVaultName);
+        return Objects.hash(storageMedium, cooldownTimeMs, storagePolicy);
     }
 
     @Override
@@ -178,8 +164,7 @@ public class DataProperty implements Writable, GsonPostProcessable {
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
                 && Strings.nullToEmpty(this.storagePolicy).equals(Strings.nullToEmpty(other.storagePolicy))
-                && this.isMutable == other.isMutable
-                && this.storageVaultName = other.storageVaultName;
+                && this.isMutable == other.isMutable;
     }
 
     @Override
@@ -188,7 +173,6 @@ public class DataProperty implements Writable, GsonPostProcessable {
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
         sb.append("remote storage policy[").append(this.storagePolicy).append("]. ");
-        sb.append("storage vault[").append(this.storageVaultName).append("]. ");
         return sb.toString();
     }
 
@@ -196,7 +180,6 @@ public class DataProperty implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         // storagePolicy is a newly added field, it may be null when replaying from old version.
         this.storagePolicy = Strings.nullToEmpty(this.storagePolicy);
-        this.storageVaultName = Strings.nullToEmpty(this.storageVaultName);
     }
 
 }

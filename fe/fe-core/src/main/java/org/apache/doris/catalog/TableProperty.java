@@ -52,6 +52,7 @@ public class TableProperty implements Writable {
 
     public static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition";
 
+    // TODO(ByteYue): Add <vault_id, value>, <vault_name, value>
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
@@ -628,5 +629,21 @@ public class TableProperty implements Writable {
                 && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
         }
+    }
+
+    public String getStorageVaultId() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, "");
+    }
+
+    public String setStorageVaultId(String storageVaultId) {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, storageVaultId);
+    }
+
+    public String getStorageVauldName() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
+    }
+
+    public String setStorageVaultName(String storageVaultName) {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
     }
 }

@@ -85,7 +85,6 @@ public class Replica implements Writable {
         public long partitionId;
         public long indexId;
         public Replica originReplica;
-        public String storageVaultName;
     }
 
     @SerializedName(value = "id")

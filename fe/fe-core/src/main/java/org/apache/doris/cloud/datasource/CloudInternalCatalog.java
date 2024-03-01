@@ -118,6 +118,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         long version = partition.getVisibleVersion();
 
+        final String storageVaultName = tbl.getTableProperty().getStorageVauldName();
+        boolean storageVaultIdSet = false;
+
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
@@ -127,7 +130,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId,
-                    indexId, schemaHash, dataProperty.getStorageMedium(), dataProperty.getStorageVaultName());
+                    indexId, schemaHash, dataProperty.getStorageMedium());
             createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
                     tabletMeta, tabletIdSet);
 
@@ -142,15 +145,22 @@ public class CloudInternalCatalog extends InternalCatalog {
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
                         bfColumns, tbl.getBfFpp(), tbl.getIndexes(), columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
-                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
-                        dataProperty.getStorageVaultName());
+                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion());
                 requestBuilder.addTabletMetas(builder);
+            }
+            if (!storageVaultIdSet) {
+                requestBuilder.setStorageVaultName(storageVaultName);
             }
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
                     + "indexId: {}",
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId);
-            sendCreateTabletsRpc(requestBuilder);
+            // dataProperty.setStorageVaultId(storageVaultId);
+            Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
+            if (resp.hasStoragevaultId() && !storageVaultIdSet) {
+                tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
+                storageVaultIdSet = true;
+            }
             if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition
                 partition.createRollupIndex(index);
@@ -169,7 +179,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             String storagePolicy, boolean isInMemory, boolean isShadow,
             String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
-            boolean storeRowColumn, int schemaVersion, String storageVaultName) throws DdlException {
+            boolean storeRowColumn, int schemaVersion) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -183,7 +193,6 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setIsInMemory(isInMemory);
         builder.setTtlSeconds(ttlSeconds);
         builder.setSchemaVersion(schemaVersion);
-        builder.setStorageVaultName(storageVaultName);
 
         UUID uuid = UUID.randomUUID();
         Types.PUniqueId tabletUid = Types.PUniqueId.newBuilder()
@@ -327,7 +336,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             long replicaId = Env.getCurrentEnv().getNextId();
             Replica replica = new CloudReplica(replicaId, null, replicaState, version,
                     tabletMeta.getOldSchemaHash(), tabletMeta.getDbId(), tabletMeta.getTableId(),
-                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i, tabletMeta.StorageVaultName());
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i);
             tablet.addReplica(replica);
         }
     }
@@ -481,7 +490,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
+    public Cloud.CreateTabletsResponse
+            sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
 
