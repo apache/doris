@@ -108,9 +108,8 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
     if (!_task_runtime_states.empty()) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
-        for (auto& runtime_state : _task_runtime_states) {
-            _call_back(runtime_state.get(), &st);
-            runtime_state.reset();
+        for (auto* runtime_state : _task_runtime_states) {
+            _call_back(runtime_state, &st);
         }
     } else {
         _call_back(nullptr, &st);
@@ -549,25 +548,23 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             }
             return le_state_map;
         };
-        auto get_task_runtime_state = [&](int task_id) -> RuntimeState* {
-            DCHECK(_task_runtime_states[task_id]);
-            return _task_runtime_states[task_id].get();
-        };
+
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto& pipeline = _pipelines[pip_idx];
             if (pipeline->need_to_create_task()) {
                 // build task runtime state
-                _task_runtime_states.push_back(RuntimeState::create_unique(
+                auto task_runtime_state = RuntimeState::create_unique(
                         this, local_params.fragment_instance_id, request.query_id,
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
-                        _exec_env, _query_ctx.get()));
-                auto& task_runtime_state = _task_runtime_states.back();
+                        _exec_env, _query_ctx.get());
                 init_runtime_state(task_runtime_state);
+                _task_runtime_states.push_back(task_runtime_state.get());
+
                 auto cur_task_id = _total_tasks++;
-                auto task = std::make_unique<PipelineXTask>(
-                        pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
-                        pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),
-                        i);
+                auto task = std::make_unique<PipelineXTask>(pipeline, cur_task_id,
+                                                            task_runtime_state.release(), this,
+                                                            pipeline_id_to_profile[pip_idx].get(),
+                                                            get_local_exchange_state(pipeline), i);
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
             }
@@ -1303,11 +1300,8 @@ Status PipelineXFragmentContext::send_report(bool done) {
         return Status::NeedSendAgain("");
     }
 
-    std::vector<RuntimeState*> runtime_states;
+    std::vector<RuntimeState*> runtime_states = _task_runtime_states;
 
-    for (auto& task_state : _task_runtime_states) {
-        runtime_states.push_back(task_state.get());
-    }
     return _report_status_cb(
             {true, exec_status, runtime_states, nullptr, _runtime_state->load_channel_profile(),
              done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
