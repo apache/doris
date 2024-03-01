@@ -220,6 +220,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         _partition_count = channels.size();
+        LOG(INFO) << "TABLET_SINK_SHUFFLE_PARTITIONED: " << _partition_count << " "
+                  << print_id(state->query_id());
         _partitioner.reset(
                 new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(channels.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
@@ -374,14 +376,14 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         return Status::EndOfFile("all data stream channels EOF");
     }
 
-    if (_part_type == TPartitionType::UNPARTITIONED) {
+    if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
         // 3. rollover block
         if (local_state.only_local_exchange) {
             if (!block->empty()) {
                 Status status;
-                for (auto channel : local_state.channels) {
+                for (auto* channel : local_state.channels) {
                     if (!channel->is_receiver_eof()) {
                         status = channel->send_local_block(block);
                         HANDLE_CHANNEL_STATUS(state, channel, status);
@@ -406,7 +408,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     } else {
                         block_holder->get_block()->Clear();
                     }
-                    for (auto channel : local_state.channels) {
+                    for (auto* channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
                             if (channel->is_local()) {
