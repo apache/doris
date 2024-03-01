@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.trinoconnector.shade;
+package org.apache.doris.trinoconnector;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
 import io.trino.connector.CatalogConnector;
@@ -31,19 +29,18 @@ import io.trino.connector.ConnectorServices;
 import io.trino.connector.ConnectorServicesProvider;
 import io.trino.connector.system.GlobalSystemConnector;
 import io.trino.server.ForStartup;
-import static io.trino.spi.StandardErrorCode.CATALOG_NOT_AVAILABLE;
+import io.trino.spi.StandardErrorCode;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.CatalogHandle.CatalogVersion;
-import static io.trino.spi.connector.CatalogHandle.createRootCatalogHandle;
-import static io.trino.util.Executors.executeUntilFailure;
+import io.trino.util.Executors;
 import jakarta.annotation.PreDestroy;
-import static java.util.Objects.requireNonNull;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -62,11 +59,11 @@ public class TrinoConnectorServicesProvider
     public TrinoConnectorServicesProvider(String catalogName, String connectorName, CatalogFactory catalogFactory,
             Map<String, String> properties, @ForStartup Executor executor)
     {
-        this.catalogFactory = requireNonNull(catalogFactory, "catalogFactory is null");
+        this.catalogFactory = Objects.requireNonNull(catalogFactory, "catalogFactory is null");
         ImmutableList.Builder<CatalogProperties> catalogProperties = ImmutableList.builder();
 
         // Modified code
-        checkState(connectorName != null, "TrinoConnector properties does not contain connector.name");
+        Preconditions.checkState(connectorName != null, "TrinoConnector properties does not contain connector.name");
         if (connectorName.indexOf('-') >= 0) {
             String deprecatedConnectorName = connectorName;
             connectorName = connectorName.replace('-', '_');
@@ -74,12 +71,12 @@ public class TrinoConnectorServicesProvider
                     deprecatedConnectorName, connectorName);
         }
         catalogProperties.add(new CatalogProperties(
-                createRootCatalogHandle(catalogName, new CatalogVersion("default")),
+                CatalogHandle.createRootCatalogHandle(catalogName, new CatalogVersion("default")),
                 new ConnectorName(connectorName),
                 ImmutableMap.copyOf(properties)));
 
         this.catalogProperties = catalogProperties.build();
-        this.executor = requireNonNull(executor, "executor is null");
+        this.executor = Objects.requireNonNull(executor, "executor is null");
     }
 
     @PreDestroy
@@ -94,7 +91,7 @@ public class TrinoConnectorServicesProvider
     @Override
     public void loadInitialCatalogs()
     {
-        executeUntilFailure(
+        Executors.executeUntilFailure(
                 executor,
                 catalogProperties.stream()
                         .map(catalog -> (Callable<?>) () -> {
@@ -106,24 +103,24 @@ public class TrinoConnectorServicesProvider
                                     catalogName, catalog.getConnectorName());
                             return null;
                         })
-                        .collect(toImmutableList()));
+                        .collect(ImmutableList.toImmutableList()));
     }
 
     @Override
     public void ensureCatalogsLoaded(Session session, List<CatalogProperties> catalogs) {
         List<CatalogProperties> missingCatalogs = catalogs.stream()
                 .filter(catalog -> !this.catalogs.containsKey(catalog.getCatalogHandle().getCatalogName()))
-                .collect(toImmutableList());
+                .collect(ImmutableList.toImmutableList());
 
         if (!missingCatalogs.isEmpty()) {
-            throw new TrinoException(CATALOG_NOT_AVAILABLE, "Missing catalogs: " + missingCatalogs);
+            throw new TrinoException(StandardErrorCode.CATALOG_NOT_AVAILABLE, "Missing catalogs: " + missingCatalogs);
         }
     }
 
     @Override
     public ConnectorServices getConnectorServices(CatalogHandle catalogHandle) {
         CatalogConnector catalogConnector = catalogs.get(catalogHandle.getCatalogName());
-        checkArgument(catalogConnector != null, "No catalog '%s'", catalogHandle.getCatalogName());
+        Preconditions.checkArgument(catalogConnector != null, "No catalog '%s'", catalogHandle.getCatalogName());
         return catalogConnector.getMaterializedConnector(catalogHandle.getType());
     }
 
@@ -133,7 +130,7 @@ public class TrinoConnectorServicesProvider
     }
 
     public void registerGlobalSystemConnector(GlobalSystemConnector connector) {
-        requireNonNull(connector, "connector is null");
+        Objects.requireNonNull(connector, "connector is null");
 
         CatalogConnector catalog = catalogFactory.createCatalog(GlobalSystemConnector.CATALOG_HANDLE, new ConnectorName(GlobalSystemConnector.NAME), connector);
         if (catalogs.putIfAbsent(GlobalSystemConnector.NAME, catalog) != null) {

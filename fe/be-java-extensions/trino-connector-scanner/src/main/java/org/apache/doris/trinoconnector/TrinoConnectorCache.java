@@ -18,8 +18,6 @@
 package org.apache.doris.trinoconnector;
 
 import org.apache.doris.hudi.Utils;
-import org.apache.doris.trinoconnector.shade.TrinoConnectorPluginManager;
-import org.apache.doris.trinoconnector.shade.TrinoConnectorServicesProvider;
 
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;

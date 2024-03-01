@@ -23,9 +23,6 @@ import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheKey;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheValue;
-import org.apache.doris.trinoconnector.shade.TrinoColumnMetadata;
-import org.apache.doris.trinoconnector.shade.TrinoConnectorPluginManager;
-import org.apache.doris.trinoconnector.shade.TrinoConnectorServicesProvider;
 
 import com.fasterxml.jackson.databind.Module;
 import com.google.common.collect.ImmutableMap;

@@ -17,8 +17,6 @@
 
 package org.apache.doris.trinoconnector;
 
-import org.apache.doris.trinoconnector.shade.TrinoConnectorPluginManager;
-
 import com.google.common.util.concurrent.MoreExecutors;
 import io.trino.FeaturesConfig;
 import io.trino.metadata.HandleResolver;
