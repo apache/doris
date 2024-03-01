@@ -34,14 +34,14 @@ suite("test_limit_partition_mtmv") {
         COMMENT 'OLAP'
         PARTITION BY list(`k2`)
         (
-        PARTITION p_99990101 VALUES IN ("9999-01-01"),
+        PARTITION p_20380101 VALUES IN ("2038-01-01"),
         PARTITION p_20200101 VALUES IN ("2020-01-01")
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableName} values(1,"9999-01-01"),(2,"2020-01-01");
+        insert into ${tableName} values(1,"2038-01-01"),(2,"2020-01-01");
         """
 
     sql """
@@ -59,8 +59,8 @@ suite("test_limit_partition_mtmv") {
     """
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertEquals(showPartitionsResult.size(),1)
-    assertTrue(showPartitionsResult.toString().contains("p_99990101"))
+    assertEquals(1, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName}
@@ -84,14 +84,14 @@ suite("test_limit_partition_mtmv") {
         COMMENT 'OLAP'
         PARTITION BY list(`k2`)
         (
-        PARTITION p_99990101 VALUES IN ("99990101"),
+        PARTITION p_20380101 VALUES IN ("20380101"),
         PARTITION p_20200101 VALUES IN ("20200101")
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableName} values(1,"99990101"),(2,"20200101");
+        insert into ${tableName} values(1,"20380101"),(2,"20200101");
         """
 
     sql """
@@ -110,8 +110,8 @@ suite("test_limit_partition_mtmv") {
     """
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertEquals(showPartitionsResult.size(),1)
-    assertTrue(showPartitionsResult.toString().contains("p_99990101"))
+    assertEquals(1, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName}
