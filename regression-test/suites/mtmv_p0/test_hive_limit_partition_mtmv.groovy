@@ -31,21 +31,22 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     def create_table_str = """ CREATE TABLE ${hive_database}.${hive_table} (
                                      `k1` int)
                                     PARTITIONED BY (
-                                      `day` string,
-                                      `region` string)
+                                      `region` string,
+                                      `day` string
+                                      )
                                     STORED AS ORC;
                             """
     def add_partition_str = """
                                 alter table ${hive_database}.${hive_table} add if not exists
-                                partition(day="20380101",region="bj")
-                                partition(day="20380101",region="sh")
-                                partition(day="20200101",region="bj")
-                                partition(day="20200101",region="sh")
+                                partition(region="bj",day="20380101")
+                                partition(region="sh",day="20380101")
+                                partition(region="bj",day="20200101")
+                                partition(region="sh",day="20200101")
                             """
-    def insert_str1 = """insert into ${hive_database}.${hive_table} PARTITION(day="20380101",region="bj") values(1)"""
-    def insert_str2 = """insert into ${hive_database}.${hive_table} PARTITION(day="20380101",region="sh") values(2)"""
-    def insert_str3 = """insert into ${hive_database}.${hive_table} PARTITION(day="20200101",region="bj") values(3)"""
-    def insert_str4 = """insert into ${hive_database}.${hive_table} PARTITION(day="20200101",region="sh") values(4)"""
+    def insert_str1 = """insert into ${hive_database}.${hive_table} PARTITION(region="bj",day="20380101") values(1)"""
+    def insert_str2 = """insert into ${hive_database}.${hive_table} PARTITION(region="sh",day="20380101") values(2)"""
+    def insert_str3 = """insert into ${hive_database}.${hive_table} PARTITION(region="bj",day="20200101") values(3)"""
+    def insert_str4 = """insert into ${hive_database}.${hive_table} PARTITION(region="sh",day="20200101") values(4)"""
 
     logger.info("hive sql: " + drop_table_str)
     hive_docker """ ${drop_table_str} """
@@ -118,16 +119,17 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     create_table_str = """ CREATE TABLE ${hive_database}.${hive_table} (
                                  `k1` int)
                                 PARTITIONED BY (
-                                  `day` date,
-                                  `region` string)
+                                 `region` string，
+                                  `day` date
+                                  )
                                 STORED AS ORC;
                         """
     add_partition_str = """
                             alter table ${hive_database}.${hive_table} add if not exists
-                            partition(day="2038-01-01",region="bj")
-                            partition(day="2038-01-01",region="sh")
-                            partition(day="2020-01-01",region="bj")
-                            partition(day="2020-01-01",region="sh")
+                            partition(region="bj",day="2038-01-01")
+                            partition(region="sh",day="2038-01-01")
+                            partition(region="bj",day="2020-01-01")
+                            partition(region="sh",day="2020-01-01")
                         """
     logger.info("hive sql: " + drop_table_str)
     hive_docker """ ${drop_table_str} """
