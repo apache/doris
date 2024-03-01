@@ -157,7 +157,7 @@ WaitAndFetchResultTime: N/A
                                     │Fragment: 1      │ │Fragment: 1  │
                                     └─────────────────┘ └─────────────┘
 
-   ```sql
+   ````
 
    This will show the plan tree and fragment id on it
 

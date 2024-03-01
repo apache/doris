@@ -156,7 +156,7 @@ WaitAndFetchResultTime: N/A
                                     │Fragment: 1      │ │Fragment: 1  │
                                     └─────────────────┘ └─────────────┘
 
-   ```sql
+   ```
 
    这一层会显示子任务的查询树，其中标注了 Fragment id。
 
