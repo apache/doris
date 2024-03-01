@@ -681,6 +681,7 @@ struct TPipelineInstanceParams {
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  8: optional list<i32> topn_filter_source_node_ids
 }
 
 // ExecPlanFragment
