@@ -1004,7 +1004,7 @@ public class PropertyAnalyzer {
             invertedIndexStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
             properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
         } else {
-            return TInvertedIndexStorageFormat.V2;
+            return TInvertedIndexStorageFormat.V1;
         }
 
         if (invertedIndexStorageFormat.equalsIgnoreCase("v1")) {
@@ -1012,7 +1012,7 @@ public class PropertyAnalyzer {
         } else if (invertedIndexStorageFormat.equalsIgnoreCase("v2")) {
             return TInvertedIndexStorageFormat.V2;
         } else if (invertedIndexStorageFormat.equalsIgnoreCase("default")) {
-            return TInvertedIndexStorageFormat.V2;
+            return TInvertedIndexStorageFormat.V1;
         } else {
             throw new AnalysisException("unknown inverted index storage format: " + invertedIndexStorageFormat);
         }

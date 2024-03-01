@@ -354,7 +354,7 @@ message TabletSchemaPB {
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
-    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V2];
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
 }
 
 message TabletSchemaCloudPB {
@@ -380,7 +380,7 @@ message TabletSchemaCloudPB {
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
-    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V2];
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
 
     optional bool is_dynamic_schema = 100 [default=false];
 }

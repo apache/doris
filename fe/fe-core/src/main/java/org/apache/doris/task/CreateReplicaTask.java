@@ -90,7 +90,7 @@ public class CreateReplicaTask extends AgentTask {
     // TODO should unify the naming of v1(alpha rowset), v2(beta rowset), it is very confused to read code
     private TStorageFormat storageFormat = TStorageFormat.V2;
 
-    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.V2;
+    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.V1;
 
     // true if this task is created by recover request(See comment of Config.recover_with_empty_tablet)
     private boolean isRecoverTask = false;

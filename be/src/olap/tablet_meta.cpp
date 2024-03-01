@@ -182,7 +182,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
     default:
-        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         break;
     }
 

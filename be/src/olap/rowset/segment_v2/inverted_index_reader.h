@@ -277,7 +277,7 @@ class InvertedIndexIterator {
 public:
     InvertedIndexIterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                           std::shared_ptr<InvertedIndexReader> reader)
-            : _stats(stats), _runtime_state(runtime_state), _reader(reader) {}
+            : _stats(stats), _runtime_state(runtime_state), _reader(std::move(reader)) {}
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                     InvertedIndexQueryType query_type, uint32_t segment_num_rows,

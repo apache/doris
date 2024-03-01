@@ -476,7 +476,7 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
-    InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V2;
+    InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
