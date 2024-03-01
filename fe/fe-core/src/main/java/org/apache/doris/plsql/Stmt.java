@@ -134,11 +134,11 @@ public class Stmt {
                     exec.setSqlSuccess();
                     if (query.next()) {
                         exec.setSqlCode(SqlCodes.TOO_MANY_ROWS);
-                        exec.signal(Signal.Type.TOO_MANY_ROWS);
+                        exec.signal(Signal.Type.TOO_MANY_ROWS, "too many rows into variables");
                     }
                 } else {
                     exec.setSqlCode(SqlCodes.NO_DATA_FOUND);
-                    exec.signal(Signal.Type.NOTFOUND);
+                    exec.signal(Signal.Type.NOTFOUND, "no rows into variables");
                 }
             } else if (ctx instanceof Doris_statementContext) { // only from visitStatement
                 // Print all results for standalone Statement.
@@ -406,7 +406,7 @@ public class Stmt {
             return 1;
         } else if (exec.getOffline()) {
             exec.setSqlCode(SqlCodes.NO_DATA_FOUND);
-            exec.signal(Signal.Type.NOTFOUND);
+            exec.signal(Signal.Type.NOTFOUND, "fetch not found data");
             return 0;
         }
         // Assign values from the row to local variables
@@ -590,7 +590,7 @@ public class Stmt {
                 exec.setSqlSuccess();
             } else {
                 exec.setSqlCode(SqlCodes.NO_DATA_FOUND);
-                exec.signal(Signal.Type.NOTFOUND);
+                exec.signal(Signal.Type.NOTFOUND, "assign from select not found data");
             }
         } catch (QueryException | AnalysisException e) {
             exec.signal(query);

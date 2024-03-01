@@ -151,6 +151,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
+    _tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(_store_paths);
+    RETURN_IF_ERROR(_tmp_file_dirs->init());
     _user_function_cache = new UserFunctionCache();
     static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
