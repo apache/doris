@@ -20,7 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.RangeUtils;
-import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.collect.Range;
 
@@ -64,7 +64,7 @@ public class RangePartitionItem extends PartitionItem {
     }
 
     @Override
-    public boolean isSatisfyConfig(int pos, Optional<String> dateFormatOptional, int nowTruncSubSec)
+    public boolean isSatisfyConfig(int pos, Optional<String> dateFormatOptional, long nowTruncSubSec)
             throws AnalysisException {
         PartitionKey partitionKey = partitionKeyRange.upperEndpoint();
         if (partitionKey.getKeys().size() <= pos) {
@@ -73,7 +73,7 @@ public class RangePartitionItem extends PartitionItem {
                             partitionKey.toString(),
                             pos));
         }
-        return MTMVPartitionUtil.getExprTimeSec(partitionKey.getKeys().get(pos), dateFormatOptional)
+        return MTMVUtil.getExprTimeSec(partitionKey.getKeys().get(pos), dateFormatOptional)
                 >= nowTruncSubSec;
     }
 

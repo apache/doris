@@ -50,7 +50,7 @@ public interface MTMVRelatedTableIf extends TableIf {
         if (config.getSyncLimit() <= 0) {
             return partitionItems;
         }
-        int nowTruncSubSec = MTMVPartitionUtil.getNowTruncSubSec(config.getTimeUnit(), config.getSyncLimit());
+        long nowTruncSubSec = MTMVUtil.getNowTruncSubSec(config.getTimeUnit(), config.getSyncLimit());
         Optional<String> dateFormat = config.getDateFormat();
         Map<Long, PartitionItem> res = Maps.newHashMap();
         for (Entry<Long, PartitionItem> entry : partitionItems.entrySet()) {
@@ -113,7 +113,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * Does the current type of table allow timed triggering
      *
      * @return If return false,The method of comparing whether to synchronize will directly return true,
-     * otherwise the snapshot information will be compared
+     *         otherwise the snapshot information will be compared
      */
     boolean needAutoRefresh();
 

@@ -48,6 +48,6 @@ public abstract class PartitionItem implements Comparable<PartitionItem>, Writab
      */
     public abstract PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException;
 
-    public abstract boolean isSatisfyConfig(int pos, Optional<String> dateFormatOptional, int nowTruncSubMill)
+    public abstract boolean isSatisfyConfig(int pos, Optional<String> dateFormatOptional, long nowTruncSubSec)
             throws AnalysisException;
 }

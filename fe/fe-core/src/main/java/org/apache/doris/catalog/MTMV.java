@@ -31,7 +31,6 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionSyncConfig;
-import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -40,6 +39,7 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -208,7 +208,7 @@ public class MTMV extends OlapTable {
     }
 
     public MTMVPartitionSyncConfig getPartitionSyncConfig() {
-        return MTMVPartitionUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        return MTMVUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties);
     }
 
     public int getRefreshPartitionNum() {
