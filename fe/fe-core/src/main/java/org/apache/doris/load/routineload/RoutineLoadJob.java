@@ -69,6 +69,7 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -116,6 +117,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final boolean DEFAULT_LOAD_TO_SINGLE_TABLET = false;
 
     protected static final String STAR_STRING = "*";
+
+    public static final String WORKLOAD_GROUP = "workload_group";
 
     @Getter
     @Setter
@@ -394,6 +397,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getEscape() != null) {
             jobProperties.put(LoadStmt.KEY_ESCAPE, stmt.getEscape());
         }
+        if (stmt.getWorkloadGroupId() > 0) {
+            jobProperties.put(WORKLOAD_GROUP, String.valueOf(stmt.getWorkloadGroupId()));
+        }
     }
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -477,6 +483,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return null;
         }
         return database.getTableOrMetaException(tableId).getName();
+    }
+
+    public long getWorkloadId() {
+        String workloadIdStr = jobProperties.get(WORKLOAD_GROUP);
+        if (!StringUtils.isEmpty(workloadIdStr)) {
+            return Long.parseLong(workloadIdStr);
+        }
+        return -1;
     }
 
     public JobState getState() {

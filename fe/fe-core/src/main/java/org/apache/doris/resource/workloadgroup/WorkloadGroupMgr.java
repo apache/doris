@@ -183,13 +183,48 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return workloadGroups;
     }
 
-    public WorkloadGroup getWorkloadGroupById(long wgId) {
+    public long getWorkloadGroup(UserIdentity currentUser, String groupName) throws UserException {
+        Long workloadId = getWorkloadGroupIdByName(groupName);
+        if (workloadId == null) {
+            throw new UserException("Workload group " + groupName + " does not exist");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkWorkloadGroupPriv(currentUser, groupName, PrivPredicate.USAGE)) {
+            ErrorReport.reportAnalysisException(
+                    "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'.",
+                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName);
+        }
+        return workloadId.longValue();
+    }
+
+    public List<TPipelineWorkloadGroup> getTWorkloadGroupById(long wgId) {
+        List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
         readLock();
         try {
-            return idToWorkloadGroup.get(wgId);
+            WorkloadGroup wg = idToWorkloadGroup.get(wgId);
+            if (wg != null) {
+                tWorkloadGroups.add(wg.toThrift());
+            }
         } finally {
             readUnlock();
         }
+        return tWorkloadGroups;
+    }
+
+    public List<TPipelineWorkloadGroup> getTWorkloadGroupByUserIdentity(UserIdentity user) throws UserException {
+        String groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(user.getQualifiedUser());
+        List<TPipelineWorkloadGroup> ret = new ArrayList<>();
+        readLock();
+        try {
+            WorkloadGroup wg = nameToWorkloadGroup.get(groupName);
+            if (wg == null) {
+                throw new UserException("can not find workload group " + groupName);
+            }
+            ret.add(wg.toThrift());
+        } finally {
+            readUnlock();
+        }
+        return ret;
     }
 
     public List<TopicInfo> getPublishTopicInfo() {
