@@ -306,7 +306,7 @@ TEST(MetaServiceTest, CreateInstanceTest) {
     {
         brpc::Controller cntl;
         CreateInstanceRequest req;
-        req.set_instance_id("test_instance");
+        req.set_instance_id("test_instance_without_hdfs_and_obj");
         req.set_user_id("test_user");
         req.set_name("test_name");
 
@@ -331,7 +331,7 @@ TEST(MetaServiceTest, CreateInstanceTest) {
     {
         brpc::Controller cntl;
         CreateInstanceRequest req;
-        req.set_instance_id("test_instance");
+        req.set_instance_id("test_instance_with_hdfs_info");
         req.set_user_id("test_user");
         req.set_name("test_name");
         HdfsParams hdfs;
@@ -5029,7 +5029,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         AlterObjStoreInfoResponse res;
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
     }
 
     // update successful
@@ -5042,12 +5042,13 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         HdfsParams params;
 
         hdfs.mutable_hdfs()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
         get_test_instance(instance);
         ASSERT_EQ(*(instance.resource_ids().begin()), "2");
@@ -5069,7 +5070,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         AlterObjStoreInfoResponse res;
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
         get_test_instance(instance);
         ASSERT_EQ(*(instance.resource_ids().begin() + 1), "3");

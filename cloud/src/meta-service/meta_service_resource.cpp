@@ -303,7 +303,6 @@ static std::string next_avaiable_vault_id(const InstanceInfoPB& instance) {
 
         return prev_value > last_id ? prev : std::to_string(last_id);
     };
-    ;
     return std::accumulate(
             instance.resource_ids().begin(), instance.resource_ids().end(),
             std::accumulate(instance.obj_info().begin(), instance.obj_info().end(), vault_id, cmp),
