@@ -113,7 +113,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
-    if (request.__isset.query_options) {
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
         _timeout_second = request.query_options.execution_timeout;
     }
 
