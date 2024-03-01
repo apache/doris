@@ -118,7 +118,7 @@ public:
     }
 
     Status prepare(RuntimeState* state) override {
-        static_cast<void>(Base::prepare(state));
+        RETURN_IF_ERROR(Base::prepare(state));
         // Prepare const expr lists.
         for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
             RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
