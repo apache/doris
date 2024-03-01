@@ -17,6 +17,9 @@
 -- !sql --
 20
 
+-- !sql --
+10000.00001
+
 -- !sql_null_cast_bitmap --
 true
 
