@@ -21,6 +21,7 @@ import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.suite.event.EventListener
+import org.slf4j.MDC
 
 import java.lang.reflect.UndeclaredThrowableException
 import java.util.concurrent.ExecutorService
@@ -100,6 +101,8 @@ class ScriptContext implements Closeable {
                 log.info("Run ${suiteName} in ${file}".toString())
 
                 try {
+                    // set MDC for log
+                    MDC.put("name", name + " ")
                     // delegate closure
                     suiteBody.setResolveStrategy(Closure.DELEGATE_FIRST)
                     suiteBody.setDelegate(suite)
@@ -142,6 +145,7 @@ class ScriptContext implements Closeable {
                     } catch (Throwable t) {
                         log.error("Run suite finish callbacks failed", t)
                     }
+                    MDC.remove("name")
                 }
             }
         }
