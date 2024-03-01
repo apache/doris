@@ -314,6 +314,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'max_queue_size'='1' );"
     sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
+    Thread.sleep(10000)
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
@@ -321,7 +322,8 @@ suite("test_crud_wlg") {
     }
 
     sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
-    sql "select 1;"
+    Thread.sleep(10000)
+    sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
     sql "set workload_group=normal;"
     sql "drop workload group test_group;"
 }
