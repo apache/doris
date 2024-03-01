@@ -249,7 +249,13 @@ public class FunctionSet<T> {
                     variadicTemplateFunctions.add(fn);
                 }
             } else {
-                normalFunctions.add(fn);
+                // Here need to special-case the arrayType to support the equal operation on the array type.
+                if (desc.getArgs().length == 2 && desc.getArgs()[0].isArrayType()
+                                && desc.getArgs()[1].isArrayType()) {
+                    normalFunctions.add(desc);
+                } else {
+                    normalFunctions.add(fn);
+                }
             }
         }
 
