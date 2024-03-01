@@ -119,7 +119,7 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     create_table_str = """ CREATE TABLE ${hive_database}.${hive_table} (
                                  `k1` int)
                                 PARTITIONED BY (
-                                 `region` string，
+                                 `region` string,
                                   `day` date
                                   )
                                 STORED AS ORC;
