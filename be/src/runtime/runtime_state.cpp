@@ -25,6 +25,9 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <filesystem>
 #include <string>
 
 #include "common/config.h"
@@ -429,6 +432,39 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     }
 
     size_t error_row_size = out.size();
+    std::filesystem::path dir_path = _exec_env->store_paths()[0].path + "/" + ERROR_LOG_PREFIX;
+    size_t current_err_dir_size = 0;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(dir_path)) {
+        if (std::filesystem::is_regular_file(entry)) {
+            current_err_dir_size += std::filesystem::file_size(entry);
+        }
+    }
+    if (current_err_dir_size + error_row_size > config::load_max_error_size_bytes) {
+        std::vector<std::filesystem::directory_entry> files;
+        for (const auto& file : std::filesystem::recursive_directory_iterator(dir_path)) {
+            if (std::filesystem::is_regular_file(file)) {
+                files.push_back(file);
+            }
+        }
+
+        std::sort(files.begin(), files.end(),
+                  [](const std::filesystem::directory_entry& a,
+                     const std::filesystem::directory_entry& b) {
+                      return std::filesystem::last_write_time(a) <
+                             std::filesystem::last_write_time(b);
+                  });
+
+        for (const auto& log_file : files) {
+            if (current_err_dir_size + error_row_size > config::load_max_error_size_bytes) {
+                size_t log_file_size = std::filesystem::file_size(log_file);
+                std::filesystem::remove(log_file);
+                current_err_dir_size -= log_file_size;
+            } else {
+                break;
+            }
+        }
+    }
+
     if (error_row_size > 0) {
         if (error_row_size > config::load_error_log_limit_bytes) {
             fmt::memory_buffer limit_byte_out;
