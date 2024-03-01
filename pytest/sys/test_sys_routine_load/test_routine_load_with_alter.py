@@ -89,7 +89,7 @@ def assertStop(ret, client, stop_job=None, info=''):
 
 def wait_commit(client, routine_load_job_name, committed_expect_num, timeout=60):
     """wait task committed"""
-    print('expect commited loaded rows: %s\n' % committed_expect_num)
+    print('expect committed loaded rows: %s\n' % committed_expect_num)
     LOG.info(L('', expect_commited_rows=committed_expect_num))
     while timeout > 0:
         ret = client.show_routine_load(routine_load_job_name)

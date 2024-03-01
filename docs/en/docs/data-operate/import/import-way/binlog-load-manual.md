@@ -97,7 +97,7 @@ When certain conditions are met (for example, a certain period of time was passe
 
 If and only if all channels are committed successfully, Canal Server will be notified by the ACK request and Canal Client continue to get and consume data.
 
-If there are any Channel fails to commit, it will retrieve data from the location where the last consumption was successful and commit again (the Channel that has successfully commited before will not commmit again to ensure the idempotency of commit).
+If there are any Channel fails to commit, it will retrieve data from the location where the last consumption was successful and commit again (the Channel that has successfully committed before will not commmit again to ensure the idempotency of commit).
 
 In the whole cycle of a SyncJob, Canal Client continuously received data from Canal Server and send it to Be through the above process to complete data synchronization.
 
