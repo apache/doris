@@ -258,6 +258,6 @@ public:
             nested_function->add(nested_state, nested, i, arena);
             nested_state += nested_size_of_data;
         }
-    } 
+    }
 };
 } // namespace doris::vectorized
