@@ -200,7 +200,7 @@ public:
     void deregister_metric(const std::string& name);
 
     std::shared_ptr<BvarMetric> get_metric(const std::string& name);
-    
+
     const std::string& name() const { return name_; }
 
     // Register a hook, this hook will called before get_metric is called
@@ -256,8 +256,9 @@ public:
             BvarMetricEntityType type = BvarMetricEntityType::kServer);
     void deregister_entity(const std::shared_ptr<BvarMetricEntity>& entity);
 
-    std::shared_ptr<BvarMetricEntity> get_entity(const std::string& name, const Labels& labels = {},
-                                             BvarMetricEntityType type = BvarMetricEntityType::kServer);
+    std::shared_ptr<BvarMetricEntity> get_entity(
+            const std::string& name, const Labels& labels = {},
+            BvarMetricEntityType type = BvarMetricEntityType::kServer);
 
     void trigger_all_hooks(bool force);
 
