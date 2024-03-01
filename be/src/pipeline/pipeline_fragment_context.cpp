@@ -132,6 +132,7 @@ PipelineFragmentContext::PipelineFragmentContext(
           _report_status_cb(std::move(report_status_cb)),
           _create_time(MonotonicNanos()) {
     _fragment_watcher.start();
+    _start_time = VecDateTimeValue::local_time();
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
@@ -144,6 +145,16 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     } else {
         _call_back(_runtime_state.get(), &st);
     }
+}
+
+bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
+    if (_timeout <= 0) {
+        return false;
+    }
+    if (now.second_diff(_start_time) > _timeout) {
+        return true;
+    }
+    return false;
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
@@ -213,6 +224,9 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
 Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request, size_t idx) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
+    }
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
+        _timeout = request.query_options.execution_timeout;
     }
     const auto& local_params = request.local_params[idx];
     _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");

@@ -27,6 +27,7 @@
                     "items": [
                         "install/k8s-deploy/operator-deploy",
                         "install/k8s-deploy/helm-chart-deploy",
+                        "install/k8s-deploy/doris-cluster-upgrade",
                         "install/k8s-deploy/network",
                         "install/k8s-deploy/persistent-volume",
                         "install/k8s-deploy/root-user-use",
@@ -520,6 +521,7 @@
                                 "sql-manual/sql-functions/string-functions/space",
                                 "sql-manual/sql-functions/string-functions/sleep",
                                 "sql-manual/sql-functions/string-functions/esquery",
+                                "sql-manual/sql-functions/string-functions/random_bytes",
                                 {
                                     "type": "category",
                                     "label": "Search in String",

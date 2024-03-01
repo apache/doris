@@ -102,7 +102,7 @@ import java.util.List;
 public class OlapQueryCacheTest {
     private static final Logger LOG = LogManager.getLogger(OlapQueryCacheTest.class);
     public static String fullDbName = "testDb";
-    public static String userName = "testUser";
+    public static String userName = "root";
 
     private static ConnectContext context;
 
@@ -256,7 +256,7 @@ public class OlapQueryCacheTest {
 
                 ctx.getCurrentUserIdentity();
                 minTimes = 0;
-                UserIdentity userIdentity = new UserIdentity(userName, "192.168.1.1");
+                UserIdentity userIdentity = new UserIdentity(userName, "%");
                 userIdentity.setIsAnalyzed();
                 result = userIdentity;
             }

@@ -239,6 +239,7 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
+import org.apache.doris.nereids.trees.expressions.MatchPhraseEdge;
 import org.apache.doris.nereids.trees.expressions.MatchPhrasePrefix;
 import org.apache.doris.nereids.trees.expressions.MatchRegexp;
 import org.apache.doris.nereids.trees.expressions.Mod;
@@ -345,7 +346,6 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -362,8 +362,6 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
@@ -398,6 +396,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -533,7 +534,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()) {
                 command = new BatchInsertIntoTableCommand(sink);
             } else {
-                command = new InsertIntoTableCommand(sink, labelName);
+                command = new InsertIntoTableCommand(sink, labelName, Optional.empty());
             }
         }
         if (ctx.explain() != null) {
@@ -1224,6 +1225,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         ImmutableList.of(new UnboundAlias(Literal.of(0))));
             } else {
                 relation = visitFromClause(ctx.fromClause());
+            }
+            if (ctx.intoClause() != null && !ConnectContext.get().isRunProcedure()) {
+                throw new ParseException("Only procedure supports insert into variables", selectCtx);
             }
             selectPlan = withSelectQuerySpecification(
                     ctx, relation,
@@ -3151,6 +3155,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     break;
                 case DorisParser.MATCH_REGEXP:
                     outExpression = new MatchRegexp(
+                        valueExpression,
+                        getExpression(ctx.pattern)
+                    );
+                    break;
+                case DorisParser.MATCH_PHRASE_EDGE:
+                    outExpression = new MatchPhraseEdge(
                         valueExpression,
                         getExpression(ctx.pattern)
                     );

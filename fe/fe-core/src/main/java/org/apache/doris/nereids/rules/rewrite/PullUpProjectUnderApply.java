@@ -65,6 +65,9 @@ public class PullUpProjectUnderApply extends OneRewriteRuleFactory {
                                 "ScalarSubquery should only have one output column");
                         newProjects.add(project.getProjects().get(0));
                     }
+                    if (apply.isMarkJoin()) {
+                        newProjects.add(apply.getMarkJoinSlotReference().get());
+                    }
                     return project.withProjectsAndChild(newProjects, newCorrelate);
                 }).toRule(RuleType.PULL_UP_PROJECT_UNDER_APPLY);
     }

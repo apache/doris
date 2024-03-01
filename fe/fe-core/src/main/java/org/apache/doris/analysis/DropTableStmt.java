@@ -61,6 +61,10 @@ public class DropTableStmt extends DdlStmt {
         return tableName.getTbl();
     }
 
+    public String getCatalogName() {
+        return tableName.getCtl();
+    }
+
     public boolean isView() {
         return isView;
     }

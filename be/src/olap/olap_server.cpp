@@ -129,6 +129,12 @@ Status StorageEngine::start_bg_threads() {
             &_unused_rowset_monitor_thread));
     LOG(INFO) << "unused rowset monitor thread started";
 
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "evict_querying_rowset_thread",
+            [this]() { this->_evict_quring_rowset_thread_callback(); },
+            &_evict_quering_rowset_thread));
+    LOG(INFO) << "evict quering thread started";
+
     // start thread for monitoring the snapshot and trash folder
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "garbage_sweeper_thread",

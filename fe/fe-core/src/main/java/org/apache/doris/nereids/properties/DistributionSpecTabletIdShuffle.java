@@ -15,19 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
-
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
+package org.apache.doris.nereids.properties;
 
 /**
- * SELECT * FROM lineorder ORDER BY 'f' -> SELECT * FROM lineorder
+ * use for shuffle data by tablet-id before sink.
  */
-public class EliminateSortUnderSubquery extends OneRewriteRuleFactory {
+public class DistributionSpecTabletIdShuffle extends DistributionSpec {
+
+    public static final DistributionSpecTabletIdShuffle INSTANCE = new DistributionSpecTabletIdShuffle();
+
+    private DistributionSpecTabletIdShuffle() {
+        super();
+    }
+
     @Override
-    public Rule build() {
-        return logicalSubQueryAlias(logicalSort())
-                .then(subq -> subq.withChildren(subq.child().child(0)))
-                .toRule(RuleType.ELIMINATE_SUBQUERY_ORDER_BY);
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecTabletIdShuffle;
     }
 }

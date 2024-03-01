@@ -252,7 +252,7 @@ public class HMSAnalysisTaskTest {
         analysisInfoBuilder.setUsingSqlForPartitionColumn(true);
         task.info = analysisInfoBuilder.build();
 
-        task.getOrdinaryColumnStats();
+        task.getColumnStats();
     }
 
 
@@ -309,6 +309,6 @@ public class HMSAnalysisTaskTest {
         analysisInfoBuilder.setUsingSqlForPartitionColumn(false);
         task.info = analysisInfoBuilder.build();
 
-        task.getOrdinaryColumnStats();
+        task.getColumnStats();
     }
 }

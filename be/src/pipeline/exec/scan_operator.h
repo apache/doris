@@ -57,11 +57,10 @@ public:
     std::string debug_string() const override;
 };
 
-class ScanLocalStateBase : public PipelineXLocalState<EmptySharedState>,
-                           public vectorized::RuntimeFilterConsumer {
+class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<EmptySharedState>(state, parent),
+            : PipelineXLocalState<>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
@@ -96,6 +95,8 @@ protected:
     virtual Status _init_profile() = 0;
 
     std::atomic<bool> _opened {false};
+
+    DependencySPtr _scan_dependency = nullptr;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
@@ -165,6 +166,8 @@ class ScanLocalState : public ScanLocalStateBase {
     int64_t get_push_down_count() override;
 
     RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
+
+    std::vector<Dependency*> dependencies() const override { return {_scan_dependency.get()}; }
 
 protected:
     template <typename LocalStateType>
