@@ -109,8 +109,9 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     sql """
          REFRESH MATERIALIZED VIEW ${mvName} complete
      """
-     waitingMTMVTaskFinished(jobName)
-     order_qt_mtmv_complete "SELECT * FROM ${mvName} order by k1,day,region"
+    def jobName = getJobName(dbName, mvName);
+    waitingMTMVTaskFinished(jobName)
+    order_qt_mtmv_complete "SELECT * FROM ${mvName} order by k1,day,region"
 
    sql """drop materialized view if exists ${mvName};"""
    sql """drop catalog if exists ${catalog_name}"""
