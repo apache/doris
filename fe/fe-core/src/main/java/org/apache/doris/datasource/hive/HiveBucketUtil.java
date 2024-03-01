@@ -65,6 +65,12 @@ import java.util.regex.Pattern;
 public class HiveBucketUtil {
     private static final Logger LOG = LogManager.getLogger(HiveBucketUtil.class);
 
+    public enum HiveBucketType {
+        NONE,
+        HIVE,
+        SPARK
+    }
+
     private static final Set<PrimitiveType> SUPPORTED_TYPES_FOR_BUCKET_FILTER = ImmutableSet.of(
             PrimitiveType.BOOLEAN,
             PrimitiveType.TINYINT,
