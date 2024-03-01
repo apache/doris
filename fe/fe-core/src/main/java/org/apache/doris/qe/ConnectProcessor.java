@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -110,6 +111,19 @@ public abstract class ConnectProcessor {
         } else if (dbNames.length > 2) {
             ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
             return;
+        }
+
+        //  mysql client
+        if (Config.isCloudMode()) {
+            try {
+                dbName = ((CloudEnv) ctx.getEnv()).analyzeCloudCluster(dbName, ctx);
+            } catch (DdlException e) {
+                ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+                return;
+            }
+            if (dbName == null || dbName.isEmpty()) {
+                return;
+            }
         }
 
         // check catalog and db exists
@@ -197,6 +211,7 @@ public abstract class ConnectProcessor {
 
         List<StatementBase> stmts = null;
         Exception nereidsParseException = null;
+        long parseSqlStartTime = System.currentTimeMillis();
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
@@ -241,6 +256,7 @@ public abstract class ConnectProcessor {
                 LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", convertedStmt);
             }
         }
+        long parseSqlFinishTime = System.currentTimeMillis();
 
         boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
         for (int i = 0; i < stmts.size(); ++i) {
@@ -255,6 +271,8 @@ public abstract class ConnectProcessor {
             parsedStmt.setOrigStmt(new OriginStatement(convertedStmt, i));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
+            executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
+            executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
             ctx.setExecutor(executor);
 
             try {

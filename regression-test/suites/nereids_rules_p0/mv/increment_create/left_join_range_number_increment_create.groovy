@@ -20,7 +20,7 @@ suite("left_join_range_number_increment_create") {
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
+    sql "SET enable_materialized_view_rewrite=false"
     sql "SET enable_nereids_timeout = false"
 
     sql """

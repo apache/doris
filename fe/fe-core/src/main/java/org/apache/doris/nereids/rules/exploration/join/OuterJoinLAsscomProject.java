@@ -66,7 +66,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     GroupPlan c = topJoin.right();
 
                     /* ********** new Plan ********** */
-                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(a, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
@@ -77,7 +77,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
                     Plan right = CBOUtils.newProject(topUsedExprIds, b);
 
-                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 

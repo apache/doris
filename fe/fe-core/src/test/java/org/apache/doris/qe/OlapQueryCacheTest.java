@@ -102,7 +102,7 @@ import java.util.List;
 public class OlapQueryCacheTest {
     private static final Logger LOG = LogManager.getLogger(OlapQueryCacheTest.class);
     public static String fullDbName = "testDb";
-    public static String userName = "testUser";
+    public static String userName = "root";
 
     private static ConnectContext context;
 
@@ -256,7 +256,7 @@ public class OlapQueryCacheTest {
 
                 ctx.getCurrentUserIdentity();
                 minTimes = 0;
-                UserIdentity userIdentity = new UserIdentity(userName, "192.168.1.1");
+                UserIdentity userIdentity = new UserIdentity(userName, "%");
                 userIdentity.setIsAnalyzed();
                 result = userIdentity;
             }
@@ -268,22 +268,22 @@ public class OlapQueryCacheTest {
         db = ((InternalCatalog) env.getCurrentCatalog()).getDbNullable(fullDbName);
         // table and view init use analyzer, should init after analyzer build
         OlapTable tbl1 = createOrderTable();
-        db.createTable(tbl1);
+        db.registerTable(tbl1);
         OlapTable tbl2 = createProfileTable();
-        db.createTable(tbl2);
+        db.registerTable(tbl2);
         OlapTable tbl3 = createEventTable();
-        db.createTable(tbl3);
+        db.registerTable(tbl3);
 
         // build view meta inline sql and create view directly, the originStmt from inline sql
         // should be analyzed by create view statement analyzer and then to sql
         View view1 = createEventView1();
-        db.createTable(view1);
+        db.registerTable(view1);
         View view2 = createEventView2();
-        db.createTable(view2);
+        db.registerTable(view2);
         View view3 = createEventView3();
-        db.createTable(view3);
+        db.registerTable(view3);
         View view4 = createEventNestedView();
-        db.createTable(view4);
+        db.registerTable(view4);
     }
 
     private OlapTable createOrderTable() {

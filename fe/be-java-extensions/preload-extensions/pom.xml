@@ -228,6 +228,18 @@ under the License.
             <artifactId>hadoop-cos</artifactId>
             <version>3.3.5</version>
         </dependency>
+        <!-- For BE Paimon OSS/S3 Access -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-s3</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-oss</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

@@ -172,8 +172,11 @@ struct TDataStreamSink {
   7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
 
   // used for partition_type = TABLET_SINK_SHUFFLE_PARTITIONED
-  8: optional Descriptors.TOlapTableSchemaParam schema
-  9: optional Descriptors.TOlapTablePartitionParam partition
+  8: optional Descriptors.TOlapTableSchemaParam tablet_sink_schema
+  9: optional Descriptors.TOlapTablePartitionParam tablet_sink_partition
+  10: optional Descriptors.TOlapTableLocationParam tablet_sink_location
+  11: optional i64 tablet_sink_txn_id
+  12: optional Types.TTupleId tablet_sink_tuple_id
 }
 
 struct TMultiCastDataStreamSink {

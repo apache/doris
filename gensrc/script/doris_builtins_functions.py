@@ -827,9 +827,11 @@ visible_functions = {
         [['array_repeat'], 'ARRAY_VARCHAR', ['VARCHAR', 'BIGINT'], 'ALWAYS_NOT_NULLABLE'],
         [['array_repeat'], 'ARRAY_STRING', ['STRING', 'BIGINT'], 'ALWAYS_NOT_NULLABLE'],
 
-        [['array_range'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
-        [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
-        [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['array_zip'], 'ARRAY', ['ARRAY<T>', '...'], '', ['T']],
 
@@ -1610,6 +1612,7 @@ visible_functions = {
         [['substring_index'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
         [['url_decode'], 'VARCHAR', ['VARCHAR'], ''],
+        [['random_bytes'], 'VARCHAR', ['INT'], ''],
 
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
@@ -1664,7 +1667,8 @@ visible_functions = {
         [['money_format'], 'STRING', ['DECIMAL128'], ''],
         [['split_part'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE'],
         [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
-        [['url_decode'], 'STRING', ['STRING'], '']
+        [['url_decode'], 'STRING', ['STRING'], ''],
+        [['random_bytes'], 'STRING', ['INT'], '']
     ],
 
 

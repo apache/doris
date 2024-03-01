@@ -49,6 +49,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
+import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -57,6 +58,7 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import java.util.stream.Collectors;
 
 import java_cup.runtime.Symbol;
 
@@ -483,6 +485,7 @@ terminal String
     KW_MATCH_PHRASE,
     KW_MATCH_PHRASE_PREFIX,
     KW_MATCH_REGEXP,
+    KW_MATCH_PHRASE_EDGE,
     KW_MATCH_ELEMENT_EQ,
     KW_MATCH_ELEMENT_LT,
     KW_MATCH_ELEMENT_GT,
@@ -697,7 +700,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt, unset_var_stmt,
     create_job_stmt, pause_job_stmt, resume_job_stmt,stop_job_stmt, cancel_job_task_stmt,
-    use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
+    use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
     import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt;
@@ -991,7 +994,7 @@ precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
-precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
+precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH_PHRASE_EDGE, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -1132,6 +1135,8 @@ stmt ::=
     | recover_stmt:stmt
     {: RESULT = stmt; :}
     | use_stmt:use
+    {: RESULT = use; :}
+    | use_cloud_cluster_stmt:use
     {: RESULT = use; :}
     | set_stmt:set
     {: RESULT = set; :}
@@ -2874,11 +2879,19 @@ grant_stmt ::=
     :}
     | KW_GRANT privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_TO user_identity:userId
     {:
-        RESULT = new GrantStmt(userId, null, resourcePattern, privs);
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.GENERAL);
     :}
     | KW_GRANT privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
     {:
-        RESULT = new GrantStmt(null, role, resourcePattern, privs);
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.GENERAL);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
     | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO user_identity:userId
     {:
@@ -2912,11 +2925,11 @@ tbl_pattern ::=
 resource_pattern ::=
     ident_or_star:resourceName
     {:
-        RESULT = new ResourcePattern(resourceName);
+        RESULT = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
     :}
     | STRING_LITERAL:resourceName
     {:
-        RESULT = new ResourcePattern(resourceName);
+        RESULT = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
     :}
     ;
 
@@ -2954,11 +2967,19 @@ revoke_stmt ::=
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM user_identity:userId
     {:
-        RESULT = new RevokeStmt(userId, null, resourcePattern, privs);
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.GENERAL);
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
-        RESULT = new RevokeStmt(null, role, resourcePattern, privs);
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.GENERAL);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM user_identity:userId
     {:
@@ -3729,11 +3750,14 @@ column_definition ::=
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName KW_AGG_STATE IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
-        columnDef.setGenericAggregationName(fnName);
-        columnDef.setGenericAggregationArguments(list);
+        for (TypeDef def : list) {
+            def.analyze(null);
+        }
+        ColumnDef columnDef = new ColumnDef(columnName, new TypeDef(Expr.createAggStateType(fnName,
+            list.stream().map(TypeDef::getType).collect(Collectors.toList()), 
+            list.stream().map(TypeDef::getNullable).collect(Collectors.toList()))), false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
         RESULT = columnDef;
     :}
     | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
@@ -3741,11 +3765,14 @@ column_definition ::=
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName KW_AGG_STATE opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
-        columnDef.setGenericAggregationName(aggType);
-        columnDef.setGenericAggregationArguments(list);
+        for (TypeDef def : list) {
+            def.analyze(null);
+        }
+        ColumnDef columnDef = new ColumnDef(columnName, new TypeDef(Expr.createAggStateType(aggType.name().toLowerCase(),
+            list.stream().map(TypeDef::getType).collect(Collectors.toList()), 
+            list.stream().map(TypeDef::getNullable).collect(Collectors.toList()))), isKey, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
         RESULT = columnDef;
     :}
     ;
@@ -4375,6 +4402,11 @@ show_param ::=
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
+    /* Cloud Cluster */
+    | KW_CLUSTERS
+    {:
+        RESULT = new ShowClusterStmt();
+    :}
     | KW_CONVERT_LSC opt_db:db
     {:
         RESULT = new ShowConvertLSCStmt(db);
@@ -4909,6 +4941,22 @@ insert_overwrite_stmt ::=
     KW_INSERT KW_OVERWRITE KW_TABLE insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
        RESULT = new InsertOverwriteTableStmt(target, label, cols, source, hints);
+    :}
+    ;
+
+// Change cloud cluster
+use_cloud_cluster_stmt ::=
+    KW_USE AT ident:cluster
+    {:
+        RESULT = new UseCloudClusterStmt(cluster);
+    :}
+    | KW_USE ident:db AT ident:cluster
+    {:
+        RESULT = new UseCloudClusterStmt(cluster, db);
+    :}
+    | KW_USE ident:ctl DOT ident:db AT ident:cluster
+    {:
+        RESULT = new UseCloudClusterStmt(cluster, db, ctl);
     :}
     ;
 
@@ -6473,8 +6521,6 @@ type ::=
   {: RESULT = Type.BITMAP; :}
   | KW_QUANTILE_STATE
   {: RESULT = Type.QUANTILE_STATE; :}
-  | KW_AGG_STATE
-  {: RESULT = Type.AGG_STATE; :}
   | KW_STRING
   {: RESULT = ScalarType.createStringType(); :}
   | KW_JSON
@@ -7236,6 +7282,8 @@ match_predicate ::=
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_PREFIX, e1, e2); :}
   | expr:e1 KW_MATCH_REGEXP expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_REGEXP, e1, e2); :}
+  | expr:e1 KW_MATCH_PHRASE_EDGE expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_EDGE, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_EQ expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_EQ, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_LT expr:e2

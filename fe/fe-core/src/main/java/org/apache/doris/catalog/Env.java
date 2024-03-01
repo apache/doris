@@ -111,7 +111,6 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
-import org.apache.doris.common.publish.WorkloadActionPublishThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -521,8 +520,6 @@ public class Env {
 
     private TopicPublisherThread topicPublisherThread;
 
-    private WorkloadActionPublishThread workloadActionPublisherThread;
-
     private MTMVService mtmvService;
 
     private InsertOverwriteManager insertOverwriteManager;
@@ -760,8 +757,6 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
-        this.workloadActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
-                Config.workload_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
         this.insertOverwriteManager = new InsertOverwriteManager();
     }
@@ -1041,7 +1036,6 @@ public class Env {
 
         workloadGroupMgr.startUpdateThread();
         workloadSchedPolicyMgr.start();
-        workloadActionPublisherThread.start();
         workloadRuntimeStatusMgr.start();
     }
 
@@ -1982,7 +1976,8 @@ public class Env {
         return checksum;
     }
 
-    public long loadAlterJob(DataInputStream dis, long checksum) throws IOException {
+    public long loadAlterJob(DataInputStream dis, long checksum)
+            throws IOException, AnalysisException {
         long newChecksum = checksum;
         for (JobType type : JobType.values()) {
             newChecksum = loadAlterJob(dis, newChecksum, type);
@@ -1991,7 +1986,8 @@ public class Env {
         return newChecksum;
     }
 
-    public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
+    public long loadAlterJob(DataInputStream dis, long checksum, JobType type)
+            throws IOException, AnalysisException {
         // alter jobs
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
@@ -2962,7 +2958,7 @@ public class Env {
 
     // The interface which DdlExecutor needs.
     public void createDb(CreateDbStmt stmt) throws DdlException {
-        getInternalCatalog().createDb(stmt);
+        getCurrentCatalog().createDb(stmt);
     }
 
     // For replay edit log, need't lock metadata
@@ -2975,7 +2971,7 @@ public class Env {
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        getInternalCatalog().dropDb(stmt);
+        getCurrentCatalog().dropDb(stmt);
     }
 
     public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
@@ -3047,7 +3043,9 @@ public class Env {
      * 11. add this table to ColocateGroup if necessary
      */
     public void createTable(CreateTableStmt stmt) throws UserException {
-        getInternalCatalog().createTable(stmt);
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.createTable(stmt);
     }
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
@@ -3677,7 +3675,9 @@ public class Env {
 
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        getInternalCatalog().dropTable(stmt);
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.dropTable(stmt);
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -4326,8 +4326,8 @@ public class Env {
                     table.setName(newTableName);
                 }
 
-                db.dropTable(oldTableName);
-                db.createTable(table);
+                db.unregisterTable(oldTableName);
+                db.registerTable(table);
 
                 TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
                 editLog.logTableRename(tableInfo);
@@ -4359,9 +4359,9 @@ public class Env {
             table.writeLock();
             try {
                 String tableName = table.getName();
-                db.dropTable(tableName);
+                db.unregisterTable(tableName);
                 table.setName(newTableName);
-                db.createTable(table);
+                db.registerTable(table);
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();

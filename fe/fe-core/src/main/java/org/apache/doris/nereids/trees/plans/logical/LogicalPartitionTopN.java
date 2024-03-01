@@ -179,7 +179,8 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     public LogicalPartitionTopN<Plan> withPartitionKeysAndOrderKeys(
             List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
-        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit, child());
+        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+                Optional.empty(), Optional.of(getLogicalProperties()), child());
     }
 
     @Override

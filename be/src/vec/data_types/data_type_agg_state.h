@@ -29,7 +29,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/serde/data_type_fixedlengthobject_serde.h"
+#include "vec/data_types/serde/data_type_string_serde.h"
 
 namespace doris::vectorized {
 

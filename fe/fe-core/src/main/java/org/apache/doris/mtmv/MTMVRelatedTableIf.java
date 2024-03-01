@@ -42,7 +42,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      *
      * @return partitionId->PartitionItem
      */
-    Map<Long, PartitionItem> getPartitionItems();
+    Map<Long, PartitionItem> getAndCopyPartitionItems();
 
     /**
      * Obtain a list of partitions filtered by time
@@ -52,9 +52,9 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return
      * @throws AnalysisException
      */
-    default Map<Long, PartitionItem> getPartitionItems(int pos, MTMVPartitionSyncConfig config)
+    default Map<Long, PartitionItem> getPartitionItemsByTimeFilter(int pos, MTMVPartitionSyncConfig config)
             throws AnalysisException {
-        Map<Long, PartitionItem> partitionItems = getPartitionItems();
+        Map<Long, PartitionItem> partitionItems = getAndCopyPartitionItems();
         if (config.getSyncLimit() <= 0) {
             return partitionItems;
         }

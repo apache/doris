@@ -269,6 +269,8 @@ public class MaxComputeExternalTable extends ExternalTable {
         tMcTable.setRegion(mcCatalog.getRegion());
         tMcTable.setAccessKey(mcCatalog.getAccessKey());
         tMcTable.setSecretKey(mcCatalog.getSecretKey());
+        tMcTable.setOdpsUrl(mcCatalog.getOdpsUrl());
+        tMcTable.setTunnelUrl(mcCatalog.getTunnelUrl());
         tMcTable.setPublicAccess(String.valueOf(mcCatalog.enablePublicAccess()));
         // use mc project as dbName
         tMcTable.setProject(dbName);
