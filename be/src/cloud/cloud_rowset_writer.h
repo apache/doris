@@ -30,9 +30,6 @@ public:
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status build(RowsetSharedPtr& rowset) override;
-
-private:
-    Status _generate_delete_bitmap(int32_t segment_id) override;
 };
 
 } // namespace doris
