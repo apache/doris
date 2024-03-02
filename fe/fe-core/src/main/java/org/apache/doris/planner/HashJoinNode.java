@@ -970,9 +970,10 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     private JoinOperator transformJoinOperator() {
-        if (joinOp == JoinOperator.LEFT_ANTI_JOIN && eqJoinConjuncts.isEmpty()) {
+        boolean transformToNullAware = markJoinConjuncts != null && eqJoinConjuncts.isEmpty();
+        if (joinOp == JoinOperator.LEFT_ANTI_JOIN && transformToNullAware) {
             return JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
-        } else if (joinOp == JoinOperator.LEFT_SEMI_JOIN && eqJoinConjuncts.isEmpty()) {
+        } else if (joinOp == JoinOperator.LEFT_SEMI_JOIN && transformToNullAware) {
             return JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN;
         }
         return joinOp;
