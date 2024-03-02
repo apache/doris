@@ -111,6 +111,7 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
     private static Set<Character> TIME_PART_SET = Sets.newHashSet();
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    private static final WeekFields weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
 
     static {
         try {
@@ -988,7 +989,6 @@ public class DateLiteral extends LiteralExpr {
 
     private static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException {
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
-        WeekFields weekFields;
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {
             char character = pattern.charAt(i);
@@ -1051,7 +1051,6 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendPattern("HH:mm:ss");
                         break;
                     case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
-                        weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
                         builder.appendValue(weekFields.weekOfWeekBasedYear(), 2);
                         break;
                     case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
@@ -1064,7 +1063,6 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendValue(IsoFields.WEEK_BASED_YEAR, 4);
                         break;
                     case 'X':
-                        weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
                         builder.appendValue(weekFields.weekBasedYear(), 4, 10, SignStyle.EXCEEDS_PAD);
                         break;
                     case 'Y': // %Y Year, numeric, four digits
