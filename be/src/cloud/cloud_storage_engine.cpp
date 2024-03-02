@@ -28,6 +28,7 @@
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "cloud/config.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/cumulative_compaction_policy.h"
@@ -99,6 +100,10 @@ Status CloudStorageEngine::open() {
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
 
+    _txn_delete_bitmap_cache =
+            std::make_unique<CloudTxnDeleteBitmapCache>(config::delete_bitmap_agg_cache_capacity);
+    RETURN_IF_ERROR(_txn_delete_bitmap_cache->init());
+
     return Status::OK();
 }
 
@@ -149,6 +154,12 @@ Status CloudStorageEngine::start_bg_threads() {
             [this]() { this->_evict_quring_rowset_thread_callback(); },
             &_evict_quering_rowset_thread));
     LOG(INFO) << "evict quering thread started";
+
+    // add calculate tablet delete bitmap task thread pool
+    RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalDeleteBitmapThreadPool")
+                            .set_min_threads(1)
+                            .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
+                            .build(&_calc_tablet_delete_bitmap_task_thread_pool));
 
     // TODO(plat1ko): check_bucket_enable_versioning_thread
 
