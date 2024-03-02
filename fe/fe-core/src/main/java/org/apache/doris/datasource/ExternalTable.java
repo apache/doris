@@ -199,7 +199,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         try {
             makeSureInitialized();
         } catch (Exception e) {
-            LOG.warn("Failed to initialize table {}.{}.{}", catalog.name, dbName, name, e);
+            LOG.warn("Failed to initialize table {}.{}.{}", catalog.getName(), dbName, name, e);
             return 0;
         }
         // All external table should get external row count from cache.
