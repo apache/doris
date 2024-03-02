@@ -28,6 +28,7 @@ set +x
 export teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
 export commit_id_from_checkout="%build.vcs.number%"
 export target_branch='%teamcity.pullRequest.target.branch%'
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64/"
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
     bash prepare.sh
