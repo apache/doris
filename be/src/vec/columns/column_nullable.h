@@ -86,7 +86,7 @@ public:
     const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
-    size_t size() const override { return nested_column->size(); }
+    size_t size() const override { return assert_cast<const ColumnUInt8&>(*null_map).size(); }
     bool is_null_at(size_t n) const override {
         return assert_cast<const ColumnUInt8&>(*null_map).get_data()[n] != 0;
     }
