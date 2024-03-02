@@ -49,11 +49,16 @@ public:
 
     static Status batch_init(std::vector<CloudDeltaWriter*> writers);
 
+    Status commit_rowset();
+
+    Status set_txn_related_delete_bitmap();
+
 private:
     // Convert `_rowset_builder` from `BaseRowsetBuilder` to `CloudRowsetBuilder`
     CloudRowsetBuilder* rowset_builder();
 
     bthread::Mutex _mtx;
+    CloudStorageEngine& _engine;
 };
 
 } // namespace doris

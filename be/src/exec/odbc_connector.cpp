@@ -151,7 +151,7 @@ Status ODBCConnector::open(RuntimeState* state, bool read) {
 
     LOG(INFO) << "connect success:" << _connect_string.substr(0, _connect_string.find("Pwd="));
     _is_open = true;
-    static_cast<void>(begin_trans());
+    RETURN_IF_ERROR(begin_trans());
 
     return Status::OK();
 }

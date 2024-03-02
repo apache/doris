@@ -43,4 +43,9 @@ suite ("const_invalid") {
         sql "create materialized view const_3 as select k1,abs(1+1) from d_table;"
         exception "errCode = 2,"
     }
+
+    test {
+        sql "create materialized view mvstar as select * from d_table;"
+        exception "errCode = 2,"
+    }
 }

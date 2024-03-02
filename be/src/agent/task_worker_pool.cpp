@@ -45,6 +45,7 @@
 
 #include "agent/utils.h"
 #include "cloud/cloud_delete_task.h"
+#include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 #include "cloud/cloud_schema_change_job.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -997,7 +998,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     request.__isset.tablets = true;
 
     uint64_t report_version = s_report_version;
-    static_cast<void>(engine.tablet_manager()->build_all_report_tablets_info(&request.tablets));
+    engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
     if (report_version < s_report_version) {
         // TODO llj This can only reduce the possibility for report error, but can't avoid it.
         // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
@@ -1316,7 +1317,8 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
             Status st;
             std::shared_ptr<io::HdfsFileSystem> fs;
             if (existed_resource.fs == nullptr) {
-                st = io::HdfsFileSystem::create(resource.hdfs_storage_param, "", nullptr, &fs);
+                st = io::HdfsFileSystem::create(resource.hdfs_storage_param,
+                                                std::to_string(resource.id), "", nullptr, &fs);
             } else {
                 fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
             }
@@ -1858,6 +1860,37 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     finish_task_request.__set_task_type(req.task_type);
     finish_task_request.__set_signature(req.signature);
     finish_task_request.__set_task_status(status.to_thrift());
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
+void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    std::vector<TTabletId> error_tablet_ids;
+    std::vector<TTabletId> succ_tablet_ids;
+    Status status;
+    error_tablet_ids.clear();
+    const auto& calc_delete_bitmap_req = req.calc_delete_bitmap_req;
+    CloudEngineCalcDeleteBitmapTask engine_task(engine, calc_delete_bitmap_req, &error_tablet_ids,
+                                                &succ_tablet_ids);
+    status = engine_task.execute();
+
+    TFinishTaskRequest finish_task_request;
+    if (!status) {
+        DorisMetrics::instance()->publish_task_failed_total->increment(1);
+        LOG_WARNING("failed to calculate delete bitmap")
+                .tag("signature", req.signature)
+                .tag("transaction_id", calc_delete_bitmap_req.transaction_id)
+                .tag("error_tablets_num", error_tablet_ids.size())
+                .error(status);
+    }
+
+    status.to_thrift(&finish_task_request.task_status);
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    finish_task_request.__set_report_version(s_report_version);
+    finish_task_request.__set_error_tablet_ids(error_tablet_ids);
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);

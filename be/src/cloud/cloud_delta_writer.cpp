@@ -19,6 +19,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_rowset_builder.h"
+#include "cloud/cloud_storage_engine.h"
 #include "olap/delta_writer.h"
 #include "runtime/thread_context.h"
 
@@ -26,7 +27,7 @@ namespace doris {
 
 CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& req,
                                    RuntimeProfile* profile, const UniqueId& load_id)
-        : BaseDeltaWriter(req, profile, load_id) {
+        : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
     _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
 }
 
@@ -101,6 +102,20 @@ void CloudDeltaWriter::update_tablet_stats() {
 
 const RowsetMetaSharedPtr& CloudDeltaWriter::rowset_meta() {
     return rowset_builder()->rowset_meta();
+}
+
+Status CloudDeltaWriter::commit_rowset() {
+    std::lock_guard<bthread::Mutex> lock(_mtx);
+    if (!_is_init) {
+        // No data to write, but still need to write a empty rowset kv to keep version continuous
+        RETURN_IF_ERROR(_rowset_builder->init());
+        RETURN_IF_ERROR(_rowset_builder->build_rowset());
+    }
+    return _engine.meta_mgr().commit_rowset(*rowset_meta(), true);
+}
+
+Status CloudDeltaWriter::set_txn_related_delete_bitmap() {
+    return rowset_builder()->set_txn_related_delete_bitmap();
 }
 
 } // namespace doris

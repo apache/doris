@@ -84,7 +84,7 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
                     .flatMap(p -> p.getInputSlots().stream())
                     .anyMatch(join.right().getOutputSet()::contains);
             if (!containRightSlot) {
-                res = join.withJoinType(JoinType.LEFT_ANTI_JOIN);
+                res = join.withJoinType(JoinType.LEFT_ANTI_JOIN, join.getJoinReorderContext());
                 res = predicates.isEmpty() ? res : filter.withConjuncts(predicates).withChildren(res);
                 res = project.withChildren(res);
             }
@@ -98,7 +98,7 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
                     .flatMap(p -> p.getInputSlots().stream())
                     .anyMatch(join.left().getOutputSet()::contains);
             if (!containLeftSlot) {
-                res = join.withJoinType(JoinType.RIGHT_ANTI_JOIN);
+                res = join.withJoinType(JoinType.RIGHT_ANTI_JOIN, join.getJoinReorderContext());
                 res = predicates.isEmpty() ? res : filter.withConjuncts(predicates).withChildren(res);
                 res = project.withChildren(res);
             }

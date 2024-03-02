@@ -376,8 +376,8 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                 joinType,
                 joinConditions,
                 new LogicalOlapScan(scanScore.getRelationId(), PlanConstructor.score),
-                new LogicalOlapScan(scanStudent.getRelationId(), PlanConstructor.student)
-        );
+                new LogicalOlapScan(scanStudent.getRelationId(), PlanConstructor.student),
+                null);
 
         if (hasProject) {
             // return limit -> project -> join

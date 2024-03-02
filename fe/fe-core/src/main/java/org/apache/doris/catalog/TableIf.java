@@ -55,35 +55,59 @@ import java.util.stream.Collectors;
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
 
-    void readLock();
+    default void readLock() {
+    }
 
-    boolean tryReadLock(long timeout, TimeUnit unit);
+    default boolean tryReadLock(long timeout, TimeUnit unit) {
+        return true;
+    }
 
-    void readUnlock();
+    default void readUnlock() {
+    }
 
-    void writeLock();
+    ;
 
-    boolean writeLockIfExist();
+    default void writeLock() {
+    }
 
-    boolean tryWriteLock(long timeout, TimeUnit unit);
+    default boolean writeLockIfExist() {
+        return true;
+    }
 
-    void writeUnlock();
+    default boolean tryWriteLock(long timeout, TimeUnit unit) {
+        return true;
+    }
 
-    boolean isWriteLockHeldByCurrentThread();
+    default void writeUnlock() {
+    }
 
-    <E extends Exception> void writeLockOrException(E e) throws E;
+    default boolean isWriteLockHeldByCurrentThread() {
+        return true;
+    }
 
-    void writeLockOrDdlException() throws DdlException;
+    default <E extends Exception> void writeLockOrException(E e) throws E {
+    }
 
-    void writeLockOrMetaException() throws MetaNotFoundException;
+    default void writeLockOrDdlException() throws DdlException {
+    }
 
-    void writeLockOrAlterCancelException() throws AlterCancelException;
+    default void writeLockOrMetaException() throws MetaNotFoundException {
+    }
 
-    boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException;
+    default void writeLockOrAlterCancelException() throws AlterCancelException {
+    }
 
-    <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E;
+    default boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
+        return true;
+    }
 
-    boolean tryWriteLockIfExist(long timeout, TimeUnit unit);
+    default <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
+        return true;
+    }
+
+    default boolean tryWriteLockIfExist(long timeout, TimeUnit unit) {
+        return true;
+    }
 
     long getId();
 

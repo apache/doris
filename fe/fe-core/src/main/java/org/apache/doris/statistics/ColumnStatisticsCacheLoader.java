@@ -37,18 +37,17 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
         try {
             // Load from statistics table.
             columnStatistic = loadFromStatsTable(key);
-            if (columnStatistic.isPresent()) {
-                return columnStatistic;
-            }
-            // Load from data source metadata
-            try {
-                TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
-                columnStatistic = table.getColumnStatistic(key.colName);
-            } catch (Exception e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(String.format("Exception to get column statistics by metadata."
-                                    + "[Catalog:{}, DB:{}, Table:{}]",
-                            key.catalogId, key.dbId, key.tableId), e);
+            if (!columnStatistic.isPresent()) {
+                // Load from data source metadata
+                try {
+                    TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
+                    columnStatistic = table.getColumnStatistic(key.colName);
+                } catch (Exception e) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(String.format("Exception to get column statistics by metadata."
+                                + "[Catalog:{}, DB:{}, Table:{}]",
+                                key.catalogId, key.dbId, key.tableId), e);
+                    }
                 }
             }
         } catch (Throwable t) {
@@ -56,6 +55,14 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
                     key.catalogId, key.dbId, key.tableId, key.colName, t.getMessage());
             if (LOG.isDebugEnabled()) {
                 LOG.debug(t);
+            }
+        }
+        if (columnStatistic.isPresent()) {
+            // For non-empty table, return UNKNOWN if we can't collect ndv value.
+            // Because inaccurate ndv is very misleading.
+            ColumnStatistic stats = columnStatistic.get();
+            if (stats.count > 0 && stats.ndv == 0 && stats.count != stats.numNulls) {
+                columnStatistic = Optional.of(ColumnStatistic.UNKNOWN);
             }
         }
         return columnStatistic;

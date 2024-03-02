@@ -29,6 +29,7 @@ import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
@@ -70,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
@@ -754,10 +756,20 @@ public abstract class TestWithFeService {
     }
 
     protected void useUser(String userName) throws AnalysisException {
-        UserIdentity user = new UserIdentity(userName, "%");
+        useUser(userName, "%");
+    }
+
+    protected void useUser(String userName, String host) throws AnalysisException {
+        UserIdentity user = new UserIdentity(userName, host);
         user.analyze();
         connectContext.setCurrentUserIdentity(user);
         connectContext.setQualifiedUser(userName);
+    }
+
+    protected void addUser(String userName, boolean ifNotExists) throws Exception {
+        CreateUserStmt createUserStmt = (CreateUserStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                "create user " + (ifNotExists ? "if not exists " : "") + userName + "@'%'", connectContext);
+        DdlExecutor.execute(Env.getCurrentEnv(), createUserStmt);
     }
 
     protected void addRollup(String sql) throws Exception {

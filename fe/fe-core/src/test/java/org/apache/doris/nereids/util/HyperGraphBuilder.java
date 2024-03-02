@@ -231,7 +231,7 @@ public class HyperGraphBuilder {
                     "can not find plan %s-%s", leftBitmap, rightBitmap);
             Plan leftPlan = plans.get(leftKey.get());
             Plan rightPlan = plans.get(rightKey.get());
-            LogicalJoin join = new LogicalJoin<>(joinType, leftPlan, rightPlan);
+            LogicalJoin join = new LogicalJoin<>(joinType, leftPlan, rightPlan, null);
 
             BitSet key = new BitSet();
             key.or(leftKey.get());
@@ -289,11 +289,11 @@ public class HyperGraphBuilder {
             Random random = new Random();
             int randomIndex = random.nextInt(values.length);
             DistributeType hint = values[randomIndex];
-            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
+            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType, null);
             ((LogicalJoin) hintJoin).setHint(new DistributeHint(hint));
             return hintJoin;
         }
-        return ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
+        return ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType, null);
     }
 
     private Optional<BitSet> findPlan(BitSet bitSet) {
@@ -388,7 +388,7 @@ public class HyperGraphBuilder {
         } else {
             conditions.add(condition);
         }
-        return new LogicalJoin<>(join.getJoinType(), conditions, left, right);
+        return new LogicalJoin<>(join.getJoinType(), conditions, left, right, null);
     }
 
     private Expression makeCondition(int node1, int node2, BitSet bitSet) {

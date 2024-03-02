@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands;
+package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -32,6 +32,8 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -69,15 +71,7 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) throws Exception {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
-        return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
+        return InsertUtils.getPlanForExplain(ctx, this.logicalQuery);
     }
 
     @Override
@@ -103,10 +97,10 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
         }
 
         PhysicalOlapTableSink<?> sink;
-        TableIf targetTableIf = InsertExecutor.getTargetTable(logicalQuery, ctx);
+        TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
         targetTableIf.readLock();
         try {
-            this.logicalQuery = (LogicalPlan) InsertExecutor.normalizePlan(logicalQuery, targetTableIf);
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
@@ -147,14 +141,14 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
             Optional<PhysicalUnion> union = planner.getPhysicalPlan()
                     .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
             if (union.isPresent()) {
-                InsertExecutor.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
+                InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
                         targetTable.getName(), targetSchema, union.get().getConstantExprsList());
                 return;
             }
             Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
                     .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
             if (oneRowRelation.isPresent()) {
-                InsertExecutor.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
+                InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
                         targetTable.getName(), targetSchema, ImmutableList.of(oneRowRelation.get().getProjects()));
                 return;
             }
