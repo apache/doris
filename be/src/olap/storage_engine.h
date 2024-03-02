@@ -357,13 +357,13 @@ private:
     std::atomic_bool _stopped {false};
 
     std::mutex _gc_mutex;
-    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _unused_rowsets;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
     PendingRowsetSet _pending_local_rowsets;
     PendingRowsetSet _pending_remote_rowsets;
 
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;
-    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _querying_rowsets;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
 
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
