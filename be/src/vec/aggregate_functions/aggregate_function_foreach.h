@@ -62,8 +62,8 @@ protected:
     const size_t nested_size_of_data;
     const size_t num_arguments;
 
-    AggregateFunctionForEachData& ensureAggregateData(AggregateDataPtr __restrict place,
-                                                      size_t new_size, Arena& arena) const {
+    AggregateFunctionForEachData& ensure_aggregate_data(AggregateDataPtr __restrict place,
+                                                        size_t new_size, Arena& arena) const {
         AggregateFunctionForEachData& state = data(place);
 
         /// Ensure we have aggregate states for new_size elements, allocate
@@ -113,6 +113,7 @@ protected:
             for (i = 0; i < old_size; ++i) {
                 nested_function->merge(&new_state[i * nested_size_of_data],
                                        &old_state[i * nested_size_of_data], &arena);
+                nested_function->destroy(&old_state[i * nested_size_of_data]);
             }
 
             state.array_of_aggregate_datas = new_state;
@@ -163,7 +164,7 @@ public:
                Arena* arena) const override {
         const AggregateFunctionForEachData& rhs_state = data(rhs);
         AggregateFunctionForEachData& state =
-                ensureAggregateData(place, rhs_state.dynamic_array_size, *arena);
+                ensure_aggregate_data(place, rhs_state.dynamic_array_size, *arena);
 
         const char* rhs_nested_state = rhs_state.array_of_aggregate_datas;
         char* nested_state = state.array_of_aggregate_datas;
@@ -193,7 +194,7 @@ public:
         size_t new_size = 0;
         read_binary(new_size, buf);
 
-        ensureAggregateData(place, new_size, *arena);
+        ensure_aggregate_data(place, new_size, *arena);
 
         char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = 0; i < new_size; ++i) {
@@ -251,7 +252,7 @@ public:
             }
         }
 
-        AggregateFunctionForEachData& state = ensureAggregateData(place, end - begin, *arena);
+        AggregateFunctionForEachData& state = ensure_aggregate_data(place, end - begin, *arena);
 
         char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = begin; i < end; ++i) {

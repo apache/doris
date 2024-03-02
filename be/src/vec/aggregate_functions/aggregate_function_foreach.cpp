@@ -36,9 +36,9 @@ namespace doris::vectorized {
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
                                            const bool result_is_nullable) -> AggregateFunctionPtr {
-        const std::string suffix = AggregateFunctionForEach::AGG_FOREACH_SUFFIX;
+        const std::string& suffix = AggregateFunctionForEach::AGG_FOREACH_SUFFIX;
         DataTypes transform_arguments;
-        for (auto t : types) {
+        for (const auto& t : types) {
             auto item_type =
                     assert_cast<const DataTypeArray*>(remove_nullable(t).get())->get_nested_type();
             transform_arguments.push_back((item_type));
@@ -47,10 +47,11 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
         auto nested_function =
                 factory.get(nested_function_name, transform_arguments, result_is_nullable);
         if (!nested_function) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "The combiner did not find a corresponding function. nested function "
-                            "name {} , args {}",
-                            nested_function_name, types_name(types));
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "The combiner did not find a foreach combiner function. nested function "
+                    "name {} , args {}",
+                    nested_function_name, types_name(types));
         }
         return creator_without_type::create<AggregateFunctionForEach>(transform_arguments, true,
                                                                       nested_function);
