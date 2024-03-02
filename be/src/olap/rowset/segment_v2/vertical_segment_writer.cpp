@@ -290,11 +290,6 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
 //       2.3 fill block
 // 3. set columns to data convertor and then write all columns
 Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data) {
-    if (config::is_cloud_mode()) {
-        // TODO(plat1ko): CloudStorageEngine
-        return Status::NotSupported("append_block_with_partial_content");
-    }
-
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
     DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
 
@@ -527,10 +522,6 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         vectorized::MutableColumns& mutable_full_columns,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const size_t& segment_start_pos) {
-    if (config::is_cloud_mode()) {
-        // TODO(plat1ko): CloudStorageEngine
-        return Status::NotSupported("fill_missing_columns");
-    }
     auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;

@@ -34,8 +34,11 @@ CloudRowsetBuilder::~CloudRowsetBuilder() = default;
 Status CloudRowsetBuilder::init() {
     _tablet = DORIS_TRY(_engine.get_tablet(_req.tablet_id));
 
-    // TODO(plat1ko): get rowset ids snapshot to calculate delete bitmap
-
+    std::shared_ptr<MowContext> mow_context;
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets());
+        RETURN_IF_ERROR(init_mow_context(mow_context));
+    }
     RETURN_IF_ERROR(check_tablet_version_count());
 
     // build tablet schema in request level
@@ -55,8 +58,7 @@ Status CloudRowsetBuilder::init() {
     context.index_id = _req.index_id;
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
-    // TODO(plat1ko):
-    // context.mow_context = mow_context;
+    context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
     // New loaded data is always written to latest shared storage
@@ -104,4 +106,24 @@ const RowsetMetaSharedPtr& CloudRowsetBuilder::rowset_meta() {
     return _rowset_writer->rowset_meta();
 }
 
+Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        if (config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0) {
+            auto st = _tablet->check_delete_bitmap_correctness(
+                    _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, _rowset_ids);
+            if (!st.ok()) {
+                LOG(WARNING) << fmt::format(
+                        "[tablet_id:{}][txn_id:{}][load_id:{}][partition_id:{}] "
+                        "delete bitmap correctness check failed in commit phase!",
+                        _req.tablet_id, _req.txn_id, UniqueId(_req.load_id).to_string(),
+                        _req.partition_id);
+                return st;
+            }
+        }
+        _engine.txn_delete_bitmap_cache().set_tablet_txn_info(
+                _req.txn_id, _tablet->tablet_id(), _delete_bitmap, _rowset_ids, _rowset,
+                _req.txn_expiration, _partial_update_info);
+    }
+    return Status::OK();
+}
 } // namespace doris
