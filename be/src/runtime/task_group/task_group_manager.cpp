@@ -77,7 +77,7 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
         for (auto iter = _task_groups.begin(); iter != _task_groups.end(); iter++) {
             uint64_t tg_id = iter->first;
-            auto* task_group_ptr = iter->second.get();
+            auto task_group_ptr = iter->second;
             if (used_wg_id.find(tg_id) == used_wg_id.end()) {
                 task_group_ptr->shutdown();
                 // only when no query running in task group, its resource can be released in BE
