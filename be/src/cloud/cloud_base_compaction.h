@@ -17,28 +17,43 @@
 
 #pragma once
 
+#include <memory>
+
 #include "cloud/cloud_storage_engine.h"
-#include "common/status.h"
-#include "http/action/compaction_action.h"
-#include "http/http_handler_with_auth.h"
+#include "cloud/cloud_tablet.h"
+#include "olap/compaction.h"
 
 namespace doris {
-class HttpRequest;
 
-/// This action is used for viewing the compaction status.
-/// See compaction-action.md for details.
-class CloudCompactionAction : public HttpHandlerWithAuth {
+class CloudBaseCompaction : public CloudCompactionMixin {
 public:
-    CloudCompactionAction(CompactionActionType ctype, ExecEnv* exec_env, CloudStorageEngine& engine,
-                          TPrivilegeHier::type hier, TPrivilegeType::type ptype);
+    CloudBaseCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet);
+    ~CloudBaseCompaction() override;
 
-    ~CloudCompactionAction() override = default;
+    Status prepare_compact() override;
+    Status execute_compact() override;
 
-    void handle(HttpRequest* req) override;
+    void do_lease();
 
 private:
-    [[maybe_unused]] CloudStorageEngine& _engine;
-    [[maybe_unused]] CompactionActionType _type;
+    Status pick_rowsets_to_compact();
+
+    std::string_view compaction_name() const override { return "CloudBaseCompaction"; }
+
+    Status modify_rowsets() override;
+
+    void garbage_collection() override;
+
+    void _filter_input_rowset();
+
+    void build_basic_info();
+
+    ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
+
+    std::string _uuid;
+    int64_t _input_segments = 0;
+    int64_t _base_compaction_cnt = 0;
+    int64_t _cumulative_compaction_cnt = 0;
 };
 
 } // namespace doris

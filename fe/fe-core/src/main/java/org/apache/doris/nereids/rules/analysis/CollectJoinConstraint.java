@@ -162,6 +162,12 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                 }
             }
         }
+        if (minLeftHand == 0L) {
+            minLeftHand = leftHand;
+        }
+        if (minRightHand == 0L) {
+            minRightHand = rightHand;
+        }
 
         JoinConstraint newJoinConstraint = new JoinConstraint(minLeftHand, minRightHand, leftHand, rightHand,
                 join.getJoinType(), isStrict);

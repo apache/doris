@@ -27,7 +27,10 @@ namespace doris {
 
 class BloomFilterAdaptor {
 public:
-    BloomFilterAdaptor() { _bloom_filter = std::make_shared<doris::BlockBloomFilter>(); }
+    BloomFilterAdaptor(bool null_aware = false) : _null_aware(null_aware) {
+        _bloom_filter = std::make_shared<doris::BlockBloomFilter>();
+    }
+
     static int64_t optimal_bit_num(int64_t expect_num, double fpp) {
         return doris::segment_v2::BloomFilter::optimal_bit_num(expect_num, fpp) / 8;
     }
@@ -74,12 +77,18 @@ public:
         }
     }
 
+    void set_contain_null() { _contain_null = true; }
+
+    bool contain_null() const { return _null_aware && _contain_null; }
+
 private:
+    bool _null_aware = false;
+    bool _contain_null = false;
     std::shared_ptr<doris::BlockBloomFilter> _bloom_filter;
 };
 
 // Only Used In RuntimeFilter
-class BloomFilterFuncBase : public FilterFuncBase {
+class BloomFilterFuncBase : public RuntimeFilterFuncBase {
 public:
     virtual ~BloomFilterFuncBase() = default;
 
@@ -236,10 +245,13 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
             for (int i = 0; i < number; i++) {
                 uint16_t idx = offsets[i];
                 if (nullmap[idx]) {
-                    continue;
-                }
-                if (!bloom_filter.test_element(get_element(data, idx))) {
-                    continue;
+                    if (!bloom_filter.contain_null()) {
+                        continue;
+                    }
+                } else {
+                    if (!bloom_filter.test_element(get_element(data, idx))) {
+                        continue;
+                    }
                 }
                 offsets[new_size++] = idx;
             }
@@ -255,10 +267,13 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
         } else {
             for (int i = 0; i < number; i++) {
                 if (nullmap[i]) {
-                    continue;
-                }
-                if (!bloom_filter.test_element(get_element(data, i))) {
-                    continue;
+                    if (!bloom_filter.contain_null()) {
+                        continue;
+                    }
+                } else {
+                    if (!bloom_filter.test_element(get_element(data, i))) {
+                        continue;
+                    }
                 }
                 offsets[new_size++] = i;
             }
@@ -277,6 +292,7 @@ struct CommonFindOp {
 
     void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
                       size_t start) const {
+        const auto size = column->size();
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
@@ -285,14 +301,16 @@ struct CommonFindOp {
                             .get_data();
 
             const T* data = (T*)col.get_raw_data().data;
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 if (!nullmap[i]) {
                     bloom_filter.add_element(*(data + i));
+                } else {
+                    bloom_filter.set_contain_null();
                 }
             }
         } else {
             const T* data = (T*)column->get_raw_data().data;
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 bloom_filter.add_element(*(data + i));
             }
         }
@@ -315,16 +333,17 @@ struct CommonFindOp {
             data = (T*)column->get_raw_data().data;
         }
 
+        const auto size = column->size();
         if (nullmap) {
-            for (size_t i = 0; i < column->size(); i++) {
+            for (size_t i = 0; i < size; i++) {
                 if (!nullmap[i]) {
                     results[i] = bloom_filter.test_element(data[i]);
                 } else {
-                    results[i] = false;
+                    results[i] = bloom_filter.contain_null();
                 }
             }
         } else {
-            for (size_t i = 0; i < column->size(); i++) {
+            for (size_t i = 0; i < size; i++) {
                 results[i] = bloom_filter.test_element(data[i]);
             }
         }
@@ -346,14 +365,16 @@ struct StringFindOp : CommonFindOp<StringRef> {
                     assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
                             .get_data();
 
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < col.size(); i++) {
                 if (!nullmap[i]) {
                     bloom_filter.add_element(col.get_data_at(i));
+                } else {
+                    bloom_filter.set_contain_null();
                 }
             }
         } else {
             const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < col->size(); i++) {
                 bloom_filter.add_element(col->get_data_at(i));
             }
         }
@@ -368,22 +389,23 @@ struct StringFindOp : CommonFindOp<StringRef> {
             const auto& nullmap =
                     assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
                             .get_data();
+
             if (nullable->has_null()) {
-                for (size_t i = 0; i < column->size(); i++) {
+                for (size_t i = 0; i < col.size(); i++) {
                     if (!nullmap[i]) {
                         results[i] = bloom_filter.test_element(col.get_data_at(i));
                     } else {
-                        results[i] = false;
+                        results[i] = bloom_filter.contain_null();
                     }
                 }
             } else {
-                for (size_t i = 0; i < column->size(); i++) {
+                for (size_t i = 0; i < col.size(); i++) {
                     results[i] = bloom_filter.test_element(col.get_data_at(i));
                 }
             }
         } else {
             const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = 0; i < column->size(); i++) {
+            for (size_t i = 0; i < col->size(); i++) {
                 results[i] = bloom_filter.test_element(col->get_data_at(i));
             }
         }
@@ -451,6 +473,7 @@ public:
             uint16_t idx = offsets[i];
             offsets[new_size] = idx;
             if constexpr (is_nullable) {
+                new_size += nullmap[idx] && _bloom_filter->contain_null();
                 new_size += !nullmap[idx] && _bloom_filter->test(column->get_hash_value(idx));
             } else {
                 new_size += _bloom_filter->test(column->get_hash_value(idx));

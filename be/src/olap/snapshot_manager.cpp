@@ -156,7 +156,7 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     tablet_schema->init_from_pb(new_tablet_meta_pb.schema());
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
-    std::unordered_map<RowsetId, RowsetId, HashOfRowsetId> rowset_id_mapping;
+    std::unordered_map<RowsetId, RowsetId> rowset_id_mapping;
     guards.reserve(cloned_tablet_meta_pb.rs_metas_size() +
                    cloned_tablet_meta_pb.stale_rs_metas_size());
     for (auto&& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {

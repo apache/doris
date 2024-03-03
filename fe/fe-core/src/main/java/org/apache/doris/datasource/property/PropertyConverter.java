@@ -263,7 +263,7 @@ public class PropertyConverter {
         s3Properties.put(Constants.MAX_ERROR_RETRIES, "2");
         s3Properties.put("fs.s3.impl.disable.cache", "true");
         s3Properties.putIfAbsent("fs.s3.impl", S3AFileSystem.class.getName());
-        String credentialsProviders = getCredentialsProviders(properties);
+        String credentialsProviders = getAWSCredentialsProviders(properties);
         s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, credentialsProviders);
         if (credential.isWhole()) {
             s3Properties.put(Constants.ACCESS_KEY, credential.getAccessKey());
@@ -283,7 +283,7 @@ public class PropertyConverter {
         }
     }
 
-    private static String getCredentialsProviders(Map<String, String> properties) {
+    public static String getAWSCredentialsProviders(Map<String, String> properties) {
         String credentialsProviders;
         String hadoopCredProviders = properties.get(Constants.AWS_CREDENTIALS_PROVIDER);
         if (hadoopCredProviders != null) {

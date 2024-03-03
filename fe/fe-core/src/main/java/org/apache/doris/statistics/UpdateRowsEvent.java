@@ -21,30 +21,24 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 public class UpdateRowsEvent implements Writable {
 
-    @SerializedName("tableIdToUpdateRows")
-    public final Map<Long, Long> tableIdToUpdateRows = new HashMap<>();
+    @SerializedName("records")
+    private Map<Long, Long> records;
 
-    @VisibleForTesting
-    public UpdateRowsEvent() {}
+    public UpdateRowsEvent(Map<Long, Long> records) {
+        this.records = records;
+    }
 
-    // No need to be thread safe, only publish thread will call this.
-    public void addUpdateRows(long tableId, long rows) {
-        if (tableIdToUpdateRows.containsKey(tableId)) {
-            tableIdToUpdateRows.put(tableId, tableIdToUpdateRows.get(tableId) + rows);
-        } else {
-            tableIdToUpdateRows.put(tableId, rows);
-        }
+    public Map<Long, Long> getRecords() {
+        return records;
     }
 
     @Override
@@ -53,9 +47,8 @@ public class UpdateRowsEvent implements Writable {
         Text.writeString(out, json);
     }
 
-    public static UpdateRowsEvent read(DataInput dataInput) throws IOException {
-        String json = Text.readString(dataInput);
-        UpdateRowsEvent updateRowsEvent = GsonUtils.GSON.fromJson(json, UpdateRowsEvent.class);
-        return updateRowsEvent;
+    public static UpdateRowsEvent read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, UpdateRowsEvent.class);
     }
 }

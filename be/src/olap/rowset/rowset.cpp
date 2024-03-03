@@ -75,6 +75,10 @@ void Rowset::make_visible(Version version) {
     }
 }
 
+void Rowset::set_version(Version version) {
+    _rowset_meta->set_version(version);
+}
+
 bool Rowset::check_rowset_segment() {
     std::lock_guard load_lock(_lock);
     return check_current_rowset_segment();

@@ -21,7 +21,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.PropertyConverter;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -83,14 +83,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     protected void initS3Param(Configuration conf) {
         Map<String, String> properties = catalogProperty.getHadoopProperties();
-        String hadoopCredProviders = properties.get(Constants.AWS_CREDENTIALS_PROVIDER);
-        if (hadoopCredProviders != null) {
-            conf.set(Constants.AWS_CREDENTIALS_PROVIDER, hadoopCredProviders);
-        } else {
-            String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
-            String dorisCredProviders = properties
-                    .getOrDefault(S3Properties.CREDENTIALS_PROVIDER, defaultProviderList);
-            conf.set(Constants.AWS_CREDENTIALS_PROVIDER, dorisCredProviders);
-        }
+        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
     }
 }

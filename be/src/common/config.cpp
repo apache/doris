@@ -156,6 +156,10 @@ DEFINE_Int32(tablet_publish_txn_max_thread, "32");
 DEFINE_Int32(publish_version_task_timeout_s, "8");
 // the count of thread to calc delete bitmap
 DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
+// the count of thread to calc delete bitmap worker, only used for cloud
+DEFINE_Int32(calc_delete_bitmap_worker_count, "8");
+// the count of thread to calc tablet delete bitmap task, only used for cloud
+DEFINE_Int32(calc_tablet_delete_bitmap_task_max_thread, "32");
 // the count of thread to clear transaction task
 DEFINE_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
@@ -907,6 +911,8 @@ DEFINE_mString(file_cache_type, "file_block_cache");
 DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
     return config.empty() || config == "file_block_cache";
 });
+
+DEFINE_String(tmp_file_dir, "tmp");
 
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
 

@@ -1026,6 +1026,8 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     merge_filter_request->set_filter_id(_filter_id);
     merge_filter_request->set_opt_remote_rf(opt_remote_rf);
     merge_filter_request->set_is_pipeline(_state->enable_pipeline_exec);
+    auto column_type = _wrapper->column_type();
+    merge_filter_request->set_column_type(to_proto(column_type));
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
 
     Status serialize_status = serialize(merge_filter_request.get(), &data, &len);
@@ -1324,6 +1326,9 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
     PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
     if (param->request->has_in_filter()) {
         column_type = to_primitive_type(param->request->in_filter().column_type());
+    }
+    if (param->request->has_column_type()) {
+        column_type = to_primitive_type(param->request->column_type());
     }
     wrapper->reset(new RuntimePredicateWrapper(pool, column_type, get_type(filter_type),
                                                param->request->filter_id()));
