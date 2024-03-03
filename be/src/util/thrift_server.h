@@ -27,7 +27,6 @@
 
 #include "common/status.h"
 #include "util/bvar_metrics.h"
-#include "util/metrics.h"
 
 namespace apache {
 namespace thrift {
@@ -149,17 +148,11 @@ private:
 
     friend class ThriftServerEventProcessor;
 
-    std::shared_ptr<MetricEntity> _thrift_server_metric_entity;
-    // Number of currently active connections
-    IntGauge* thrift_current_connections = nullptr;
-    // Total connections made over the lifetime of this server
-    IntCounter* thrift_connections_total = nullptr;
-
     std::shared_ptr<BvarMetricEntity> thrift_server_metric_entity_;
     // Number of currently active connections
-    std::shared_ptr<BvarAdderMetric<int64_t>> thrift_current_connections_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> thrift_current_connections;
     // Total connections made over the lifetime of this server
-    std::shared_ptr<BvarAdderMetric<int64_t>> thrift_connections_total_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> thrift_connections_total;
 };
 
 } // namespace doris

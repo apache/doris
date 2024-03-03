@@ -29,7 +29,6 @@
 #include "olap/tablet.h"
 #include "runtime/thread_context.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -108,8 +107,6 @@ Status CumulativeCompaction::execute_compact() {
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
     tablet()->set_last_cumu_compaction_success_time(UnixMillis());
-    DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
     g_adder_cumulative_compaction_deltas_total.increment(_input_rowsets.size());
     g_adder_cumulative_compaction_bytes_total.increment(_input_rowsets_size);
     return Status::OK();

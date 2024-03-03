@@ -48,7 +48,6 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/slice.h"
 #include "util/stopwatch.hpp"
 #include "vec/common/hex.h"
@@ -57,22 +56,6 @@ namespace fs = std::filesystem;
 
 namespace doris {
 namespace io {
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_hits_ratio, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_removed_elements, MetricUnit::OPERATIONS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_max_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_curr_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_max_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_curr_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_max_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_curr_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_max_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_curr_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_segment_reader_cache_size, MetricUnit::NOUNIT);
 
 LRUFileCache::LRUFileCache(const std::string& cache_base_path,
                            const FileCacheSettings& cache_settings)
@@ -86,72 +69,50 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
     entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             "lru_file_cache", {{"path", _cache_base_path}});
     entity_->register_hook(_cache_base_path, std::bind(&LRUFileCache::update_cache_metrics, this));
-    REGISTER_INIT_DOUBLE_BVAR_METRIC(entity_, file_cache_hits_ratio_, BvarMetricType::GAUGE,
-                                     BvarMetricUnit::NOUNIT, "", "", Labels(), false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_removed_elements_, BvarMetricType::GAUGE,
-                                     BvarMetricUnit::OPERATIONS, "", "", Labels(), false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_max_size_,
-                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+    REGISTER_INIT_DOUBLE_BVAR_METRIC(entity_, file_cache_hits_ratio, BvarMetricType::GAUGE,
+                                     BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_removed_elements, BvarMetricType::GAUGE,
+                                     BvarMetricUnit::OPERATIONS, "", "", BvarMetric::Labels(),
                                      false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_curr_size_,
-                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                     false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_max_elements_,
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_max_size,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_curr_size,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_max_elements,
                                      BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                                     Labels(), false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_curr_elements_,
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_curr_elements,
                                      BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                                     Labels(), false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_max_size_,
-                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                     false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_curr_size_,
-                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                     false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_max_elements_,
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_max_size,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_curr_size,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_max_elements,
                                      BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                                     Labels(), false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_curr_elements_,
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_curr_elements,
                                      BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                                     Labels(), false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_max_size_,
-                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                     false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_curr_size_,
-                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                     false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_max_elements_,
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_max_size,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_curr_size,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_max_elements,
                                      BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                                     Labels(), false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_curr_elements_,
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_curr_elements,
                                      BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                                     Labels(), false)
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_segment_reader_cache_size_,
+                                     BvarMetric::Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_segment_reader_cache_size,
                                      BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                                     Labels(), false)
-
-    _entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            "lru_file_cache", {{"path", _cache_base_path}});
-    _entity->register_hook(_cache_base_path, std::bind(&LRUFileCache::update_cache_metrics, this));
-
-    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_removed_elements);
-
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_max_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_curr_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_max_elements);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_curr_elements);
-
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_max_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_curr_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_max_elements);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_curr_elements);
-
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_max_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_max_elements);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_elements);
-    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_segment_reader_cache_size);
+                                     BvarMetric::Labels(), false)
 
     LOG(INFO) << fmt::format(
             "file cache path={}, disposable queue size={} elements={}, index queue size={} "
@@ -1185,25 +1146,6 @@ void LRUFileCache::update_cache_metrics() const {
     file_cache_disposable_queue_max_elements->set_value(_disposable_queue.get_max_element_size());
     file_cache_disposable_queue_curr_elements->set_value(_disposable_queue.get_elements_num(l));
     file_cache_segment_reader_cache_size->set_value(IFileCache::file_reader_cache_size());
-
-    file_cache_hits_ratio_->set_value(hit_ratio);
-    file_cache_removed_elements_->set_value(_num_removed_segments);
-
-    file_cache_index_queue_max_size_->set_value(_index_queue.get_max_size());
-    file_cache_index_queue_curr_size_->set_value(_index_queue.get_total_cache_size(l));
-    file_cache_index_queue_max_elements_->set_value(_index_queue.get_max_element_size());
-    file_cache_index_queue_curr_elements_->set_value(_index_queue.get_elements_num(l));
-
-    file_cache_normal_queue_max_size_->set_value(_normal_queue.get_max_size());
-    file_cache_normal_queue_curr_size_->set_value(_normal_queue.get_total_cache_size(l));
-    file_cache_normal_queue_max_elements_->set_value(_normal_queue.get_max_element_size());
-    file_cache_normal_queue_curr_elements_->set_value(_normal_queue.get_elements_num(l));
-
-    file_cache_disposable_queue_max_size_->set_value(_disposable_queue.get_max_size());
-    file_cache_disposable_queue_curr_size_->set_value(_disposable_queue.get_total_cache_size(l));
-    file_cache_disposable_queue_max_elements_->set_value(_disposable_queue.get_max_element_size());
-    file_cache_disposable_queue_curr_elements_->set_value(_disposable_queue.get_elements_num(l));
-    file_cache_segment_reader_cache_size_->set_value(IFileCache::file_reader_cache_size());
 }
 
 } // namespace io

@@ -43,7 +43,6 @@
 #include "io/fs/path.h"
 #include "olap/data_dir.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
@@ -74,8 +73,6 @@ Status sync_dir(const io::Path& dirname) {
 LocalFileWriter::LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data)
         : FileWriter(std::move(path), fs), _fd(fd), _sync_data(sync_data) {
     _opened = true;
-    DorisMetrics::instance()->local_file_open_writing->increment(1);
-    DorisMetrics::instance()->local_file_writer_total->increment(1);
     g_adder_local_file_open_writing.increment(1);
     g_adder_local_file_writer_total.increment(1);
 }
@@ -87,11 +84,8 @@ LocalFileWriter::~LocalFileWriter() {
     if (!_closed) {
         _abort();
     }
-    DorisMetrics::instance()->local_file_open_writing->increment(-1);
-    DorisMetrics::instance()->file_created_total->increment(1);
     g_adder_local_file_open_writing.increment(-1);
     g_adder_file_created_total.increment(1);
-    DorisMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
     g_adder_local_bytes_written_total.increment(_bytes_appended);
 }
 

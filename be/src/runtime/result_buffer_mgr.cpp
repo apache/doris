@@ -34,22 +34,14 @@
 #include "arrow/type_fwd.h"
 #include "runtime/buffer_control_block.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(result_buffer_block_count, MetricUnit::NOUNIT);
-
 ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
     // Each BufferControlBlock has a limited queue size of 1024, it's not needed to count the
     // actual size of all BufferControlBlock.
-    REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
-        // std::lock_guard<std::mutex> l(_buffer_map_lock);
-        return _buffer_map.size();
-    });
     DORIS_REGISTER_HOOK_METRIC(g_adder_result_buffer_block_count, [this]() {
         // std::lock_guard<std::mutex> l(_buffer_map_lock);
         return _buffer_map.size();
@@ -57,7 +49,6 @@ ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
 }
 
 void ResultBufferMgr::stop() {
-    DEREGISTER_HOOK_METRIC(result_buffer_block_count);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_result_buffer_block_count);
     _stop_background_threads_latch.count_down();
     if (_clean_thread) {

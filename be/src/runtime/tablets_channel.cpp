@@ -45,8 +45,6 @@
 #include "olap/txn_manager.h"
 #include "runtime/load_channel.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -54,8 +52,6 @@ class SlotDescriptor;
 
 bvar::Adder<int64_t> g_tablets_channel_send_data_allocated_size(
         "tablets_channel_send_data_allocated_size");
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
 std::atomic<uint64_t> BaseTabletsChannel::_s_tablet_writer_count;
 
@@ -69,7 +65,6 @@ BaseTabletsChannel::BaseTabletsChannel(const TabletsChannelKey& key, const Uniqu
     static std::once_flag once_flag;
     _init_profile(profile);
     std::call_once(once_flag, [] {
-        REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
         DORIS_REGISTER_HOOK_METRIC(g_adder_tablet_writer_count,
                                    [&]() { return _s_tablet_writer_count.load(); })
     });

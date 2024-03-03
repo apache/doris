@@ -38,7 +38,6 @@
 #include "task/engine_clone_task.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/trace.h"
 

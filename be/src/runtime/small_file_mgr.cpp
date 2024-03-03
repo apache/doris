@@ -38,21 +38,13 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/md5.h"
-#include "util/metrics.h"
 #include "util/string_util.h"
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(small_file_cache_count, MetricUnit::NOUNIT);
-
 SmallFileMgr::SmallFileMgr(ExecEnv* env, const std::string& local_path)
         : _exec_env(env), _local_path(local_path) {
-    REGISTER_HOOK_METRIC(small_file_cache_count, [this]() {
-        // std::lock_guard<std::mutex> l(_lock);
-        return _file_cache.size();
-    });
     DORIS_REGISTER_HOOK_METRIC(g_adder_small_file_cache_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);
         return _file_cache.size();
@@ -60,7 +52,6 @@ SmallFileMgr::SmallFileMgr(ExecEnv* env, const std::string& local_path)
 }
 
 SmallFileMgr::~SmallFileMgr() {
-    DEREGISTER_HOOK_METRIC(small_file_cache_count);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_small_file_cache_count);
 }
 

@@ -56,7 +56,6 @@
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/s3_util.h"
 

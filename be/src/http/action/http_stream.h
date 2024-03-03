@@ -25,8 +25,6 @@
 #include "runtime/message_body_sink.h"
 #include "util/bvar_metrics.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 
 namespace doris {
 
@@ -57,14 +55,10 @@ private:
 
 private:
     ExecEnv* _exec_env;
-    std::shared_ptr<MetricEntity> _http_stream_entity;
-    IntCounter* http_stream_requests_total;
-    IntCounter* http_stream_duration_ms;
-    IntGauge* http_stream_current_processing;
     std::shared_ptr<BvarMetricEntity> http_stream_entity_;
-    std::shared_ptr<BvarAdderMetric<int64_t>> http_stream_requests_total_;
-    std::shared_ptr<BvarAdderMetric<int64_t>> http_stream_duration_ms_;
-    std::shared_ptr<BvarAdderMetric<int64_t>> http_stream_current_processing_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> http_stream_requests_total;
+    std::shared_ptr<BvarAdderMetric<int64_t>> http_stream_duration_ms;
+    std::shared_ptr<BvarAdderMetric<int64_t>> http_stream_current_processing;
 };
 
 } // namespace doris

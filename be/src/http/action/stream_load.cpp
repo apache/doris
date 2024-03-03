@@ -64,9 +64,7 @@
 #include "util/bvar_metrics.h"
 #include "util/byte_buffer.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/load_util.h"
-#include "util/metrics.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -75,10 +73,6 @@
 
 namespace doris {
 using namespace ErrorCode;
-
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::REQUESTS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
 bvar::LatencyRecorder g_stream_load_receive_data_latency_ms("stream_load_receive_data_latency_ms");
 
@@ -90,26 +84,20 @@ TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    _stream_load_entity =
-            DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
-    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
-    INT_GAUGE_METRIC_REGISTER(_stream_load_entity, streaming_load_current_processing);
     stream_load_entity_ =
             DorisBvarMetrics::instance()->metric_registry()->register_entity("stream_load");
-    REGISTER_INIT_INT64_BVAR_METRIC(stream_load_entity_, streaming_load_requests_total_,
+    REGISTER_INIT_INT64_BVAR_METRIC(stream_load_entity_, streaming_load_requests_total,
                                     BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, "", "",
-                                    Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(stream_load_entity_, streaming_load_duration_ms_,
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(stream_load_entity_, streaming_load_duration_ms,
                                     BvarMetricType::COUNTER, BvarMetricUnit::MILLISECONDS, "", "",
-                                    Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(stream_load_entity_, streaming_load_current_processing_,
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(stream_load_entity_, streaming_load_current_processing,
                                     BvarMetricType::GAUGE, BvarMetricUnit::REQUESTS, "", "",
-                                    Labels(), false)
+                                    BvarMetric::Labels(), false)
 }
 
 StreamLoadAction::~StreamLoadAction() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_stream_load_entity);
     DorisBvarMetrics::instance()->metric_registry()->deregister_entity(stream_load_entity_);
 }
 
@@ -154,9 +142,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
     streaming_load_current_processing->increment(-1);
-    streaming_load_requests_total_->increment(1);
-    streaming_load_duration_ms_->increment(ctx->load_cost_millis);
-    streaming_load_current_processing_->increment(-1);
 }
 
 Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
@@ -197,7 +182,6 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
 
 int StreamLoadAction::on_header(HttpRequest* req) {
     streaming_load_current_processing->increment(1);
-    streaming_load_current_processing_->increment(1);
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     req->set_handler_ctx(ctx);
 
@@ -235,7 +219,6 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         str = str + '\n';
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
-        streaming_load_current_processing_->increment(-1);
 #ifndef BE_TEST
         if (config::enable_stream_load_record && !config::is_cloud_mode()) {
             str = ctx->prepare_stream_load_record(str);

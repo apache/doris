@@ -46,7 +46,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -274,14 +273,12 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
               << ", version=" << request.version;
 
     if (tablet_info_vec == nullptr) {
-        DorisMetrics::instance()->push_requests_fail_total->increment(1);
         g_adder_push_requests_fail_total.increment(1);
         return Status::InvalidArgument("invalid tablet_info_vec which is nullptr");
     }
 
     TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(request.tablet_id);
     if (tablet == nullptr) {
-        DorisMetrics::instance()->push_requests_fail_total->increment(1);
         g_adder_push_requests_fail_total.increment(1);
         return Status::InternalError("could not find tablet {}", request.tablet_id);
     }
@@ -301,16 +298,11 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
         LOG(WARNING) << "failed to push delta, transaction_id=" << request.transaction_id
                      << ", tablet=" << tablet->tablet_id()
                      << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
-        DorisMetrics::instance()->push_requests_fail_total->increment(1);
         g_adder_push_requests_fail_total.increment(1);
     } else {
         LOG(INFO) << "succeed to push delta, transaction_id=" << request.transaction_id
                   << ", tablet=" << tablet->tablet_id()
                   << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
-        DorisMetrics::instance()->push_requests_success_total->increment(1);
-        DorisMetrics::instance()->push_request_duration_us->increment(duration_ns / 1000);
-        DorisMetrics::instance()->push_request_write_bytes->increment(push_handler.write_bytes());
-        DorisMetrics::instance()->push_request_write_rows->increment(push_handler.write_rows());
         g_adder_push_requests_success_total.increment(1);
         g_adder_push_request_duration_us.increment(duration_ns / 1000);
         g_adder_push_request_write_bytes.increment(push_handler.write_bytes());
@@ -322,7 +314,6 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
 Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
                                          std::vector<TTabletInfo>* tablet_info_vec) {
     VLOG_DEBUG << "begin to process delete data. request=" << ThriftDebugString(request);
-    DorisMetrics::instance()->delete_requests_total->increment(1);
     g_adder_delete_requests_total.increment(1);
     Status res = Status::OK();
 
@@ -344,7 +335,6 @@ Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
     res = push_handler.process_streaming_ingestion(tablet, request, PushType::PUSH_FOR_DELETE,
                                                    tablet_info_vec);
     if (!res.ok()) {
-        DorisMetrics::instance()->delete_requests_failed->increment(1);
         g_adder_delete_requests_failed.increment(1);
     }
     return res;

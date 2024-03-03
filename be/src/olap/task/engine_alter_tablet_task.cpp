@@ -30,7 +30,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -46,7 +45,6 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
 
 Status EngineAlterTabletTask::execute() {
     SCOPED_ATTACH_TASK(_mem_tracker);
-    DorisMetrics::instance()->create_rollup_requests_total->increment(1);
     g_adder_create_rollup_requests_total.increment(1);
     Status res = Status::OK();
     try {
@@ -55,7 +53,6 @@ Status EngineAlterTabletTask::execute() {
         res = e.to_status();
     }
     if (!res.ok()) {
-        DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
         g_adder_create_rollup_requests_failed.increment(1);
         return res;
     }

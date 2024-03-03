@@ -21,37 +21,28 @@
 #include <gen_cpp/internal_service.pb.h> // IWYU pragma: keep
 
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 
 namespace doris {
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_function_endpoint_stub_count, MetricUnit::NOUNIT);
 
 template <>
 BrpcClientCache<PBackendService_Stub>::BrpcClientCache() {
-    REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return _stub_map.size(); });
     DORIS_REGISTER_HOOK_METRIC(g_adder_brpc_endpoint_stub_count,
                                [this]() { return _stub_map.size(); });
 }
 
 template <>
 BrpcClientCache<PBackendService_Stub>::~BrpcClientCache() {
-    DEREGISTER_HOOK_METRIC(brpc_endpoint_stub_count);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_brpc_endpoint_stub_count);
 }
 
 template <>
 BrpcClientCache<PFunctionService_Stub>::BrpcClientCache() {
-    REGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count, [this]() { return _stub_map.size(); });
     DORIS_REGISTER_HOOK_METRIC(g_adder_brpc_function_endpoint_stub_count,
                                [this]() { return _stub_map.size(); });
 }
 
 template <>
 BrpcClientCache<PFunctionService_Stub>::~BrpcClientCache() {
-    DEREGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_brpc_function_endpoint_stub_count);
 }
 } // namespace doris

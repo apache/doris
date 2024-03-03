@@ -412,8 +412,6 @@ Status PlanFragmentExecutor::execute() {
         }
         close();
     }
-    DorisMetrics::instance()->fragment_requests_total->increment(1);
-    DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
     g_adder_fragment_requests_total.increment(1);
     g_adder_fragment_request_duration_us.increment(duration_ns / 1000);
     return Status::OK();
