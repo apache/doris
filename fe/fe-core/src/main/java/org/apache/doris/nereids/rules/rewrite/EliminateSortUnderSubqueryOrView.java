@@ -20,14 +20,25 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+
 /**
  * SELECT * FROM lineorder ORDER BY 'f' -> SELECT * FROM lineorder
  */
-public class EliminateSortUnderSubquery extends OneRewriteRuleFactory {
+public class EliminateSortUnderSubqueryOrView implements RewriteRuleFactory {
     @Override
-    public Rule build() {
-        return logicalSubQueryAlias(logicalSort())
-                .then(subq -> subq.withChildren(subq.child().child(0)))
-                .toRule(RuleType.ELIMINATE_SUBQUERY_ORDER_BY);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+            RuleType.ELIMINATE_ORDER_BY_UNDER_SUBQUERY.build(
+                logicalSubQueryAlias(logicalSort())
+                        .then(subq -> subq.withChildren(subq.child().child(0)))
+            ),
+            RuleType.ELIMINATE_ORDER_BY_UNDER_VIEW.build(
+                logicalView(logicalSort())
+                        .then(view -> view.withChildren(view.child().child(0)))
+            )
+        );
     }
 }
