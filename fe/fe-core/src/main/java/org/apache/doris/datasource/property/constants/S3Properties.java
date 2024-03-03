@@ -26,6 +26,10 @@ import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
+import com.amazonaws.auth.InstanceProfileCredentialsProvider;
+import com.amazonaws.auth.SystemPropertiesCredentialsProvider;
+import com.amazonaws.auth.WebIdentityTokenCredentialsProvider;
+import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
@@ -66,6 +70,10 @@ public class S3Properties extends BaseProperties {
             TemporaryAWSCredentialsProvider.class.getName(),
             SimpleAWSCredentialsProvider.class.getName(),
             EnvironmentVariableCredentialsProvider.class.getName(),
+            SystemPropertiesCredentialsProvider.class.getName(),
+            ProfileCredentialsProvider.class.getName(),
+            InstanceProfileCredentialsProvider.class.getName(),
+            WebIdentityTokenCredentialsProvider.class.getName(),
             IAMInstanceCredentialsProvider.class.getName());
 
     public static Map<String, String> credentialToMap(CloudCredentialWithEndpoint credential) {
