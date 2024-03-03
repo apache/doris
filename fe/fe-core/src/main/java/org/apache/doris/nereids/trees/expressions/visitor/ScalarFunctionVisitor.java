@@ -297,6 +297,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Oct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
@@ -1537,6 +1538,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitNvl(Nvl nvl, C context) {
         return visitScalarFunction(nvl, context);
+    }
+
+    default R visitOct(Oct oct, C context) {
+        return visitScalarFunction(oct, context);
     }
 
     default R visitParseUrl(ParseUrl parseUrl, C context) {

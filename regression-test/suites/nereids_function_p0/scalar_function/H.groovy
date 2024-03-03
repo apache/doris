@@ -101,4 +101,5 @@ suite("nereids_scalar_fn_H") {
 	qt_sql_hours_sub_Date_Integer_notnull "select hours_sub(kdt, kint) from fn_test_not_nullable order by kdt, kint"
 	qt_sql_hours_sub_DateV2_Integer "select hours_sub(kdtv2, kint) from fn_test order by kdtv2, kint"
 	qt_sql_hours_sub_DateV2_Integer_notnull "select hours_sub(kdtv2, kint) from fn_test_not_nullable order by kdtv2, kint"
+        qt_sql_oct_BigInt "select oct(kbint) from fn_test order by kbint"
 }
