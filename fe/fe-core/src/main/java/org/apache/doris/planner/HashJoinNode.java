@@ -784,10 +784,8 @@ public class HashJoinNode extends JoinNodeBase {
             if (eqJoinConjuncts.isEmpty()) {
                 Preconditions.checkState(joinOp == JoinOperator.LEFT_SEMI_JOIN
                         || joinOp == JoinOperator.LEFT_ANTI_JOIN);
-                if (joinOp == JoinOperator.LEFT_SEMI_JOIN) {
-                    msg.hash_join_node.join_op = JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN.toThrift();
-                } else if (joinOp == JoinOperator.LEFT_ANTI_JOIN) {
-                    msg.hash_join_node.join_op = JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN.toThrift();
+                if (joinOp == JoinOperator.LEFT_SEMI_JOIN || joinOp == JoinOperator.LEFT_ANTI_JOIN) {
+                    msg.hash_join_node.join_op = transformJoinOperator().toThrift();
                 }
                 // because eqJoinConjuncts mustn't be empty in thrift
                 // we have to use markJoinConjuncts instead
@@ -969,5 +967,23 @@ public class HashJoinNode extends JoinNodeBase {
         } else {
             return slotRef;
         }
+    }
+
+    private JoinOperator transformJoinOperator() {
+        boolean transformToNullAware = markJoinConjuncts != null && eqJoinConjuncts.isEmpty();
+        if (joinOp == JoinOperator.LEFT_ANTI_JOIN && transformToNullAware) {
+            return JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+        } else if (joinOp == JoinOperator.LEFT_SEMI_JOIN && transformToNullAware) {
+            return JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN;
+        }
+        return joinOp;
+    }
+
+    @Override
+    public boolean isNullAwareLeftAntiJoin() {
+        if (transformJoinOperator() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            return true;
+        }
+        return children.stream().anyMatch(PlanNode::isNullAwareLeftAntiJoin);
     }
 }
