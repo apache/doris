@@ -1205,9 +1205,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setDistributeExprLists(distributeExprLists);
         PlanFragment currentFragment = connectJoinNode(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
 
-        if (joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN) {
-            currentFragment.setHasNullAwareLeftAntiJoin(true);
-        }
         if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
             // TODO: add reason
             hashJoinNode.setColocate(true, "");
