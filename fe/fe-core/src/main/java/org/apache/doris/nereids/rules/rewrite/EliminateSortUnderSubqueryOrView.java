@@ -35,7 +35,7 @@ public class EliminateSortUnderSubqueryOrView implements RewriteRuleFactory {
                 logicalSubQueryAlias(logicalSort())
                         .then(subq -> subq.withChildren(subq.child().child(0)))
             ),
-            RuleType.ELIMINATE_ORDER_BY_UNDER_SUBQUERY.build(
+            RuleType.ELIMINATE_ORDER_BY_UNDER_VIEW.build(
                 logicalView(logicalSort())
                         .then(view -> view.withChildren(view.child().child(0)))
             )
