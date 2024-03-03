@@ -17,14 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import org.apache.logging.log4j.LogManager;
@@ -39,7 +44,6 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(HiveInsertExecutor.class);
     private static final long INVALID_TXN_ID = -1L;
     private long txnId = INVALID_TXN_ID;
-    private TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     /**
      * constructor
@@ -61,7 +65,18 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
-
+        HiveTableSink hiveTableSink = (HiveTableSink) sink;
+        // PhysicalHiveTableSink physicalHiveTableSink = (PhysicalHiveTableSink) physicalSink;
+        try {
+            hiveTableSink.init();
+            hiveTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
+            if (state == null) {
+                throw new AnalysisException("txn does not exist: " + txnId);
+            }
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
     }
 
     @Override

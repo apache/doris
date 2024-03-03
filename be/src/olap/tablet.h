@@ -70,7 +70,6 @@ class TupleDescriptor;
 class CalcDeleteBitmapToken;
 enum CompressKind : int;
 class RowsetBinlogMetasPB;
-struct TabletTxnInfo;
 
 namespace io {
 class RemoteFileSystem;
@@ -306,7 +305,8 @@ public:
                                                                bool vertical) override;
 
     Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
-            const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info);
+            const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
+            int64_t txn_expiration = 0) override;
     Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
             RowsetWriterContext& context, const RowsetId& rowset_id);
 
@@ -370,11 +370,13 @@ public:
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
 
-    static Status update_delete_bitmap(const TabletSharedPtr& self, const TabletTxnInfo* txn_info,
-                                       int64_t txn_id);
-
     static Status update_delete_bitmap_without_lock(const TabletSharedPtr& self,
                                                     const RowsetSharedPtr& rowset);
+
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
+    Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
+                              DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
+                              const RowsetIdUnorderedSet& cur_rowset_ids) override;
 
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
@@ -448,9 +450,6 @@ public:
 
     void set_binlog_config(BinlogConfig binlog_config);
 
-    Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
-                                           int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
-                                           std::vector<RowsetSharedPtr>* rowsets = nullptr);
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
@@ -487,8 +486,6 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
-
-    void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

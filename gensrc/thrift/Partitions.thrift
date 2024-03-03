@@ -20,8 +20,6 @@ namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
-include "PlanNodes.thrift"
-include "DataSinks.thrift"
 
 enum TPartitionType {
   UNPARTITIONED,
@@ -94,21 +92,4 @@ struct TDataPartition {
   3: optional list<TRangePartition> partition_infos
 }
 
-struct TWritePartition {
-  1: optional list<string> values
-  2: optional DataSinks.TWriteLocation location
-  3: optional PlanNodes.TFileFormatType file_format
-}
-
-struct TSortedColumn {
-    1: optional string sort_column_name
-    2: optional i32 order // asc(1) or desc(0)
-}
-
-struct TWriteBucket {
-    1: optional list<string> bucketed_by
-    2: optional i32 bucket_version
-    3: optional i32 bucket_count
-    4: optional list<TSortedColumn> sorted_by
-}
 

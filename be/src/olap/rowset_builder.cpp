@@ -119,7 +119,7 @@ void RowsetBuilder::_garbage_collection() {
     }
 }
 
-Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context) {
+Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context) {
     std::lock_guard<std::shared_mutex> lck(tablet()->get_header_lock());
     int64_t cur_max_version = tablet()->max_version_unlocked();
     // tablet is under alter process. The delete bitmap will be calculated after conversion.

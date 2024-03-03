@@ -33,6 +33,7 @@
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_fwd.h"
 #include "pipeline/pipeline_tracing.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
@@ -58,6 +59,7 @@ class FileCacheFactory;
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
+class TmpFileDirs;
 } // namespace segment_v2
 
 class WorkloadSchedPolicyMgr;
@@ -272,6 +274,8 @@ public:
         return _pipeline_tracer_ctx.get();
     }
 
+    segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
+
 private:
     ExecEnv();
 
@@ -385,6 +389,7 @@ private:
     RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
 
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
+    std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
 };
 
 template <>

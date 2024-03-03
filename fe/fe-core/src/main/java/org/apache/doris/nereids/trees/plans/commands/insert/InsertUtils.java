@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -252,7 +253,13 @@ public class InsertUtils {
                 }
             }
         }
-
+        if (table instanceof HMSExternalTable) {
+            // TODO: check HMSExternalTable
+            HMSExternalTable hiveTable = (HMSExternalTable) table;
+            if (hiveTable.isView()) {
+                throw new AnalysisException("View is not support in hive external table.");
+            }
+        }
         Plan query = unboundTableSink.child();
         if (!(query instanceof LogicalInlineTable)) {
             return plan;

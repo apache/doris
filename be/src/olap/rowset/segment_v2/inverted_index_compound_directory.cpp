@@ -399,7 +399,8 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
 
 void DorisCompoundDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem,
                                                  const char* path) {
-    Status status = fileSystem->create_file(path, &_writer);
+    io::FileWriterOptions opts {.create_empty_file = false};
+    Status status = fileSystem->create_file(path, &_writer, &opts);
     DBUG_EXECUTE_IF(
             "DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
             "init",

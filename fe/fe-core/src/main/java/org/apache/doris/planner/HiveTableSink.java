@@ -20,11 +20,14 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TExplainLevel;
 
 public class HiveTableSink extends DataSink {
+
+    protected TDataSink tDataSink;
 
     public HiveTableSink(HMSExternalTable table) {
         super();
@@ -32,12 +35,18 @@ public class HiveTableSink extends DataSink {
 
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
-        return null;
+        StringBuilder strBuilder = new StringBuilder();
+        strBuilder.append(prefix + "HIVE TABLE SINK\n");
+        if (explainLevel == TExplainLevel.BRIEF) {
+            return strBuilder.toString();
+        }
+        // TODO: explain partitions
+        return strBuilder.toString();
     }
 
     @Override
     protected TDataSink toThrift() {
-        return null;
+        return tDataSink;
     }
 
     @Override
@@ -47,6 +56,12 @@ public class HiveTableSink extends DataSink {
 
     @Override
     public DataPartition getOutputPartition() {
-        return null;
+        return DataPartition.RANDOM;
+    }
+
+    public void init() {
+    }
+
+    public void complete(Analyzer analyzer) {
     }
 }
