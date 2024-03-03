@@ -35,7 +35,6 @@
 #include "io/fs/err_utils.h"
 #include "util/async_io.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
@@ -44,8 +43,6 @@ struct IOContext;
 LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
                                  std::shared_ptr<LocalFileSystem> fs)
         : _fd(fd), _path(std::move(path)), _file_size(file_size), _fs(std::move(fs)) {
-    DorisMetrics::instance()->local_file_open_reading->increment(1);
-    DorisMetrics::instance()->local_file_reader_total->increment(1);
     g_adder_local_file_open_reading.increment(1);
     g_adder_local_file_reader_total.increment(1);
 }
@@ -57,7 +54,6 @@ LocalFileReader::~LocalFileReader() {
 Status LocalFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-        DorisMetrics::instance()->local_file_open_reading->increment(-1);
         g_adder_local_file_open_reading.increment(-1);
         DCHECK(bthread_self() == 0);
         if (-1 == ::close(_fd)) {
@@ -98,7 +94,6 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
             *bytes_read += res;
         }
     }
-    DorisMetrics::instance()->local_bytes_read_total->increment(*bytes_read);
     g_adder_local_bytes_read_total.increment(*bytes_read);
     return Status::OK();
 }

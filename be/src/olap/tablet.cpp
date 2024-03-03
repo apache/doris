@@ -111,7 +111,6 @@
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
@@ -1581,7 +1580,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         watch.start();
 
         compaction = std::make_shared<CumulativeCompaction>(tablet->_engine, tablet);
-        DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         g_adder_cumulative_compaction_request_total.increment(1);
         Status res = compaction->prepare_compact();
         if (!config::disable_compaction_trace_log &&
@@ -1597,7 +1595,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             permits = 0;
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
-                DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 g_adder_cumulative_compaction_request_failed.increment(1);
                 return Status::InternalError("prepare cumulative compaction with err: {}", res);
             }
@@ -1611,7 +1608,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         watch.start();
 
         compaction = std::make_shared<BaseCompaction>(tablet->_engine, tablet);
-        DorisMetrics::instance()->base_compaction_request_total->increment(1);
         g_adder_base_compaction_request_total.increment(1);
         Status res = compaction->prepare_compact();
         if (!config::disable_compaction_trace_log &&
@@ -1628,7 +1624,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             tablet->set_last_base_compaction_failure_time(UnixMillis());
             permits = 0;
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
-                DorisMetrics::instance()->base_compaction_request_failed->increment(1);
                 g_adder_base_compaction_request_failed.increment(1);
                 return Status::InternalError("prepare base compaction with err: {}", res);
             }

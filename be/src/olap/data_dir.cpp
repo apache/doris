@@ -62,7 +62,6 @@
 #include "olap/utils.h" // for check_dir_existed
 #include "service/backend_options.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
@@ -105,15 +104,6 @@ Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
 
 } // namespace
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_avail_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_local_used_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_remote_used_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_trash_used_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
-
 DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacity_bytes,
                  TStorageMedium::type storage_medium)
         : _engine(engine),
@@ -125,45 +115,36 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
           _is_used(false),
           _cluster_id(-1),
           _to_be_deleted(false) {
-    _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            std::string("data_dir.") + path, {{"path", path}});
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_local_used_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_used_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_trash_used_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
     data_dir_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             std::string("data_dir.") + path, {{"path", path}});
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_total_capacity_,
-                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                    false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_avail_capacity_,
-                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                    false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_local_used_capacity_,
-                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                    false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_remote_used_capacity_,
-                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                    false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_trash_used_capacity_,
-                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
-                                    false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_state_, BvarMetricType::GAUGE,
-                                    BvarMetricUnit::BYTES, "", "", Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_score_,
-                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(),
-                                    false)
-    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_num_,
-                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(),
-                                    false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_total_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_avail_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_local_used_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_remote_used_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_trash_used_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_state, BvarMetricType::GAUGE,
+                                    BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_score,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_num,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                    BvarMetric::Labels(), false)
 }
 
 DataDir::~DataDir() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_data_dir_metric_entity);
+    DorisBvarMetrics::instance()->metric_registry()->deregister_entity(data_dir_metric_entity_);
+    delete _id_generator;
     delete _meta;
 }
 
@@ -263,7 +244,6 @@ void DataDir::health_check() {
         }
     }
     disks_state->set_value(_is_used ? 1 : 0);
-    disks_state_->set_value(_is_used ? 1 : 0);
 }
 
 Status DataDir::_read_and_write_test_file() {
@@ -881,8 +861,6 @@ Status DataDir::update_capacity() {
                                                                   &_available_bytes));
     disks_total_capacity->set_value(_disk_capacity_bytes);
     disks_avail_capacity->set_value(_available_bytes);
-    disks_total_capacity_->set_value(_disk_capacity_bytes);
-    disks_avail_capacity_->set_value(_available_bytes);
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
               << ", available capacity: " << _available_bytes << ", usage: " << get_usage(0)
               << ", in_use: " << is_used();
@@ -899,18 +877,15 @@ void DataDir::update_trash_capacity() {
         return;
     }
     disks_trash_used_capacity->set_value(_trash_used_bytes);
-    disks_trash_used_capacity_->set_value(_trash_used_bytes);
     LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
 }
 
 void DataDir::update_local_data_size(int64_t size) {
     disks_local_used_capacity->set_value(size);
-    disks_local_used_capacity_->set_value(size);
 }
 
 void DataDir::update_remote_data_size(int64_t size) {
     disks_remote_used_capacity->set_value(size);
-    disks_remote_used_capacity_->set_value(size);
 }
 
 size_t DataDir::tablet_size() const {
@@ -932,12 +907,10 @@ bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
 
 void DataDir::disks_compaction_score_increment(int64_t delta) {
     disks_compaction_score->increment(delta);
-    disks_compaction_score_->increment(delta);
 }
 
 void DataDir::disks_compaction_num_increment(int64_t delta) {
     disks_compaction_num->increment(delta);
-    disks_compaction_num_->increment(delta);
 }
 
 Status DataDir::move_to_trash(const std::string& tablet_path) {

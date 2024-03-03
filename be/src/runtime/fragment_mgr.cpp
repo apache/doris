@@ -78,7 +78,6 @@
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
 #include "util/mem_info.h"
 #include "util/network_util.h"
@@ -94,9 +93,6 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
 bvar::Adder<int64_t> g_pipeline_fragment_instances_count("doris_pipeline_fragment_instances_count");
 
@@ -116,16 +112,12 @@ using apache::thrift::transport::TTransportException;
 
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
-    _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
-    INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
-    REGISTER_HOOK_METRIC(fragment_instance_count,
-                         [this]() { return _fragment_instance_map.size(); });
     DORIS_REGISTER_HOOK_METRIC(g_adder_fragment_instance_count,
                                [this]() { return _fragment_instance_map.size(); });
     entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
-    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, timeout_canceled_fragment_count_,
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, timeout_canceled_fragment_count,
                                      BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                                     Labels(), false)
+                                     BvarMetric::Labels(), false)
 
     auto s = Thread::create(
             "FragmentMgr", "cancel_timeout_plan_fragment", [this]() { this->cancel_worker(); },
@@ -140,8 +132,6 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
                 .set_max_queue_size(config::fragment_pool_queue_size)
                 .build(&_thread_pool);
 
-    REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
-                         [this]() { return _thread_pool->get_queue_size(); });
     DORIS_REGISTER_HOOK_METRIC(g_adder_fragment_thread_pool_queue_size,
                                [this]() { return _thread_pool->get_queue_size(); });
     CHECK(s.ok()) << s.to_string();
@@ -157,8 +147,6 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
 FragmentMgr::~FragmentMgr() = default;
 
 void FragmentMgr::stop() {
-    DEREGISTER_HOOK_METRIC(fragment_instance_count);
-    DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_fragment_instance_count);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_fragment_thread_pool_queue_size);
     _stop_background_threads_latch.count_down();
@@ -1159,7 +1147,6 @@ void FragmentMgr::cancel_worker() {
         // TODO(zhiqiang): It seems that timeout_canceled_fragment_count is
         // designed to count canceled fragment of non-pipeline query.
         timeout_canceled_fragment_count->increment(to_cancel.size());
-        timeout_canceled_fragment_count_->increment(to_cancel.size());
         for (auto& id : to_cancel) {
             cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT);
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "

@@ -93,8 +93,6 @@ BaseDeltaWriter::~BaseDeltaWriter() {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
         _rowset_builder->tablet()->flush_bytes->increment(stat.flush_size_bytes);
         _rowset_builder->tablet()->flush_finish_count->increment(stat.flush_finish_count);
-        _rowset_builder->tablet()->flush_bytes_->increment(stat.flush_size_bytes);
-        _rowset_builder->tablet()->flush_finish_count_->increment(stat.flush_finish_count);
     }
 }
 

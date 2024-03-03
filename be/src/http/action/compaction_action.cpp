@@ -44,7 +44,6 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -249,7 +248,6 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         res = do_compact(base_compaction);
         if (!res) {
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
-                DorisMetrics::instance()->base_compaction_request_failed->increment(1);
                 g_adder_base_compaction_request_failed.increment(1);
             }
         }
@@ -262,7 +260,6 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
                             << "tablet=" << tablet->tablet_id();
             } else {
-                DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 g_adder_cumulative_compaction_request_failed.increment(1);
                 LOG(WARNING) << "failed to do cumulative compaction. res=" << res
                              << ", table=" << tablet->tablet_id();

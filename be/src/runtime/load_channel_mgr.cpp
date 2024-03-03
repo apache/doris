@@ -38,9 +38,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/load_channel.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/doris_metrics.h"
 #include "util/mem_info.h"
-#include "util/metrics.h"
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"
@@ -53,10 +51,6 @@ constexpr uint32_t START_BG_INTERVAL = 60;
 constexpr uint32_t START_BG_INTERVAL = 1;
 #endif
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_channel_mem_consumption, MetricUnit::BYTES, "",
-                                   mem_consumption, Labels({{"type", "load"}}));
-
 static int64_t calc_channel_timeout_s(int64_t timeout_in_req_s) {
     int64_t load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
     if (timeout_in_req_s > 0) {
@@ -66,10 +60,6 @@ static int64_t calc_channel_timeout_s(int64_t timeout_in_req_s) {
 }
 
 LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
-    REGISTER_HOOK_METRIC(load_channel_count, [this]() {
-        // std::lock_guard<std::mutex> l(_lock);
-        return _load_channels.size();
-    });
     DORIS_REGISTER_HOOK_METRIC(g_adder_load_channel_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
@@ -77,8 +67,6 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
 }
 
 void LoadChannelMgr::stop() {
-    DEREGISTER_HOOK_METRIC(load_channel_count);
-    DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_load_channel_count);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_load_channel_mem_consumption);
     _stop_background_threads_latch.count_down();

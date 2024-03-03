@@ -51,8 +51,6 @@
 #include "service/backend_options.h"
 #include "util/defer_op.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 #include "util/slice.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -60,17 +58,11 @@
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
-
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
         : _exec_env(exec_env),
           _thread_pool(config::routine_load_thread_pool_size, config::routine_load_thread_pool_size,
                        "routine_load"),
           _data_consumer_pool(config::routine_load_consumer_pool_size) {
-    REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
-        // std::lock_guard<std::mutex> l(_lock);
-        return _task_map.size();
-    });
     DORIS_REGISTER_HOOK_METRIC(g_adder_routine_load_task_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);
         return _task_map.size();
@@ -84,7 +76,6 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
 }
 
 void RoutineLoadTaskExecutor::stop() {
-    DEREGISTER_HOOK_METRIC(routine_load_task_count);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_routine_load_task_count);
     _thread_pool.shutdown();
     _thread_pool.join();

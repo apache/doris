@@ -77,7 +77,6 @@
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
@@ -134,7 +133,6 @@ void finish_task(const TFinishTaskRequest& finish_task_request) {
     uint32_t try_time = 0;
     constexpr int TASK_FINISH_MAX_RETRY = 3;
     while (try_time < TASK_FINISH_MAX_RETRY) {
-        DorisMetrics::instance()->finish_task_requests_total->increment(1);
         g_adder_finish_task_requests_total.increment(1);
         Status client_status =
                 MasterServerClient::instance()->finish_task(finish_task_request, &result);
@@ -142,7 +140,6 @@ void finish_task(const TFinishTaskRequest& finish_task_request) {
         if (client_status.ok()) {
             break;
         } else {
-            DorisMetrics::instance()->finish_task_requests_failed->increment(1);
             g_adder_finish_task_requests_failed.increment(1);
             LOG_WARNING("failed to finish task")
                     .tag("type", finish_task_request.task_type)
@@ -1008,13 +1005,12 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
         // report, and the report version has a small probability that it has not been updated in time. When FE
         // receives this report, it is possible to delete the new tablet.
         LOG(WARNING) << "report version " << report_version << " change to " << s_report_version;
-        DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
         g_adder_report_all_tablets_requests_skip.increment(1);
         return;
     }
     int64_t max_compaction_score =
-            std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
-                     DorisMetrics::instance()->tablet_base_max_compaction_score->value());
+            std::max(g_adder_tablet_cumulative_max_compaction_score.get_value(),
+                     g_adder_tablet_base_max_compaction_score.get_value());
     request.__set_tablet_max_compaction_score(max_compaction_score);
     request.__set_report_version(report_version);
 
@@ -1394,7 +1390,6 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
             LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
         }
     });
-    DorisMetrics::instance()->create_tablet_requests_total->increment(1);
     g_adder_create_tablet_requests_total.increment(1);
     VLOG_NOTICE << "start to create tablet " << create_tablet_req.tablet_id;
 
@@ -1402,7 +1397,6 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     VLOG_NOTICE << "create tablet: " << create_tablet_req;
     Status status = engine.create_tablet(create_tablet_req, profile);
     if (!status.ok()) {
-        DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         g_adder_create_tablet_requests_failed.increment(1);
         LOG_WARNING("failed to create tablet, reason={}", status.to_string())
                 .tag("signature", req.signature)
@@ -1542,7 +1536,6 @@ void cloud_push_callback(CloudStorageEngine& engine, const TAgentTaskRequest& re
 
     finish_task_request.__set_request_version(push_req.version);
 
-    DorisMetrics::instance()->delete_requests_total->increment(1);
     g_adder_delete_requests_total.increment(1);
     auto st = CloudDeleteTask::execute(engine, req.push_req);
     if (st.ok()) {
@@ -1556,7 +1549,6 @@ void cloud_push_callback(CloudStorageEngine& engine, const TAgentTaskRequest& re
         tablet_info.tablet_id = push_req.tablet_id;
         finish_task_request.__isset.finish_tablet_infos = true;
     } else {
-        DorisMetrics::instance()->delete_requests_failed->increment(1);
         g_adder_delete_requests_failed.increment(1);
         LOG_WARNING("failed to execute push task")
                 .tag("signature", req.signature)
@@ -1581,7 +1573,6 @@ PublishVersionWorkerPool::~PublishVersionWorkerPool() = default;
 
 void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest& req) {
     const auto& publish_version_req = req.publish_version_req;
-    DorisMetrics::instance()->publish_task_request_total->increment(1);
     g_adder_publish_task_request_total.increment(1);
     VLOG_NOTICE << "get publish version task. signature=" << req.signature;
 
@@ -1649,7 +1640,6 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     }
     TFinishTaskRequest finish_task_request;
     if (!status.ok()) [[unlikely]] {
-        DorisMetrics::instance()->publish_task_failed_total->increment(1);
         g_adder_publish_task_failed_total.increment(1);
         // if publish failed, return failed, FE will ignore this error and
         // check error tablet ids and FE will also republish this task
@@ -1808,7 +1798,6 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
                     const TAgentTaskRequest& req) {
     const auto& clone_req = req.clone_req;
 
-    DorisMetrics::instance()->clone_requests_total->increment(1);
     g_adder_clone_requests_total.increment(1);
     LOG(INFO) << "get clone task. signature=" << req.signature;
 
@@ -1823,7 +1812,6 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
     finish_task_request.__set_task_status(status.to_thrift());
 
     if (!status.ok()) {
-        DorisMetrics::instance()->clone_requests_failed->increment(1);
         g_adder_clone_requests_failed.increment(1);
         LOG_WARNING("failed to clone tablet")
                 .tag("signature", req.signature)

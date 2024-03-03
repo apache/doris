@@ -60,9 +60,7 @@
 #include "service/backend_options.h"
 #include "util/bvar_metrics.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/histogram.h"
-#include "util/metrics.h"
 #include "util/path_util.h"
 #include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
@@ -82,9 +80,6 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTES, "",
-                                   mem_consumption, Labels({{"type", "tablet_meta"}}));
-
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
 
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
@@ -96,14 +91,11 @@ TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shar
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
-    REGISTER_HOOK_METRIC(tablet_meta_mem_consumption,
-                         [this]() { return _tablet_meta_mem_tracker->consumption(); });
     DORIS_REGISTER_HOOK_METRIC(g_adder_tablet_meta_mem_consumption,
                                [this]() { return _tablet_meta_mem_tracker->consumption(); });
 }
 
 TabletManager::~TabletManager() {
-    DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
     DORIS_DEREGISTER_HOOK_METRIC(g_adder_tablet_meta_mem_consumption);
 }
 
@@ -269,7 +261,6 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
 
 Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores,
                                     RuntimeProfile* profile) {
-    DorisMetrics::instance()->create_tablet_requests_total->increment(1);
     g_adder_create_tablet_requests_total.increment(1);
     int64_t tablet_id = request.tablet_id;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id
@@ -323,7 +314,6 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
             base_tablet = _get_tablet_unlocked(request.base_tablet_id);
         }
         if (base_tablet == nullptr) {
-            DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             g_adder_create_tablet_requests_failed.increment(1);
             return Status::Error<TABLE_CREATE_META_ERROR>(
                     "fail to create tablet(change schema), base tablet does not exist. "
@@ -343,7 +333,6 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     TabletSharedPtr tablet = _internal_create_tablet_unlocked(request, is_schema_change,
                                                               base_tablet.get(), stores, profile);
     if (tablet == nullptr) {
-        DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         g_adder_create_tablet_requests_failed.increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>("fail to create tablet. tablet_id={}",
                                                   request.tablet_id);
@@ -539,7 +528,6 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
                                             bool keep_files, bool is_drop_table_or_partition) {
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id
               << ", is_drop_table_or_partition=" << is_drop_table_or_partition;
-    DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
     g_adder_drop_tablet_requests_total.increment(1);
     // Fetch tablet which need to be dropped
     TabletSharedPtr to_drop_tablet = _get_tablet_unlocked(tablet_id);
@@ -1036,8 +1024,6 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
         std::lock_guard<std::mutex> guard(_tablet_stat_cache_mutex);
         _tablet_stat_list_cache.swap(local_cache);
     }
-    DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
-            tablet_version_num_hist);
     // g_adder_tablet_version_num_distribution.set_histogram(
     //         tablet_version_num_hist);
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();

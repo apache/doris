@@ -39,7 +39,6 @@
 #include "olap/tablet_schema.h"
 #include "olap/version_graph.h"
 #include "util/bvar_metrics.h"
-#include "util/metrics.h"
 #include "util/once.h"
 #include "util/slice.h"
 

@@ -52,7 +52,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
@@ -657,17 +656,12 @@ void NewOlapScanner::_update_counters_before_close() {
 #undef INCR_COUNTER
 #endif
     // Update metrics
-    DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);
-    DorisMetrics::instance()->query_scan_rows->increment(_raw_rows_read);
     g_adder_query_scan_bytes.increment(_compressed_bytes_read);
     g_adder_query_scan_rows.increment(_raw_rows_read);
     auto& tablet = _tablet_reader_params.tablet;
     tablet->query_scan_bytes->increment(_compressed_bytes_read);
     tablet->query_scan_rows->increment(_raw_rows_read);
     tablet->query_scan_count->increment(1);
-    tablet->query_scan_bytes_->increment(_compressed_bytes_read);
-    tablet->query_scan_rows_->increment(_raw_rows_read);
-    tablet->query_scan_count_->increment(1);
 }
 
 } // namespace doris::vectorized

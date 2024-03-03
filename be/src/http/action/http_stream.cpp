@@ -68,32 +68,21 @@
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_requests_total, MetricUnit::REQUESTS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_duration_ms, MetricUnit::MILLISECONDS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(http_stream_current_processing, MetricUnit::REQUESTS);
-
 HttpStreamAction::HttpStreamAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    _http_stream_entity =
-            DorisMetrics::instance()->metric_registry()->register_entity("http_stream");
-    INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_duration_ms);
-    INT_GAUGE_METRIC_REGISTER(_http_stream_entity, http_stream_current_processing);
     http_stream_entity_ =
             DorisBvarMetrics::instance()->metric_registry()->register_entity("http_stream");
-    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_requests_total_,
+    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_requests_total,
                                     BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, "", "",
-                                    Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_duration_ms_,
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_duration_ms,
                                     BvarMetricType::COUNTER, BvarMetricUnit::MILLISECONDS, "", "",
-                                    Labels(), false)
-    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_current_processing_,
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_current_processing,
                                     BvarMetricType::GAUGE, BvarMetricUnit::REQUESTS, "", "",
-                                    Labels(), false)
-    // http_stream_requests_total_->set_value(1000);  for test
+                                    BvarMetric::Labels(), false)
 }
 
 HttpStreamAction::~HttpStreamAction() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_http_stream_entity);
     DorisBvarMetrics::instance()->metric_registry()->deregister_entity(http_stream_entity_);
 }
 
@@ -139,9 +128,6 @@ void HttpStreamAction::handle(HttpRequest* req) {
     http_stream_requests_total->increment(1);
     http_stream_duration_ms->increment(ctx->load_cost_millis);
     http_stream_current_processing->increment(-1);
-    http_stream_requests_total_->increment(1);
-    http_stream_duration_ms_->increment(ctx->load_cost_millis);
-    http_stream_current_processing_->increment(-1);
 }
 
 Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx) {
@@ -175,7 +161,6 @@ Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLo
 
 int HttpStreamAction::on_header(HttpRequest* req) {
     http_stream_current_processing->increment(1);
-    http_stream_current_processing_->increment(1);
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     req->set_handler_ctx(ctx);
 
@@ -199,7 +184,6 @@ int HttpStreamAction::on_header(HttpRequest* req) {
         str = str + '\n';
         HttpChannel::send_reply(req, str);
         http_stream_current_processing->increment(-1);
-        http_stream_current_processing_->increment(-1);
         if (config::enable_stream_load_record) {
             str = ctx->prepare_stream_load_record(str);
             _save_stream_load_record(ctx, str);

@@ -45,7 +45,6 @@
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_bvar_metrics.h"
-#include "util/doris_metrics.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
@@ -390,8 +389,6 @@ Status VTabletWriterV2::write(Block& input_block) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(input_rows);
     _state->update_num_bytes_load_total(input_bytes);
-    DorisMetrics::instance()->load_rows->increment(input_rows);
-    DorisMetrics::instance()->load_bytes->increment(input_bytes);
     g_adder_load_rows.increment(input_rows);
     g_adder_load_bytes.increment(input_bytes);
     bool has_filtered_rows = false;
