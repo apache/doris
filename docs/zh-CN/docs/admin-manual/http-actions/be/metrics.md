@@ -28,7 +28,7 @@ under the License.
 
 ## Request
 
-`GET /metrics?type={enum}&with_tablet={bool}`
+`GET /bvar_metrics?type={enum}&with_tablet={bool}`
 
 ## Description
 
