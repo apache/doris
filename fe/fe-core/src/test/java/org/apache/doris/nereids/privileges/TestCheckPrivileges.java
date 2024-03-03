@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.privileges;
 
-import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -299,12 +298,6 @@ public class TestCheckPrivileges extends TestWithFeService {
                 }
             }
         }
-
-        @Override
-        public boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted,
-                ResourceTypeEnum type) {
-            return true;
-        }
     }
 
     private static class MakePrivileges {
@@ -354,7 +347,7 @@ public class TestCheckPrivileges extends TestWithFeService {
         }
 
         public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl) {
-            return isSameTable(ctl, db, tbl) && StringUtils.equals(this.user, currentUser.getUser());
+            return isSameTable(ctl, db, tbl) && StringUtils.equals(this.user, currentUser.getQualifiedUser());
         }
 
         public boolean isSameTable(String catalog, String db, String tbl) {
@@ -380,12 +373,12 @@ public class TestCheckPrivileges extends TestWithFeService {
         }
 
         public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl) {
-            return isSameTable(ctl, db, tbl) && StringUtils.equals(this.user, currentUser.getUser());
+            return isSameTable(ctl, db, tbl) && StringUtils.equals(this.user, currentUser.getQualifiedUser());
         }
 
         public boolean checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, String col) {
             return isSameTable(ctl, db, tbl)
-                    && StringUtils.equals(this.user, currentUser.getUser()) && allowColumns.contains(col);
+                    && StringUtils.equals(this.user, currentUser.getQualifiedUser()) && allowColumns.contains(col);
         }
 
         public boolean isSameTable(String catalog, String db, String tbl) {
