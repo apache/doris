@@ -69,6 +69,8 @@ exit_flag=0
     print_doris_conf
 
     echo "#### 4. start Doris"
+    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*' | sed -n '1p')"
+    export JAVA_HOME
     if ! start_doris_ms; then exit 1; fi
     if ! start_doris_recycler; then exit 1; fi
     if ! create_warehouse; then exit 1; fi
