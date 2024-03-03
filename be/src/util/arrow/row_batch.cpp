@@ -87,6 +87,11 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
         break;
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I:
+        *result = std::make_shared<arrow::Decimal128Type>(type.precision, type.scale);
+        break;
     case TYPE_BOOLEAN:
         *result = arrow::boolean();
         break;
@@ -275,25 +280,95 @@ public:
 
     // process doris DecimalV2
     arrow::Status Visit(const arrow::Decimal128Type& type) override {
-        std::shared_ptr<arrow::DataType> s_decimal_ptr =
-                std::make_shared<arrow::Decimal128Type>(27, 9);
-        arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
-        size_t num_rows = _batch.num_rows();
-        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
-        for (size_t i = 0; i < num_rows; ++i) {
-            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
-            if (is_null) {
-                ARROW_RETURN_NOT_OK(builder.AppendNull());
-                continue;
+        const TypeDescriptor& primitive_type = _cur_slot_ref->type();
+        switch (primitive_type.type) {
+        case TYPE_DECIMALV2: {
+            std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                    std::make_shared<arrow::Decimal128Type>(27, 9);
+            arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
+            size_t num_rows = _batch.num_rows();
+            ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
+            for (size_t i = 0; i < num_rows; ++i) {
+                bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+                if (is_null) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    continue;
+                }
+                auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+                PackedInt128* p_value = reinterpret_cast<PackedInt128*>(cell_ptr);
+                int64_t high = (p_value->value) >> 64;
+                uint64 low = p_value->value;
+                arrow::Decimal128 value(high, low);
+                ARROW_RETURN_NOT_OK(builder.Append(value));
             }
-            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
-            PackedInt128* p_value = reinterpret_cast<PackedInt128*>(cell_ptr);
-            int64_t high = (p_value->value) >> 64;
-            uint64 low = p_value->value;
-            arrow::Decimal128 value(high, low);
-            ARROW_RETURN_NOT_OK(builder.Append(value));
+            return builder.Finish(&_arrays[_cur_field_idx]);
         }
-        return builder.Finish(&_arrays[_cur_field_idx]);
+        case TYPE_DECIMAL128I: {
+            std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                    std::make_shared<arrow::Decimal128Type>(38, primitive_type.scale);
+            arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
+            size_t num_rows = _batch.num_rows();
+            ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
+            for (size_t i = 0; i < num_rows; ++i) {
+                bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+                if (is_null) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    continue;
+                }
+                auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+                PackedInt128* p_value = reinterpret_cast<PackedInt128*>(cell_ptr);
+                int64_t high = (p_value->value) >> 64;
+                uint64 low = p_value->value;
+                arrow::Decimal128 value(high, low);
+                ARROW_RETURN_NOT_OK(builder.Append(value));
+            }
+            return builder.Finish(&_arrays[_cur_field_idx]);
+        }
+        case TYPE_DECIMAL64: {
+            std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                    std::make_shared<arrow::Decimal128Type>(18, primitive_type.scale);
+            arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
+            size_t num_rows = _batch.num_rows();
+            ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
+            for (size_t i = 0; i < num_rows; ++i) {
+                bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+                if (is_null) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    continue;
+                }
+                auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+                const int64_t* p_value = reinterpret_cast<const int64_t*>(cell_ptr);
+                int64_t high = *p_value > 0 ? 0 : 1UL << 63;
+                arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
+                ARROW_RETURN_NOT_OK(builder.Append(value));
+            }
+            return builder.Finish(&_arrays[_cur_field_idx]);
+        }
+        case TYPE_DECIMAL32: {
+            std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                    std::make_shared<arrow::Decimal128Type>(8, primitive_type.scale);
+            arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
+            size_t num_rows = _batch.num_rows();
+            ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
+            for (size_t i = 0; i < num_rows; ++i) {
+                bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+                if (is_null) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    continue;
+                }
+                auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+                const int32_t* p_value = reinterpret_cast<const int32_t*>(cell_ptr);
+                int64_t high = *p_value > 0 ? 0 : 1UL << 63;
+                arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
+                ARROW_RETURN_NOT_OK(builder.Append(value));
+            }
+            return builder.Finish(&_arrays[_cur_field_idx]);
+        }
+        default: {
+            LOG(WARNING) << "can't convert this type = " << primitive_type.type << "to arrow type";
+            return arrow::Status::TypeError("unsupported column type");
+        }
+        }
     }
     // process boolean
     arrow::Status Visit(const arrow::BooleanType& type) override {
