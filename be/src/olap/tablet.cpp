@@ -2432,10 +2432,10 @@ Status Tablet::check_rowid_conversion(
         return Status::OK();
     }
     std::vector<segment_v2::SegmentSharedPtr> dst_segments;
+
     RETURN_IF_ERROR(
             std::dynamic_pointer_cast<BetaRowset>(dst_rowset)->load_segments(&dst_segments));
-    std::unordered_map<RowsetId, std::vector<segment_v2::SegmentSharedPtr>, HashOfRowsetId>
-            input_rowsets_segment;
+    std::unordered_map<RowsetId, std::vector<segment_v2::SegmentSharedPtr>> input_rowsets_segment;
 
     VLOG_DEBUG << "check_rowid_conversion, dst_segments size: " << dst_segments.size();
     for (auto [src_rowset, locations] : location_map) {
