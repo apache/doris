@@ -46,7 +46,11 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     int arity();
 
     default NODE_TYPE withChildren(NODE_TYPE... children) {
-        return withChildren(ImmutableList.copyOf(children));
+        Builder<NODE_TYPE> list = ImmutableList.builderWithExpectedSize(children.length);
+        for (NODE_TYPE child : children) {
+            list.add(child);
+        }
+        return withChildren(list.build());
     }
 
     NODE_TYPE withChildren(List<NODE_TYPE> children);

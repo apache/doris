@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -29,12 +30,11 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Infer output column name when it refers an expression and not has an alias manually.
  */
-public class InferPlanOutputAlias extends DefaultPlanVisitor<Void, ImmutableMultimap<ExprId, Integer>> {
+public class InferPlanOutputAlias {
 
     private final List<Slot> currentOutputs;
     private final List<NamedExpression> finalOutputs;
@@ -44,33 +44,29 @@ public class InferPlanOutputAlias extends DefaultPlanVisitor<Void, ImmutableMult
         this.finalOutputs = new ArrayList<>(currentOutputs);
     }
 
-    @Override
-    public Void visit(Plan plan, ImmutableMultimap<ExprId, Integer> currentExprIdAndIndexMap) {
-
-        List<Alias> aliasProjects = plan.getExpressions().stream()
-                .filter(expression -> expression instanceof Alias)
-                .map(Alias.class::cast)
-                .collect(Collectors.toList());
-
+    /** infer */
+    public List<NamedExpression> infer(Plan plan, ImmutableMultimap<ExprId, Integer> currentExprIdAndIndexMap) {
         ImmutableSet<ExprId> currentOutputExprIdSet = currentExprIdAndIndexMap.keySet();
-        for (Alias projectItem : aliasProjects) {
-            ExprId exprId = projectItem.getExprId();
-            // Infer name when alias child is expression and alias's name is from child
-            if (currentOutputExprIdSet.contains(projectItem.getExprId())
-                    && projectItem.isNameFromChild()) {
-                String inferredAliasName = projectItem.child().getExpressionName();
-                ImmutableCollection<Integer> outPutExprIndexes = currentExprIdAndIndexMap.get(exprId);
-                // replace output name by inferred name
-                outPutExprIndexes.forEach(index -> {
-                    Slot slot = currentOutputs.get(index);
-                    finalOutputs.set(index, slot.withName("__" + inferredAliasName + "_" + index));
-                });
+        plan.foreach(p -> {
+            for (Expression expression : plan.getExpressions()) {
+                if (!(expression instanceof Alias)) {
+                    continue;
+                }
+                Alias projectItem = (Alias) expression;
+                ExprId exprId = projectItem.getExprId();
+                // Infer name when alias child is expression and alias's name is from child
+                if (currentOutputExprIdSet.contains(projectItem.getExprId())
+                        && projectItem.isNameFromChild()) {
+                    String inferredAliasName = projectItem.child().getExpressionName();
+                    ImmutableCollection<Integer> outPutExprIndexes = currentExprIdAndIndexMap.get(exprId);
+                    // replace output name by inferred name
+                    for (Integer index : outPutExprIndexes) {
+                        Slot slot = currentOutputs.get(index);
+                        finalOutputs.set(index, slot.withName("__" + inferredAliasName + "_" + index));
+                    }
+                }
             }
-        }
-        return super.visit(plan, currentExprIdAndIndexMap);
-    }
-
-    public List<NamedExpression> getOutputs() {
+        });
         return finalOutputs;
     }
 }

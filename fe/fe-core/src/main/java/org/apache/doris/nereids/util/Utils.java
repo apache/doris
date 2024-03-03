@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -293,5 +295,52 @@ public class Utils {
             }
         }
         return false;
+    }
+
+    public static <I, O> List<O> fastMapList(List<I> list, int additionSize, Function<I, O> transformer) {
+        List<O> newList = Lists.newArrayListWithCapacity(list.size() + additionSize);
+        for (I input : list) {
+            newList.add(transformer.apply(input));
+        }
+        return newList;
+    }
+
+    /** fastToImmutableList */
+    public static <E> ImmutableList<E> fastToImmutableList(E[] array) {
+        switch (array.length) {
+            case 0:
+                return ImmutableList.of();
+            case 1:
+                return ImmutableList.of(array[0]);
+            default:
+                // NOTE: ImmutableList.copyOf(array) has additional clone of the array, so here we
+                //       direct generate a ImmutableList
+                Builder<E> copyChildren = ImmutableList.builderWithExpectedSize(array.length);
+                for (E child : array) {
+                    copyChildren.add(child);
+                }
+                return copyChildren.build();
+        }
+    }
+
+    /** fastToImmutableList */
+    public static <E> ImmutableList<E> fastToImmutableList(List<? extends E> originList) {
+        if (originList instanceof ImmutableList) {
+            return (ImmutableList<E>) originList;
+        }
+
+        switch (originList.size()) {
+            case 0: return ImmutableList.of();
+            case 1: return ImmutableList.of(originList.get(0));
+            default: {
+                // NOTE: ImmutableList.copyOf(list) has additional clone of the list, so here we
+                //       direct generate a ImmutableList
+                Builder<E> copyChildren = ImmutableList.builderWithExpectedSize(originList.size());
+                for (E child : originList) {
+                    copyChildren.add(child);
+                }
+                return copyChildren.build();
+            }
+        }
     }
 }

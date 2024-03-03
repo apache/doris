@@ -69,8 +69,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         int sumChildWidth = 0;
         for (int i = 0; i < children.length; ++i) {
             Expression child = children[i];
-            int childDepth = child.depth;
-            maxChildDepth = childDepth > maxChildDepth ? childDepth : maxChildDepth;
+            maxChildDepth = Math.max(child.depth, maxChildDepth);
             sumChildWidth += child.width;
         }
         this.depth = maxChildDepth + 1;
@@ -90,8 +89,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         int sumChildWidth = 0;
         for (int i = 0; i < children.size(); ++i) {
             Expression child = children.get(i);
-            int childDepth = child.depth;
-            maxChildDepth = childDepth > maxChildDepth ? childDepth : maxChildDepth;
+            maxChildDepth = Math.max(child.depth, maxChildDepth);
             sumChildWidth += child.width;
         }
         this.depth = maxChildDepth + 1;
@@ -130,8 +128,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      */
     public TypeCheckResult checkInputDataTypes() {
         // check all of its children recursively.
-        for (Expression expression : this.children) {
-            TypeCheckResult childResult = expression.checkInputDataTypes();
+        for (Expression child : this.children) {
+            TypeCheckResult childResult = child.checkInputDataTypes();
             if (childResult.failed()) {
                 return childResult;
             }

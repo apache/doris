@@ -59,6 +59,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -314,16 +315,28 @@ public class ExpressionUtils {
      * Generate replaceMap Slot -> Expression from NamedExpression[Expression as name]
      */
     public static Map<Slot, Expression> generateReplaceMap(List<NamedExpression> namedExpressions) {
-        return namedExpressions
-                .stream()
-                .filter(Alias.class::isInstance)
-                .collect(
-                        Collectors.toMap(
-                                NamedExpression::toSlot,
-                                // Avoid cast to alias, retrieving the first child expression.
-                                alias -> alias.child(0)
-                        )
-                );
+        ImmutableMap.Builder<Slot, Expression> replaceMap = ImmutableMap.builderWithExpectedSize(
+                namedExpressions.size() * 2);
+        for (NamedExpression namedExpression : namedExpressions) {
+            if (namedExpression instanceof Alias) {
+                // Avoid cast to alias, retrieving the first child expression.
+                replaceMap.put(namedExpression.toSlot(), namedExpression.child(0));
+            }
+        }
+        return replaceMap.build();
+    }
+
+    /**
+     * replace NameExpression.
+     */
+    public static NamedExpression replaceNameExpression(NamedExpression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        Expression newExpr = replace(expr, replaceMap);
+        if (newExpr instanceof NamedExpression) {
+            return (NamedExpression) newExpr;
+        } else {
+            return new Alias(expr.getExprId(), newExpr, expr.getName());
+        }
     }
 
     /**
@@ -338,20 +351,10 @@ public class ExpressionUtils {
      * </pre>
      */
     public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
-        return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
-    }
-
-    /**
-     * replace NameExpression.
-     */
-    public static NamedExpression replace(NamedExpression expr,
-            Map<? extends Expression, ? extends Expression> replaceMap) {
-        Expression newExpr = expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
-        if (newExpr instanceof NamedExpression) {
-            return (NamedExpression) newExpr;
-        } else {
-            return new Alias(expr.getExprId(), newExpr, expr.getName());
-        }
+        return expr.rewriteDownShortCircuit(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            return replacedExpr == null ? e : replacedExpr;
+        });
     }
 
     public static List<Expression> replace(List<Expression> exprs,
@@ -373,16 +376,16 @@ public class ExpressionUtils {
      */
     public static List<NamedExpression> replaceNamedExpressions(List<NamedExpression> namedExpressions,
             Map<? extends Expression, ? extends Expression> replaceMap) {
-        return namedExpressions.stream()
-                .map(namedExpression -> {
-                    NamedExpression newExpr = replace(namedExpression, replaceMap);
-                    if (newExpr.getExprId().equals(namedExpression.getExprId())) {
-                        return newExpr;
-                    } else {
-                        return new Alias(namedExpression.getExprId(), newExpr, namedExpression.getName());
-                    }
-                })
-                .collect(ImmutableList.toImmutableList());
+        Builder<NamedExpression> replaceExprs = ImmutableList.builderWithExpectedSize(namedExpressions.size());
+        for (NamedExpression namedExpression : namedExpressions) {
+            NamedExpression newExpr = replaceNameExpression(namedExpression, replaceMap);
+            if (newExpr.getExprId().equals(namedExpression.getExprId())) {
+                replaceExprs.add(newExpr);
+            } else {
+                replaceExprs.add(new Alias(namedExpression.getExprId(), newExpr, namedExpression.getName()));
+            }
+        }
+        return replaceExprs.build();
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(

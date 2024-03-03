@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -49,18 +48,25 @@ import java.util.Optional;
 /**
  * Use the visitor to iterate sub expression.
  */
-class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
-
-    private final Scope scope;
+class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
+    // some plan maybe bind slots in multi scopes in different priority
+    // example: sort(aggregate()), we try to bind sort.orderKey by Scope(aggregate.output)
+    //          if some orderKeys can not bind, we can try to bind sort.orderKey by
+    //          Scope(aggregate.child.output)
+    private final List<Scope> scopes;
     private final CascadesContext cascadesContext;
 
     public SubExprAnalyzer(Scope scope, CascadesContext cascadesContext) {
-        this.scope = scope;
+        this(ImmutableList.of(scope), cascadesContext);
+    }
+
+    public SubExprAnalyzer(List<Scope> scopes, CascadesContext cascadesContext) {
+        this.scopes = scopes;
         this.cascadesContext = cascadesContext;
     }
 
     @Override
-    public Expression visitNot(Not not, CascadesContext context) {
+    public Expression visitNot(Not not, T context) {
         Expression child = not.child();
         if (child instanceof Exists) {
             return visitExistsSubquery(
@@ -73,7 +79,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
+    public Expression visitExistsSubquery(Exists exists, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
         if (analyzedResult.rootIsLimitZero()) {
             return BooleanLiteral.of(exists.isNot());
@@ -87,7 +93,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitInSubquery(InSubquery expr, CascadesContext context) {
+    public Expression visitInSubquery(InSubquery expr, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
@@ -101,7 +107,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitScalarSubquery(ScalarSubquery scalar, CascadesContext context) {
+    public Expression visitScalarSubquery(ScalarSubquery scalar, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
@@ -109,13 +115,6 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         checkHasNoGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
-    }
-
-    private boolean childrenAtLeastOneInOrExistsSub(BinaryOperator binaryOperator) {
-        return binaryOperator.left().anyMatch(InSubquery.class::isInstance)
-                || binaryOperator.left().anyMatch(Exists.class::isInstance)
-                || binaryOperator.right().anyMatch(InSubquery.class::isInstance)
-                || binaryOperator.right().anyMatch(Exists.class::isInstance);
     }
 
     private void checkOutputColumn(LogicalPlan plan) {
@@ -175,13 +174,17 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     private Scope genScopeWithSubquery(SubqueryExpr expr) {
-        return new Scope(getScope().getOuterScope(),
-                getScope().getSlots(),
+        return new Scope(getDefaultScope().getOuterScope(),
+                getDefaultScope().getSlots(),
                 Optional.ofNullable(expr));
     }
 
-    public Scope getScope() {
-        return scope;
+    public Scope getDefaultScope() {
+        return scopes.get(0);
+    }
+
+    public List<Scope> getScopes() {
+        return scopes;
     }
 
     public CascadesContext getCascadesContext() {

@@ -55,7 +55,7 @@ import java.util.stream.Collectors;
 /**
  * SlotBinder is used to bind slot
  */
-public class SlotBinder extends SubExprAnalyzer {
+public class SlotBinder extends SubExprAnalyzer<CascadesContext> {
     /*
     bounded={table.a, a}
     unbound=a
@@ -127,12 +127,12 @@ public class SlotBinder extends SubExprAnalyzer {
 
     @Override
     public Slot visitUnboundSlot(UnboundSlot unboundSlot, CascadesContext context) {
-        Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getScope().getSlots()));
+        Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getDefaultScope().getSlots()));
         boolean foundInThisScope = !boundedOpt.get().isEmpty();
         // Currently only looking for symbols on the previous level.
-        if (bindSlotInOuterScope && !foundInThisScope && getScope().getOuterScope().isPresent()) {
+        if (bindSlotInOuterScope && !foundInThisScope && getDefaultScope().getOuterScope().isPresent()) {
             boundedOpt = Optional.of(bindSlot(unboundSlot,
-                    getScope()
+                    getDefaultScope()
                             .getOuterScope()
                             .get()
                             .getSlots()));
@@ -145,8 +145,8 @@ public class SlotBinder extends SubExprAnalyzer {
                 return unboundSlot;
             case 1:
                 if (!foundInThisScope
-                        && !getScope().getOuterScope().get().getCorrelatedSlots().contains(bounded.get(0))) {
-                    getScope().getOuterScope().get().getCorrelatedSlots().add(bounded.get(0));
+                        && !getDefaultScope().getOuterScope().get().getCorrelatedSlots().contains(bounded.get(0))) {
+                    getDefaultScope().getOuterScope().get().getCorrelatedSlots().add(bounded.get(0));
                 }
                 return bounded.get(0);
             default:
@@ -180,7 +180,7 @@ public class SlotBinder extends SubExprAnalyzer {
     public Expression visitUnboundStar(UnboundStar unboundStar, CascadesContext context) {
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
-        List<Slot> slots = getScope().getSlots()
+        List<Slot> slots = getDefaultScope().getSlots()
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || (((SlotReference) slot).isVisible()) || showHidden)
