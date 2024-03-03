@@ -103,7 +103,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
-    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    /**
+     * This function is used to generate the plan for Nereids.
+     * There are some load functions that only need to the plan, such as stream_load.
+     * Therefore, this section will be presented separately.
+     */
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -117,8 +122,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
-                        targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
-                        PrivPredicate.LOAD)) {
+                    targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
+                    PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
@@ -150,14 +155,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
-                    return;
+                    // return;
+                    throw new AnalysisException("group commit is not supported in Nereids now");
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()
-                                ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode()
-                                : false;
+                            ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode()
+                            : false;
                 insertExecutor.getCoordinator().getQueryOptions()
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else {
@@ -175,6 +181,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
         // so we need to set this here
         executor.setCoord(insertExecutor.getCoordinator());
+        return insertExecutor;
+    }
+
+    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         insertExecutor.executeSingleInsert(executor, jobId);
     }
 
