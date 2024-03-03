@@ -204,6 +204,10 @@ DECLARE_Int32(tablet_publish_txn_max_thread);
 DECLARE_Int32(publish_version_task_timeout_s);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
+// the count of thread to calc delete bitmap worker, only used for cloud
+DECLARE_Int32(calc_delete_bitmap_worker_count);
+// the count of thread to calc tablet delete bitmap task, only used for cloud
+DECLARE_Int32(calc_tablet_delete_bitmap_task_max_thread);
 // the count of thread to clear transaction task
 DECLARE_Int32(clear_transaction_task_worker_count);
 // the count of thread to delete
@@ -247,6 +251,7 @@ DECLARE_mInt32(download_low_speed_time);
 // log dir
 DECLARE_String(sys_log_dir);
 DECLARE_String(user_function_dir);
+DECLARE_String(pipeline_tracing_log_dir);
 // INFO, WARNING, ERROR, FATAL
 DECLARE_String(sys_log_level);
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -312,13 +317,15 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the prune stale interval of all cache
-DECLARE_mInt32(cache_prune_stale_interval);
+// all cache prune interval, used by GC and periodic thread.
+DECLARE_mInt32(cache_prune_interval_sec);
+DECLARE_mInt32(cache_periodic_prune_stale_sweep_sec);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
 DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
+DECLARE_mInt32(quering_rowsets_evict_interval);
 DECLARE_String(storage_root_path);
 DECLARE_mString(broken_storage_path);
 
@@ -1215,6 +1222,7 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
+DECLARE_Bool(use_doris_tzfile);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
@@ -1249,6 +1257,12 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 DECLARE_Int32(partition_disk_index_lru_size);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
+
+// max s3 client retry times
+DECLARE_mInt32(max_s3_client_retry);
+
+// write as inverted index tmp directory
+DECLARE_String(tmp_file_dir);
 
 #ifdef BE_TEST
 // test s3
@@ -1358,9 +1372,7 @@ std::mutex* get_mutable_string_config_lock();
 
 std::vector<std::vector<std::string>> get_config_info();
 
-Status set_fuzzy_config(const std::string& field, const std::string& value);
-
-void set_fuzzy_configs();
+Status set_fuzzy_configs();
 
 void update_config(const std::string& field, const std::string& value);
 

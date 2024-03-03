@@ -37,6 +37,7 @@ statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     | (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) name=multipartIdentifier LEFT_PAREN .*? RIGHT_PAREN .*? #createProcedure
+    | DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier #dropProcedure
     ;
 
 statementBase
@@ -70,7 +71,7 @@ statementBase
         whereClause                                                    #update
     | explain? cte? DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
-        (USING relation (COMMA relation)*)?
+        (USING relations)?
         whereClause?                                                   #delete
     | LOAD LABEL lableName=identifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
@@ -188,6 +189,7 @@ userIdentify
 explain
     : (EXPLAIN planType? | DESC | DESCRIBE)
           level=(VERBOSE | TREE | GRAPH | PLAN)?
+          PROCESS?
     ;
 
 planType
@@ -299,6 +301,7 @@ queryPrimary
 
 querySpecification
     : selectClause
+      intoClause?
       fromClause?
       whereClause?
       aggClause?
@@ -332,7 +335,24 @@ whereClause
     ;
 
 fromClause
-    : FROM relation (COMMA relation)*
+    : FROM relations
+    ;
+
+// For PL-SQL
+intoClause
+    : bulkCollectClause? INTO (tableRow | identifier) (COMMA (tableRow | identifier))*
+    ;
+
+bulkCollectClause :
+       BULK COLLECT
+     ;
+
+tableRow :
+      identifier LEFT_PAREN INTEGER_VALUE RIGHT_PAREN
+    ;
+
+relations
+    : relation (COMMA relation)*
     ;
 
 relation
@@ -393,7 +413,7 @@ updateAssignmentSeq
 
 lateralView
     : LATERAL VIEW functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
-      tableName=identifier AS columnName=identifier
+      tableName=identifier AS columnNames+=identifier (COMMA columnNames+=identifier)*
     ;
 
 queryOrganization
@@ -450,6 +470,7 @@ relationPrimary
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                               #tableValuedFunction
+    | LEFT_PAREN relations RIGHT_PAREN                                     #relationList
     ;
 
 materializedViewName
@@ -608,7 +629,7 @@ rowConstructorItem
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP | MATCH_PHRASE_EDGE) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -668,6 +689,13 @@ primaryExpression
                 (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
                 | unitsAmount=valueExpression)
             RIGHT_PAREN                                                                        #dateCeil
+    | name =(ARRAY_RANGE | SEQUENCE)
+            LEFT_PAREN
+                start=valueExpression COMMA
+                end=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #arrayRange
     | name=CURRENT_DATE                                                                        #currentDate
     | name=CURRENT_TIME                                                                        #currentTime
     | name=CURRENT_TIMESTAMP                                                                   #currentTimestamp
@@ -912,12 +940,14 @@ nonReserved
     | ALIAS
     | ANALYZED
     | ARRAY
+    | ARRAY_RANGE
     | AT
     | AUTHORS
     | AUTO_INCREMENT
     | BACKENDS
     | BACKUP
     | BEGIN
+    | BELONG
     | BIN
     | BITAND
     | BITMAP
@@ -931,6 +961,7 @@ nonReserved
     | BUCKETS
     | BUILD
     | BUILTIN
+    | BULK
     | CACHED
     | CALL
     | CATALOG
@@ -942,6 +973,7 @@ nonReserved
     | CLUSTER
     | CLUSTERS
     | COLLATION
+    | COLLECT
     | COLUMNS
     | COMMENT
     | COMMIT
@@ -1097,6 +1129,7 @@ nonReserved
     | PERMISSIVE
     | PHYSICAL
     | PLAN
+    | PROCESS
     | PLUGIN
     | PLUGINS
     | POLICY
@@ -1137,6 +1170,7 @@ nonReserved
     | SCHEMA
     | SECOND
     | SERIALIZABLE
+    | SEQUENCE
     | SESSION
     | SHAPE
     | SKEW

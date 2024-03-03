@@ -18,6 +18,8 @@
 package org.apache.doris.persist.gson;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.CloudRollupJobV2;
+import org.apache.doris.alter.CloudSchemaChangeJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.AggStateType;
@@ -52,7 +54,6 @@ import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
-import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -199,7 +200,9 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(AlterJobV2.class, "clazz")
             .registerSubtype(RollupJobV2.class, RollupJobV2.class.getSimpleName())
-            .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName());
+            .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName())
+            .registerSubtype(CloudSchemaChangeJobV2.class, CloudSchemaChangeJobV2.class.getSimpleName())
+            .registerSubtype(CloudRollupJobV2.class, CloudRollupJobV2.class.getSimpleName());
 
     // runtime adapter for class "SyncJob"
     private static RuntimeTypeAdapterFactory<SyncJob> syncJobTypeAdapterFactory = RuntimeTypeAdapterFactory
@@ -308,13 +311,6 @@ public class GsonUtils {
             .registerSubtype(Partition.class, Partition.class.getSimpleName())
             .registerSubtype(CloudPartition.class, CloudPartition.class.getSimpleName());
 
-    // runtime adapter for class "CloudInternalCatalog".
-    private static RuntimeTypeAdapterFactory<InternalCatalog> internalCatalogTypeAdapterFactory =
-            RuntimeTypeAdapterFactory.of(InternalCatalog.class, "clazz")
-            .registerDefaultSubtype(InternalCatalog.class)
-            .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
-            .registerSubtype(CloudInternalCatalog.class, CloudInternalCatalog.class.getSimpleName());
-
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
@@ -333,7 +329,6 @@ public class GsonUtils {
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
             .registerTypeAdapterFactory(replicaTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionTypeAdapterFactory)
-            .registerTypeAdapterFactory(internalCatalogTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)

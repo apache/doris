@@ -46,8 +46,6 @@
 namespace doris::pipeline {
 
 class Dependency;
-class AnalyticSourceDependency;
-class AnalyticSinkDependency;
 class PipelineXTask;
 struct BasicSharedState;
 using DependencySPtr = std::shared_ptr<Dependency>;
@@ -72,15 +70,23 @@ struct BasicSharedState {
                 << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<const TARGET*>(this);
     }
-    DependencySPtr source_dep = nullptr;
-    DependencySPtr sink_dep = nullptr;
+    std::vector<DependencySPtr> source_deps;
+    std::vector<DependencySPtr> sink_deps;
+    int id = 0;
+    std::set<int> related_op_ids;
+
     virtual ~BasicSharedState() = default;
+
+    Dependency* create_source_dependency(int operator_id, int node_id, std::string name,
+                                         QueryContext* ctx);
+
+    Dependency* create_sink_dependency(int dest_id, int node_id, std::string name,
+                                       QueryContext* ctx);
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
-    ENABLE_FACTORY_CREATOR(Dependency);
-
 public:
+    ENABLE_FACTORY_CREATOR(Dependency);
     Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : _id(id),
               _node_id(node_id),
@@ -97,20 +103,15 @@ public:
               _query_ctx(query_ctx) {}
     virtual ~Dependency() = default;
 
+    bool is_write_dependency() const { return _is_write_dependency; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
-    void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
     BasicSharedState* shared_state() { return _shared_state; }
     void set_shared_state(BasicSharedState* shared_state) { _shared_state = shared_state; }
     virtual std::string debug_string(int indentation_level = 0);
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
-    void start_watcher() {
-        for (auto& child : _children) {
-            child->start_watcher();
-        }
-        _watcher.start();
-    }
+    void start_watcher() { _watcher.start(); }
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
@@ -119,25 +120,46 @@ public:
     void set_ready();
     void set_ready_to_read() {
         DCHECK(_is_write_dependency) << debug_string();
-        DCHECK(_shared_state->source_dep != nullptr) << debug_string();
-        _shared_state->source_dep->set_ready();
+        DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
+        _shared_state->source_deps.front()->set_ready();
     }
     void set_block_to_read() {
         DCHECK(_is_write_dependency) << debug_string();
-        DCHECK(_shared_state->source_dep != nullptr) << debug_string();
-        _shared_state->source_dep->block();
+        DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
+        _shared_state->source_deps.front()->block();
     }
     void set_ready_to_write() {
-        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
-        _shared_state->sink_dep->set_ready();
+        DCHECK(_shared_state->sink_deps.size() == 1) << debug_string();
+        _shared_state->sink_deps.front()->set_ready();
     }
     void set_block_to_write() {
-        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
-        _shared_state->sink_dep->block();
+        DCHECK(_shared_state->sink_deps.size() == 1) << debug_string();
+        _shared_state->sink_deps.front()->block();
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
-    virtual void block() { _ready = false; }
+    void block() {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_ready_lock);
+        if (_always_ready) {
+            return;
+        }
+        _ready = false;
+    }
+
+    void set_always_ready() {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_ready_lock);
+        if (_always_ready) {
+            return;
+        }
+        _always_ready = true;
+        set_ready();
+    }
 
 protected:
     void _add_block_task(PipelineXTask* task);
@@ -152,13 +174,16 @@ protected:
 
     BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
-    std::list<std::shared_ptr<Dependency>> _children;
 
     std::mutex _task_lock;
     std::vector<PipelineXTask*> _blocked_task;
+
+    // If `_always_ready` is true, `block()` will never block tasks.
+    std::atomic<bool> _always_ready = false;
+    std::mutex _always_ready_lock;
 };
 
-struct FakeSharedState : public BasicSharedState {};
+struct FakeSharedState final : public BasicSharedState {};
 
 struct FakeDependency final : public Dependency {
 public:
@@ -181,9 +206,10 @@ public:
 class RuntimeFilterDependency;
 class RuntimeFilterTimer {
 public:
-    RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
+    RuntimeFilterTimer(int filter_id, int64_t registration_time, int32_t wait_time_ms,
                        std::shared_ptr<RuntimeFilterDependency> parent)
-            : _parent(std::move(parent)),
+            : _filter_id(filter_id),
+              _parent(std::move(parent)),
               _registration_time(registration_time),
               _wait_time_ms(wait_time_ms) {}
 
@@ -193,7 +219,9 @@ public:
 
     void call_has_ready();
 
-    void call_has_release();
+    // When the use count is equal to 1, only the timer queue still holds ownership,
+    // so there is no need to take any action.
+    void call_has_release() {};
 
     bool has_ready();
 
@@ -201,6 +229,7 @@ public:
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
 private:
+    int _filter_id = -1;
     bool _call_ready {};
     bool _call_timeout {};
     std::shared_ptr<RuntimeFilterDependency> _parent;
@@ -281,7 +310,7 @@ public:
             : Dependency(id, node_id, name, query_ctx) {}
     Dependency* is_blocked_by(PipelineXTask* task) override;
     void add_filters(IRuntimeFilter* runtime_filter);
-    void sub_filters();
+    void sub_filters(int id);
     void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
         _blocked_by_rf = blocked_by_rf;
     }
@@ -290,26 +319,8 @@ public:
 
 protected:
     std::atomic_int _filters;
+    phmap::flat_hash_map<int, bool> _filter_ready_map;
     std::shared_ptr<std::atomic_bool> _blocked_by_rf;
-};
-
-class AndDependency final : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    ENABLE_FACTORY_CREATOR(AndDependency);
-    AndDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AndDependency", query_ctx) {}
-
-    std::string debug_string(int indentation_level = 0) override;
-
-    [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
-        for (auto& child : Dependency::_children) {
-            if (auto* dep = child->is_blocked_by(task)) {
-                return dep;
-            }
-        }
-        return nullptr;
-    }
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -319,9 +330,9 @@ public:
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
     ~AggSharedState() override {
-        if (probe_expr_ctxs.empty()) {
+        if (probe_expr_ctxs.empty() && ready_to_execute) {
             _close_without_key();
-        } else {
+        } else if (ready_to_execute) {
             _close_with_serialized_key();
         }
     }
@@ -355,6 +366,7 @@ public:
     };
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
+    std::atomic<bool> ready_to_execute = false;
 
 private:
     void _close_with_serialized_key() {
@@ -484,7 +496,7 @@ public:
 
 class AsyncWriterDependency final : public Dependency {
 public:
-    using SharedState = FakeSharedState;
+    using SharedState = BasicSharedState;
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
     AsyncWriterDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AsyncWriterDependency", true, query_ctx) {}
@@ -626,25 +638,28 @@ public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     LocalExchangeSharedState(int num_instances);
     std::unique_ptr<Exchanger> exchanger {};
-    std::vector<DependencySPtr> source_dependencies;
-    DependencySPtr sink_dependency;
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
+    void create_source_dependencies(int operator_id, int node_id, QueryContext* ctx) {
+        for (size_t i = 0; i < source_deps.size(); i++) {
+            source_deps[i] = std::make_shared<Dependency>(
+                    operator_id, node_id, "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY", ctx);
+            source_deps[i]->set_shared_state(this);
+        }
+    };
     void sub_running_sink_operators();
-    void _set_ready_for_read() {
-        for (auto& dep : source_dependencies) {
+    void _set_always_ready() {
+        for (auto& dep : source_deps) {
             DCHECK(dep);
-            dep->set_ready();
+            dep->set_always_ready();
         }
     }
 
-    void set_dep_by_channel_id(DependencySPtr dep, int channel_id) {
-        source_dependencies[channel_id] = dep;
-    }
+    Dependency* get_dep_by_channel_id(int channel_id) { return source_deps[channel_id].get(); }
 
     void set_ready_to_read(int channel_id) {
-        auto& dep = source_dependencies[channel_id];
+        auto& dep = source_deps[channel_id];
         DCHECK(dep) << channel_id;
         dep->set_ready();
     }
@@ -665,13 +680,13 @@ public:
 
     void add_total_mem_usage(size_t delta) {
         if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
-            sink_dependency->block();
+            sink_deps.front()->block();
         }
     }
 
     void sub_total_mem_usage(size_t delta) {
         if (mem_usage.fetch_sub(delta) <= config::local_exchange_buffer_mem_limit) {
-            sink_dependency->set_ready();
+            sink_deps.front()->set_ready();
         }
     }
 };

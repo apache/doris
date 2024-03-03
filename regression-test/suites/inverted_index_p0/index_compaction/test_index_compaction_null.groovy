@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_compaction_null", "p0") {
+suite("test_index_compaction_null", "nonConcurrent") {
     def tableName = "test_index_compaction_null_dups"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -288,6 +288,7 @@ suite("test_index_compaction_null", "p0") {
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
                 "disable_auto_compaction" = "true",
+                "enable_unique_key_merge_on_write" = "true",
                 "in_memory" = "false",
                 "storage_format" = "V2"
             )

@@ -45,7 +45,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
@@ -745,16 +744,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public void dropExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
+    public void unregisterExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
             throws DdlException {
-        CatalogIf catalog = nameToCatalog.get(catalogName);
+        CatalogIf<?> catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
         }
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog Tables");
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
+        ExternalDatabase<?> db = ((ExternalCatalog) catalog).getDbNullable(dbName);
         if (db == null) {
             if (!ignoreIfExists) {
                 throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
@@ -772,10 +771,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         db.writeLock();
         try {
-            db.dropTable(table.getName());
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(
-                        catalog.getId(), db.getFullName(), table.getName());
-            ((HMSExternalDatabase) db).setLastUpdateTime(System.currentTimeMillis());
+            db.unregisterTable(table.getName());
         } finally {
             db.writeUnlock();
         }
@@ -792,9 +788,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return ((ExternalCatalog) catalog).tableExistInLocal(dbName, tableName);
     }
 
-    public void createExternalTableFromEvent(String dbName, String tableName,
-                                             String catalogName, long updateTime,
-                                             boolean ignoreIfExists) throws DdlException {
+    public void registerExternalTableFromEvent(String dbName, String tableName,
+                                               String catalogName, long updateTime,
+                                               boolean ignoreIfExists) throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -817,7 +813,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-
         long tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
@@ -826,18 +821,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         db.writeLock();
         try {
-            ((HMSExternalDatabase) db).createTable(tableName, tblId);
-            ((HMSExternalDatabase) db).setLastUpdateTime(System.currentTimeMillis());
-            table = db.getTableNullable(tableName);
-            if (table != null) {
-                ((HMSExternalTable) table).setEventUpdateTime(updateTime);
-            }
+            HMSExternalTable namedTable = new HMSExternalTable(tblId, tableName, dbName, (HMSExternalCatalog) catalog);
+            namedTable.setUpdateTime(updateTime);
+            db.registerTable(namedTable);
         } finally {
             db.writeUnlock();
         }
     }
 
-    public void dropExternalDatabase(String dbName, String catalogName, boolean ignoreIfNotExists) throws DdlException {
+    public void unregisterExternalDatabase(String dbName, String catalogName, boolean ignoreIfNotExists)
+            throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -852,12 +845,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-
-        ((HMSExternalCatalog) catalog).dropDatabase(dbName);
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(catalog.getId(), dbName);
+        ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
-    public void createExternalDatabase(String dbName, String catalogName, boolean ignoreIfExists) throws DdlException {
+    public void registerExternalDatabase(String dbName, String catalogName, boolean ignoreIfExists)
+            throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -879,7 +871,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        ((HMSExternalCatalog) catalog).createDatabase(dbId, dbName);
+        ((HMSExternalCatalog) catalog).registerDatabase(dbId, dbName);
     }
 
     public void addExternalPartitions(String catalogName, String dbName, String tableName,

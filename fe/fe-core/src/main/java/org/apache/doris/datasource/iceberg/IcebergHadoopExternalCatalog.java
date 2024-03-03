@@ -51,7 +51,7 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
+    protected void initCatalog() {
         icebergCatalogType = ICEBERG_HADOOP;
         HadoopCatalog hadoopCatalog = new HadoopCatalog();
         Configuration conf = getConfiguration();

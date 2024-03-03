@@ -110,8 +110,6 @@ void TabletReader::ReadSource::fill_delete_predicates() {
 
 TabletReader::~TabletReader() {
     VLOG_NOTICE << "merged rows:" << _merged_rows;
-    _delete_handler.finalize();
-
     for (auto pred : _col_predicates) {
         delete pred;
     }

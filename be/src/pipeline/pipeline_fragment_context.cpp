@@ -117,10 +117,10 @@ namespace doris::pipeline {
 bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
 
 PipelineFragmentContext::PipelineFragmentContext(
-        const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
-        int backend_num, std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
+        const TUniqueId& query_id, const TUniqueId& instance_id, int fragment_id, int backend_num,
+        std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
         const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb)
+        report_status_callback report_status_cb)
         : _query_id(query_id),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
@@ -129,9 +129,10 @@ PipelineFragmentContext::PipelineFragmentContext(
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
           _is_report_on_cancel(true),
-          _report_status_cb(report_status_cb),
+          _report_status_cb(std::move(report_status_cb)),
           _create_time(MonotonicNanos()) {
     _fragment_watcher.start();
+    _start_time = VecDateTimeValue::local_time();
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
@@ -144,6 +145,16 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     } else {
         _call_back(_runtime_state.get(), &st);
     }
+}
+
+bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
+    if (_timeout <= 0) {
+        return false;
+    }
+    if (now.second_diff(_start_time) > _timeout) {
+        return true;
+    }
+    return false;
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
@@ -214,6 +225,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
+        _timeout = request.query_options.execution_timeout;
+    }
     const auto& local_params = request.local_params[idx];
     _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
     _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
@@ -230,8 +244,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state = RuntimeState::create_unique(
             local_params.fragment_instance_id, request.query_id, request.fragment_id,
             request.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
-    if (local_params.__isset.runtime_filter_params) {
-        _runtime_state->set_runtime_filter_params(local_params.runtime_filter_params);
+    if (idx == 0 && local_params.__isset.runtime_filter_params) {
+        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                local_params.runtime_filter_params);
     }
 
     _runtime_state->set_task_execution_context(shared_from_this());
@@ -887,6 +902,21 @@ void PipelineFragmentContext::_close_fragment_instance() {
     _runtime_state->runtime_profile()->total_time_counter()->update(
             _fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
+    if (_runtime_state->enable_profile()) {
+        std::stringstream ss;
+        // Compute the _local_time_percent before pretty_print the runtime_profile
+        // Before add this operation, the print out like that:
+        // UNION_NODE (id=0):(Active: 56.720us, non-child: 00.00%)
+        // After add the operation, the print out like that:
+        // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
+        // We can easily know the exec node execute time without child time consumed.
+        _runtime_state->runtime_profile()->compute_time_in_profile();
+        _runtime_state->runtime_profile()->pretty_print(&ss);
+        if (_runtime_state->load_channel_profile()) {
+            _runtime_state->load_channel_profile()->pretty_print(&ss);
+        }
+        LOG(INFO) << ss.str();
+    }
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
@@ -935,29 +965,11 @@ Status PipelineFragmentContext::send_report(bool done) {
              _fragment_instance_id,
              _backend_num,
              _runtime_state.get(),
-             [this](auto&& PH1) { return update_status(std::forward<decltype(PH1)>(PH1)); },
-             [this](auto&& PH1, auto&& PH2) {
-                 cancel(std::forward<decltype(PH1)>(PH1), std::forward<decltype(PH2)>(PH2));
+             [this](Status st) { return update_status(st); },
+             [this](const PPlanFragmentCancelReason& reason, const std::string& msg) {
+                 cancel(reason, msg);
              }},
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
-}
-
-bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
-    OlapTableSchemaParam schema;
-    if (!schema.init(sink.schema).ok()) {
-        return false;
-    }
-    if (schema.is_partial_update()) {
-        return true;
-    }
-    for (const auto& index_schema : schema.indexes()) {
-        for (const auto& index : index_schema->indexes) {
-            if (index->index_type() == INVERTED) {
-                return true;
-            }
-        }
-    }
-    return false;
 }
 
 std::string PipelineFragmentContext::debug_string() {

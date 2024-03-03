@@ -18,11 +18,11 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
 
-#include <algorithm>
-#include <atomic>
+#include <cstdint>
 #include <memory>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -42,18 +42,19 @@ using PipelineId = uint32_t;
 class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineTask;
     friend class PipelineXTask;
+    friend class PipelineXFragmentContext;
 
 public:
     Pipeline() = delete;
     explicit Pipeline(PipelineId pipeline_id, int num_tasks,
                       std::weak_ptr<PipelineFragmentContext> context)
-            : _pipeline_id(pipeline_id), _context(context), _num_tasks(num_tasks) {
+            : _pipeline_id(pipeline_id), _context(std::move(context)), _num_tasks(num_tasks) {
         _init_profile();
     }
 
     void add_dependency(std::shared_ptr<Pipeline>& pipeline) {
-        pipeline->_parents.push_back({_operator_builders.size(), weak_from_this()});
-        _dependencies.push_back({_operator_builders.size(), pipeline});
+        pipeline->_parents.emplace_back(_operator_builders.size(), weak_from_this());
+        _dependencies.emplace_back(_operator_builders.size(), pipeline);
     }
 
     // If all dependencies are finished, this pipeline task should be scheduled.
@@ -191,6 +192,11 @@ private:
     PipelineId _pipeline_id;
     std::weak_ptr<PipelineFragmentContext> _context;
     int _previous_schedule_id = -1;
+
+    // pipline id + operator names. init when:
+    //  build_operators(), if pipeline;
+    //  _build_pipelines() and _create_tree_helper(), if pipelineX.
+    std::string _name;
 
     std::unique_ptr<RuntimeProfile> _pipeline_profile;
 

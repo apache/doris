@@ -416,7 +416,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
     return Status::OK();
 }
 
-void DeleteHandler::finalize() {
+DeleteHandler::~DeleteHandler() {
     if (!_is_inited) {
         return;
     }
@@ -440,10 +440,10 @@ void DeleteHandler::get_delete_conditions_after_version(
             // now, only query support delete column predicate operator
             if (!del_cond.column_predicate_vec.empty()) {
                 if (del_cond.column_predicate_vec.size() == 1) {
-                    auto* single_column_block_predicate =
-                            new SingleColumnBlockPredicate(del_cond.column_predicate_vec[0]);
+                    auto single_column_block_predicate = SingleColumnBlockPredicate::create_unique(
+                            del_cond.column_predicate_vec[0]);
                     and_block_column_predicate_ptr->add_column_predicate(
-                            single_column_block_predicate);
+                            std::move(single_column_block_predicate));
                     if (del_predicates_for_zone_map->count(
                                 del_cond.column_predicate_vec[0]->column_id()) < 1) {
                         del_predicates_for_zone_map->insert(
@@ -453,7 +453,7 @@ void DeleteHandler::get_delete_conditions_after_version(
                     (*del_predicates_for_zone_map)[del_cond.column_predicate_vec[0]->column_id()]
                             .push_back(del_cond.column_predicate_vec[0]);
                 } else {
-                    auto* or_column_predicate = new OrBlockColumnPredicate();
+                    auto or_column_predicate = OrBlockColumnPredicate::create_unique();
 
                     // build or_column_predicate
                     // when delete from where a = 1 and b = 2, we can not use del_predicates_for_zone_map to filter zone page,
@@ -464,9 +464,10 @@ void DeleteHandler::get_delete_conditions_after_version(
                                   del_cond.column_predicate_vec.cend(),
                                   [&or_column_predicate](const ColumnPredicate* predicate) {
                                       or_column_predicate->add_column_predicate(
-                                              new SingleColumnBlockPredicate(predicate));
+                                              SingleColumnBlockPredicate::create_unique(predicate));
                                   });
-                    and_block_column_predicate_ptr->add_column_predicate(or_column_predicate);
+                    and_block_column_predicate_ptr->add_column_predicate(
+                            std::move(or_column_predicate));
                 }
             }
         }

@@ -162,6 +162,9 @@ using JobRecycleKeyInfo    = BasicKeyInfo<20 , std::tuple<std::string>>;
 //                                                      0:instance_id  1:index_id  2:schema_version
 using MetaSchemaKeyInfo    = BasicKeyInfo<21, std::tuple<std::string,  int64_t,    int64_t>>;
 
+//                                                      0:instance_id  1:tablet_id       2:rowset_id
+using MetaRowsetSchemaKeyInfo    = BasicKeyInfo<21, std::tuple<std::string,  int64_t,    std::string>>;
+
 //                                                      0:instance_id  1:tablet_id  2:rowest_id  3:version  4:seg_id 
 using MetaDeleteBitmapInfo = BasicKeyInfo<22 , std::tuple<std::string, int64_t,     std::string, int64_t, int64_t>>;
 
@@ -197,6 +200,7 @@ void meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in, std::string* out);
 void meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in, std::string* out);
 void meta_tablet_key(const MetaTabletKeyInfo& in, std::string* out);
 void meta_schema_key(const MetaSchemaKeyInfo& in, std::string* out);
+void meta_rowset_schema_key(const MetaRowsetSchemaKeyInfo& in, std::string* out);
 void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out);
 void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in, std::string* out);
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out);
@@ -205,6 +209,7 @@ static inline std::string meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in) { 
 static inline std::string meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in) { std::string s; meta_tablet_idx_key(in, &s); return s; }
 static inline std::string meta_tablet_key(const MetaTabletKeyInfo& in) { std::string s; meta_tablet_key(in, &s); return s; }
 static inline std::string meta_schema_key(const MetaSchemaKeyInfo& in) { std::string s; meta_schema_key(in, &s); return s; }
+static inline std::string meta_rowset_schema_key(const MetaRowsetSchemaKeyInfo& in) { std::string s; meta_rowset_schema_key(in, &s); return s; }
 static inline std::string meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in) { std::string s; meta_delete_bitmap_key(in, &s); return s; }
 static inline std::string meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in) { std::string s; meta_delete_bitmap_update_lock_key(in, &s); return s; }
 static inline std::string meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in) { std::string s; meta_pending_delete_bitmap_key(in, &s); return s; }

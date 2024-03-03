@@ -460,6 +460,10 @@ public class ExpressionUtils {
         return children.stream().allMatch(c -> c.getDataType().isNumericType());
     }
 
+    public static boolean matchDateLikeType(List<Expression> children) {
+        return children.stream().allMatch(c -> c.getDataType().isDateLikeType());
+    }
+
     public static boolean hasNullLiteral(List<Expression> children) {
         return children.stream().anyMatch(c -> c instanceof NullLiteral);
     }
@@ -567,11 +571,8 @@ public class ExpressionUtils {
      */
     public static Set<Expression> inferNotNull(Set<Expression> predicates, CascadesContext cascadesContext) {
         return inferNotNullSlots(predicates, cascadesContext).stream()
-                .map(slot -> {
-                    Not isNotNull = new Not(new IsNull(slot));
-                    isNotNull.isGeneratedIsNotNull = true;
-                    return isNotNull;
-                }).collect(Collectors.toSet());
+                .map(slot -> new Not(new IsNull(slot), false))
+                .collect(Collectors.toSet());
     }
 
     /**
@@ -581,11 +582,8 @@ public class ExpressionUtils {
             CascadesContext cascadesContext) {
         return inferNotNullSlots(predicates, cascadesContext).stream()
                 .filter(slots::contains)
-                .map(slot -> {
-                    Not isNotNull = new Not(new IsNull(slot));
-                    isNotNull.isGeneratedIsNotNull = true;
-                    return isNotNull;
-                }).collect(Collectors.toSet());
+                .map(slot -> new Not(new IsNull(slot), true))
+                .collect(Collectors.toSet());
     }
 
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressions) {

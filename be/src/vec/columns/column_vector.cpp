@@ -111,12 +111,6 @@ void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 template <typename T>
-void ColumnVector<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                               const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
-template <typename T>
 void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
                                                const uint8_t* __restrict null_data) const {
     auto s = size();
@@ -354,10 +348,10 @@ template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
     if (start + length > src_vec.data.size()) {
-        LOG(FATAL) << fmt::format(
-                "Parameters start = {}, length = {}, are out of bound in "
-                "ColumnVector<T>::insert_range_from method (data.size() = {}).",
-                start, length, src_vec.data.size());
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameters start = {}, length = {}, are out of bound in "
+                               "ColumnVector<T>::insert_range_from method (data.size() = {}).",
+                               start, length, src_vec.data.size());
     }
 
     size_t old_size = data.size();

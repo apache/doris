@@ -44,7 +44,7 @@ PhysicalResultSink
 ----PhysicalProject
 ------filter((T.b = 2) and (rn <= 2))
 --------PhysicalWindow
-----------PhysicalPartitionTopN
+----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalPartitionTopN
 ----------------PhysicalProject

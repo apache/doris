@@ -611,8 +611,8 @@ public class PropertyAnalyzer {
                             found = true;
                             break;
                         } else {
-                            throw new AnalysisException("Bloom filter index only used in columns of"
-                                    + " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
+                            throw new AnalysisException("Bloom filter index should only be used in columns"
+                                    + " of UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
                                     + " invalid column: " + bfColumn);
                         }
                     }
@@ -1439,7 +1439,7 @@ public class PropertyAnalyzer {
     // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
         if (Config.isCloudMode()) {
-            // FIXME: MOW is not supported in cloud mode yet.
+            // the default value of enable_unique_key_merge_on_write is false for cloud mode yet.
             return properties;
         }
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {

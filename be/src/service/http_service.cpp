@@ -20,14 +20,15 @@
 #include <event2/bufferevent.h>
 #include <event2/http.h>
 
-#include <algorithm>
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_compaction_action.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
+#include "http/action/adjust_tracing_dump.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
@@ -100,6 +101,7 @@ HttpService::~HttpService() {
     stop();
 }
 
+// NOLINTBEGIN(readability-function-size)
 Status HttpService::start() {
     add_default_path_handlers(_web_page_handler.get());
 
@@ -132,6 +134,11 @@ Status HttpService::start() {
     AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction());
     _ev_http_server->register_handler(HttpMethod::POST, "api/glog/adjust", adjust_log_level_action);
 
+    //TODO: add query GET interface
+    auto* adjust_tracing_dump = _pool.add(new AdjustTracingDump());
+    _ev_http_server->register_handler(HttpMethod::POST, "api/pipeline/tracing",
+                                      adjust_tracing_dump);
+
     // Register BE version action
     VersionAction* version_action =
             _pool.add(new VersionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::NONE));
@@ -159,8 +166,9 @@ Status HttpService::start() {
 
     // register metrics
     {
-        auto action = _pool.add(new MetricsAction(DorisMetrics::instance()->metric_registry(), _env,
-                                                  TPrivilegeHier::GLOBAL, TPrivilegeType::NONE));
+        auto* action =
+                _pool.add(new MetricsAction(DorisMetrics::instance()->metric_registry(), _env,
+                                            TPrivilegeHier::GLOBAL, TPrivilegeType::NONE));
         _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
     }
 
@@ -206,6 +214,7 @@ Status HttpService::start() {
     _ev_http_server->start();
     return Status::OK();
 }
+// NOLINTEND(readability-function-size)
 
 void HttpService::register_debug_point_handler() {
     // debug point
@@ -225,6 +234,7 @@ void HttpService::register_debug_point_handler() {
                                       clear_debug_points_action);
 }
 
+// NOLINTBEGIN(readability-function-size)
 void HttpService::register_local_handler(StorageEngine& engine) {
     // register download action
     std::vector<std::string> allow_paths;
@@ -327,8 +337,23 @@ void HttpService::register_local_handler(StorageEngine& engine) {
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
-    // TODO(plat1ko)
+    CloudCompactionAction* show_compaction_action =
+            _pool.add(new CloudCompactionAction(CompactionActionType::SHOW_INFO, _env, engine,
+                                                TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show",
+                                      show_compaction_action);
+    CloudCompactionAction* run_compaction_action =
+            _pool.add(new CloudCompactionAction(CompactionActionType::RUN_COMPACTION, _env, engine,
+                                                TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/compaction/run",
+                                      run_compaction_action);
+    CloudCompactionAction* run_status_compaction_action = _pool.add(
+            new CloudCompactionAction(CompactionActionType::RUN_COMPACTION_STATUS, _env, engine,
+                                      TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
+                                      run_status_compaction_action);
 }
+// NOLINTEND(readability-function-size)
 
 void HttpService::stop() {
     if (stopped) {

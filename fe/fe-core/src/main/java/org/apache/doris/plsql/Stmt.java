@@ -39,14 +39,19 @@ import org.apache.doris.nereids.PLParser.If_bteq_stmtContext;
 import org.apache.doris.nereids.PLParser.If_plsql_stmtContext;
 import org.apache.doris.nereids.PLParser.If_tsql_stmtContext;
 import org.apache.doris.nereids.PLParser.Include_stmtContext;
+import org.apache.doris.nereids.PLParser.IntoClauseContext;
 import org.apache.doris.nereids.PLParser.Leave_stmtContext;
 import org.apache.doris.nereids.PLParser.Open_stmtContext;
 import org.apache.doris.nereids.PLParser.Print_stmtContext;
+import org.apache.doris.nereids.PLParser.QueryPrimaryDefaultContext;
 import org.apache.doris.nereids.PLParser.Quit_stmtContext;
+import org.apache.doris.nereids.PLParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.PLParser.Resignal_stmtContext;
 import org.apache.doris.nereids.PLParser.Return_stmtContext;
 import org.apache.doris.nereids.PLParser.Set_current_schema_optionContext;
 import org.apache.doris.nereids.PLParser.Signal_stmtContext;
+import org.apache.doris.nereids.PLParser.StatementDefaultContext;
+import org.apache.doris.nereids.PLParser.TableRowContext;
 import org.apache.doris.nereids.PLParser.Unconditional_loop_stmtContext;
 import org.apache.doris.nereids.PLParser.Values_into_stmtContext;
 import org.apache.doris.nereids.PLParser.While_stmtContext;
@@ -81,7 +86,7 @@ public class Stmt {
 
     boolean trace = false;
     ResultListener resultListener = ResultListener.NONE;
-    private QueryExecutor queryExecutor;
+    private final QueryExecutor queryExecutor;
 
     Stmt(Exec e, QueryExecutor queryExecutor) {
         exec = e;
@@ -129,11 +134,11 @@ public class Stmt {
                     exec.setSqlSuccess();
                     if (query.next()) {
                         exec.setSqlCode(SqlCodes.TOO_MANY_ROWS);
-                        exec.signal(Signal.Type.TOO_MANY_ROWS);
+                        exec.signal(Signal.Type.TOO_MANY_ROWS, "too many rows into variables");
                     }
                 } else {
                     exec.setSqlCode(SqlCodes.NO_DATA_FOUND);
-                    exec.signal(Signal.Type.NOTFOUND);
+                    exec.signal(Signal.Type.NOTFOUND, "no rows into variables");
                 }
             } else if (ctx instanceof Doris_statementContext) { // only from visitStatement
                 // Print all results for standalone Statement.
@@ -187,10 +192,31 @@ public class Stmt {
     }
 
     /**
+     * Get INTO clause
+     */
+    IntoClauseContext getIntoClause(ParserRuleContext ctx) {
+        if (ctx.getChild(0) instanceof StatementDefaultContext) {
+            ParserRuleContext queryTermDefaultCtx = ((StatementDefaultContext) ctx.getChild(0)).query().queryTerm();
+            if (queryTermDefaultCtx.getChild(0) instanceof QueryPrimaryDefaultContext) {
+                ParserRuleContext queryPrimaryDefaultContext
+                        = ((QueryPrimaryDefaultContext) queryTermDefaultCtx.getChild(0));
+                if (queryPrimaryDefaultContext.getChild(0) instanceof RegularQuerySpecificationContext) {
+                    return ((RegularQuerySpecificationContext) queryPrimaryDefaultContext.getChild(0)).intoClause();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Get number of elements in INTO or var=col assignment clause
      */
     int getIntoCount(ParserRuleContext ctx) {
-        // TODO
+        IntoClauseContext into = getIntoClause(ctx);
+        if (into != null) {
+            return into.identifier().size() + into.tableRow().size();
+        }
+        // TODO support var=col assignment clause
         return 0;
     }
 
@@ -198,13 +224,22 @@ public class Stmt {
      * Get variable name assigned in INTO or var=col clause by index
      */
     String getIntoVariable(ParserRuleContext ctx, int idx) {
-        // TODO
+        IntoClauseContext into = getIntoClause(ctx);
+        if (into != null) {
+            return into.tableRow(idx) != null ? into.tableRow(idx).identifier().getText()
+                    : into.identifier(idx).getText();
+        }
+        // TODO support var=col assignment clause
         return null;
     }
 
     private int getIntoTableIndex(ParserRuleContext ctx, int idx) {
-        // TODO
-        return 0;
+        IntoClauseContext into = getIntoClause(ctx);
+        TableRowContext row = into.tableRow(idx);
+        if (row == null) {
+            throw new RuntimeException("Missing into table index");
+        }
+        return Integer.parseInt(row.INTEGER_VALUE().getText());
     }
 
     private void populateVariable(ParserRuleContext ctx, QueryResult query, int columnIndex) throws AnalysisException {
@@ -371,7 +406,7 @@ public class Stmt {
             return 1;
         } else if (exec.getOffline()) {
             exec.setSqlCode(SqlCodes.NO_DATA_FOUND);
-            exec.signal(Signal.Type.NOTFOUND);
+            exec.signal(Signal.Type.NOTFOUND, "fetch not found data");
             return 0;
         }
         // Assign values from the row to local variables
@@ -380,7 +415,7 @@ public class Stmt {
             int cols = ctx.ident_pl().size() - 1;
             QueryResult queryResult = cursor.getQueryResult();
 
-            if (ctx.bulk_collect_clause() != null) {
+            if (ctx.bulkCollectClause() != null) {
                 long limit = ctx.fetch_limit() != null ? evalPop(ctx.fetch_limit().expr()).longValue() : -1;
                 long rowIndex = 1;
                 List<Table> tables = exec.intoTables(ctx, intoVariableNames(ctx, cols));
@@ -545,7 +580,7 @@ public class Stmt {
                         if (trace) {
                             trace(ctx, "COLUMN: " + query.metadata().columnName(i) + ", " + query.metadata()
                                     .columnTypeName(i));
-                            trace(ctx, "SET " + var.getName() + " = " + var.toString());
+                            trace(ctx, "SET " + var.getName() + " = " + var);
                         }
                     } else if (trace) {
                         trace(ctx, "Variable not found: " + ctx.ident_pl(i).getText());
@@ -555,7 +590,7 @@ public class Stmt {
                 exec.setSqlSuccess();
             } else {
                 exec.setSqlCode(SqlCodes.NO_DATA_FOUND);
-                exec.signal(Signal.Type.NOTFOUND);
+                exec.signal(Signal.Type.NOTFOUND, "assign from select not found data");
             }
         } catch (QueryException | AnalysisException e) {
             exec.signal(query);

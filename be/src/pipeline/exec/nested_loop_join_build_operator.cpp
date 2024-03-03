@@ -27,8 +27,8 @@ OPERATOR_CODE_GENERATOR(NestLoopJoinBuildOperator, StreamingOperator)
 
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                                      RuntimeState* state)
-        : JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
-                                  NestedLoopJoinBuildSinkLocalState>(parent, state) {}
+        : JoinBuildSinkLocalState<NestedLoopJoinSharedState, NestedLoopJoinBuildSinkLocalState>(
+                  parent, state) {}
 
 Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
@@ -42,8 +42,8 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     }
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                p._runtime_filter_descs[i], state->query_options(), &_runtime_filters[i]));
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i], false,
+                                                                &_runtime_filters[i], false));
     }
     return Status::OK();
 }
@@ -87,7 +87,7 @@ Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
 }
 
 Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* block,
-                                              SourceState source_state) {
+                                              bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
@@ -104,7 +104,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
         }
     }
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         COUNTER_UPDATE(local_state._build_rows_counter, local_state._build_rows);
         vectorized::RuntimeFilterBuild<NestedLoopJoinBuildSinkLocalState> rf_ctx(&local_state);
         RETURN_IF_ERROR(rf_ctx(state));

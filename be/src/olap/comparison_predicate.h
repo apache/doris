@@ -34,24 +34,11 @@ class ComparisonPredicateBase : public ColumnPredicate {
 public:
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, opposite),
-              _cached_code(_InvalidateCodeValue),
-              _value(value) {}
-
-    void clone(ColumnPredicate** to) const override {
-        auto* cloned = new ComparisonPredicateBase(_column_id, _value, _opposite);
-        cloned->predicate_params()->value = _predicate_params->value;
-        cloned->_cache_code_enabled = true;
-        cloned->predicate_params()->marked_by_runtime_filter =
-                _predicate_params->marked_by_runtime_filter;
-        *to = cloned;
-    }
+            : ColumnPredicate(column_id, opposite), _value(value) {}
 
     bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
         return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
     }
-
-    bool need_to_clone() const override { return true; }
 
     PredicateType type() const override { return PT; }
 
@@ -591,30 +578,26 @@ private:
 
     __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
             const vectorized::ColumnDictI32& column) const {
-        /// if _cache_code_enabled is false, always find the code from dict.
-        if (UNLIKELY(!_cache_code_enabled || _cached_code == _InvalidateCodeValue)) {
-            int32_t code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
-                                       : column.find_code(_value);
-
-            // Protect the invalid code logic, to avoid data error.
-            if (code == _InvalidateCodeValue) {
-                LOG(FATAL) << "column dictionary should not return the code " << code
-                           << ", because it is assumed as an invalid code in comparison predicate";
-            }
-            // Sometimes the dict is not initialized when run comparison predicate here, for example,
-            // the full page is null, then the reader will skip read, so that the dictionary is not
-            // inited. The cached code is wrong during this case, because the following page maybe not
-            // null, and the dict should have items in the future.
-            //
-            // Cached code may have problems, so that add a config here, if not opened, then
-            // we will return the code and not cache it.
-            if (column.is_dict_empty() || !config::enable_low_cardinality_cache_code) {
-                return code;
-            }
-            // If the dict is not empty, then the dict is inited and we could cache the value.
-            _cached_code = code;
+        int32_t code = 0;
+        if (_segment_id_to_cached_code.if_contains(
+                    column.get_rowset_segment_id(),
+                    [&code](const auto& pair) { code = pair.second; })) {
+            return code;
         }
-        return _cached_code;
+        code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
+                           : column.find_code(_value);
+        // Sometimes the dict is not initialized when run comparison predicate here, for example,
+        // the full page is null, then the reader will skip read, so that the dictionary is not
+        // inited. The cached code is wrong during this case, because the following page maybe not
+        // null, and the dict should have items in the future.
+        //
+        // Cached code may have problems, so that add a config here, if not opened, then
+        // we will return the code and not cache it.
+        if (!column.is_dict_empty() && config::enable_low_cardinality_cache_code) {
+            _segment_id_to_cached_code.emplace(std::pair {column.get_rowset_segment_id(), code});
+        }
+
+        return code;
     }
 
     std::string _debug_string() const override {
@@ -623,9 +606,13 @@ private:
         return info;
     }
 
-    static constexpr int32_t _InvalidateCodeValue = std::numeric_limits<int32_t>::max();
-    mutable int32_t _cached_code;
-    bool _cache_code_enabled = false;
+    mutable phmap::parallel_flat_hash_map<
+            std::pair<RowsetId, uint32_t>, int32_t,
+            phmap::priv::hash_default_hash<std::pair<RowsetId, uint32_t>>,
+            phmap::priv::hash_default_eq<std::pair<RowsetId, uint32_t>>,
+            std::allocator<std::pair<const std::pair<RowsetId, uint32_t>, int32_t>>, 4,
+            std::shared_mutex>
+            _segment_id_to_cached_code;
     T _value;
 };
 

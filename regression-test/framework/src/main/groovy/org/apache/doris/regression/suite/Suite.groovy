@@ -216,9 +216,20 @@ class Suite implements GroovyInterceptable {
             return
         }
 
+        boolean pipelineIsCloud = isCloudCluster()
+        boolean dockerIsCloud = false
+        if (options.cloudMode == null) {
+            dockerIsCloud = pipelineIsCloud
+        } else {
+            dockerIsCloud = options.cloudMode
+            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+                return
+            }
+        }
+
         try {
             cluster.destroy(true)
-            cluster.init(options)
+            cluster.init(options, dockerIsCloud)
 
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
@@ -631,9 +642,9 @@ class Suite implements GroovyInterceptable {
     }
 
     void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
-        String cmd = "scp -r ${username}@${host}:${files} ${filePath}"
+        String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
-            cmd = "scp -r ${files} ${username}@${host}:${filePath}"
+            cmd = "scp -o StrictHostKeyChecking=no -r ${files} ${username}@${host}:${filePath}"
         }
         logger.info("Execute: ${cmd}".toString())
         Process process = cmd.execute()
@@ -733,6 +744,15 @@ class Suite implements GroovyInterceptable {
     List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false){
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveRemoteConnection(), cleanedSqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
+
+    List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false){
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
+        def (result, meta) = JdbcUtils.executeToList(context.getDB2DockerConnection(), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
@@ -919,7 +939,7 @@ class Suite implements GroovyInterceptable {
 
     void waitingMTMVTaskFinished(String jobName) {
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -941,7 +961,7 @@ class Suite implements GroovyInterceptable {
 
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -969,6 +989,10 @@ class Suite implements GroovyInterceptable {
             Assert.fail();
         }
         return result.last().get(0);
+    }
+
+    boolean isCloudCluster() {
+        return !getFeConfig("cloud_unique_id").isEmpty()
     }
 
     String getFeConfig(String key) {

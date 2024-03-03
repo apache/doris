@@ -40,4 +40,9 @@ suite("regression_test_variant_multi_var", "variant_type"){
     qt_sql """select cast(v["k1"] as tinyint), cast(v2["k2"] as text), cast(v3["k3"] as string), cast(v["k7"] as tinyint), cast(v2["k8"] as text), cast(v3["k9"] as double) from ${table_name} order by k, 1, 2, 3, 4, 5, 6 limit 10"""
     qt_sql """select cast(v["k1"] as tinyint), cast(v2["k2"] as text), cast(v3["k3"] as string), cast(v["k7"] as tinyint), cast(v2["k8"] as text), cast(v3["k9"] as double) from ${table_name} where k > 200 order by k, 1, 2, 3, 4, 5, 6 limit 10"""
     qt_sql """select cast(v["k1"] as tinyint), cast(v2["k2"] as text), cast(v3["k3"] as string), cast(v["k7"] as tinyint), cast(v2["k8"] as text), cast(v3["k9"] as double) from ${table_name} where k > 300 order by k, 1, 2, 3, 4, 5, 6 limit 10"""
+
+    sql "alter table ${table_name} add column v4 variant default null"
+    for (int i = 0; i < 20; i++) {
+        sql """insert into ${table_name}  values (1, '{"a" : 1}', '{"a" : 1}', '{"a" : 1}', '{"a" : 1}', '{"a" : 1}')"""
+    }
 }

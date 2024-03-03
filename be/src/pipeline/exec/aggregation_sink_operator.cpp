@@ -157,6 +157,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
         RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status(_agg_data->without_key)));
     }
+    Base::_shared_state->ready_to_execute = true;
     return Status::OK();
 }
 
@@ -788,8 +789,7 @@ Status AggSinkOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
-                              SourceState source_state) {
+Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -799,7 +799,7 @@ Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_
         RETURN_IF_ERROR(local_state.try_spill_disk());
         local_state._executor->update_memusage(&local_state);
     }
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         if (local_state._shared_state->spill_context.has_data) {
             static_cast<void>(local_state.try_spill_disk(true));
             RETURN_IF_ERROR(local_state._shared_state->spill_context.prepare_for_reading());

@@ -52,6 +52,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
+#include "pipeline/pipeline_tracing.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
@@ -150,6 +151,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
+    _tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(_store_paths);
+    RETURN_IF_ERROR(_tmp_file_dirs->init());
     _user_function_cache = new UserFunctionCache();
     static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
@@ -203,6 +206,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
     init_file_cache_factory();
+    _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();

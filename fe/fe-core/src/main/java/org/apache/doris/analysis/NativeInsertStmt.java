@@ -477,7 +477,7 @@ public class NativeInsertStmt extends InsertStmt {
                         haveInputSeqCol = true; // case1.b
                     }
                     seqColInTable = olapTable.getFullSchema().stream()
-                            .filter(col -> col.getName().equals(olapTable.getSequenceMapCol())).findFirst();
+                            .filter(col -> col.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())).findFirst();
                 } else {
                     if (targetColumnNames != null) {
                         if (targetColumnNames.stream()
@@ -490,7 +490,8 @@ public class NativeInsertStmt extends InsertStmt {
                 if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
                         && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
-                            || !seqColInTable.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                            || !seqColInTable.get().getDefaultValue()
+                            .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
                         throw new AnalysisException("Table " + olapTable.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }
@@ -498,14 +499,14 @@ public class NativeInsertStmt extends InsertStmt {
             }
 
             if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
-                    && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+                    && partialUpdateCols.stream().anyMatch(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol()))) {
                 partialUpdateCols.add(Column.SEQUENCE_COL);
             }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
             olapTuple = descTable.createTupleDescriptor();
             for (Column col : olapTable.getFullSchema()) {
-                if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
+                if (isPartialUpdate && partialUpdateCols.stream().noneMatch(c -> c.equalsIgnoreCase(col.getName()))) {
                     continue;
                 }
                 SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);
@@ -560,7 +561,6 @@ public class NativeInsertStmt extends InsertStmt {
     private void analyzeSubquery(Analyzer analyzer, boolean skipCheck) throws UserException {
         // Analyze columns mentioned in the statement.
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        List<String> realTargetColumnNames;
         if (targetColumnNames == null) {
             hasEmptyTargetColumns = true;
             // the mentioned columns are columns which are visible to user, so here we use
@@ -610,32 +610,35 @@ public class NativeInsertStmt extends InsertStmt {
          * will be used in as a mapping from queryStmt.getResultExprs() to targetColumns define expr
          */
         List<Pair<Integer, Column>> origColIdxsForExtendCols = Lists.newArrayList();
-        for (Column column : targetTable.getFullSchema()) {
-            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-                String origName = Column.removeNamePrefix(column.getName());
-                for (int i = 0; i < targetColumns.size(); i++) {
-                    if (targetColumns.get(i).nameEquals(origName, false)) {
-                        // Rule A
-                        origColIdxsForExtendCols.add(Pair.of(i, null));
-                        targetColumns.add(column);
-                        break;
-                    }
-                }
-            }
-            if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
-                    || column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
-                List<SlotRef> refColumns = column.getRefColumns();
-                if (refColumns == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR,
-                            column.getName(), targetTable.getName());
-                }
-                for (SlotRef refColumn : refColumns) {
-                    String origName = refColumn.getColumnName();
-                    for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
-                        if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
-                            origColIdxsForExtendCols.add(Pair.of(originColumnIdx, column));
+        if (!ConnectContext.get().isTxnModel()) {
+            for (Column column : targetTable.getFullSchema()) {
+                if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                    String origName = Column.removeNamePrefix(column.getName());
+                    for (int i = 0; i < targetColumns.size(); i++) {
+                        if (targetColumns.get(i).nameEquals(origName, false)) {
+                            // Rule A
+                            origColIdxsForExtendCols.add(Pair.of(i, null));
                             targetColumns.add(column);
                             break;
+                        }
+                    }
+                }
+                if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+                        || column.isNameWithPrefix(
+                        CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
+                    List<SlotRef> refColumns = column.getRefColumns();
+                    if (refColumns == null) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR,
+                                column.getName(), targetTable.getName());
+                    }
+                    for (SlotRef refColumn : refColumns) {
+                        String origName = refColumn.getColumnName();
+                        for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
+                            if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
+                                origColIdxsForExtendCols.add(Pair.of(originColumnIdx, column));
+                                targetColumns.add(column);
+                                break;
+                            }
                         }
                     }
                 }
@@ -679,7 +682,7 @@ public class NativeInsertStmt extends InsertStmt {
             checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
         }
 
-        realTargetColumnNames = targetColumns.stream().map(Column::getName).collect(Collectors.toList());
+        List<String> realTargetColumnNames = targetColumns.stream().map(Column::getName).collect(Collectors.toList());
 
         // handle VALUES() or SELECT constant list
         if (isValuesOrConstantSelect) {

@@ -395,19 +395,16 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     // If this is a Two-Phase read query, and we need to delay the release of Rowset
     // by rowset->update_delayed_expired_timestamp().This could expand the lifespan of Rowset
-    // TODO(plat1ko): CloudStorageEngine
-    if (!config::is_cloud_mode()) {
-        if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
-            constexpr static int delayed_s = 60;
-            for (auto rs_reader : _tablet_reader_params.rs_splits) {
-                uint64_t delayed_expired_timestamp =
-                        UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
-                        delayed_s;
-                rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
-                        delayed_expired_timestamp);
-                ExecEnv::GetInstance()->storage_engine().to_local().add_quering_rowset(
-                        rs_reader.rs_reader->rowset());
-            }
+    if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
+        constexpr static int delayed_s = 60;
+        for (auto rs_reader : _tablet_reader_params.rs_splits) {
+            uint64_t delayed_expired_timestamp =
+                    UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
+                    delayed_s;
+            rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
+                    delayed_expired_timestamp);
+            ExecEnv::GetInstance()->storage_engine().add_quering_rowset(
+                    rs_reader.rs_reader->rowset());
         }
     }
 

@@ -37,13 +37,13 @@ under the License.
 
 ## Version Compatibility
 
-| Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
-|-------------------| ----- | ------ | ---- | ----- |
-| 1.0.3             | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.1             | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.1             | 1.15  | 1.0+   | 8    | -         |
-| 1.3.0             | 1.16  | 1.0+   | 8    | -         |
-| 1.4.0             | 1.15,1.16,1.17  | 1.0+   | 8   |- |
+| Connector Version | Flink Version       | Doris Version | Java Version | Scala Version |
+|-------------------|---------------------| ------ | ---- | ----- |
+| 1.0.3             | 1.11,1.12,1.13,1.14 | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.1             | 1.14                | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1             | 1.15                | 1.0+   | 8    | -         |
+| 1.3.0             | 1.16                | 1.0+   | 8    | -         |
+| 1.4.0             | 1.15,1.16,1.17      | 1.0+   | 8   |- |
 | 1.5.2             | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
 
 ## USE
@@ -784,3 +784,7 @@ This problem is mainly caused by the conditional varchar/string type, which need
 15. **Failed to connect to backend: http://host:webserver_port, and BE is still alive**
 
 The issue may have occurred due to configuring the IP address of `be`, which is not reachable by the external Flink cluster.This is mainly because when connecting to `fe`, the address of `be` is resolved through fe. For instance, if you add a be address as '127.0.0.1', the be address obtained by the Flink cluster through fe will be '127.0.0.1:webserver_port', and Flink will connect to that address. When this issue arises, you can resolve it by adding the actual corresponding external IP address of the be to the "with" attribute:`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`.For the entire database synchronization, the following properties are available`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`.
+
+16. **When using Flink-connector to synchronize MySQL data to Doris, there is a time difference of several hours between the timestamp.**
+
+Flink  Connector synchronizes the entire database from MySQL with a default timezone of UTC+8. If your data resides in a different timezone, you can adjust it using the following configuration, for example: `--mysql-conf debezium.date.format.timestamp.zone="UTC+3"`.

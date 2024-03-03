@@ -36,7 +36,8 @@ suite("test_show_data", "p0") {
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
                         PROPERTIES (
-                            "replication_allocation" = "tag.location.default: 1"
+                            "replication_allocation" = "tag.location.default: 1",
+                            "disable_auto_compaction" = "true"
                         );
                         """
     }
@@ -54,7 +55,8 @@ suite("test_show_data", "p0") {
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
                         PROPERTIES (
-                            "replication_allocation" = "tag.location.default: 1"
+                            "replication_allocation" = "tag.location.default: 1",
+                            "disable_auto_compaction" = "true"
                         );
                         """
     }
@@ -145,6 +147,7 @@ suite("test_show_data", "p0") {
             useTime = t
             Thread.sleep(delta_time)
         }
+        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout, useTime=${useTime}")
         return "wait_timeout"
     }
@@ -205,7 +208,8 @@ suite("test_show_data_for_bkd", "p0") {
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
                         PROPERTIES (
-                            "replication_allocation" = "tag.location.default: 1"
+                            "replication_allocation" = "tag.location.default: 1",
+                            "disable_auto_compaction" = "true"
                         );
                         """
     }
@@ -223,7 +227,8 @@ suite("test_show_data_for_bkd", "p0") {
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
                         PROPERTIES (
-                            "replication_allocation" = "tag.location.default: 1"
+                            "replication_allocation" = "tag.location.default: 1",
+                            "disable_auto_compaction" = "true"
                         );
                         """
     }
@@ -314,6 +319,7 @@ suite("test_show_data_for_bkd", "p0") {
             useTime = t
             Thread.sleep(delta_time)
         }
+        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout, useTime=${useTime}")
         return "wait_timeout"
     }

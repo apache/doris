@@ -160,10 +160,20 @@ KEY(k1,k2)
 ```
 
 ##### partition
-物化视图有两种分区方式，如果不指定分区，默认只有一个分区，如果指定分区字段，会自动推导出字段来自哪个基表并同步基表(当前支持`OlapTable`和`hive`)的所有分区（限制条件：当前基表只能有一个分区字段）
+物化视图有两种分区方式，如果不指定分区，默认只有一个分区，如果指定分区字段，会自动推导出字段来自哪个基表并同步基表(当前支持`OlapTable`和`hive`)的所有分区（限制条件：基表如果是`OlapTable`，那么只能有一个分区字段）
 
 例如：基表是range分区，分区字段为`create_time`并按天分区，创建物化视图时指定`partition by(ct) as select create_time as ct from t1`
 那么物化视图也会是range分区，分区字段为`ct`,并且按天分区
+
+分区字段的选择和物化视图的定义需要满足如下约束才可以创建成功，否则会报错 `Unable to find a suitable base table for partitioning`
+- 物化视图使用的 base table 中至少有一个是分区表。
+- 物化视图使用的分区表，必须使用 list 或者 range 分区策略。
+- 物化视图最顶层的分区列只能有一个分区字段。
+- 物化视图的 SQL 需要使用了 base table 中的分区列。
+- 如果使用了group by，分区列的字段一定要在 group by 后。
+- 如果使用了 window 函数，分区列的字段一定要在partition by后。
+- 数据变更应发生在分区表上，如果发生在非分区表，物化视图需要全量构建。
+- 物化视图使用 Join 的 null 产生端的字段作为分区字段，不能分区增量更新。
 
 #### property
 物化视图既可以指定table的property，也可以指定物化视图特有的property。

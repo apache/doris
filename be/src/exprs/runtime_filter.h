@@ -132,7 +132,8 @@ struct RuntimeFilterParams {
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
 };
-struct FilterFuncBase {
+
+struct RuntimeFilterFuncBase {
 public:
     void set_filter_id(int filter_id) {
         if (_filter_id == -1) {
@@ -147,6 +148,7 @@ public:
 private:
     int _filter_id = -1;
 };
+
 struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
                               butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
@@ -185,7 +187,7 @@ enum RuntimeFilterState {
 class IRuntimeFilter {
 public:
     IRuntimeFilter(RuntimeFilterParamsContext* state, ObjectPool* pool,
-                   const TRuntimeFilterDesc* desc, bool is_global = false, int parallel_tasks = -1)
+                   const TRuntimeFilterDesc* desc, bool need_local_merge = false)
             : _state(state),
               _pool(pool),
               _filter_id(desc->filter_id),
@@ -204,16 +206,14 @@ public:
               _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
                                 to_string(_runtime_filter_type))),
               _profile(new RuntimeProfile(_name)),
-              _is_global(is_global),
-              _parallel_build_tasks(parallel_tasks) {}
+              _need_local_merge(need_local_merge) {}
 
     ~IRuntimeFilter() = default;
 
     static Status create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                          const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
-                         bool build_bf_exactly = false, bool is_global = false,
-                         int parallel_tasks = 0);
+                         bool build_bf_exactly = false, bool need_local_merge = false);
 
     vectorized::SharedRuntimeFilterContext& get_shared_context_ref();
 
@@ -280,7 +280,7 @@ public:
 
     static Status create_wrapper(const UpdateRuntimeFilterParamsV2* param,
                                  RuntimePredicateWrapper** wrapper);
-    void change_to_bloom_filter();
+    Status change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
     void update_filter(RuntimePredicateWrapper* filter_wrapper, int64_t merge_time,
@@ -349,8 +349,6 @@ public:
 
     void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
 
-    Status merge_local_filter(RuntimePredicateWrapper* wrapper, int* merged_num);
-
 protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
@@ -366,7 +364,7 @@ protected:
     static Status _create_wrapper(const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
-    void _set_push_down() { _is_push_down = true; }
+    void _set_push_down(bool push_down) { _is_push_down = push_down; }
 
     std::string _format_status() const;
 
@@ -426,18 +424,10 @@ protected:
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
-    RuntimeProfile::Counter* _merge_local_rf_timer = nullptr;
     bool _opt_remote_rf;
-    // `_is_global` indicates whether this runtime filter is global on this BE.
-    // All runtime filters should be merged on each BE if it is global.
-    // This is improvement for pipelineX.
-    const bool _is_global = false;
-    std::mutex _local_merge_mutex;
-    // There are `_parallel_build_tasks` pipeline tasks to build runtime filter.
-    // We should call `signal` once all runtime filters are done and merged to one
-    // (e.g. `_merged_rf_num` is equal to `_parallel_build_tasks`).
-    int _merged_rf_num = 0;
-    const int _parallel_build_tasks = -1;
+    // `_need_local_merge` indicates whether this runtime filter is global on this BE.
+    // All runtime filters should be merged on each BE before push_to_remote or publish.
+    const bool _need_local_merge = false;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 };

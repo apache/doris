@@ -111,13 +111,16 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<ScanDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    _scan_dependency =
+            Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                      _parent->get_name() + "_DEPENDENCY", state->get_query_ctx());
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+            _runtime_profile, "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.ignore_data_distribution()));
-
-    _scan_dependency = dependency_sptr();
 
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
@@ -305,8 +308,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
-            bool _is_runtime_filter_predicate =
-                    _rf_vexpr_set.find(conjunct_expr_root) != _rf_vexpr_set.end();
+            bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             vectorized::VScanNode::PushDownType pdt =
@@ -546,8 +548,7 @@ template <typename Derived>
 std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}, _eos = {}",
-                   PipelineXLocalState<ScanDependency>::debug_string(indentation_level),
-                   _eos.load());
+                   PipelineXLocalState<>::debug_string(indentation_level), _eos.load());
     if (_scanner_ctx) {
         fmt::format_to(debug_string_buffer, "");
         fmt::format_to(debug_string_buffer, ", Scanner Context: {}", _scanner_ctx->debug_string());
@@ -1222,19 +1223,6 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_ctx = PipXScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             state()->scan_queue_mem_limit(), _scan_dependency);
-    if constexpr (std::is_same_v<OlapScanLocalState, Derived>) {
-        /**
-         * If `use_topn_opt` is true,
-         * we let 1/4 scanners run first to update the value of runtime predicate,
-         * and the other 3/4 scanners could then read fewer rows.
-         */
-        if (static_cast<OlapScanLocalState*>(this)->olap_scan_node().use_topn_opt) {
-            int32_t max_thread_num = std::max<int32_t>(4, scanners.size() / 4);
-            if (max_thread_num < _scanner_ctx->get_max_thread_num()) {
-                _scanner_ctx->set_max_thread_num(max_thread_num);
-            }
-        }
-    }
     return Status::OK();
 }
 
@@ -1431,12 +1419,12 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, _filter_dependency->watcher_elapse_time());
 
-    return PipelineXLocalState<ScanDependency>::close(state);
+    return PipelineXLocalState<>::close(state);
 }
 
 template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
-                                                SourceState& source_state) {
+                                                bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -1460,16 +1448,14 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     }
 
     if (local_state._eos) {
-        source_state = SourceState::FINISHED;
+        *eos = true;
         return Status::OK();
     }
 
-    bool eos = false;
-    RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, &eos, 0));
+    RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
 
-    local_state.reached_limit(block, source_state);
-    if (eos || source_state == SourceState::FINISHED) {
-        source_state = SourceState::FINISHED;
+    local_state.reached_limit(block, eos);
+    if (*eos) {
         // reach limit, stop the scanners.
         local_state._scanner_ctx->stop_scanners(state);
     }

@@ -1925,7 +1925,7 @@ template <typename T>
 bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
                                 uint8_t minute, uint8_t second, uint32_t microsecond,
                                 bool only_time_part) {
-    if (hour > 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
+    if (hour >= 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
         return true;
     }
     if (only_time_part) {
@@ -2041,8 +2041,8 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             temp_val *= int_exp10(std::max(0L, 6 - ms_part));
             if constexpr (is_datetime) {
                 if (scale >= 0) {
-                    if (scale == 6 && ms_part > 6) {
-                        if (ptr < end && isdigit(*ptr) && *ptr >= '5') {
+                    if (scale == 6 && ms_part >= 6) {
+                        if (ptr <= end && isdigit(*ptr) && *ptr >= '5') {
                             temp_val += 1;
                         }
                     } else {

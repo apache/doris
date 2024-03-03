@@ -45,20 +45,11 @@ public:
 
 class HashJoinBuildSinkOperatorX;
 
-class SharedHashTableDependency final : public Dependency {
-public:
-    using SharedState = HashJoinSharedState;
-    ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
-    SharedHashTableDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SharedHashTableBuildDependency", true, query_ctx) {}
-    ~SharedHashTableDependency() override = default;
-};
-
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
-    using Base = JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState>;
+    using Base = JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState>;
     using Parent = HashJoinBuildSinkOperatorX;
     HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~HashJoinBuildSinkLocalState() override = default;
@@ -114,7 +105,6 @@ protected:
      * so null does not need to be added to the hash table.
      */
     bool _build_side_ignore_null = false;
-    std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
     std::vector<int> _build_col_ids;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
@@ -145,11 +135,10 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     bool should_dry_run(RuntimeState* state) override {
-        return _is_broadcast_join && !state->get_sink_local_state(operator_id())
+        return _is_broadcast_join && !state->get_sink_local_state()
                                               ->cast<HashJoinBuildSinkLocalState>()
                                               ._should_build_hash_table;
     }
@@ -190,7 +179,7 @@ private:
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     const std::vector<TExpr> _partition_exprs;
 
-    const bool _use_global_rf;
+    const bool _need_local_merge;
 };
 
 } // namespace pipeline

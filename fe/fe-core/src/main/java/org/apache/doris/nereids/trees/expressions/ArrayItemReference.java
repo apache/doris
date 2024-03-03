@@ -151,6 +151,16 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
         }
 
         @Override
+        public ArrayItemSlot withName(String name) {
+            return new ArrayItemSlot(exprId, name, dataType, nullable);
+        }
+
+        @Override
+        public SlotReference withNullable(boolean newNullable) {
+            return new ArrayItemSlot(exprId, name, dataType, nullable);
+        }
+
+        @Override
         public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
             return visitor.visitArrayItemSlot(this, context);
         }

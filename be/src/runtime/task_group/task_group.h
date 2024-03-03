@@ -35,9 +35,18 @@
 namespace doris {
 
 class MemTrackerLimiter;
+class RuntimeProfile;
+class ThreadPool;
+class ExecEnv;
+class CgroupCpuCtl;
+
+namespace vectorized {
+class SimplifiedScanScheduler;
+}
 
 namespace pipeline {
 class PipelineTask;
+class TaskScheduler;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -83,12 +92,6 @@ public:
 
     void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
-    void task_group_info(TaskGroupInfo* tg_info) const;
-
-    std::vector<TgTrackerLimiterGroup>& mem_tracker_limiter_pool() {
-        return _mem_tracker_limiter_pool;
-    }
-
     // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
     // because mem_limit is not a required property
     bool is_mem_limit_valid() {
@@ -124,6 +127,17 @@ public:
         return _query_id_set.size();
     }
 
+    int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
+
+    void upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
+
+    void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
+                             vectorized::SimplifiedScanScheduler** scan_sched,
+                             ThreadPool** non_pipe_thread_pool,
+                             vectorized::SimplifiedScanScheduler** remote_scan_sched);
+
+    void try_stop_schedulers();
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
@@ -135,12 +149,21 @@ private:
     std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
     std::atomic<int> _cpu_hard_limit;
     std::atomic<int> _scan_thread_num;
+    std::atomic<int> _max_remote_scan_thread_num;
+    std::atomic<int> _min_remote_scan_thread_num;
 
     // means task group is mark dropped
     // new query can not submit
     // waiting running query to be cancelled or finish
     bool _is_shutdown = false;
     std::unordered_set<TUniqueId> _query_id_set;
+
+    std::shared_mutex _task_sched_lock;
+    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
+    std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
+    std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
+    std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
+    std::unique_ptr<ThreadPool> _non_pipe_thread_pool = nullptr;
 };
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
@@ -155,6 +178,8 @@ struct TaskGroupInfo {
     int cpu_hard_limit;
     bool enable_cpu_hard_limit;
     int scan_thread_num;
+    int max_remote_scan_thread_num;
+    int min_remote_scan_thread_num;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

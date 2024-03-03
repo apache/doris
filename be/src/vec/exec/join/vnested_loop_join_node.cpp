@@ -118,8 +118,8 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     std::vector<TExpr> filter_src_exprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                _runtime_filter_descs[i], state->query_options(), &_runtime_filters[i]));
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(_runtime_filter_descs[i], false,
+                                                                &_runtime_filters[i], false));
     }
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
     return Status::OK();
@@ -665,7 +665,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
     SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_probe_timer);
     if (_is_output_left_side_only) {
-        RETURN_IF_ERROR(_build_output_block(_left_block.get(), block));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_output_block(_left_block.get(), block));
         *eos = _left_side_eos;
         _need_more_input_data = !_left_side_eos;
     } else {
@@ -685,7 +685,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
                 RETURN_IF_ERROR(
                         VExprContext::filter_block(_conjuncts, &tmp_block, tmp_block.columns()));
             }
-            RETURN_IF_ERROR(_build_output_block(&tmp_block, block, false));
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_output_block(&tmp_block, block, false));
             _reset_tuple_is_null_column();
         }
         _join_block.clear_column_data();

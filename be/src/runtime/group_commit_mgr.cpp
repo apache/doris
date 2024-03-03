@@ -78,6 +78,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         VLOG_DEBUG << "group commit meets commit condition for data size, label=" << label
                    << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
         _need_commit = true;
+        data_size_condition = true;
     }
     _get_cond.notify_all();
     return Status::OK();
@@ -211,8 +212,11 @@ Status GroupCommitTable::get_first_block_load_queue(
             if (!_need_plan_fragment) {
                 _need_plan_fragment = true;
                 RETURN_IF_ERROR(_thread_pool->submit_func([&] {
-                    [[maybe_unused]] auto st =
-                            _create_group_commit_load(load_block_queue, be_exe_version);
+                    auto st = _create_group_commit_load(load_block_queue, be_exe_version);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "fail to create block queue,st=" << st.to_string();
+                        load_block_queue.reset();
+                    }
                 }));
             }
             _cv.wait_for(l, std::chrono::seconds(4));
@@ -275,6 +279,9 @@ Status GroupCommitTable::_create_group_commit_load(
                 client->streamLoadPut(result, request);
             },
             10000L);
+    if (!st.ok()) {
+        LOG(WARNING) << "create group commit load rpc error, st=" << st.to_string();
+    }
     RETURN_IF_ERROR(st);
     st = Status::create<false>(result.status);
     if (!st.ok()) {
@@ -307,8 +314,6 @@ Status GroupCommitTable::_create_group_commit_load(
                 result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
                 result.group_commit_data_bytes);
         std::unique_lock l(_lock);
-        _load_block_queues.emplace(instance_id, load_block_queue);
-        _need_plan_fragment = false;
         //create wal
         if (!is_pipeline) {
             RETURN_IF_ERROR(load_block_queue->create_wal(
@@ -320,6 +325,8 @@ Status GroupCommitTable::_create_group_commit_load(
                     pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
                     be_exe_version));
         }
+        _load_block_queues.emplace(instance_id, load_block_queue);
+        _need_plan_fragment = false;
         _cv.notify_all();
     }
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,
@@ -417,6 +424,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
        << ", exec_plan_fragment status=" << status.to_string()
        << ", commit/abort txn rpc status=" << st.to_string()
        << ", commit/abort txn status=" << result_status.to_string()
+       << ", this group commit includes " << load_block_queue->group_commit_load_count << " loads"
+       << ", flush because meet "
+       << (load_block_queue->data_size_condition ? "data size " : "time ") << "condition"
        << ", wal space info:" << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
     if (state) {
         if (!state->get_error_log_file_path().empty()) {

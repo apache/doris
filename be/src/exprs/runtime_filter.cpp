@@ -331,7 +331,7 @@ public:
         return Status::OK();
     }
 
-    void change_to_bloom_filter(bool need_init_bf = false) {
+    Status change_to_bloom_filter(bool need_init_bf = false) {
         CHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER)
                 << "Can not change to bloom filter because of runtime filter type is "
                 << IRuntimeFilter::to_string(_filter_type);
@@ -339,11 +339,12 @@ public:
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
         if (need_init_bf) {
             // BloomFilter may be not init
-            static_cast<void>(bf->init_with_fixed_length());
+            RETURN_IF_ERROR(bf->init_with_fixed_length());
             insert_to_bloom_filter(bf);
         }
         // release in filter
         _context.hybrid_set.reset();
+        return Status::OK();
     }
 
     Status init_bloom_filter(const size_t build_bf_cardinality) {
@@ -462,19 +463,6 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            // only in filter can set ignore in merge time
-            if (_ignored) {
-                break;
-            } else if (wrapper->_ignored) {
-                VLOG_DEBUG << " ignore merge runtime filter(in filter id " << _filter_id
-                           << ") because: " << wrapper->ignored_msg();
-
-                _ignored = true;
-                _ignored_msg = wrapper->_ignored_msg;
-                // release in filter
-                _context.hybrid_set.reset();
-                break;
-            }
             // try insert set
             _context.hybrid_set->insert(wrapper->_context.hybrid_set.get());
             if (_max_in_num >= 0 && _context.hybrid_set->size() >= _max_in_num) {
@@ -521,12 +509,12 @@ public:
                         VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                    << ") because: in_num(" << _context.hybrid_set->size()
                                    << ") >= max_in_num(" << _max_in_num << ")";
-                        change_to_bloom_filter(true);
+                        RETURN_IF_ERROR(change_to_bloom_filter(true));
                     }
                 } else {
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
-                    change_to_bloom_filter();
+                    RETURN_IF_ERROR(change_to_bloom_filter());
                     RETURN_IF_ERROR(_context.bloom_filter_func->merge(
                             wrapper->_context.bloom_filter_func.get()));
                 }
@@ -938,11 +926,11 @@ private:
 Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                               const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                               const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
-                              bool build_bf_exactly, bool is_global, int parallel_tasks) {
-    *res = pool->add(new IRuntimeFilter(state, pool, desc, is_global, parallel_tasks));
+                              bool build_bf_exactly, bool need_local_merge) {
+    *res = pool->add(new IRuntimeFilter(state, pool, desc, need_local_merge));
     (*res)->set_role(role);
     return (*res)->init_with_desc(desc, query_options, node_id,
-                                  is_global ? false : build_bf_exactly);
+                                  need_local_merge ? false : build_bf_exactly);
 }
 
 vectorized::SharedRuntimeFilterContext& IRuntimeFilter::get_shared_context_ref() {
@@ -954,47 +942,53 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t sta
     _wrapper->insert_batch(column, start);
 }
 
-Status IRuntimeFilter::merge_local_filter(RuntimePredicateWrapper* wrapper, int* merged_num) {
-    SCOPED_TIMER(_merge_local_rf_timer);
-    std::unique_lock lock(_local_merge_mutex);
-    if (_merged_rf_num == 0) {
-        _wrapper = wrapper;
-    } else {
-        RETURN_IF_ERROR(merge_from(wrapper));
-    }
-    *merged_num = ++_merged_rf_num;
-    return Status::OK();
-}
-
 Status IRuntimeFilter::publish(bool publish_local) {
     DCHECK(is_producer());
-    if (_is_global && _has_local_target) {
-        std::vector<IRuntimeFilter*> filters;
-        RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filters(
-                _filter_id, filters));
-        // push down
-        for (auto filter : filters) {
-            int merged_num = 0;
-            RETURN_IF_ERROR(filter->merge_local_filter(_wrapper, &merged_num));
-            if (merged_num == _parallel_build_tasks) {
-                filter->update_runtime_filter_type_to_profile();
-                filter->signal();
-            }
-        }
-    } else if (_has_local_target) {
-        std::vector<IRuntimeFilter*> filters;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
-        // push down
-        for (auto filter : filters) {
-            filter->_wrapper = _wrapper;
-            filter->update_runtime_filter_type_to_profile();
-            filter->signal();
-        }
-    } else if (!publish_local) {
+    auto send_to_remote = [&](IRuntimeFilter* filter) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
-        return push_to_remote(&addr, _opt_remote_rf);
+        return filter->push_to_remote(&addr, _opt_remote_rf);
+    };
+    auto send_to_local = [&](RuntimePredicateWrapper* wrapper) {
+        std::vector<IRuntimeFilter*> filters;
+        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
+        DCHECK(!filters.empty());
+        // push down
+        for (auto filter : filters) {
+            filter->_wrapper = wrapper;
+            filter->update_runtime_filter_type_to_profile();
+            filter->signal();
+        }
+        return Status::OK();
+    };
+    auto do_local_merge = [&]() {
+        LocalMergeFilters* local_merge_filters = nullptr;
+        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
+                _filter_id, &local_merge_filters));
+        std::lock_guard l(*local_merge_filters->lock);
+        RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper));
+        local_merge_filters->merge_time--;
+        if (local_merge_filters->merge_time == 0) {
+            if (_has_local_target) {
+                RETURN_IF_ERROR(send_to_local(local_merge_filters->filters[0]->_wrapper));
+            } else {
+                RETURN_IF_ERROR(send_to_remote(local_merge_filters->filters[0]));
+            }
+        }
+        return Status::OK();
+    };
+
+    if (_need_local_merge && _has_local_target) {
+        RETURN_IF_ERROR(do_local_merge());
+    } else if (_has_local_target) {
+        RETURN_IF_ERROR(send_to_local(_wrapper));
+    } else if (!publish_local) {
+        if (_is_broadcast_join || _state->be_exec_version < 3) {
+            RETURN_IF_ERROR(send_to_remote(this));
+        } else {
+            RETURN_IF_ERROR(do_local_merge());
+        }
     } else {
         // remote broadcast join only push onetime in build shared hash table
         // publish_local only set true on copy shared hash table
@@ -1026,12 +1020,14 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     pquery_id->set_lo(_state->query_id.lo());
 
     auto pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
-    pfragment_instance_id->set_hi(_state->fragment_instance_id().hi());
-    pfragment_instance_id->set_lo(_state->fragment_instance_id().lo());
+    pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
+    pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_request->set_filter_id(_filter_id);
     merge_filter_request->set_opt_remote_rf(opt_remote_rf);
     merge_filter_request->set_is_pipeline(_state->enable_pipeline_exec);
+    auto column_type = _wrapper->column_type();
+    merge_filter_request->set_column_type(to_proto(column_type));
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
 
     Status serialize_status = serialize(merge_filter_request.get(), &data, &len);
@@ -1055,14 +1051,12 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
                                           std::vector<vectorized::VExprSPtr>& push_exprs,
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
-    if (_wrapper->is_ignored()) {
-        return Status::OK();
-    }
-    if (!is_late_arrival) {
-        _set_push_down();
+    if (!_wrapper->is_ignored()) {
+        _set_push_down(!is_late_arrival);
+        RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
     _profile->add_info_string("Info", _format_status());
-    return _wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr);
+    return Status::OK();
 }
 
 bool IRuntimeFilter::await() {
@@ -1196,9 +1190,9 @@ void IRuntimeFilter::set_ignored(const std::string& msg) {
 
 std::string IRuntimeFilter::_format_status() const {
     return fmt::format(
-            "[IsPushDown = {}, RuntimeFilterState = {}, IsIgnored = {}, HasRemoteTarget = {}, "
+            "[IsPushDown = {}, RuntimeFilterState = {}, IgnoredMsg = {}, HasRemoteTarget = {}, "
             "HasLocalTarget = {}]",
-            _is_push_down, _get_explain_state_string(), _wrapper->is_ignored(), _has_remote_target,
+            _is_push_down, _get_explain_state_string(), _wrapper->ignored_msg(), _has_remote_target,
             _has_local_target);
 }
 
@@ -1316,12 +1310,9 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     }
 }
 
-void IRuntimeFilter::change_to_bloom_filter() {
-    auto origin_type = _wrapper->get_real_type();
-    _wrapper->change_to_bloom_filter();
-    if (origin_type != _wrapper->get_real_type()) {
-        update_runtime_filter_type_to_profile();
-    }
+Status IRuntimeFilter::change_to_bloom_filter() {
+    RETURN_IF_ERROR(_wrapper->change_to_bloom_filter());
+    return Status::OK();
 }
 
 Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {
@@ -1335,6 +1326,9 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
     PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
     if (param->request->has_in_filter()) {
         column_type = to_primitive_type(param->request->in_filter().column_type());
+    }
+    if (param->request->has_column_type()) {
+        column_type = to_primitive_type(param->request->column_type());
     }
     wrapper->reset(new RuntimePredicateWrapper(pool, column_type, get_type(filter_type),
                                                param->request->filter_id()));
@@ -1361,35 +1355,24 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
 void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     if (_profile_init) {
         parent_profile->add_child(_profile.get(), true, nullptr);
-        return;
-    }
-    _profile_init = true;
-    parent_profile->add_child(_profile.get(), true, nullptr);
-    _profile->add_info_string("Info", _format_status());
-    if (_is_global) {
-        _merge_local_rf_timer = ADD_TIMER(_profile.get(), "MergeLocalRuntimeFilterTime");
-    }
-    if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-        update_runtime_filter_type_to_profile();
+    } else {
+        _profile_init = true;
+        parent_profile->add_child(_profile.get(), true, nullptr);
+        _profile->add_info_string("Info", _format_status());
     }
 }
 
 void IRuntimeFilter::update_runtime_filter_type_to_profile() {
-    if (_profile != nullptr) {
-        _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
-    }
+    _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
-    if (!_wrapper->is_ignored() && wrapper->is_ignored()) {
+    if (wrapper->is_ignored()) {
         set_ignored(wrapper->ignored_msg());
+    } else if (!_wrapper->is_ignored()) {
+        return _wrapper->merge(wrapper);
     }
-    auto origin_type = _wrapper->get_real_type();
-    Status status = _wrapper->merge(wrapper);
-    if (origin_type != _wrapper->get_real_type()) {
-        update_runtime_filter_type_to_profile();
-    }
-    return status;
+    return Status::OK();
 }
 
 template <typename T>
@@ -1692,12 +1675,10 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
     if (param->request->has_in_filter() && param->request->in_filter().has_ignored_msg()) {
         const PInFilter in_filter = param->request->in_filter();
         set_ignored(in_filter.ignored_msg());
-    }
-    std::unique_ptr<RuntimePredicateWrapper> wrapper;
-    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _pool, &wrapper));
-    auto origin_type = _wrapper->get_real_type();
-    RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
-    if (origin_type != _wrapper->get_real_type()) {
+    } else {
+        std::unique_ptr<RuntimePredicateWrapper> wrapper;
+        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _pool, &wrapper));
+        RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
         update_runtime_filter_type_to_profile();
     }
     this->signal();
@@ -1715,11 +1696,8 @@ void IRuntimeFilter::update_filter(RuntimePredicateWrapper* wrapper, int64_t mer
     if (_wrapper->column_type() != wrapper->column_type()) {
         wrapper->_column_return_type = _wrapper->_column_return_type;
     }
-    auto origin_type = _wrapper->get_real_type();
     _wrapper = wrapper;
-    if (origin_type != _wrapper->get_real_type()) {
-        update_runtime_filter_type_to_profile();
-    }
+    update_runtime_filter_type_to_profile();
     this->signal();
 }
 

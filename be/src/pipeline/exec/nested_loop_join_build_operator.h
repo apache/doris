@@ -44,18 +44,10 @@ public:
     bool can_write() override { return true; }
 };
 
-class NestedLoopJoinBuildSinkDependency final : public Dependency {
-public:
-    using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinBuildSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "NestedLoopJoinBuildSinkDependency", true, query_ctx) {}
-    ~NestedLoopJoinBuildSinkDependency() override = default;
-};
-
 class NestedLoopJoinBuildSinkOperatorX;
 
 class NestedLoopJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+        : public JoinBuildSinkLocalState<NestedLoopJoinSharedState,
                                          NestedLoopJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(NestedLoopJoinBuildSinkLocalState);
@@ -98,8 +90,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {

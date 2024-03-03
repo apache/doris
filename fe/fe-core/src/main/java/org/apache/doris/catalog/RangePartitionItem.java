@@ -54,6 +54,13 @@ public class RangePartitionItem extends PartitionItem {
     }
 
     @Override
+    public PartitionKeyDesc toPartitionKeyDesc(int pos) {
+        // MTMV do not allow base tables with partition type range to have multiple partition columns,
+        // so pos is ignored here
+        return toPartitionKeyDesc();
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         RangeUtils.writeRange(out, partitionKeyRange);
     }

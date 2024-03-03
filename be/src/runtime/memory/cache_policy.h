@@ -44,6 +44,7 @@ public:
         TABLET_SCHEMA_CACHE = 14,
         CREATE_TABLET_RR_IDX_CACHE = 15,
         CLOUD_TABLET_CACHE = 16,
+        CLOUD_TXN_DELETE_BITMAP_CACHE = 17,
     };
 
     static std::string type_string(CacheType type) {
@@ -82,6 +83,8 @@ public:
             return "CreateTabletRRIdxCache";
         case CacheType::CLOUD_TABLET_CACHE:
             return "CloudTabletCache";
+        case CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE:
+            return "CloudTxnDeleteBitmapCache";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
@@ -93,7 +96,7 @@ public:
     virtual ~CachePolicy();
 
     virtual void prune_stale() = 0;
-    virtual void prune_all(bool clear) = 0;
+    virtual void prune_all(bool force) = 0;
 
     CacheType type() { return _type; }
     bool enable_prune() const { return _enable_prune; }

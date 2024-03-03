@@ -74,7 +74,7 @@ public:
     Status cancel(const TUniqueId& fragment_id);
 
     // cancel one query at a future time.
-    Status cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
+    void cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
 
 private:
     using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>>;

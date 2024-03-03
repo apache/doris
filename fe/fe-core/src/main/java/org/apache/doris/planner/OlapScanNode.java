@@ -61,6 +61,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
@@ -775,6 +776,10 @@ public class OlapScanNode extends ScanNode {
             useFixReplica = ConnectContext.get().getSessionVariable().useFixReplica;
             // if use_fix_replica is set to true, set skip_missing_version to false
             skipMissingVersion = useFixReplica == -1 && ConnectContext.get().getSessionVariable().skipMissingVersion;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("query id: {}, partition id:{} visibleVersion: {}",
+                        DebugUtil.printId(ConnectContext.get().queryId()), partition.getId(), visibleVersion);
+            }
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
@@ -888,6 +893,10 @@ public class OlapScanNode extends ScanNode {
                     }
                     errs.add("replica " + replica.getId() + "'s backend " + replica.getBackendId()
                             + " does not exist or not alive");
+                    errs.add(" or you may not have permission to access the current cluster");
+                    if (ConnectContext.get() != null) {
+                        errs.add("clusterName=" + ConnectContext.get().getCloudCluster());
+                    }
                     continue;
                 }
                 if (!backend.isMixNode()) {
@@ -1404,6 +1413,8 @@ public class OlapScanNode extends ScanNode {
     // If scan is key search, should not enable the shared scan opt to prevent the performance problem
     // 1. where contain the eq or in expr of key column slot
     // 2. key column slot is distribution column and first column
+    // FIXME: this is not a good check, we can not guarantee that the predicate we check can truly
+    // help to prune the data, so we should check the predicate's effect on the data.
     protected boolean isKeySearch() {
         List<SlotRef> whereSlot = Lists.newArrayList();
         for (Expr conjunct : conjuncts) {

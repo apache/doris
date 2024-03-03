@@ -44,8 +44,8 @@ Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
 
 NestedLoopJoinProbeLocalState::NestedLoopJoinProbeLocalState(RuntimeState* state,
                                                              OperatorXBase* parent)
-        : JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState>(state,
-                                                                                            parent),
+        : JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>(state,
+                                                                                        parent),
           _matched_rows_done(false),
           _left_block_pos(0) {}
 
@@ -74,7 +74,7 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
 
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
-    return JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState>::close(
+    return JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>::close(
             state);
 }
 
@@ -185,13 +185,9 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
                 _finalize_current_phase<false, JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
                         _join_block, state->batch_size());
             }
-        }
-
-        if (_left_side_process_count) {
-            if (p._is_mark_join && _shared_state->build_blocks.empty()) {
-                DCHECK_EQ(JoinOpType::value, TJoinOp::CROSS_JOIN);
-                _append_left_data_with_null(_join_block);
-            }
+        } else if (_left_side_process_count && p._is_mark_join &&
+                   _shared_state->build_blocks.empty()) {
+            _append_left_data_with_null(_join_block);
         }
     }
 
@@ -483,7 +479,7 @@ bool NestedLoopJoinProbeOperatorX::need_more_input_data(RuntimeState* state) con
 }
 
 Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized::Block* block,
-                                          SourceState source_state) const {
+                                          bool eos) const {
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state._probe_rows_counter, block->rows());
     local_state._cur_probe_row_visited_flags.resize(block->rows());
@@ -491,7 +487,7 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
               local_state._cur_probe_row_visited_flags.end(), 0);
     local_state._left_block_pos = 0;
     local_state._need_more_input_data = false;
-    local_state._shared_state->left_side_eos = source_state == SourceState::FINISHED;
+    local_state._shared_state->left_side_eos = eos;
 
     if (!_is_output_left_side_only) {
         auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
@@ -509,21 +505,19 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
 }
 
 Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block* block,
-                                          SourceState& source_state) const {
+                                          bool* eos) const {
     auto& local_state = get_local_state(state);
     if (_is_output_left_side_only) {
-        RETURN_IF_ERROR(local_state._build_output_block(local_state._child_block.get(), block));
-        source_state =
-                local_state._shared_state->left_side_eos ? SourceState::FINISHED : source_state;
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                local_state._build_output_block(local_state._child_block.get(), block));
+        *eos = local_state._shared_state->left_side_eos;
         local_state._need_more_input_data = !local_state._shared_state->left_side_eos;
     } else {
-        source_state = ((_match_all_build || _is_right_semi_anti)
-                                ? local_state._output_null_idx_build_side ==
-                                                  local_state._shared_state->build_blocks.size() &&
-                                          local_state._matched_rows_done
-                                : local_state._matched_rows_done)
-                               ? SourceState::FINISHED
-                               : source_state;
+        *eos = ((_match_all_build || _is_right_semi_anti)
+                        ? local_state._output_null_idx_build_side ==
+                                          local_state._shared_state->build_blocks.size() &&
+                                  local_state._matched_rows_done
+                        : local_state._matched_rows_done);
 
         {
             vectorized::Block tmp_block = local_state._join_block;
@@ -537,12 +531,13 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                 RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
                         local_state._conjuncts, &tmp_block, tmp_block.columns()));
             }
-            RETURN_IF_ERROR(local_state._build_output_block(&tmp_block, block, false));
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                    local_state._build_output_block(&tmp_block, block, false));
             local_state._reset_tuple_is_null_column();
         }
         local_state._join_block.clear_column_data();
 
-        if (!(source_state == SourceState::FINISHED) and !local_state._need_more_input_data) {
+        if (!(*eos) and !local_state._need_more_input_data) {
             auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
                             auto set_probe_side_flag) {
                 return local_state
@@ -558,7 +553,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
         }
     }
 
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     return Status::OK();
 }
 

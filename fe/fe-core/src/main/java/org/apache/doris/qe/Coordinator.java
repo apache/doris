@@ -167,7 +167,7 @@ public class Coordinator implements CoordInterface {
     // save of related backends of this query
     Map<TNetworkAddress, Long> addressToBackendID = Maps.newHashMap();
 
-    private ImmutableMap<Long, Backend> idToBackend = ImmutableMap.of();
+    protected ImmutableMap<Long, Backend> idToBackend = ImmutableMap.of();
 
     // copied from TQueryExecRequest; constant across all fragments
     private final TDescriptorTable descTable;
@@ -507,7 +507,7 @@ public class Coordinator implements CoordInterface {
     }
 
     // Initialize
-    private void prepare() {
+    protected void prepare() {
         for (PlanFragment fragment : fragments) {
             fragmentExecParamsMap.put(fragment.getFragmentId(), new FragmentExecParams(fragment));
         }
@@ -571,7 +571,7 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private void processFragmentAssignmentAndParams() throws Exception {
+    protected void processFragmentAssignmentAndParams() throws Exception {
         // prepare information
         prepare();
         // compute Fragment Instance
@@ -1330,7 +1330,8 @@ public class Coordinator implements CoordInterface {
         Status status = new Status();
         resultBatch = receiver.getNext(status);
         if (!status.ok()) {
-            LOG.warn("get next fail, need cancel. query id: {}", DebugUtil.printId(queryId));
+            LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
+                    DebugUtil.printId(queryId), status.toString());
         }
 
         updateStatus(status, null /* no instance id */);
@@ -1478,7 +1479,7 @@ public class Coordinator implements CoordInterface {
 
     private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
         if (null != receiver) {
-            receiver.cancel();
+            receiver.cancel(cancelReason.toString());
         }
         if (null != pointExec) {
             pointExec.cancel();
@@ -1490,7 +1491,7 @@ public class Coordinator implements CoordInterface {
 
     private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason, long backendId) {
         if (null != receiver) {
-            receiver.cancel();
+            receiver.cancel(cancelReason.toString());
         }
         if (null != pointExec) {
             pointExec.cancel();
@@ -1826,7 +1827,7 @@ public class Coordinator implements CoordInterface {
             throw new UserException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
         }
         if (backend.getArrowFlightSqlPort() < 0) {
-            return null;
+            throw new UserException("be arrow_flight_sql_port cannot be empty.");
         }
         return backend.getArrowFlightAddress();
     }
@@ -2069,9 +2070,9 @@ public class Coordinator implements CoordInterface {
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
-                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().haveLimitAndConjunts()) {
+                            if (node.get().shouldUseOneInstance()) {
                                 expectedInstanceNum = 1;
                             }
 
@@ -2082,9 +2083,9 @@ public class Coordinator implements CoordInterface {
                                 //the scan instance num should not larger than the tablets num
                                 expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
                             }
-                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().haveLimitAndConjunts()) {
+                            if (node.get().shouldUseOneInstance()) {
                                 expectedInstanceNum = 1;
                             }
 
@@ -2153,7 +2154,8 @@ public class Coordinator implements CoordInterface {
             }
 
             for (RuntimeFilterId rid : fragment.getBuilderRuntimeFilterIds()) {
-                ridToBuilderNum.merge(rid, params.instanceExecParams.size(), Integer::sum);
+                ridToBuilderNum.merge(rid,
+                        (int) params.instanceExecParams.stream().map(ins -> ins.host).distinct().count(), Integer::sum);
             }
         }
         // Use the uppermost fragment as a merged node, the uppermost fragment has one and only one instance

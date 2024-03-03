@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
@@ -472,7 +473,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 queryStructInfo,
                 viewStructInfo,
                 viewToQuerySlotMapping,
-                comparisonResult);
+                comparisonResult,
+                cascadesContext);
         // residual compensate
         final Set<Expression> residualCompensatePredicates = Predicates.compensateResidualPredicate(
                 queryStructInfo,
@@ -500,9 +502,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             CascadesContext cascadesContext) {
         Set<Expression> queryPulledUpPredicates = queryPredicates.stream()
                 .flatMap(expr -> ExpressionUtils.extractConjunction(expr).stream())
+                .map(expr -> {
+                    // NOTICE inferNotNull generate Not with isGeneratedIsNotNull = false,
+                    //  so, we need set this flag to false before comparison.
+                    if (expr instanceof Not) {
+                        return ((Not) expr).withGeneratedIsNotNull(false);
+                    }
+                    return expr;
+                })
                 .collect(Collectors.toSet());
-        Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates,
-                cascadesContext);
+        Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates, cascadesContext);
         Set<Expression> queryUsedNeedRejectNullSlotsViewBased = nullRejectPredicates.stream()
                 .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
                 .filter(Objects::nonNull)

@@ -53,7 +53,7 @@ class TDataSink;
 class TPipelineFragmentParams;
 
 namespace pipeline {
-struct LocalExchangeSinkDependency;
+class Dependency;
 
 class PipelineXFragmentContext : public PipelineFragmentContext {
 public:
@@ -169,15 +169,13 @@ private:
                                 const std::map<int, int>& shuffle_idx_to_instance_idx,
                                 const bool ignore_data_distribution);
 
-    bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
-
     bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
 
     OperatorXPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
 
-    bool _use_global_rf = false;
+    bool _need_local_merge = false;
 
     // It is used to manage the lifecycle of RuntimeFilterMergeController
     std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
@@ -192,8 +190,6 @@ private:
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-
-    std::atomic_bool _canceled = false;
 
     // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
     std::map<PipelineId, std::vector<PipelineId>> _dag;
@@ -227,8 +223,7 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _op_id_to_le_state;
 
     // UniqueId -> runtime mgr
