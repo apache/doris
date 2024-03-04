@@ -95,7 +95,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (IsFixLenColumnType<ColumnDataType>::value) {
             auto column = assert_cast<const ColumnDataType*>(columns[0]);

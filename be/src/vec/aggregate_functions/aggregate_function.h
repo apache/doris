@@ -106,7 +106,7 @@ public:
      *  row_num is number of row which should be added.
      *  Additional parameter arena should be used instead of standard memory allocator if the addition requires memory allocation.
      */
-    virtual void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    virtual void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
                      Arena* arena) const = 0;
 
     virtual void add_many(AggregateDataPtr __restrict place, const IColumn** columns,

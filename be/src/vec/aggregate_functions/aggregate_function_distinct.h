@@ -201,7 +201,7 @@ public:
         prefix_size = (sizeof(Data) + nested_size - 1) / nested_size * nested_size;
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         this->data(place).add(columns, arguments_num, row_num, arena);
     }

@@ -172,7 +172,7 @@ public:
                                              make_nullable(argument_types[1]));
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         if (columns[0]->is_nullable()) {
             auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[0]);
