@@ -1362,7 +1362,7 @@ public class PropertyAnalyzer {
         return properties;
     }
 
-    private void rewriteForceProperties(Map<String, String> properties) {
+    public void rewriteForceProperties(Map<String, String> properties) {
         forceProperties.forEach(property -> property.rewrite(properties));
     }
 
