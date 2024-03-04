@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -2774,11 +2775,14 @@ public class SelectStmt extends QueryStmt {
     }
 
     public boolean isPointQueryShortCircuit() {
-        return false;
+        return isPointQuery;
     }
 
     // Check if it is a point query and set EQUAL predicates
     public boolean checkAndSetPointQuery() {
+        if (Config.isCloudMode()) {
+            return false;
+        }
         if (isPointQuery) {
             return true;
         }
