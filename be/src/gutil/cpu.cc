@@ -19,6 +19,12 @@
 #endif
 #endif
 
+#if defined(ARCH_CPU_X86_FAMILY)
+#define XCR0_AVX512_STATE_MASK 0xe0
+#define XCR0_AVX512_STATE_VALUE 224
+#define X86_AVX512F_FLAG_MASK 0x00010000
+#define X86_AVX512BW_FLAG_MASK 0x40000000
+#endif
 namespace base {
 #if defined(ARCH_CPU_X86_FAMILY)
 namespace internal {
@@ -69,6 +75,7 @@ CPU::CPU()
           has_popcnt_(false),
           has_avx_(false),
           has_avx2_(false),
+          has_avx512_(false),
           has_aesni_(false),
           has_non_stop_time_stamp_counter_(false),
           is_running_in_vm_(false),
@@ -200,6 +207,10 @@ void CPU::Initialize() {
                    (xgetbv(0) & 6) == 6 /* XSAVE enabled by kernel */;
         has_aesni_ = (cpu_info[2] & 0x02000000) != 0;
         has_avx2_ = has_avx_ && (cpu_info7[1] & 0x00000020) != 0;
+        has_avx512_ = has_avx2_ &&
+                     (xgetbv(0) & XCR0_AVX512_STATE_MASK) == XCR0_AVX512_STATE_VALUE /*AVX-512 states are enabled*/ &&
+                     (cpu_info7[1] & X86_AVX512F_FLAG_MASK) != 0 &&
+                     (cpu_info7[1] & X86_AVX512BW_FLAG_MASK) != 0;
     }
     // Get the brand string of the cpu.
     __cpuid(cpu_info, 0x80000000);
@@ -252,6 +263,7 @@ void CPU::Initialize() {
 #endif
 }
 CPU::IntelMicroArchitecture CPU::GetIntelMicroArchitecture() const {
+    if (has_avx512()) return AVX512;
     if (has_avx2()) return AVX2;
     if (has_avx()) return AVX;
     if (has_sse42()) return SSE42;
