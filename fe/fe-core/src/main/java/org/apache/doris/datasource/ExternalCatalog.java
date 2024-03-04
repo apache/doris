@@ -107,15 +107,15 @@ public abstract class ExternalCatalog
     protected volatile long lastUpdateTime;
 
     protected ExternalMetadataOps metadataOps;
+    protected volatile @NotNull Map<String, Long> dbNameToId = Maps.newConcurrentMap();
+    // db name does not contains "default_cluster"
+    protected volatile Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
+
     private volatile String comment;
-    private volatile boolean initialized = false;
-    private volatile boolean objectCreated = false;
     // record the journal id of the most recent initialization of this catalog
     private volatile long lastInitJournalId;
-
-    // db name does not contains "default_cluster"
-    protected volatile @NotNull Map<String, Long> dbNameToId = Maps.newConcurrentMap();
-    protected volatile Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
+    private volatile boolean initialized = false;
+    private volatile boolean objectCreated = false;
 
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.

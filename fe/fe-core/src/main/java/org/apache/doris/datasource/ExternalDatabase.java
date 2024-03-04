@@ -61,11 +61,12 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
     protected final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
     protected volatile long lastUpdateTime;
-    protected volatile boolean initialized = false;
-    // record the journal id of the most recent initialization of this database
-    protected volatile long lastInitJournalId;
     protected volatile Map<Long, T> idToTbl = Maps.newConcurrentMap();
     protected volatile Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+
+    // record the journal id of the most recent initialization of this database
+    private volatile long lastInitJournalId;
+    private volatile boolean initialized = false;
 
     /**
      * Create external database.
