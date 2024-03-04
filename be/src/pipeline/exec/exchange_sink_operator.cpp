@@ -467,9 +467,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         // check out of limit
         RETURN_IF_ERROR(local_state._send_new_partition_batch());
-        if (UNLIKELY(block->rows() == 0)) {
-            return Status::OK();
-        }
         std::shared_ptr<vectorized::Block> convert_block;
         bool has_filtered_rows = false;
         int64_t filtered_rows = 0;
@@ -477,16 +474,20 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         RETURN_IF_ERROR(local_state._row_distribution.generate_rows_distribution(
                 *block, convert_block, filtered_rows, has_filtered_rows,
                 local_state._row_part_tablet_ids, local_state._number_input_rows));
-        const auto& row_ids = local_state._row_part_tablet_ids[0].row_ids;
-        const auto& tablet_ids = local_state._row_part_tablet_ids[0].tablet_ids;
+
         const auto& num_channels = local_state._partition_count;
         std::vector<std::vector<uint32>> channel2rows;
         channel2rows.resize(num_channels);
-        for (int idx = 0; idx < row_ids.size(); ++idx) {
-            const auto& row = row_ids[idx];
-            const auto& tablet_id = tablet_ids[idx];
-            channel2rows[tablet_id % num_channels].emplace_back(row);
+        if (!local_state._row_part_tablet_ids.empty()) {
+            const auto& row_ids = local_state._row_part_tablet_ids[0].row_ids;
+            const auto& tablet_ids = local_state._row_part_tablet_ids[0].tablet_ids;
+            for (int idx = 0; idx < row_ids.size(); ++idx) {
+                const auto& row = row_ids[idx];
+                const auto& tablet_id = tablet_ids[idx];
+                channel2rows[tablet_id % num_channels].emplace_back(row);
+            }
         }
+
         if (eos) {
             local_state._row_distribution._deal_batched = true;
             RETURN_IF_ERROR(local_state._send_new_partition_batch());

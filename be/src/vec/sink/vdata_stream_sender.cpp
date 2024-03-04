@@ -687,9 +687,6 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         // check out of limit
         RETURN_IF_ERROR(_send_new_partition_batch());
-        if (UNLIKELY(block->rows() == 0)) {
-            return Status::OK();
-        }
         std::shared_ptr<vectorized::Block> convert_block;
         bool has_filtered_rows = false;
         int64_t filtered_rows = 0;
@@ -698,24 +695,26 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
                 _number_input_rows));
 
-        const auto& row_ids = _row_part_tablet_ids[0].row_ids;
-        const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
         const auto& num_channels = _channels.size();
         std::vector<std::vector<uint32>> channel2rows;
         channel2rows.resize(num_channels);
-        for (int idx = 0; idx < row_ids.size(); ++idx) {
-            const auto& row = row_ids[idx];
-            const auto& tablet_id = tablet_ids[idx];
-            channel2rows[tablet_id % num_channels].emplace_back(row);
+        if (!_row_part_tablet_ids.empty()) {
+            const auto& row_ids = _row_part_tablet_ids[0].row_ids;
+            const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
+            for (int idx = 0; idx < row_ids.size(); ++idx) {
+                const auto& row = row_ids[idx];
+                const auto& tablet_id = tablet_ids[idx];
+                channel2rows[tablet_id % num_channels].emplace_back(row);
+            }
         }
-
-        RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
-                                                  convert_block.get(),
-                                                  _enable_pipeline_exec ? eos : false));
         if (eos) {
             _row_distribution._deal_batched = true;
             RETURN_IF_ERROR(_send_new_partition_batch());
         }
+        RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
+                                                  convert_block.get(),
+                                                  _enable_pipeline_exec ? eos : false));
+
     } else {
         // Range partition
         // 1. calculate range
