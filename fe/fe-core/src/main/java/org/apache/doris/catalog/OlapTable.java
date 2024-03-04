@@ -637,9 +637,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
                     // replicas
                     try {
-                        Map<Tag, List<Long>> tag2beIds =
+                        Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
                                         replicaAlloc, nextIndexs, null, false, false);
+                        Map<Tag, List<Long>> tag2beIds = tag2beIdsAndMedium.first;
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
