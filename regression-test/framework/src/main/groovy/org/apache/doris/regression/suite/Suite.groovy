@@ -750,6 +750,15 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false){
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
+        def (result, meta) = JdbcUtils.executeToList(context.getDB2DockerConnection(), cleanedSqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
+
     void quickRunTest(String tag, Object arg, boolean isOrder = false) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null

@@ -20,6 +20,8 @@
 
 package org.apache.doris.plsql;
 
+import org.apache.doris.common.ErrorCode;
+
 public interface Console {
     void print(String msg);
 
@@ -27,7 +29,7 @@ public interface Console {
 
     void printError(String msg);
 
-    void flushConsole();
+    void printError(ErrorCode errorCode, String msg);
 
     Console STANDARD = new Console() {
         @Override
@@ -46,6 +48,8 @@ public interface Console {
         }
 
         @Override
-        public void flushConsole() {}
+        public void printError(ErrorCode errorCode, String msg) {
+            System.err.println(errorCode.toString() + ", " + msg);
+        }
     };
 }

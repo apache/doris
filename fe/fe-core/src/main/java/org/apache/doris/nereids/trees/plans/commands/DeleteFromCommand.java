@@ -67,6 +67,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -244,9 +245,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
 
         for (String indexName : table.getIndexNameToId().keySet()) {
             MaterializedIndexMeta meta = table.getIndexMetaByIndexId(table.getIndexIdByName(indexName));
-            Set<String> columns = meta.getSchema().stream()
+            Set<String> columns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            meta.getSchema().stream()
                     .map(col -> org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(col.getName()))
-                    .collect(Collectors.toSet());
+                    .forEach(name -> columns.add(name));
             if (!columns.contains(column.getName())) {
                 throw new AnalysisException("Column[" + column.getName() + "] not exist in index " + indexName
                         + ". maybe you need drop the corresponding materialized-view.");
