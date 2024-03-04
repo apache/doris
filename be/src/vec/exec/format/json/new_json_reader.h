@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exec/decompressor.h"
 #include "exec/line_reader.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
@@ -211,6 +212,8 @@ private:
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _reader_eof;
+    std::unique_ptr<Decompressor> _decompressor;
+    TFileCompressType::type _file_compress_type;
 
     // When we fetch range doesn't start from 0 will always skip the first line
     bool _skip_first_line;
