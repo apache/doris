@@ -94,3 +94,120 @@
 8	Doris	800
 9	Nereids	923
 
+-- !partial_update_value --
+Bob	100	1
+Alice	200	2
+Tom	300	3
+Test	400	4
+Carter	500	5
+Smith	600	6
+Beata	700	7
+Doris	800	8
+Nereids	900	9
+
+-- !partial_update_value --
+Alice	200	2
+Test	400	4
+Smith	600	6
+Doris	800	8
+Bob	100	9990
+Tom	300	9992
+Carter	500	9994
+Beata	700	9996
+Nereids	900	9998
+
+-- !partial_update_value --
+Bob	100	1
+Alice	200	2
+Tom	300	3
+Test	400	4
+Carter	500	5
+Smith	600	6
+Beata	700	7
+Doris	800	8
+Nereids	900	9
+
+-- !partial_update_value --
+Bob	9990	1
+Alice	200	2
+Tom	9992	3
+Test	400	4
+Carter	9994	5
+Smith	600	6
+Beata	9996	7
+Doris	800	8
+Nereids	9998	9
+
+-- !partial_update_value --
+Bob	9990	1
+Alice	200	2
+Tom	9992	3
+Test	400	4
+Carter	9994	5
+Smith	600	6
+Beata	9996	7
+Doris	800	8
+Nereids	9998	9
+BBeata	9996	15
+BBob	9990	16
+CCarter	9994	17
+NNereids	9998	18
+TTom	9992	19
+
+-- !sql --
+1	a
+2	b
+3	c
+
+-- !sql --
+1	10
+2	20
+3	30
+
+-- !sql --
+1	a	10
+2	b	20
+3	c	30
+
+-- !sql --
+0	AFRICA	lar deposits. blithely final packages cajole. regular waters are final requests. regular accounts are according to
+1	AMERICA	hs use ironic, even requests. s
+2	ASIA	ges. thinly even pinto beans ca
+3	EUROPE	ly final courts cajole furiously final excuse
+4	MIDDLE EAST	uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl
+
+-- !sql --
+0	AFRICA	foobar
+1	AMERICA	foobar
+2	ASIA	foobar
+3	EUROPE	foobar
+4	MIDDLE EAST	foobar
+
+-- !sql --
+0	AFRICA	barfoo
+1	AMERICA	barfoo
+2	ASIA	barfoo
+3	EUROPE	barfoo
+4	MIDDLE EAST	barfoo
+
+-- !sql --
+0	AFRICA	lar deposits. blithely final packages cajole. regular waters are final requests. regular accounts are according to
+1	AMERICA	hs use ironic, even requests. s
+2	ASIA	ges. thinly even pinto beans ca
+3	EUROPE	ly final courts cajole furiously final excuse
+4	MIDDLE EAST	uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl
+
+-- !sql --
+0	AFRICA	lar deposits. blithely final packages cajole. regular waters are final requests. regular accounts are according to
+1	AMERICA	hs use ironic, even requests. s
+2	ASIA	ges. thinly even pinto beans ca
+3	test1	test2
+4	MIDDLE EAST	uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl
+
+-- !sql --
+0	AFRICA	lar deposits. blithely final packages cajole. regular waters are final requests. regular accounts are according to
+1	AMERICA	hs use ironic, even requests. s
+2	ASIA	ges. thinly even pinto beans ca
+3	test1	test2
+4	test3	test4
+
