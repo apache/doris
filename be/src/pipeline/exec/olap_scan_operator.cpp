@@ -21,6 +21,9 @@
 
 #include <memory>
 
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -277,8 +280,18 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             int64_t version = 0;
             std::from_chars(scan_range->version.data(),
                             scan_range->version.data() + scan_range->version.size(), version);
-            tablets.emplace_back(
-                    TabletWithVersion {std::dynamic_pointer_cast<Tablet>(tablet), version});
+            tablets.emplace_back(TabletWithVersion {std::move(tablet), version});
+        }
+
+        if (config::is_cloud_mode()) {
+            std::vector<std::function<Status()>> tasks;
+            tasks.reserve(tablets.size());
+            for (auto&& [tablet, version] : tablets) {
+                tasks.emplace_back([tablet, version]() {
+                    return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
+                });
+            }
+            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         }
 
         if (is_dup_mow_key) {
