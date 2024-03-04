@@ -1313,6 +1313,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         if (request.isSetTableId() && request.getTableId() > 0) {
             Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
+            if (table == null) {
+                throw new MetaNotFoundException("unknown table, table_id=" + request.getTableId());
+            }
             return Collections.singletonList(table);
         }
 
