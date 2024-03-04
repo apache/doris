@@ -163,6 +163,10 @@ public class InsertUtils {
     private static void beginBatchInsertTransaction(ConnectContext ctx,
             String dbName, String tblName, List<Column> columns) {
         TransactionEntry txnEntry = ctx.getTxnEntry();
+        if (txnEntry.isTransactionBegan()) {
+            throw new AnalysisException(
+                    "Transaction insert can not insert into values and insert into select at the same time");
+        }
         TTxnParams txnConf = txnEntry.getTxnConf();
         SessionVariable sessionVariable = ctx.getSessionVariable();
         long timeoutSecond = ctx.getExecTimeout();

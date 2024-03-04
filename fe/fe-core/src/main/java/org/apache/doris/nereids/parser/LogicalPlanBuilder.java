@@ -535,7 +535,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (isOverwrite) {
             command = new InsertOverwriteTableCommand(sink, labelName);
         } else {
-            if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()) {
+            if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()
+                    && sink.child() instanceof LogicalInlineTable) {
                 command = new BatchInsertIntoTableCommand(sink);
             } else {
                 command = new InsertIntoTableCommand(sink, labelName, Optional.empty());

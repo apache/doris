@@ -178,8 +178,6 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.thrift.TWaitingTxnStatusRequest;
-import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
@@ -513,10 +511,12 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    boolean isInsertIntoCommand = parsedStmt != null && parsedStmt instanceof LogicalPlanAdapter
-                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
-                    if (e instanceof NereidsException
-                            && !context.getSessionVariable().enableFallbackToOriginalPlanner && !isInsertIntoCommand) {
+                    boolean isGroupCommit = (parsedStmt != null
+                            && parsedStmt instanceof LogicalPlanAdapter
+                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand)
+                            && !context.isTxnModel();
+                    if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner
+                            && !isGroupCommit) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
@@ -596,7 +596,8 @@ public class StmtExecutor {
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {
-            if (!(logicalPlan instanceof BatchInsertIntoTableCommand)) {
+            if (!(logicalPlan instanceof BatchInsertIntoTableCommand
+                    || logicalPlan instanceof InsertIntoTableCommand)) {
                 String errMsg = "This is in a transaction, only insert, commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
             }
@@ -1724,18 +1725,6 @@ public class StmtExecutor {
         }
     }
 
-    private TWaitingTxnStatusResult getWaitingTxnStatus(TWaitingTxnStatusRequest request) throws Exception {
-        TWaitingTxnStatusResult statusResult = null;
-        if (Env.getCurrentEnv().isMaster()) {
-            statusResult = Env.getCurrentGlobalTransactionMgr()
-                    .getWaitingTxnStatus(request);
-        } else {
-            MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
-            statusResult = masterTxnExecutor.getWaitingTxnStatus(request);
-        }
-        return statusResult;
-    }
-
     private void handleTransactionStmt() throws Exception {
         if (context.getConnectType() == ConnectType.MYSQL) {
             // Every time set no send flag and clean all data in buffer
@@ -1744,6 +1733,7 @@ public class StmtExecutor {
         context.getState().setOk(0, 0, "");
         // create plan
         if (context.getTxnEntry() != null && context.getTxnEntry().getRowsInTransaction() == 0
+                && !context.getTxnEntry().isTransactionBegan()
                 && (parsedStmt instanceof TransactionCommitStmt || parsedStmt instanceof TransactionRollbackStmt)) {
             context.setTxnEntry(null);
         } else if (parsedStmt instanceof TransactionBeginStmt) {
@@ -1751,18 +1741,13 @@ public class StmtExecutor {
                 LOG.info("A transaction has already begin");
                 return;
             }
-            TTxnParams txnParams = new TTxnParams();
-            txnParams.setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
-                    .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
-            if (context.getSessionVariable().getEnableInsertStrict()) {
-                txnParams.setMaxFilterRatio(0);
-            } else {
-                txnParams.setMaxFilterRatio(1.0);
-            }
             if (context.getTxnEntry() == null) {
                 context.setTxnEntry(new TransactionEntry());
             }
-            context.getTxnEntry().setTxnConf(txnParams);
+            context.getTxnEntry()
+                    .setTxnConf(new TTxnParams().setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
+                            .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("")
+                            .setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0 : 1.0));
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
                     .append(TransactionStatus.PREPARE.name());
@@ -1773,39 +1758,13 @@ public class StmtExecutor {
                 LOG.info("No transaction to commit");
                 return;
             }
-
-            TTxnParams txnConf = context.getTxnEntry().getTxnConf();
             try {
-                InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(context.getTxnEntry());
-                if (context.getTxnEntry().getDataToSend().size() > 0) {
-                    // send rest data
-                    executor.sendData();
-                }
-                // commit txn
-                executor.commitTransaction();
-
-                // wait txn visible
-                TWaitingTxnStatusRequest request = new TWaitingTxnStatusRequest();
-                request.setDbId(txnConf.getDbId()).setTxnId(txnConf.getTxnId());
-                request.setLabelIsSet(false);
-                request.setTxnIdIsSet(true);
-
-                TWaitingTxnStatusResult statusResult = getWaitingTxnStatus(request);
-                TransactionStatus txnStatus = TransactionStatus.valueOf(statusResult.getTxnStatusId());
-                if (txnStatus == TransactionStatus.COMMITTED) {
-                    throw new AnalysisException("transaction commit successfully, BUT data will be visible later.");
-                } else if (txnStatus != TransactionStatus.VISIBLE) {
-                    String errMsg = "commit failed, rollback.";
-                    if (statusResult.getStatus().isSetErrorMsgs()
-                            && statusResult.getStatus().getErrorMsgs().size() > 0) {
-                        errMsg = String.join(". ", statusResult.getStatus().getErrorMsgs());
-                    }
-                    throw new AnalysisException(errMsg);
-                }
+                TransactionEntry txnEntry = context.getTxnEntry();
+                TransactionStatus txnStatus = txnEntry.commitTransaction();
                 StringBuilder sb = new StringBuilder();
-                sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
+                sb.append("{'label':'").append(txnEntry.getLabel()).append("', 'status':'")
                         .append(txnStatus.name()).append("', 'txnId':'")
-                        .append(context.getTxnEntry().getTxnConf().getTxnId()).append("'").append("}");
+                        .append(txnEntry.getTransactionId()).append("'").append("}");
                 context.getState().setOk(0, 0, sb.toString());
             } catch (Exception e) {
                 LOG.warn("Txn commit failed", e);
@@ -1819,14 +1778,12 @@ public class StmtExecutor {
                 return;
             }
             try {
-                // abort txn
-                InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(context.getTxnEntry());
-                executor.abortTransaction();
-
+                TransactionEntry txnEntry = context.getTxnEntry();
+                long txnId = txnEntry.abortTransaction();
                 StringBuilder sb = new StringBuilder();
-                sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
+                sb.append("{'label':'").append(txnEntry.getLabel()).append("', 'status':'")
                         .append(TransactionStatus.ABORTED.name()).append("', 'txnId':'")
-                        .append(context.getTxnEntry().getTxnConf().getTxnId()).append("'").append("}");
+                        .append(txnId).append("'").append("}");
                 context.getState().setOk(0, 0, sb.toString());
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
