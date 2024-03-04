@@ -15,24 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.trinoconnector;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    TRINO_CONNECTOR("trino_connector");
+import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.ExternalCatalog;
 
-    private final String tableFormatType;
+import java.util.Map;
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
-    }
+public class TrinoConnectorExternalCatalogFactory {
 
-    public String value() {
-        return tableFormatType;
+    public static ExternalCatalog createCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) throws DdlException {
+        return new TrinoConnectorExternalCatalog(catalogId, name, resource, props, comment);
     }
 }
