@@ -311,12 +311,14 @@ void CloudCumulativeCompaction::garbage_collection() {
     compaction_job->set_initiator(BackendOptions::get_localhost() + ':' +
                                   std::to_string(config::heartbeat_service_port));
     compaction_job->set_type(cloud::TabletCompactionJobPB::CUMULATIVE);
+    /*
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         int64_t initiator =
                 boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
+    */
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
         LOG_WARNING("failed to abort compaction job")

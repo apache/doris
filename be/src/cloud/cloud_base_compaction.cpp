@@ -217,9 +217,11 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
 }
 
 Status CloudBaseCompaction::execute_compact() {
+#ifndef __APPLE__
     if (config::enable_base_compaction_idle_sched) {
         Thread::set_idle_sched();
     }
+#endif
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
@@ -345,12 +347,14 @@ void CloudBaseCompaction::garbage_collection() {
     compaction_job->set_initiator(BackendOptions::get_localhost() + ':' +
                                   std::to_string(config::heartbeat_service_port));
     compaction_job->set_type(cloud::TabletCompactionJobPB::BASE);
+    /*
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         int64_t initiator =
                 boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
+    */
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
         LOG_WARNING("failed to abort compaction job")
