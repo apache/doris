@@ -29,7 +29,6 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
@@ -148,10 +147,6 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 partitionKey.originHiveKeys.add(values.get(i).getStringValue());
             }
             partitionKey.types.add(types.get(i).getPrimitiveType());
-            //If there is one default value, set `isDefaultListPartitionKey` to true
-            if (values.get(i).isHiveDefaultPartition()) {
-                partitionKey.setDefaultListPartition(true);
-            }
         }
         if (values.isEmpty()) {
             for (int i = 0; i < types.size(); ++i) {
@@ -556,20 +551,5 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
             return result;
         }
-    }
-
-    // if any of partition value is HIVE_DEFAULT_PARTITION
-    // return true to indicate that this is a hive default partition
-    public boolean isHiveDefaultPartition() {
-        for (LiteralExpr literalExpr : keys) {
-            if (!(literalExpr instanceof StringLiteral)) {
-                continue;
-            }
-            StringLiteral key = (StringLiteral) literalExpr;
-            if (key.getValue().equals(HiveMetaStoreCache.HIVE_DEFAULT_PARTITION)) {
-                return true;
-            }
-        }
-        return false;
     }
 }
