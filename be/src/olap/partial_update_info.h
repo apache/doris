@@ -33,7 +33,7 @@ struct PartialUpdateInfo {
             if (!partial_update_input_columns.contains(tablet_column.name())) {
                 missing_cids.emplace_back(i);
                 if (!tablet_column.has_default_value() && !tablet_column.is_nullable() &&
-                    !(tablet_schema.auto_increment_column() == tablet_column.name())) {
+                    tablet_schema.auto_increment_column() != tablet_column.name()) {
                     can_insert_new_rows_in_partial_update = false;
                 }
             } else {

@@ -499,7 +499,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
                         const TabletColumn& col = _tablet_schema->column(cid);
                         if (!col.has_default_value() && !col.is_nullable() &&
-                            !(_tablet_schema->auto_increment_column() == col.name())) {
+                            _tablet_schema->auto_increment_column() != col.name()) {
                             error_column = col.name();
                             break;
                         }
