@@ -74,15 +74,13 @@ public class HdfsStorageVault extends StorageVault {
         try {
             Cloud.AlterObjStoreInfoResponse response =
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
-            if (!response.hasStatus() || !response.getStatus().hasCode()) {
-                if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
-                        && ifNotExists()) {
-                    return;
-                }
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                    LOG.warn("failed to alter storage vault response: {} ", response);
-                    throw new DdlException(response.getStatus().getMsg());
-                }
+            if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
+                    && ifNotExists()) {
+                return;
+            }
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to alter storage vault response: {} ", response);
+                throw new DdlException(response.getStatus().getMsg());
             }
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);

@@ -18,10 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.Resource.ResourceType;
+import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -37,18 +35,14 @@ import org.junit.Test;
 
 import java.util.Map;
 
-public class CreateResourceStmtTest {
+public class CreateStorageVaultStmtTest {
     private Analyzer analyzer;
-    private String resourceName1;
-    private String resourceName2;
-    private String resourceName3;
+    private String vaultName;
 
     @Before()
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        resourceName1 = "spark0";
-        resourceName2 = "odbc";
-        resourceName3 = "s3";
+        vaultName = "hdfs";
     }
 
     @Test
@@ -64,29 +58,12 @@ public class CreateResourceStmtTest {
         };
 
         Map<String, String> properties = Maps.newHashMap();
-        properties.put("type", "spark");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, resourceName1, properties);
+        properties.put("type", "hdfs");
+        CreateStorageVaultStmt stmt = new CreateStorageVaultStmt(true, vaultName, properties);
         stmt.analyze(analyzer);
-        Assert.assertEquals(resourceName1, stmt.getResourceName());
-        Assert.assertEquals(Resource.ResourceType.SPARK, stmt.getResourceType());
-        Assert.assertEquals("CREATE EXTERNAL RESOURCE 'spark0' PROPERTIES(\"type\"  =  \"spark\")", stmt.toSql());
-
-        properties = Maps.newHashMap();
-        properties.put("type", "odbc_catalog");
-        stmt = new CreateResourceStmt(true, false, resourceName2, properties);
-        Config.enable_odbc_mysql_broker_table = true;
-        stmt.analyze(analyzer);
-        Assert.assertEquals(resourceName2, stmt.getResourceName());
-        Assert.assertEquals(Resource.ResourceType.ODBC_CATALOG, stmt.getResourceType());
-        Assert.assertEquals("CREATE EXTERNAL RESOURCE 'odbc' PROPERTIES(\"type\"  =  \"odbc_catalog\")", stmt.toSql());
-
-        properties = Maps.newHashMap();
-        properties.put("type", "s3");
-        stmt = new CreateResourceStmt(true, false, resourceName3, properties);
-        stmt.analyze(analyzer);
-        Assert.assertEquals(resourceName3, stmt.getResourceName());
-        Assert.assertEquals(ResourceType.S3, stmt.getResourceType());
-        Assert.assertEquals("CREATE EXTERNAL RESOURCE 's3' PROPERTIES(\"type\"  =  \"s3\")", stmt.toSql());
+        Assert.assertEquals(vaultName, stmt.getStorageVaultName());
+        Assert.assertEquals(StorageVaultType.HDFS, stmt.getStorageVaultType());
+        Assert.assertEquals("CREATE STORAGE VAULT 'hdfs' PROPERTIES(\"type\"  =  \"hdfs\")", stmt.toSql());
 
     }
 
@@ -104,7 +81,7 @@ public class CreateResourceStmtTest {
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("type", "hadoop");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, resourceName1, properties);
+        CreateStorageVaultStmt stmt = new CreateStorageVaultStmt(true, vaultName, properties);
         stmt.analyze(analyzer);
     }
 }

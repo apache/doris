@@ -735,6 +735,7 @@ message AlterObjStoreInfoRequest {
 
 message AlterObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional string storage_vault_id = 2;
 }
 
 message UpdateAkSkRequest {
