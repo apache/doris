@@ -39,7 +39,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * logical olap table sink for insert command
+ * logical hive table sink for insert command
  */
 public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {

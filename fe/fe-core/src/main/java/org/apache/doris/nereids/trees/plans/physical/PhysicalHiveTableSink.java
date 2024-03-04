@@ -38,7 +38,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** abstract physical sink */
+/** abstract physical hive sink */
 public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
 
     private final HMSExternalDatabase database;
