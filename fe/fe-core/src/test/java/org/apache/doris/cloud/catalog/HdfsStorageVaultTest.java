@@ -58,7 +58,7 @@ public class HdfsStorageVaultTest {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-            alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 resp.setStatus(MetaServiceResponseStatus.newBuilder().build());
                 resp.setStorageVaultId("1");
@@ -77,7 +77,7 @@ public class HdfsStorageVaultTest {
             private Set<String> existed = new HashSet<>();
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-            alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
                 if (existed.contains(request.getHdfs().getVaultName())) {
@@ -106,11 +106,11 @@ public class HdfsStorageVaultTest {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-            alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 if (!request.getHdfs().hasVaultName() || request.getHdfs().getVaultName().isEmpty()) {
-                    resp.setStatus(MetaServiceResponseStatus.newBuilder().
-                                setCode(MetaServiceCode.INVALID_ARGUMENT).build());
+                    resp.setStatus(MetaServiceResponseStatus.newBuilder()
+                                .setCode(MetaServiceCode.INVALID_ARGUMENT).build());
                 } else {
                     resp.setStatus(MetaServiceResponseStatus.newBuilder().build());
                 }
@@ -133,7 +133,7 @@ public class HdfsStorageVaultTest {
             private Set<String> existed = new HashSet<>();
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-            alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
                 if (existed.contains(request.getHdfs().getVaultName())) {
