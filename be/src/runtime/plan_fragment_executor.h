@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 
@@ -46,7 +47,6 @@ class DataSink;
 class DescriptorTbl;
 class ExecEnv;
 class ObjectPool;
-class QueryStatistics;
 
 namespace vectorized {
 class Block;
@@ -196,12 +196,6 @@ private:
 
     RuntimeProfile::Counter* _fragment_cpu_timer;
 
-    // It is shared with BufferControlBlock and will be called in two different
-    // threads. But their calls are all at different time, there is no problem of
-    // multithreaded access.
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    bool _collect_query_statistics_with_every_batch;
-
     // Record the cancel information when calling the cancel() method, return it to FE
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
@@ -242,9 +236,7 @@ private:
 
     const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
-    void _collect_query_statistics();
-
-    void _collect_node_statistics();
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

@@ -48,6 +48,13 @@ suite("test_bind_view") {
         );
     """
 
+    test {
+        sql """
+              select ggg.* from ( select * from ${table_name} ) l;
+        """
+        exception "unknown qualifier:"
+    }
+
     try {
 
         sql """

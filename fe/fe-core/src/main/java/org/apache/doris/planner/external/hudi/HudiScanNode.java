@@ -26,7 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.S3Util;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
@@ -43,7 +43,6 @@ import org.apache.doris.thrift.THudiFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
@@ -83,6 +82,8 @@ public class HudiScanNode extends HiveScanNode {
 
     private final AtomicLong noLogsSplitNum = new AtomicLong(0);
 
+    private final boolean useHiveSyncPartition;
+
     /**
      * External file scan node for Query Hudi table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -98,6 +99,7 @@ public class HudiScanNode extends HiveScanNode {
         } else {
             LOG.debug("Hudi table {} is a mor table, and will use JNI to read data in BE", hmsTable.getName());
         }
+        useHiveSyncPartition = hmsTable.useHiveSyncPartition();
     }
 
     @Override
@@ -167,9 +169,10 @@ public class HudiScanNode extends HiveScanNode {
                     .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
             TablePartitionValues partitionValues;
             if (snapshotTimestamp.isPresent()) {
-                partitionValues = processor.getSnapshotPartitionValues(hmsTable, metaClient, snapshotTimestamp.get());
+                partitionValues = processor.getSnapshotPartitionValues(
+                    hmsTable, metaClient, snapshotTimestamp.get(), useHiveSyncPartition);
             } else {
-                partitionValues = processor.getPartitionValues(hmsTable, metaClient);
+                partitionValues = processor.getPartitionValues(hmsTable, metaClient, useHiveSyncPartition);
             }
             if (partitionValues != null) {
                 // 2. prune partitions by expr
@@ -294,9 +297,11 @@ public class HudiScanNode extends HiveScanNode {
                     noLogsSplitNum.incrementAndGet();
                     String filePath = baseFile.getPath();
                     long fileSize = baseFile.getFileSize();
-                    splits.add(new FileSplit(S3Util.toScanRangeLocation(filePath, Maps.newHashMap()),
-                            0, fileSize, fileSize, new String[0],
-                            partition.getPartitionValues()));
+                    // Need add hdfs host to location
+                    LocationPath locationPath = new LocationPath(filePath, hmsTable.getCatalogProperties());
+                    Path splitFilePath = locationPath.toScanRangeLocation();
+                    splits.add(new FileSplit(splitFilePath, 0, fileSize, fileSize,
+                            new String[0], partition.getPartitionValues()));
                 });
             } else {
                 fileSystemView.getLatestMergedFileSlicesBeforeOrOn(partitionName, queryInstant).forEach(fileSlice -> {

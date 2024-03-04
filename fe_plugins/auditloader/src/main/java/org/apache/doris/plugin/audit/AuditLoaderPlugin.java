@@ -57,7 +57,7 @@ import java.util.stream.Collectors;
 public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private final static Logger LOG = LogManager.getLogger(AuditLoaderPlugin.class);
 
-    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
             .withZone(ZoneId.systemDefault());
 
     private StringBuilder auditLogBuffer = new StringBuilder();
@@ -180,7 +180,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         logBuffer.append(event.peakMemoryBytes).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
-        String stmt = truncateByBytes(event.stmt).replace("\n", " ").replace("\t", " ");
+        String stmt = truncateByBytes(event.stmt).replace("\n", " ")
+                                                    .replace("\t", " ")
+                                                    .replace("\r", " ");
         LOG.debug("receive audit event with stmt: {}", stmt);
         logBuffer.append(stmt).append("\n");
     }
@@ -355,7 +357,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
 
     public static String longToTimeString(long timeStamp) {
         if (timeStamp <= 0L) {
-            return "1900-01-01 00:00:00";
+            return "1900-01-01 00:00:00.000";
         }
         return DATETIME_FORMAT.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(timeStamp), ZoneId.systemDefault()));
     }

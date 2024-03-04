@@ -774,17 +774,16 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // if rate of error data is more than max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
-                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(),
-                false /* not replay */);
+                attachment.getReceivedBytes(), false /* not replay */);
     }
 
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
-                                 long taskExecutionTime, boolean isReplay) throws UserException {
+                                 boolean isReplay) throws UserException {
         this.jobStatistic.totalRows += numOfTotalRows;
         this.jobStatistic.errorRows += numOfErrorRows;
         this.jobStatistic.unselectedRows += unselectedRows;
         this.jobStatistic.receivedBytes += receivedBytes;
-        this.jobStatistic.totalTaskExcutionTimeMs += taskExecutionTime;
+        this.jobStatistic.totalTaskExcutionTimeMs = System.currentTimeMillis() - createTimestamp;
 
         if (MetricRepo.isInit && !isReplay) {
             MetricRepo.COUNTER_ROUTINE_LOAD_ROWS.increase(numOfTotalRows);
@@ -857,7 +856,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         try {
             updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
-                    attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), true /* is replay */);
+                    attachment.getReceivedBytes(), true /* is replay */);
         } catch (UserException e) {
             LOG.error("should not happen", e);
         }
@@ -1124,11 +1123,34 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 if (txnStatusChangeReasonString != null) {
                     txnStatusChangeReason =
                             TransactionState.TxnStatusChangeReason.fromString(txnStatusChangeReasonString);
+                    String msg;
                     if (txnStatusChangeReason != null) {
                         switch (txnStatusChangeReason) {
+                            case INVALID_JSON_PATH:
+                                msg = "be " + taskBeId + " abort task,"
+                                        + " task id: " + routineLoadTaskInfo.getId()
+                                        + " job id: " + routineLoadTaskInfo.getJobId()
+                                        + " with reason: " + txnStatusChangeReasonString
+                                        + " please check the jsonpaths";
+                                updateState(JobState.PAUSED,
+                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        false /* not replay */);
+                                return;
                             case OFFSET_OUT_OF_RANGE:
+                                msg = "be " + taskBeId + " abort task,"
+                                        + " task id: " + routineLoadTaskInfo.getId()
+                                        + " job id: " + routineLoadTaskInfo.getJobId()
+                                        + " with reason: " + txnStatusChangeReasonString
+                                        + " the offset used by job does not exist in kafka,"
+                                        + " please check the offset,"
+                                        + " using the Alter ROUTINE LOAD command to modify it,"
+                                        + " and resume the job";
+                                updateState(JobState.PAUSED,
+                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        false /* not replay */);
+                                return;
                             case PAUSE:
-                                String msg = "be " + taskBeId + " abort task "
+                                msg = "be " + taskBeId + " abort task "
                                         + "with reason: " + txnStatusChangeReasonString;
                                 updateState(JobState.PAUSED,
                                         new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
@@ -1633,7 +1655,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     abstract Map<String, String> getCustomProperties();
 
-    public boolean needRemove() {
+    public boolean isExpired() {
         if (!isFinal()) {
             return false;
         }

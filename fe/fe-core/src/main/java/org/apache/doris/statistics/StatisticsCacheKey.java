@@ -41,16 +41,8 @@ public class StatisticsCacheKey {
 
     private static final String DELIMITER = "-";
 
-    public StatisticsCacheKey(long tableId, String colName) {
-        this(tableId, -1, colName);
-    }
-
     public StatisticsCacheKey(long tableId, long idxId, String colName) {
         this(-1, -1, tableId, idxId, colName);
-    }
-
-    public StatisticsCacheKey(long catalogId, long dbId, long tableId) {
-        this(catalogId, dbId, tableId, -1, "");
     }
 
     public StatisticsCacheKey(long catalogId, long dbId, long tableId, long idxId, String colName) {
@@ -81,6 +73,7 @@ public class StatisticsCacheKey {
     @Override
     public String toString() {
         StringJoiner sj = new StringJoiner(DELIMITER);
+        sj.add("ColumnStats");
         sj.add(String.valueOf(tableId));
         sj.add(String.valueOf(idxId));
         sj.add(colName);

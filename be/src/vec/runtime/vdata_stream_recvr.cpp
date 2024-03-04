@@ -292,11 +292,10 @@ void VDataStreamRecvr::SenderQueue::close() {
     _block_queue.clear();
 }
 
-VDataStreamRecvr::VDataStreamRecvr(
-        VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
-        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
-        bool is_merging, RuntimeProfile* profile,
-        std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
+VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state,
+                                   const RowDescriptor& row_desc,
+                                   const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
+                                   int num_senders, bool is_merging, RuntimeProfile* profile)
         : _mgr(stream_mgr),
 #ifdef USE_MEM_TRACKER
           _query_mem_tracker(state->query_mem_tracker()),
@@ -309,7 +308,6 @@ VDataStreamRecvr::VDataStreamRecvr(
           _is_closed(false),
           _profile(profile),
           _peak_memory_usage_counter(nullptr),
-          _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr),
           _enable_pipeline(state->enable_pipeline_exec()) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
     _mem_tracker =
@@ -409,12 +407,9 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     }
 }
 
-void VDataStreamRecvr::remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics) {
+void VDataStreamRecvr::remove_sender(int sender_id, int be_number) {
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->decrement_senders(be_number);
-    if (statistics != nullptr) {
-        _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
-    }
 }
 
 void VDataStreamRecvr::cancel_stream(const std::string& msg) {

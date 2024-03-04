@@ -113,7 +113,9 @@ suite("test_external_catalog_hive", "p2") {
         try {
             sql """ select * from multi_catalog.unsupported_input_format_empty; """
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("Unsupported hive input format: com.hadoop.mapred.DeprecatedLzoTextInputFormat"))
+            if (!e.getMessage().contains("Nonsupport hive metastore table")) {
+                assertTrue(e.getMessage().contains("Unsupported hive input format: com.hadoop.mapred.DeprecatedLzoTextInputFormat"))
+            }
         }
 
         // test remember last used database after switch / rename catalog

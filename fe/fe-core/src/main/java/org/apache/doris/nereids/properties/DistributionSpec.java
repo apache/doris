@@ -44,7 +44,6 @@ public abstract class DistributionSpec {
         // If we don't set LogicalProperties explicitly, node will compute a applicable LogicalProperties for itself.
         PhysicalDistribute<GroupPlan> distribution = new PhysicalDistribute<>(
                 this,
-                child.getLogicalProperties(),
                 new GroupPlan(child));
         return new GroupExpression(distribution, Lists.newArrayList(child));
     }

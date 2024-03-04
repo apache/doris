@@ -57,11 +57,11 @@ suite("test_seq_load", "load_p0") {
             kd12 DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
             kd13 DATEV2          NOT NULL DEFAULT "2023-08-24",
             kd14 DATETIMEV2      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            kd15 CHAR(300)       NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
+            kd15 CHAR(255)       NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
             kd16 VARCHAR(300)    NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
             kd17 STRING          NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
             kd18 JSON            NULL,
-        
+
             INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
             INDEX idx_bitmap_k110 (`kd01`) USING BITMAP,
             INDEX idx_bitmap_k113 (`k13`) USING BITMAP,

@@ -328,4 +328,11 @@ suite("aggregate") {
     assertTrue(plan.contains("max(c_bigint"))
     assertTrue(plan.contains("min(c_bigint"))
     assertTrue(plan.contains("any_value(c_bigint"))
+
+    test {
+        sql """
+              SELECT sum(avg(k1)) FROM tempbaseall;
+            """
+        exception "aggregate function cannot contain aggregate parameters"
+    }
 }

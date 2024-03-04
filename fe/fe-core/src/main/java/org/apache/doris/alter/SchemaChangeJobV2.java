@@ -284,6 +284,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                     tbl.getTimeSeriesCompactionFileCountThreshold(),
                                     tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                    tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     tbl.storeRowColumn(),
                                     tbl.isDynamicSchema(),
                                     binlogConfig);

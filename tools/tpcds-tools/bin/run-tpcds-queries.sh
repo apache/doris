@@ -123,8 +123,24 @@ run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
+get_session_variable() {
+    k="$1"
+    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+    echo "${v/*Value: /}"
+}
+backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
+backup_session_variables() {
+    while IFS= read -r line; do
+        k="${line/set global /}"
+        k="${k%=*}"
+        v=$(get_session_variable "${k}")
+        echo "set global ${k}=${v};" >>"${backup_session_variables_file}"
+    done < <(grep -v '^ *#' <"${TPCDS_OPT_CONF}")
+}
+backup_session_variables
 
 echo '============================================'
+echo "Optimize session variables"
 run_sql "source ${TPCDS_OPT_CONF};"
 echo '============================================'
 run_sql "show variables;"
@@ -140,7 +156,11 @@ mkdir -p "${RESULT_DIR}"
 touch result.csv
 cold_run_sum=0
 best_hot_run_sum=0
-for i in {1..99}; do
+# run part of queries, set their index to query_array
+# query_array=(59 17 29 25 47 40 54)
+query_array=$(seq 1 99)
+# shellcheck disable=SC2068
+for i in ${query_array[@]}; do
     cold=0
     hot1=0
     hot2=0
@@ -178,3 +198,7 @@ done
 echo "Total cold run time: ${cold_run_sum} ms"
 echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpcds queries.'
+
+echo "Restore session variables"
+run_sql "source ${backup_session_variables_file};"
+rm -f "${backup_session_variables_file}"

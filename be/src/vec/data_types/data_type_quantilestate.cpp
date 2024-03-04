@@ -36,7 +36,7 @@ int64_t DataTypeQuantileState<T>::get_uncompressed_serialized_bytes(const IColum
     auto& data_column = assert_cast<const ColumnQuantileState<T>&>(*ptr);
 
     auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
-    auto allocate_content_size = 0;
+    size_t allocate_content_size = 0;
     for (size_t i = 0; i < column.size(); ++i) {
         auto& quantile_state = const_cast<QuantileState<T>&>(data_column.get_element(i));
         allocate_content_size += quantile_state.get_serialized_size();

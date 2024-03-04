@@ -38,13 +38,15 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         String warehouse = props.get(CatalogProperties.WAREHOUSE_LOCATION);
         Preconditions.checkArgument(StringUtils.isNotEmpty(warehouse),
                 "Cannot initialize Iceberg HadoopCatalog because 'warehouse' must not be null or empty");
-        String nameService = StringUtils.substringBetween(warehouse, HdfsResource.HDFS_FILE_PREFIX, "/");
-        if (StringUtils.isEmpty(nameService)) {
-            throw new IllegalArgumentException("Unrecognized 'warehouse' location format"
-                    + " because name service is required.");
-        }
         catalogProperty = new CatalogProperty(resource, props);
-        catalogProperty.addProperty(HdfsResource.HADOOP_FS_NAME, HdfsResource.HDFS_FILE_PREFIX + nameService);
+        if (StringUtils.startsWith(warehouse, HdfsResource.HDFS_PREFIX)) {
+            String nameService = StringUtils.substringBetween(warehouse, HdfsResource.HDFS_FILE_PREFIX, "/");
+            if (StringUtils.isEmpty(nameService)) {
+                throw new IllegalArgumentException("Unrecognized 'warehouse' location format"
+                        + " because name service is required.");
+            }
+            catalogProperty.addProperty(HdfsResource.HADOOP_FS_NAME, HdfsResource.HDFS_FILE_PREFIX + nameService);
+        }
     }
 
     @Override

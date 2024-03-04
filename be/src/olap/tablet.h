@@ -199,7 +199,7 @@ public:
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
 
-    std::shared_mutex& get_migration_lock() { return _migration_lock; }
+    std::shared_timed_mutex& get_migration_lock() { return _migration_lock; }
 
     std::mutex& get_schema_change_lock() { return _schema_change_lock; }
 
@@ -275,6 +275,8 @@ public:
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
     std::vector<Version> get_all_versions();
+
+    std::vector<RowsetSharedPtr> pick_first_consecutive_empty_rowsets(int limit);
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -568,6 +570,8 @@ public:
     Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
+    void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
+    bool is_alter_failed() { return _alter_failed; }
 
 private:
     Status _init_once_action();
@@ -608,6 +612,8 @@ private:
     Status _follow_cooldowned_data();
     Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                TabletMetaPB* tablet_meta_pb);
+    bool _has_data_to_cooldown();
+    int64_t _get_newest_cooldown_time(const RowsetSharedPtr& rowset);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -629,7 +635,7 @@ private:
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
     std::mutex _schema_change_lock;
-    std::shared_mutex _migration_lock;
+    std::shared_timed_mutex _migration_lock;
     std::mutex _build_inverted_index_lock;
 
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
@@ -702,6 +708,8 @@ private:
     // may delete compaction input rowsets.
     std::mutex _cold_compaction_lock;
     int64_t _last_failed_follow_cooldown_time = 0;
+    // `_alter_failed` is used to indicate whether the tablet failed to perform a schema change
+    std::atomic<bool> _alter_failed = false;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

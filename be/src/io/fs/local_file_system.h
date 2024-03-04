@@ -68,6 +68,10 @@ public:
     static bool contain_path(const Path& parent, const Path& sub);
     // delete dir or file
     Status delete_directory_or_file(const Path& path);
+    // change the file permission of the given path
+    Status permission(const Path& file, std::filesystem::perms prms);
+
+    static std::filesystem::perms PERMS_OWNER_RW;
 
     // read local file and save content to "content"
     Status read_file_to_string(const Path& file, std::string* content);
@@ -105,6 +109,7 @@ protected:
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
     Status copy_path_impl(const Path& src, const Path& dest);
     Status delete_directory_or_file_impl(const Path& path);
+    Status permission_impl(const Path& file, std::filesystem::perms prms);
 
 private:
     // a wrapper for glob(), return file list in "res"

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
@@ -132,6 +133,9 @@ import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.SelectHintOrdered;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -214,6 +218,8 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
@@ -252,6 +258,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
@@ -632,6 +639,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
+        Optional<String> indexName = Optional.empty();
+        if (ctx.materializedViewName() != null) {
+            indexName = Optional.ofNullable(ctx.materializedViewName().indexName.getText());
+        }
+
         List<Long> tabletIdLists = new ArrayList<>();
         if (ctx.tabletList() != null) {
             ctx.tabletList().tabletIdList.stream().forEach(tabletToken -> {
@@ -650,7 +662,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan checkedRelation = withCheckPolicy(
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                        Optional.ofNullable(tableSample)));
+                        Optional.ofNullable(tableSample), indexName));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -1372,7 +1384,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (!SqlModeHelper.hasNoBackSlashEscapes()) {
             s = escapeBackSlash(s);
         }
-        return new VarcharLiteral(s);
+        int strLength = Utils.containChinese(s) ? s.length() * StringLikeLiteral.CHINESE_CHAR_BYTE_LENGTH : s.length();
+        if (strLength > ScalarType.MAX_VARCHAR_LENGTH) {
+            return new StringLiteral(s);
+        }
+        return new VarcharLiteral(s, strLength);
     }
 
     private String escapeBackSlash(String str) {
@@ -1738,20 +1754,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, SelectHint> hints = Maps.newLinkedHashMap();
         for (HintStatementContext hintStatement : hintContext.hintStatements) {
             String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
-            Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
-            for (HintAssignmentContext kv : hintStatement.parameters) {
-                String parameterName = visitIdentifierOrText(kv.key);
-                Optional<String> value = Optional.empty();
-                if (kv.constantValue != null) {
-                    Literal literal = (Literal) visit(kv.constantValue);
-                    value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
-                } else if (kv.identifierValue != null) {
-                    // maybe we should throw exception when the identifierValue is quoted identifier
-                    value = Optional.ofNullable(kv.identifierValue.getText());
-                }
-                parameters.put(parameterName, value);
+            switch (hintName) {
+                case "set_var":
+                    Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
+                    for (HintAssignmentContext kv : hintStatement.parameters) {
+                        String parameterName = visitIdentifierOrText(kv.key);
+                        Optional<String> value = Optional.empty();
+                        if (kv.constantValue != null) {
+                            Literal literal = (Literal) visit(kv.constantValue);
+                            value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                        } else if (kv.identifierValue != null) {
+                            // maybe we should throw exception when the identifierValue is quoted identifier
+                            value = Optional.ofNullable(kv.identifierValue.getText());
+                        }
+                        parameters.put(parameterName, value);
+                    }
+                    hints.put(hintName, new SelectHintSetVar(hintName, parameters));
+                    break;
+                case "leading":
+                    List<String> leadingParameters = new ArrayList<String>();
+                    for (HintAssignmentContext kv : hintStatement.parameters) {
+                        String parameterName = visitIdentifierOrText(kv.key);
+                        leadingParameters.add(parameterName);
+                    }
+                    hints.put(hintName, new SelectHintLeading(hintName, leadingParameters));
+                    break;
+                case "ordered":
+                    hints.put(hintName, new SelectHintOrdered(hintName));
+                    break;
+                default:
+                    break;
             }
-            hints.put(hintName, new SelectHint(hintName, parameters));
         }
         return new LogicalSelectHint<>(hints, logicalPlan);
     }

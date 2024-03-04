@@ -104,7 +104,7 @@ public class ConnectContextTest {
 
         // Thread info
         Assert.assertNotNull(ctx.toThreadInfo(false));
-        List<String> row = ctx.toThreadInfo(false).toRow(101, 1000);
+        List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, false);
         Assert.assertEquals(12, row.size());
         Assert.assertEquals("Yes", row.get(0));
         Assert.assertEquals("101", row.get(1));

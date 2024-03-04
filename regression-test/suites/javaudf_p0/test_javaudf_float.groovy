@@ -63,8 +63,6 @@ suite("test_javaudf_float") {
         qt_select """ SELECT java_udf_float_test(2.83645,null) as result ; """
         qt_select """ SELECT java_udf_float_test(cast(2.83645 as float),null) as result ; """
         qt_select """ SELECT user_id,java_udf_float_test(float_1, float_2) as sum FROM ${tableName} order by user_id; """
-        
-
 
 
         sql """ CREATE FUNCTION java_udf_double_test(DOUBLE,DOUBLE) RETURNS DOUBLE PROPERTIES (

@@ -44,10 +44,13 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "runtime/block_spill_manager.h"
+#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
@@ -368,6 +371,18 @@ void Daemon::block_spill_gc_thread() {
     }
 }
 
+void Daemon::query_runtime_statistics_thread() {
+    while (!_stop_background_threads_latch.wait_for(
+                   std::chrono::milliseconds(config::report_query_statistics_interval_ms)) &&
+           !k_doris_exit) {
+        if (ExecEnv::GetInstance()->initialized()) {
+            ExecEnv::GetInstance()
+                    ->runtime_query_statistics_mgr()
+                    ->report_runtime_query_statistics();
+        }
+    }
+}
+
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
     std::set<std::string> disk_devices;
@@ -474,6 +489,11 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "block_spill_gc_thread", [this]() { this->block_spill_gc_thread(); },
             &_block_spill_gc_thread);
+    st = Thread::create(
+            "Daemon", "query_runtime_statistics_thread",
+            [this]() { this->query_runtime_statistics_thread(); },
+            &_query_runtime_statistics_thread);
+
     CHECK(st.ok()) << st;
 }
 
@@ -497,6 +517,9 @@ void Daemon::stop() {
     }
     if (_block_spill_gc_thread) {
         _block_spill_gc_thread->join();
+    }
+    if (_query_runtime_statistics_thread) {
+        _query_runtime_statistics_thread->join();
     }
 }
 

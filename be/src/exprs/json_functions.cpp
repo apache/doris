@@ -260,7 +260,7 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
         const std::string& _msg = msg;                                                      \
         if (UNLIKELY(_err)) {                                                               \
             if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS) { \
-                return Status::DataQualityError(                                            \
+                return Status::NotFound<false>(                                             \
                         fmt::format("Not found target filed, err: {}, msg: {}",             \
                                     simdjson::error_message(_err), _msg));                  \
             }                                                                               \

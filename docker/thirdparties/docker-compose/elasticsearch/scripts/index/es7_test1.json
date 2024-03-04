@@ -101,6 +101,22 @@
             "type": "integer"
           }
         }
+      },
+      "message": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "my_wildcard": {
+        "type": "wildcard"
+      },
+      "level": {
+        "type": "constant_keyword",
+        "value": "debug"
       }
     }
   }

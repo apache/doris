@@ -50,11 +50,9 @@ Status Decompressor::create_decompressor(CompressType type, Decompressor** decom
     case CompressType::SNAPPYBLOCK:
         *decompressor = new SnappyBlockDecompressor();
         break;
-#ifdef DORIS_WITH_LZO
     case CompressType::LZOP:
         *decompressor = new LzopDecompressor();
         break;
-#endif
     default:
         return Status::InternalError("Unknown compress type: {}", type);
     }

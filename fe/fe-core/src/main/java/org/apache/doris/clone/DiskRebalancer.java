@@ -26,6 +26,7 @@ import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -206,6 +207,10 @@ public class DiskRebalancer extends Rebalancer {
             // select tablet from shuffled tablets
             for (Long tabletId : tabletIds) {
                 if (alternativeTabletIds.contains(tabletId)) {
+                    continue;
+                }
+                if (!Config.enable_disk_balance_for_single_replica
+                        && invertedIndex.getReplicasByTabletId(tabletId).size() <= 1) {
                     continue;
                 }
                 Replica replica = invertedIndex.getReplica(tabletId, beStat.getBeId());

@@ -63,6 +63,7 @@
 #include "olap/wrapper_field.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/trace.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -294,6 +295,11 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
+            if (ref_block->get_by_position(result_column_id).column == nullptr) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "{} result column is nullptr",
+                        ref_block->get_by_position(result_column_id).name);
+            }
             ref_block->replace_by_position_if_const(result_column_id);
 
             if (ref_block->get_by_position(result_column_id).column->size() != row_size) {
@@ -711,6 +717,13 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                   << " res=" << res;
         return res;
     }
+    new_tablet->set_alter_failed(false);
+    Defer defer([&new_tablet] {
+        // if tablet state is not TABLET_RUNNING when return, indicates that alter has failed.
+        if (new_tablet->tablet_state() != TABLET_RUNNING) {
+            new_tablet->set_alter_failed(true);
+        }
+    });
 
     LOG(INFO) << "finish to validate alter tablet request. begin to convert data from base tablet "
                  "to new tablet"
@@ -919,7 +932,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
             _tablet_ids_in_converting.insert(new_tablet->tablet_id());
         }
-        res = _convert_historical_rowsets(sc_params);
+        int64_t real_alter_version = 0;
+        res = _convert_historical_rowsets(sc_params, &real_alter_version);
         {
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
             _tablet_ids_in_converting.erase(new_tablet->tablet_id());
@@ -928,65 +942,12 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             break;
         }
 
-        // For unique with merge-on-write table, should process delete bitmap here.
-        // 1. During double write, the newly imported rowsets does not calculate
-        // delete bitmap and publish successfully.
-        // 2. After conversion, calculate delete bitmap for the rowsets imported
-        // during double write. During this period, new data can still be imported
-        // witout calculating delete bitmap and publish successfully.
-        // 3. Block the new publish, calculate the delete bitmap of the
-        // incremental rowsets.
-        // 4. Switch the tablet status to TABLET_RUNNING. The newly imported
-        // data will calculate delete bitmap.
         if (new_tablet->keys_type() == UNIQUE_KEYS &&
             new_tablet->enable_unique_key_merge_on_write()) {
-            // step 2
-            int64_t max_version = new_tablet->max_version().second;
-            std::vector<RowsetSharedPtr> rowsets;
-            if (end_version < max_version) {
-                LOG(INFO)
-                        << "alter table for unique with merge-on-write, calculate delete bitmap of "
-                        << "double write rowsets for version: " << end_version + 1 << "-"
-                        << max_version;
-                RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets(
-                        {end_version + 1, max_version}, &rowsets));
-            }
-            for (auto rowset_ptr : rowsets) {
-                if (rowset_ptr->version().second <= end_version) {
-                    continue;
-                }
-                std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
-                std::shared_lock<std::shared_mutex> wrlock(new_tablet->get_header_lock());
-                RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
-            }
-
-            // step 3
-            std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
-            std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
-            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-            int64_t new_max_version = new_tablet->max_version_unlocked().second;
-            rowsets.clear();
-            if (max_version < new_max_version) {
-                LOG(INFO)
-                        << "alter table for unique with merge-on-write, calculate delete bitmap of "
-                        << "incremental rowsets for version: " << max_version + 1 << "-"
-                        << new_max_version;
-                RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets(
-                        {max_version + 1, new_max_version}, &rowsets));
-            }
-            for (auto rowset_ptr : rowsets) {
-                if (rowset_ptr->version().second <= max_version) {
-                    continue;
-                }
-                RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
-            }
-
-            // step 4
-            res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
+            res = _calc_delete_bitmap_for_mow_table(new_tablet, real_alter_version);
             if (!res) {
                 break;
             }
-            new_tablet->save_meta();
         } else {
             // set state to ready
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
@@ -1036,7 +997,10 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     return Status::OK();
 }
 
-Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
+// The `real_alter_version` parameter indicates that the version of [0-real_alter_version] is
+// converted from a base tablet, only used for the mow table now.
+Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params,
+                                                        int64_t* real_alter_version) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
               << " base_tablet=" << sc_params.base_tablet->full_name()
               << ", new_tablet=" << sc_params.new_tablet->full_name();
@@ -1161,6 +1125,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                         << ", version=" << rs_reader->version().first << "-"
                         << rs_reader->version().second;
         }
+        *real_alter_version = rs_reader->version().second;
 
         VLOG_TRACE << "succeed to convert a history version."
                    << " version=" << rs_reader->version().first << "-"
@@ -1381,6 +1346,69 @@ Status SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_tablet,
                     "SchemaChangeHandler::_validate_alter_result meet invalid rowset");
         }
     }
+    return Status::OK();
+}
+
+// For unique with merge-on-write table, should process delete bitmap here.
+// 1. During double write, the newly imported rowsets does not calculate
+// delete bitmap and publish successfully.
+// 2. After conversion, calculate delete bitmap for the rowsets imported
+// during double write. During this period, new data can still be imported
+// witout calculating delete bitmap and publish successfully.
+// 3. Block the new publish, calculate the delete bitmap of the
+// incremental rowsets.
+// 4. Switch the tablet status to TABLET_RUNNING. The newly imported
+// data will calculate delete bitmap.
+Status SchemaChangeHandler::_calc_delete_bitmap_for_mow_table(TabletSharedPtr new_tablet,
+                                                              int64_t alter_version) {
+    DBUG_EXECUTE_IF("SchemaChangeHandler._calc_delete_bitmap_for_mow_table.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.1))) {
+            LOG_WARNING("SchemaChangeHandler._calc_delete_bitmap_for_mow_table.random_failed");
+            return Status::InternalError("debug schema change calc delete bitmap random failed");
+        }
+    });
+
+    // can't do compaction when calc delete bitmap, if the rowset being calculated does
+    // a compaction, it may cause the delete bitmap to be missed.
+    std::lock_guard base_compaction_lock(new_tablet->get_base_compaction_lock());
+    std::lock_guard cumu_compaction_lock(new_tablet->get_cumulative_compaction_lock());
+
+    // step 2
+    int64_t max_version = new_tablet->max_version().second;
+    std::vector<RowsetSharedPtr> rowsets;
+    if (alter_version < max_version) {
+        LOG(INFO) << "alter table for unique with merge-on-write, calculate delete bitmap of "
+                  << "double write rowsets for version: " << alter_version + 1 << "-" << max_version
+                  << " new_tablet=" << new_tablet->tablet_id();
+        std::shared_lock<std::shared_mutex> rlock(new_tablet->get_header_lock());
+        RETURN_IF_ERROR(
+                new_tablet->capture_consistent_rowsets({alter_version + 1, max_version}, &rowsets));
+    }
+    for (auto rowset_ptr : rowsets) {
+        std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
+        std::shared_lock<std::shared_mutex> rlock(new_tablet->get_header_lock());
+        RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+    }
+
+    // step 3
+    std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
+    std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+    int64_t new_max_version = new_tablet->max_version_unlocked().second;
+    rowsets.clear();
+    if (max_version < new_max_version) {
+        LOG(INFO) << "alter table for unique with merge-on-write, calculate delete bitmap of "
+                  << "incremental rowsets for version: " << max_version + 1 << "-"
+                  << new_max_version << " new_tablet=" << new_tablet->tablet_id();
+        RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets({max_version + 1, new_max_version},
+                                                               &rowsets));
+    }
+    for (auto rowset_ptr : rowsets) {
+        RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+    }
+    // step 4
+    RETURN_IF_ERROR(new_tablet->set_tablet_state(TabletState::TABLET_RUNNING));
+    new_tablet->save_meta();
     return Status::OK();
 }
 

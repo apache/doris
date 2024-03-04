@@ -68,4 +68,7 @@ suite("test_agg_state") {
     
     qt_union """ select max_by_merge(kstate) from (select k1,max_by_union(k2) kstate from a_table group by k1 order by k1) t; """
     qt_max_by_null """ select max_by_merge(max_by_state(k1,null)),min_by_merge(min_by_state(null,k3)) from d_table; """
+
+    qt_ndv """select ndv_merge(t) from (select ndv_union(ndv_state(1)) as t from d_table group by k1)p;"""
+    qt_approx_count_distinct """select approx_count_distinct_merge(t) from (select approx_count_distinct_union(approx_count_distinct_state(1)) as t from d_table group by k1)p;"""
 }

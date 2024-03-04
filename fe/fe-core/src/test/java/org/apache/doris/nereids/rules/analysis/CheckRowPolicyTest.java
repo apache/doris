@@ -91,7 +91,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
         user.analyze(SystemInfoService.DEFAULT_CLUSTER);
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
-        List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
+        List<AccessPrivilegeWithCols> privileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
@@ -102,7 +103,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
 
     @Test
     public void checkUser() throws AnalysisException, org.apache.doris.common.AnalysisException {
-        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
+                Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
 
         useUser("root");
@@ -117,7 +119,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Test
     public void checkNoPolicy() throws org.apache.doris.common.AnalysisException {
         useUser(userName);
-        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
+                Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
         Plan plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
         Assertions.assertEquals(plan, relation);
@@ -126,7 +129,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Test
     public void checkOnePolicy() throws Exception {
         useUser(userName);
-        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
+                Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
         connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         createPolicy("CREATE ROW POLICY "
@@ -144,6 +148,9 @@ public class CheckRowPolicyTest extends TestWithFeService {
         Assertions.assertTrue(ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo);
         Assertions.assertTrue(filter.getConjuncts().toString().contains("'k1 = 1"));
 
-        dropPolicy("DROP ROW POLICY " + policyName);
+        dropPolicy("DROP ROW POLICY "
+                + policyName
+                + " ON "
+                + tableName);
     }
 }

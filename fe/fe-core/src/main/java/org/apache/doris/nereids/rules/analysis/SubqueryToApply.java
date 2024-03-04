@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -114,13 +115,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     }
                     Set<Expression> conjuncts = ImmutableSet.copyOf(newConjuncts.build());
                     Plan newFilter = new LogicalFilter<>(conjuncts, applyPlan);
-                    if (conjuncts.stream().flatMap(c -> c.children().stream())
-                            .anyMatch(MarkJoinSlotReference.class::isInstance)) {
-                        return new LogicalProject<>(applyPlan.getOutput().stream()
-                                .filter(s -> !(s instanceof MarkJoinSlotReference))
-                                .collect(ImmutableList.toImmutableList()), newFilter);
-                    }
-                    return new LogicalFilter<>(conjuncts, applyPlan);
+                    return new LogicalProject<>(filter.getOutput().stream().collect(ImmutableList.toImmutableList()),
+                        newFilter);
                 })
             ),
             RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {
@@ -239,10 +235,17 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         );
     }
 
+    private static boolean canConvertToSupply(TreeNode<Expression> expression) {
+        // The subquery except ListQuery can be converted to Supply
+        return expression instanceof SubqueryExpr && !(expression instanceof ListQuery);
+    }
+
     private static boolean isValidSubqueryConjunct(Expression expression) {
         // only support 1 subquery expr in the expression
         // don't support expression like subquery1 or subquery2
-        return expression.collectToList(SubqueryToApply::canConvertToSupply).size() == 1;
+        return expression
+                .collectToList(SubqueryToApply::canConvertToSupply)
+                .size() == 1;
     }
 
     private enum RelatedInfo {
@@ -311,11 +314,6 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         return correlatedInfoList.build();
     }
 
-    private static boolean canConvertToSupply(TreeNode<Expression> expression) {
-        // The subquery except ListQuery can be converted to Supply
-        return expression instanceof SubqueryExpr && !(expression instanceof ListQuery);
-    }
-
     private LogicalPlan subqueryToApply(List<SubqueryExpr> subqueryExprs, LogicalPlan childPlan,
                                         Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
                                         CascadesContext ctx,
@@ -323,7 +321,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         LogicalPlan tmpPlan = childPlan;
         for (int i = 0; i < subqueryExprs.size(); ++i) {
             SubqueryExpr subqueryExpr = subqueryExprs.get(i);
-            if (nonMarkJoinExistsWithAgg(subqueryExpr, subqueryToMarkJoinSlot)) {
+            if (subqueryExpr instanceof Exists && hasTopLevelScalarAgg(subqueryExpr.getQueryPlan())) {
+                // because top level scalar agg always returns a value or null(for empty input)
+                // so Exists and Not Exists conjunct are always evaluated to True and false literals respectively
+                // we don't create apply node for it
                 continue;
             }
 
@@ -336,18 +337,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         return tmpPlan;
     }
 
-    private boolean nonMarkJoinExistsWithAgg(SubqueryExpr exists,
-                 Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot) {
-        return exists instanceof Exists
-                && !subqueryToMarkJoinSlot.get(exists).isPresent()
-                && hasTopLevelAggWithoutGroupBy(exists.getQueryPlan());
-    }
-
-    private static boolean hasTopLevelAggWithoutGroupBy(Plan plan) {
+    private static boolean hasTopLevelScalarAgg(Plan plan) {
         if (plan instanceof LogicalAggregate) {
             return ((LogicalAggregate) plan).getGroupByExpressions().isEmpty();
         } else if (plan instanceof LogicalProject || plan instanceof LogicalSort) {
-            return hasTopLevelAggWithoutGroupBy(plan.child(0));
+            return hasTopLevelScalarAgg(plan.child(0));
         }
         return false;
     }
@@ -425,19 +419,30 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             // The result set when NULL is specified in the subquery and still evaluates to TRUE by using EXISTS
             // When the number of rows returned is empty, agg will return null, so if there is more agg,
             // it will always consider the returned result to be true
-            boolean needCreateMarkJoinSlot = isMarkJoin || shouldOutputMarkJoinSlot;
-            MarkJoinSlotReference markJoinSlotReference = null;
-            if (hasTopLevelAggWithoutGroupBy(exists.getQueryPlan()) && needCreateMarkJoinSlot) {
-                markJoinSlotReference =
-                        new MarkJoinSlotReference(statementContext.generateColumnName(), true);
-            } else if (needCreateMarkJoinSlot) {
-                markJoinSlotReference =
-                        new MarkJoinSlotReference(statementContext.generateColumnName());
+            if (hasTopLevelScalarAgg(exists.getQueryPlan())) {
+                /*
+                top level scalar agg and always return a value or null for empty input
+                so Exists and Not Exists conjunct are always evaluated to True and False literals respectively
+                    SELECT *
+                    FROM t1
+                    WHERE EXISTS (
+                            SELECT SUM(a)
+                            FROM t2
+                            WHERE t1.a = t2.b and t1.a = 1;
+                        );
+                 */
+                return exists.isNot() ? BooleanLiteral.FALSE : BooleanLiteral.TRUE;
+            } else {
+                boolean needCreateMarkJoinSlot = isMarkJoin || shouldOutputMarkJoinSlot;
+                if (needCreateMarkJoinSlot) {
+                    MarkJoinSlotReference markJoinSlotReference =
+                            new MarkJoinSlotReference(statementContext.generateColumnName());
+                    context.setSubqueryToMarkJoinSlot(exists, Optional.of(markJoinSlotReference));
+                    return new Nvl(markJoinSlotReference, BooleanLiteral.FALSE);
+                } else {
+                    return BooleanLiteral.TRUE;
+                }
             }
-            if (needCreateMarkJoinSlot) {
-                context.setSubqueryToMarkJoinSlot(exists, Optional.of(markJoinSlotReference));
-            }
-            return needCreateMarkJoinSlot ? markJoinSlotReference : BooleanLiteral.TRUE;
         }
 
         @Override

@@ -60,12 +60,10 @@
 
 namespace doris::segment_v2 {
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
-const int32_t MAX_BUFFER_DOCS = 100000000;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
-const std::string empty_value;
 
 template <FieldType field_type>
 class InvertedIndexColumnWriterImpl : public InvertedIndexColumnWriter {
@@ -116,6 +114,24 @@ public:
         }
     }
 
+    void close_on_error() override {
+        try {
+            if (_index_writer) {
+                _index_writer->close();
+            }
+            if (_dir) {
+                _dir->deleteDirectory();
+                io::Path cfs_path(_dir->getCfsDirName());
+                auto idx_path = cfs_path.parent_path();
+                std::string idx_name = std::string(cfs_path.stem().c_str()) +
+                                       DorisCompoundDirectory::COMPOUND_FILE_EXTENSION;
+                _dir->deleteFile(idx_name.c_str());
+            }
+        } catch (CLuceneError& e) {
+            LOG(ERROR) << "InvertedIndexWriter close_on_error failure: " << e.what();
+        }
+    }
+
     Status init_bkd_index() {
         size_t value_length = sizeof(CppType);
         // NOTE: initialize with 0, set to max_row_id when finished.
@@ -163,38 +179,47 @@ public:
         }
 
         _doc = std::make_unique<lucene::document::Document>();
-        _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
+        bool use_compound_file_writer = true;
+        bool can_use_ram_dir = true;
+        _dir.reset(DorisCompoundDirectoryFactory::getDirectory(
+                _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir));
 
-        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
-            _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
-            _analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
-        } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
-            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-        } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
-            auto chinese_analyzer = _CLNEW lucene::analysis::LanguageBasedAnalyzer();
-            chinese_analyzer->setLanguage(L"chinese");
-            chinese_analyzer->initDict(config::inverted_index_dict_path);
-            auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
-            if (mode == INVERTED_INDEX_PARSER_FINE_GRANULARITY) {
-                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+        try {
+            if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
+                _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
+                _analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
+            } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
+                _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+            } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
+                auto chinese_analyzer = _CLNEW lucene::analysis::LanguageBasedAnalyzer();
+                chinese_analyzer->setLanguage(L"chinese");
+                chinese_analyzer->initDict(config::inverted_index_dict_path);
+                auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
+                if (mode == INVERTED_INDEX_PARSER_FINE_GRANULARITY) {
+                    chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+                } else {
+                    chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
+                }
+                _analyzer.reset(chinese_analyzer);
             } else {
-                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
+                // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
+                _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
             }
-            _analyzer.reset(chinese_analyzer);
-        } else {
-            // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
-            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+            auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
+            if (lowercase == "true") {
+                _analyzer->set_lowercase(true);
+            } else if (lowercase == "false") {
+                _analyzer->set_lowercase(false);
+            }
+        } catch (CLuceneError& e) {
+            return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "inverted index create analyzer failed: {}", e.what());
         }
-        auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
-        if (lowercase == "true") {
-            _analyzer->set_lowercase(true);
-        } else if (lowercase == "false") {
-            _analyzer->set_lowercase(false);
-        }
+
         _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(),
                                                                      create, true);
-        _index_writer->setMaxBufferedDocs(MAX_BUFFER_DOCS);
         _index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
+        _index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
         _index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         _index_writer->setMergeFactor(MERGE_FACTOR);
         _index_writer->setUseCompoundFile(false);
@@ -222,6 +247,7 @@ public:
         try {
             _index_writer->addDocument(_doc.get());
         } catch (const CLuceneError& e) {
+            close_on_error();
             _dir->deleteDirectory();
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError add_document: {}", e.what());
@@ -233,6 +259,7 @@ public:
         try {
             _index_writer->addNullDocument(_doc.get());
         } catch (const CLuceneError& e) {
+            close_on_error();
             _dir->deleteDirectory();
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError add_null_document: {}", e.what());
@@ -297,7 +324,7 @@ public:
                     get_parser_ignore_above_value_from_properties(_index_meta->properties());
             auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
-                // only ignore_above UNTOKENIZED strings
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
                 if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
                      v->get_size() > ignore_above) ||
                     (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
@@ -347,7 +374,7 @@ public:
                 }
 
                 auto value = join(strings, " ");
-                // only ignore_above UNTOKENIZED strings
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
                 if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
                      value.length() > ignore_above) ||
                     (_parser_type != InvertedIndexParserType::PARSER_NONE && value.empty())) {
@@ -494,7 +521,10 @@ public:
             if constexpr (field_is_numeric_type(field_type)) {
                 auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                         _directory + "/" + _segment_file_name, _index_meta->index_id());
-                dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+                bool use_compound_file_writer = true;
+                bool can_use_ram_dir = true;
+                dir = DorisCompoundDirectoryFactory::getDirectory(
+                        _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir);
                 write_null_bitmap(null_bitmap_out, dir);
                 _bkd_writer->max_doc_ = _rid;
                 _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;
@@ -688,7 +718,11 @@ Status InvertedIndexColumnWriter::create(const Field* field,
                                     std::to_string(int(type)));
     }
     if (*res != nullptr) {
-        RETURN_IF_ERROR((*res)->init());
+        auto st = (*res)->init();
+        if (!st.ok()) {
+            (*res)->close_on_error();
+            return st;
+        }
     }
     return Status::OK();
 }

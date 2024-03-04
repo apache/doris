@@ -184,4 +184,28 @@ void Decoder::init(FieldSchema* field_schema, cctz::time_zone* ctz) {
         _decode_params->offset_days = t.day() == 31 ? -1 : 0; // If 1969-12-31, then returns -1.
     }
 }
+
+/**
+ * Some frameworks like paimon maybe writes non-standard parquet files. Timestamp field doesn't have
+ * logicalType or converted_type to indicates its precision. We have to reset the time mask.
+ */
+void Decoder::reset_time_scale_if_missing(int scale) {
+    const auto& schema = _field_schema->parquet_schema;
+    if (!schema.__isset.logicalType && !schema.__isset.converted_type) {
+        int ts_scale = 9;
+        if (scale <= 3) {
+            ts_scale = 3;
+        } else if (scale <= 6) {
+            ts_scale = 6;
+        }
+        _decode_params->second_mask = common::exp10_i64(ts_scale);
+        _decode_params->scale_to_nano_factor = common::exp10_i64(9 - ts_scale);
+
+        // The missing parque metadata makes it impossible for us to know the time zone information,
+        // so we default to UTC here.
+        if (_decode_params->ctz == nullptr) {
+            _decode_params->ctz = const_cast<cctz::time_zone*>(&_decode_params->utc0);
+        }
+    }
+}
 } // namespace doris::vectorized

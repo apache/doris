@@ -33,6 +33,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/query_statistics.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
@@ -139,6 +140,9 @@ public:
             return;
         }
         _consumption->add(bytes);
+        if (_query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(_consumption->peak_value());
+        }
     }
 
     void consume_no_update_peak(int64_t bytes) { // need extreme fast
@@ -148,6 +152,8 @@ public:
     void release(int64_t bytes) { _consumption->sub(bytes); }
 
     void set_consumption(int64_t bytes) { _consumption->set(bytes); }
+
+    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
 
 public:
     virtual Snapshot make_snapshot() const;
@@ -181,6 +187,8 @@ protected:
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

@@ -44,6 +44,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
@@ -165,6 +166,8 @@ public class DatabaseTransactionMgr {
 
     private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
 
+    private long maxFinalTxnsNum = Long.MAX_VALUE;
+
     protected void readLock() {
         this.transactionLock.readLock().lock();
     }
@@ -188,6 +191,9 @@ public class DatabaseTransactionMgr {
         this.env = env;
         this.idGenerator = idGenerator;
         this.editLog = env.getEditLog();
+        if (Config.label_num_threshold >= 0) {
+            this.maxFinalTxnsNum = Config.label_num_threshold;
+        }
     }
 
     public long getDbId() {
@@ -308,6 +314,8 @@ public class DatabaseTransactionMgr {
             long listenerId, long timeoutSecond)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
+        Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
+        InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         checkDatabaseDataQuota();
         writeLock();
         try {
@@ -1534,13 +1542,13 @@ public class DatabaseTransactionMgr {
         return partitionInfos;
     }
 
-    public void removeExpiredTxns(long currentMillis) {
+    public void removeUselessTxns(long currentMillis) {
         // delete expired txns
         writeLock();
         try {
-            Pair<Long, Integer> expiredTxnsInfoForShort = unprotectedRemoveExpiredTxns(currentMillis,
+            Pair<Long, Integer> expiredTxnsInfoForShort = unprotectedRemoveUselessTxns(currentMillis,
                     finalStatusTransactionStateDequeShort, MAX_REMOVE_TXN_PER_ROUND);
-            Pair<Long, Integer> expiredTxnsInfoForLong = unprotectedRemoveExpiredTxns(currentMillis,
+            Pair<Long, Integer> expiredTxnsInfoForLong = unprotectedRemoveUselessTxns(currentMillis,
                     finalStatusTransactionStateDequeLong,
                     MAX_REMOVE_TXN_PER_ROUND - expiredTxnsInfoForShort.second);
             int numOfClearedTransaction = expiredTxnsInfoForShort.second + expiredTxnsInfoForLong.second;
@@ -1557,13 +1565,25 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private Pair<Long, Integer> unprotectedRemoveExpiredTxns(long currentMillis,
+    private Pair<Long, Integer> unprotectedRemoveUselessTxns(long currentMillis,
             ArrayDeque<TransactionState> finalStatusTransactionStateDeque, int left) {
         long latestTxnId = -1;
         int numOfClearedTransaction = 0;
         while (!finalStatusTransactionStateDeque.isEmpty() && numOfClearedTransaction < left) {
             TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
             if (transactionState.isExpired(currentMillis)) {
+                finalStatusTransactionStateDeque.pop();
+                clearTransactionState(transactionState.getTransactionId());
+                latestTxnId = transactionState.getTransactionId();
+                numOfClearedTransaction++;
+            } else {
+                break;
+            }
+        }
+        while (finalStatusTransactionStateDeque.size() > maxFinalTxnsNum
+                && numOfClearedTransaction < left) {
+            TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
+            if (transactionState.getFinishTime() != -1) {
                 finalStatusTransactionStateDeque.pop();
                 clearTransactionState(transactionState.getTransactionId());
                 latestTxnId = transactionState.getTransactionId();
@@ -1748,6 +1768,7 @@ public class DatabaseTransactionMgr {
 
     private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1807,6 +1828,10 @@ public class DatabaseTransactionMgr {
                 } // end for indices
                 long version = partitionCommitInfo.getVersion();
                 long versionTime = partitionCommitInfo.getVersionTime();
+                if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION
+                        && version > Partition.PARTITION_INIT_VERSION) {
+                    analysisManager.setNewPartitionLoaded(tableId);
+                }
                 partition.updateVisibleVersionAndTime(version, versionTime);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("transaction state {} set partition {}'s version to [{}]",
@@ -1814,7 +1839,6 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
-        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
         tableIdToTotalNumDeltaRows
@@ -1918,7 +1942,7 @@ public class DatabaseTransactionMgr {
     }
 
     public void removeExpiredAndTimeoutTxns(long currentMillis) {
-        removeExpiredTxns(currentMillis);
+        removeUselessTxns(currentMillis);
         List<Long> timeoutTxns = getTimeoutTxns(currentMillis);
         // abort timeout txns
         for (Long txnId : timeoutTxns) {
@@ -2082,17 +2106,6 @@ public class DatabaseTransactionMgr {
             msgBuilder.append(e.toString()).append("\n");
         }
         return msgBuilder.toString();
-    }
-
-    public void putTransactionTableNames(long transactionId, List<Long> tableIds) {
-        if (CollectionUtils.isEmpty(tableIds)) {
-            return;
-        }
-        if (multiTableRunningTransactionTableIdMaps.contains(transactionId)) {
-            multiTableRunningTransactionTableIdMaps.get(transactionId).addAll(tableIds);
-            return;
-        }
-        multiTableRunningTransactionTableIdMaps.put(transactionId, tableIds);
     }
 
     /**

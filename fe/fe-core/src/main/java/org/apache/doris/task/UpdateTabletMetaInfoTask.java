@@ -152,6 +152,11 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                         metaInfo.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionConfig
                                     .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
                     }
+                    if (timeSeriesCompactionConfig
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+                        metaInfo.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionConfig
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD));
+                    }
                 }
                 if (enableSingleReplicaCompaction >= 0) {
                     metaInfo.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction > 0);

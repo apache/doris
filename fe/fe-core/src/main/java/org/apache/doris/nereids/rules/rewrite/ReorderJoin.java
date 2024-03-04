@@ -85,8 +85,10 @@ public class ReorderJoin extends OneRewriteRuleFactory {
 
                 Map<Plan, JoinHintType> planToHintType = Maps.newHashMap();
                 Plan plan = joinToMultiJoin(filter, planToHintType);
-                Preconditions.checkState(plan instanceof MultiJoin);
+                Preconditions.checkState(plan instanceof MultiJoin, "join to multi join should return MultiJoin,"
+                        + " but return plan is " + plan.getType());
                 MultiJoin multiJoin = (MultiJoin) plan;
+                ctx.statementContext.addJoinFilters(multiJoin.getJoinFilter());
                 ctx.statementContext.setMaxNAryInnerJoin(multiJoin.children().size());
                 Plan after = multiJoinToJoin(multiJoin, planToHintType);
                 return after;
@@ -326,7 +328,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      */
     private LogicalJoin<? extends Plan, ? extends Plan> findInnerJoin(Plan left, List<Plan> candidates,
             Set<Expression> joinFilter, Set<Integer> usedPlansIndex, Map<Plan, JoinHintType> planToHintType) {
-        List<Expression> otherJoinConditions = Lists.newArrayList();
+        List<Expression> firstOtherJoinConditions = ExpressionUtils.EMPTY_CONDITION;
+        int firstCandidate = -1;
         Set<ExprId> leftOutputExprIdSet = left.getOutputExprIdSet();
         for (int i = 0; i < candidates.size(); i++) {
             if (usedPlansIndex.contains(i)) {
@@ -349,33 +352,31 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
                     left.getOutput(), candidate.getOutput(), currentJoinFilter);
             List<Expression> hashJoinConditions = pair.first;
-            otherJoinConditions = pair.second;
             if (!hashJoinConditions.isEmpty()) {
                 usedPlansIndex.add(i);
                 return new LogicalJoin<>(JoinType.INNER_JOIN,
-                        hashJoinConditions, otherJoinConditions,
+                        hashJoinConditions, pair.second,
                         JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(candidate, JoinHintType.NONE)),
                         Optional.empty(),
                         left, candidate);
+            } else {
+                if (firstCandidate == -1) {
+                    firstCandidate = i;
+                    firstOtherJoinConditions = pair.second;
+                }
             }
         }
         // All { left -> one in [candidates] } is CrossJoin
         // Generate a CrossJoin
-        for (int i = 0; i < candidates.size(); i++) {
-            if (usedPlansIndex.contains(i)) {
-                continue;
-            }
-            usedPlansIndex.add(i);
-            Plan right = candidates.get(i);
-            return new LogicalJoin<>(JoinType.CROSS_JOIN,
-                    ExpressionUtils.EMPTY_CONDITION,
-                    otherJoinConditions,
-                    JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE)),
-                    Optional.empty(),
-                    left, right);
-        }
-
-        throw new RuntimeException("findInnerJoin: can't reach here");
+        // NOTICE: we must traverse for head to tail to ensure result is stable.
+        usedPlansIndex.add(firstCandidate);
+        Plan right = candidates.get(firstCandidate);
+        return new LogicalJoin<>(JoinType.CROSS_JOIN,
+                ExpressionUtils.EMPTY_CONDITION,
+                firstOtherJoinConditions,
+                JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE)),
+                Optional.empty(),
+                left, right);
     }
 
     private boolean nonJoinAndNonFilter(Plan plan) {

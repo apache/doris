@@ -31,8 +31,7 @@ under the License.
 - 增加、删除列
 - 修改列类型
 - 调整列顺序
-- 增加、修改 Bloom Filter
-- 增加、删除 bitmap index
+- 增加、删除索引
 
 本文档主要介绍如何创建 Schema Change 作业，以及进行 Schema Change 的一些注意事项和常见问题。
 

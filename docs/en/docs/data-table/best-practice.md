@@ -177,7 +177,6 @@ Users can modify the Schema of an existing table through the Schema Change opera
 - Adding and deleting columns
 - Modify column types
 - Reorder columns
-- Adding or modifying Bloom Filter
-- Adding or removing bitmap index
+- Adding or removing index
 
 For details, please refer to [Schema Change](../advanced/alter-table/schema-change.md)

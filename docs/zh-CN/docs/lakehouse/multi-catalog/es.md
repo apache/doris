@@ -69,26 +69,28 @@ CREATE CATALOG es PROPERTIES (
 
 ## 列类型映射
 
-| ES Type | Doris Type | Comment                                                    |
-|---|---|------------------------------------------------------------|
-|null| null||
-| boolean | boolean |                                                            |
-| byte| tinyint|                                                            |
-| short| smallint|                                                            |
-| integer| int|                                                            |
-| long| bigint|                                                            |
-| unsigned_long| largeint |                                                            |
-| float| float|                                                            |
-| half_float| float|                                                            |
-| double | double |                                                            |
-| scaled_float| double |                                                            |
-| date | date | 仅支持 default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis 格式 |
-| keyword | string |                                                            |
-| text |string |                                                            |
-| ip |string |                                                            |
-| nested |string |                                                            |
-| object |string |                                                            |
-|other| unsupported ||
+| ES Type          | Doris Type  | Comment                                                    |
+|------------------|-------------|------------------------------------------------------------|
+| null             | null        |                                                            |
+| boolean          | boolean     |                                                            |
+| byte             | tinyint     |                                                            |
+| short            | smallint    |                                                            |
+| integer          | int         |                                                            |
+| long             | bigint      |                                                            |
+| unsigned_long    | largeint    |                                                            |
+| float            | float       |                                                            |
+| half_float       | float       |                                                            |
+| double           | double      |                                                            |
+| scaled_float     | double      |                                                            |
+| date             | date        | 仅支持 default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis 格式 |
+| keyword          | string      |                                                            |
+| text             | string      |                                                            |
+| ip               | string      |                                                            |
+| constant_keyword | string      |                                                            |
+| wildcard         | string      |                                                            |
+| nested           | string      |                                                            |
+| object           | string      |                                                            |
+| other            | unsupported |                                                            |
 
 <version since="dev">
 
@@ -161,18 +163,18 @@ ES Catalog 支持过滤条件的下推: 过滤条件下推给ES，这样只有�
 
 下面的操作符(Operators)会被优化成如下ES Query:
 
-| SQL syntax  | ES 5.x+ syntax | 
-|-------|:---:|
-| =   | term query|
-| in  | terms query   |
-| > , < , >= , ⇐  | range query |
-| and  | bool.filter   |
-| or  | bool.should   |
-| not  | bool.must_not   |
-| not in  | bool.must_not + terms query |
-| is\_not\_null  | exists query |
-| is\_null  | bool.must_not + exists query |
-| esquery  | ES原生json形式的QueryDSL   |
+| SQL syntax     |        ES 5.x+ syntax        | 
+|----------------|:----------------------------:|
+| =              |          term query          |
+| in             |         terms query          |
+| > , < , >= , ⇐ |         range query          |
+| and            |         bool.filter          |
+| or             |         bool.should          |
+| not            |        bool.must_not         |
+| not in         | bool.must_not + terms query  |
+| is\_not\_null  |         exists query         |
+| is\_null       | bool.must_not + exists query |
+| esquery        |     ES原生json形式的QueryDSL      |
 
 ### 启用列式扫描优化查询速度(enable\_docvalue\_scan=true)
 
@@ -191,6 +193,7 @@ ES Catalog 支持过滤条件的下推: 过滤条件下推给ES，这样只有�
 
 1. `text`类型的字段在ES中是没有列式存储，因此如果要获取的字段值有`text`类型字段会自动降级为从`_source`中获取
 2. 在获取的字段数量过多的情况下(`>= 25`)，从`docvalue`中获取字段值的性能会和从`_source`中获取字段值基本一样
+3. `keyword`类型字段由于[`ignore_above`](https://www.elastic.co/guide/en/elasticsearch/reference/current/keyword.html#keyword-params)参数的限制，对于超过该限制的长文本字段会忽略，所以可能会出现结果为空的情况。此时需要关闭`enable_docvalue_scan`，从`_source`中获取结果。
 
 ### 探测keyword类型字段
 

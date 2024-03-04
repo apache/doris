@@ -187,6 +187,8 @@ public abstract class Type {
         arraySubTypes.add(FLOAT);
         arraySubTypes.add(DOUBLE);
         arraySubTypes.add(DECIMALV2);
+        arraySubTypes.add(TIME);
+        arraySubTypes.add(TIMEV2);
         arraySubTypes.add(DATE);
         arraySubTypes.add(DATETIME);
         arraySubTypes.add(DATEV2);
@@ -197,6 +199,10 @@ public abstract class Type {
         arraySubTypes.add(DECIMAL32);
         arraySubTypes.add(DECIMAL64);
         arraySubTypes.add(DECIMAL128);
+        arraySubTypes.add(NULL);
+        arraySubTypes.add(ARRAY);
+        arraySubTypes.add(MAP);
+        arraySubTypes.add(STRUCT);
 
         mapSubTypes = Lists.newArrayList();
         mapSubTypes.add(BOOLEAN);
@@ -207,6 +213,8 @@ public abstract class Type {
         mapSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
         mapSubTypes.add(DECIMAL64);
         mapSubTypes.add(DECIMAL128);
+        mapSubTypes.add(TIME);
+        mapSubTypes.add(TIMEV2);
         mapSubTypes.add(DATE);
         mapSubTypes.add(DATETIME);
         mapSubTypes.add(DATEV2);
@@ -215,6 +223,9 @@ public abstract class Type {
         mapSubTypes.add(VARCHAR);
         mapSubTypes.add(STRING);
         mapSubTypes.add(NULL);
+        mapSubTypes.add(ARRAY);
+        mapSubTypes.add(MAP);
+        mapSubTypes.add(STRUCT);
 
         structSubTypes = Lists.newArrayList();
         structSubTypes.add(BOOLEAN);
@@ -225,6 +236,8 @@ public abstract class Type {
         structSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
         structSubTypes.add(DECIMAL64);
         structSubTypes.add(DECIMAL128);
+        structSubTypes.add(TIME);
+        structSubTypes.add(TIMEV2);
         structSubTypes.add(DATE);
         structSubTypes.add(DATETIME);
         structSubTypes.add(DATEV2);
@@ -232,6 +245,10 @@ public abstract class Type {
         structSubTypes.add(CHAR);
         structSubTypes.add(VARCHAR);
         structSubTypes.add(STRING);
+        structSubTypes.add(NULL);
+        structSubTypes.add(ARRAY);
+        structSubTypes.add(MAP);
+        structSubTypes.add(STRUCT);
     }
 
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,

@@ -305,8 +305,7 @@ suite("test_scalar_types_load", "p0") {
             `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,
             `c_char`, `c_varchar`, `c_string` FROM tbl_scalar_types_dup"""
 
-
-    // define unique key table2 disable mow
+    // define unique key table2 enable mow
     testTable = "tbl_scalar_types_unique2_bitmapindex"
     sql "DROP TABLE IF EXISTS ${testTable}"
     sql """
@@ -350,7 +349,7 @@ suite("test_scalar_types_load", "p0") {
         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
         """
 
-    // insert data into unique key table1 2 times
+    // insert data into unique key table2 2 times
     sql """INSERT INTO ${testTable} SELECT `c_datetimev2`, `c_bigint`, `c_decimalv3`,
             `c_bool`, `c_tinyint`, `c_smallint`, `c_int`, `c_largeint`,
             `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,

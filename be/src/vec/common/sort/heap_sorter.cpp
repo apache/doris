@@ -83,12 +83,11 @@ Status HeapSorter::append_block(Block* block) {
     }
     Block tmp_block = block->clone_empty();
     tmp_block.swap(*block);
+    size_t num_rows = tmp_block.rows();
     HeapSortCursorBlockView block_view_val(std::move(tmp_block), _sort_description);
-    SharedHeapSortCursorBlockView* block_view =
-            new SharedHeapSortCursorBlockView(std::move(block_view_val));
+    auto* block_view = new SharedHeapSortCursorBlockView(std::move(block_view_val));
     block_view->ref();
     Defer defer([&] { block_view->unref(); });
-    size_t num_rows = tmp_block.rows();
     if (_heap_size == _heap->size()) {
         {
             SCOPED_TIMER(_topn_filter_timer);

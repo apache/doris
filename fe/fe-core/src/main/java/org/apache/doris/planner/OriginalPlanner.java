@@ -144,6 +144,13 @@ public class OriginalPlanner extends Planner {
     }
 
     /**
+     * Return hint information.
+     */
+    @Override
+    public void appendHintInfo(StringBuilder str) {
+    }
+
+    /**
      * Create plan fragments for an analyzed statement, given a set of execution options. The fragments are returned in
      * a list such that element i of that list can only consume output of the following fragments j > i.
      */
@@ -355,7 +362,7 @@ public class OriginalPlanner extends Planner {
         PlanFragment topPlanFragment = fragments.get(0);
         ExchangeNode topPlanNode = (ExchangeNode) topPlanFragment.getPlanRoot();
         // try to push down result file sink
-        if (topPlanNode.isMergingExchange()) {
+        if (topPlanNode.isFunctionalExchange()) {
             return;
         }
         PlanFragment secondPlanFragment = fragments.get(1);

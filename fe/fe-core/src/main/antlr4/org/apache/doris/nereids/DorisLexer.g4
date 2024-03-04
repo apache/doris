@@ -118,6 +118,7 @@ BACKEND: 'BACKEND';
 BACKENDS: 'BACKENDS';
 BACKUP: 'BACKUP';
 BEGIN: 'BEGIN';
+BELONG: 'BELONG';
 BETWEEN: 'BETWEEN';
 BIGINT: 'BIGINT';
 BIN: 'BIN';
@@ -312,8 +313,10 @@ LABEL: 'LABEL';
 LARGEINT: 'LARGEINT';
 LAST: 'LAST';
 LATERAL: 'LATERAL';
+LAZY: 'LAZY';
 LDAP: 'LDAP';
 LDAP_ADMIN_PASSWORD: 'LDAP_ADMIN_PASSWORD';
+LEADING: 'LEADING';
 LEFT: 'LEFT';
 LESS: 'LESS';
 LEVEL: 'LEVEL';
@@ -374,6 +377,7 @@ OPEN: 'OPEN';
 OPTIMIZED: 'OPTIMIZED';
 OR: 'OR';
 ORDER: 'ORDER';
+ORDERED: 'ORDERED';
 OUTER: 'OUTER';
 OUTFILE: 'OUTFILE';
 OVER: 'OVER';
@@ -569,8 +573,8 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''
-    | '"' ( ~('"'|'\\') | ('\\' .) )* '"'
+    : '\'' ('\\'. | '\'\'' | ~('\'' | '\\'))* '\''
+    | '"' ( '\\'. | '""' | ~('"'| '\\') )* '"'
     | 'R\'' (~'\'')* '\''
     | 'R"'(~'"')* '"'
     ;

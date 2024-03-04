@@ -34,7 +34,9 @@
 namespace doris {
 namespace io {
 
-HdfsFileWriter::HdfsFileWriter(Path file, FileSystemSPtr fs) : FileWriter(std::move(file), fs) {
+HdfsFileWriter::HdfsFileWriter(Path file, FileSystemSPtr fs, const FileWriterOptions* opts)
+        : FileWriter(std::move(file), fs) {
+    _create_empty_file = opts ? opts->create_empty_file : true;
     _hdfs_fs = (HdfsFileSystem*)_fs.get();
 }
 
@@ -104,6 +106,14 @@ Status HdfsFileWriter::finalize() {
     DCHECK(!_closed);
     if (_opened) {
         RETURN_IF_ERROR(close());
+    }
+    return Status::OK();
+}
+
+Status HdfsFileWriter::open() {
+    if (_create_empty_file && !_opened) {
+        RETURN_IF_ERROR(_open());
+        _opened = true;
     }
     return Status::OK();
 }

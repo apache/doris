@@ -207,8 +207,10 @@ Status JniConnector::close() {
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_IF_ERROR(
             JniUtil::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
-    if (_jni_scanner_cls == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
+    if (_jni_scanner_cls == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
         return Status::InternalError("Fail to get JniScanner class.");
     }
     RETURN_ERROR_IF_EXC(env);
@@ -447,8 +449,10 @@ std::string JniConnector::get_hive_type(const TypeDescriptor& desc) {
         [[fallthrough]];
     case TYPE_TIME:
         [[fallthrough]];
-    case TYPE_TIMEV2:
-        return "timestamp";
+    case TYPE_TIMEV2: {
+        buffer << "timestamp(" << desc.scale << ")";
+        return buffer.str();
+    }
     case TYPE_BINARY:
         return "binary";
     case TYPE_CHAR: {

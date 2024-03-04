@@ -34,6 +34,7 @@
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/utils.h"
+#include "util/debug_points.h"
 
 namespace doris {
 namespace {
@@ -98,15 +99,22 @@ Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const Rowse
         // return Status::InternalError("invaid partition id {} tablet {}",
         //  rowset_meta_pb.partition_id(), rowset_meta_pb.tablet_id());
     }
+    DBUG_EXECUTE_IF("RowsetMetaManager::save::zero_partition_id", {
+        long partition_id = rowset_meta_pb.partition_id();
+        auto& rs_pb = const_cast<std::decay_t<decltype(rowset_meta_pb)>&>(rowset_meta_pb);
+        rs_pb.set_partition_id(0);
+        LOG(WARNING) << "set debug point RowsetMetaManager::save::zero_partition_id old="
+                     << partition_id << " new=" << rowset_meta_pb.DebugString();
+    });
     if (enable_binlog) {
         return _save_with_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb);
     } else {
-        return save(meta, tablet_uid, rowset_id, rowset_meta_pb);
+        return _save(meta, tablet_uid, rowset_id, rowset_meta_pb);
     }
 }
 
-Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                               const RowsetMetaPB& rowset_meta_pb) {
+Status RowsetMetaManager::_save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
+                                const RowsetMetaPB& rowset_meta_pb) {
     std::string key =
             fmt::format("{}{}_{}", ROWSET_PREFIX, tablet_uid.to_string(), rowset_id.to_string());
     std::string value;
@@ -523,7 +531,7 @@ Status RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta,
     }
     RowsetId rowset_id = rowset_meta.rowset_id();
     TabletUid tablet_uid = rowset_meta.tablet_uid();
-    Status status = save(meta, tablet_uid, rowset_id, rowset_meta.get_rowset_pb());
+    Status status = save(meta, tablet_uid, rowset_id, rowset_meta.get_rowset_pb(), false);
     return status;
 }
 

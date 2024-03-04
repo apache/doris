@@ -19,6 +19,7 @@ package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -192,6 +193,8 @@ public class StatisticsUtil {
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
         sessionVariable.forbidUnknownColStats = false;
+        sessionVariable.enablePushDownMinMaxOnUnique = true;
+        sessionVariable.enablePushDownStringMinMax = true;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -546,10 +549,9 @@ public class StatisticsUtil {
      * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
      *
      * @param table Hive HMSExternalTable to estimate row count.
-     * @param isInit Flag to indicate if this is called during init. To avoid recursively get schema.
      * @return estimated row count
      */
-    public static long getHiveRowCount(HMSExternalTable table, boolean isInit) {
+    public static long getHiveRowCount(HMSExternalTable table) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
             return -1;
@@ -562,7 +564,7 @@ public class StatisticsUtil {
                 return rows;
             }
         }
-        if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
+        if (!parameters.containsKey(TOTAL_SIZE)) {
             return -1;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
@@ -572,7 +574,7 @@ public class StatisticsUtil {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
-            return 1;
+            return -1;
         }
         return totalSize / estimatedRowSize;
     }
@@ -650,7 +652,7 @@ public class StatisticsUtil {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
-            return 1;
+            return 0;
         }
         if (samplePartitionSize < totalPartitionSize) {
             totalSize = totalSize * totalPartitionSize / samplePartitionSize;
@@ -796,6 +798,13 @@ public class StatisticsUtil {
         }
         return str.replace("'", "''")
                 .replace("\\", "\\\\");
+    }
+
+    public static String escapeColumnName(String str) {
+        if (str == null) {
+            return null;
+        }
+        return str.replace("`", "``");
     }
 
     public static boolean isExternalTable(String catalogName, String dbName, String tblName) {
@@ -969,6 +978,18 @@ public class StatisticsUtil {
         } else {
             return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /**
+     * Check if the given column name is a materialized view column.
+     * @param table
+     * @param columnName
+     * @return True for mv column.
+     */
+    public static boolean isMvColumn(TableIf table, String columnName) {
+        return table instanceof OlapTable
+            && columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+            || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
     }
 
 }

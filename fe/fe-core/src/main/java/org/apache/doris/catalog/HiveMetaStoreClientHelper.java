@@ -954,6 +954,7 @@ public class HiveMetaStoreClientHelper {
         HoodieTableMetaClient metaClient;
         if (ugi != null) {
             try {
+                ugi.checkTGTAndReloginFromKeytab();
                 metaClient = ugi.doAs(
                         (PrivilegedExceptionAction<HoodieTableMetaClient>) () -> HoodieTableMetaClient.builder()
                                 .setConf(conf).setBasePath(hudiBasePath).build());

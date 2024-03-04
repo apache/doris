@@ -170,12 +170,15 @@ public class StatisticsCleaner extends MasterDaemon {
         doDelete("idx_id", expiredStats.expiredIdxId.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
                 FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
+        doDelete("part_id", expiredStats.expiredPartitionId.stream()
+                        .map(String::valueOf).collect(Collectors.toList()),
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
         doDelete("id", expiredStats.ids.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
                 FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
     }
 
-    private void doDelete(String/*col name*/ colName, List<String> pred, String tblName, boolean taskOnly) {
+    private void doDelete(String colName, List<String> pred, String tblName, boolean taskOnly) {
         String deleteTemplate = "DELETE FROM " + tblName + " WHERE ${left} IN (${right})";
         if (CollectionUtils.isEmpty(pred)) {
             return;
@@ -229,7 +232,7 @@ public class StatisticsCleaner extends MasterDaemon {
 
                     TableIf t = idToTbl.get(tblId);
                     String colId = statsId.colId;
-                    if (t.getColumn(colId) == null) {
+                    if (!StatisticsUtil.isMvColumn(t, colId) && t.getColumn(colId) == null) {
                         expiredStats.ids.add(id);
                         continue;
                     }
@@ -242,7 +245,7 @@ public class StatisticsCleaner extends MasterDaemon {
                         continue;
                     }
                     if (!olapTable.getPartitionIds().contains(Long.parseLong(partId))) {
-                        expiredStats.ids.add(id);
+                        expiredStats.expiredPartitionId.add(Long.parseLong(partId));
                     }
                 } catch (Exception e) {
                     LOG.warn("Error occurred when retrieving expired stats", e);
@@ -257,9 +260,8 @@ public class StatisticsCleaner extends MasterDaemon {
         Set<Long> expiredCatalog = new HashSet<>();
         Set<Long> expiredDatabase = new HashSet<>();
         Set<Long> expiredTable = new HashSet<>();
-
         Set<Long> expiredIdxId = new HashSet<>();
-
+        Set<Long> expiredPartitionId = new HashSet<>();
         Set<String> ids = new HashSet<>();
 
         public boolean isFull() {
@@ -267,6 +269,7 @@ public class StatisticsCleaner extends MasterDaemon {
                     || expiredDatabase.size() >= Config.max_allowed_in_element_num_of_delete
                     || expiredTable.size() >= Config.max_allowed_in_element_num_of_delete
                     || expiredIdxId.size() >= Config.max_allowed_in_element_num_of_delete
+                    || expiredPartitionId.size() >= Config.max_allowed_in_element_num_of_delete
                     || ids.size() >= Config.max_allowed_in_element_num_of_delete;
         }
 
@@ -275,6 +278,7 @@ public class StatisticsCleaner extends MasterDaemon {
                     && expiredDatabase.isEmpty()
                     && expiredTable.isEmpty()
                     && expiredIdxId.isEmpty()
+                    && expiredPartitionId.isEmpty()
                     && ids.size() < Config.max_allowed_in_element_num_of_delete / 10;
         }
     }

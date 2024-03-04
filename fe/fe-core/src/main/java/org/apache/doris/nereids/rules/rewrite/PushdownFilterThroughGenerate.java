@@ -19,8 +19,17 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.util.PlanUtils;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
+
+import java.util.Set;
 
 /**
  * Push the predicate down through generate.
@@ -35,11 +44,23 @@ public class PushdownFilterThroughGenerate extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalGenerate()).then(filter -> {
             LogicalGenerate<Plan> generate = filter.child();
-            if (generate.child().getOutputSet().containsAll(filter.getInputSlots())) {
-                return generate.withChildren(filter.withChildren(generate.children()));
-            } else {
+            Set<Slot> childOutputs = generate.child().getOutputSet();
+            Set<Expression> pushDownPredicates = Sets.newLinkedHashSet();
+            Set<Expression> remainPredicates = Sets.newLinkedHashSet();
+            filter.getConjuncts().forEach(conjunct -> {
+                Set<Slot> conjunctSlots = conjunct.getInputSlots();
+                if (!conjunctSlots.isEmpty() && childOutputs.containsAll(conjunctSlots)) {
+                    pushDownPredicates.add(conjunct);
+                } else {
+                    remainPredicates.add(conjunct);
+                }
+            });
+            if (pushDownPredicates.isEmpty()) {
                 return null;
             }
+            Plan bottomFilter = new LogicalFilter<>(pushDownPredicates, generate.child(0));
+            generate = generate.withChildren(ImmutableList.of(bottomFilter));
+            return PlanUtils.filterOrSelf(remainPredicates, generate);
         }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_GENERATE);
     }
 }

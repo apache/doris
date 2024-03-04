@@ -221,7 +221,7 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
     - ScanTime: 39.24us                 # The time returned from ScanNode to the upper node.
     - ShowHintsTime_V1: 0ns             # V2 has no meaning. Read part of the data in V1 to perform ScanRange segmentation.
     SegmentIterator:
-      - BitmapIndexFilterTimer: 779ns   # Use bitmap index to filter data time-consuming.
+      - InvertedIndexFilterTimer: 779ns # Use inverted index to filter data time-consuming.
       - BlockLoadTime: 415.925us        # SegmentReader(V1) or SegmentIterator(V2) gets the time of the block.
       - BlockSeekCount: 12              # The number of block seeks when reading Segment.
       - BlockSeekTime: 222.556us        # It takes time to block seek when reading Segment.
@@ -234,7 +234,7 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
       - NumSegmentFiltered: 0           # When generating Segment Iterator, the number of Segments that are completely filtered out through column statistics and query conditions.
       - NumSegmentTotal: 6              # Query the number of all segments involved.
       - RawRowsRead: 7                  # The number of raw rows read in the storage engine. See below for details.
-      - RowsBitmapIndexFiltered: 0      # Only in V2, the number of rows filtered by the Bitmap index.
+      - RowsInvertedIndexFiltered: 0    # Only in V2, the number of rows filtered by the Inverted index.
       - RowsBloomFilterFiltered: 0      # Only in V2, the number of rows filtered by BloomFilter index.
       - RowsKeyRangeFiltered: 0         # In V2 only, the number of rows filtered out by SortkeyIndex index.
       - RowsStatsFiltered: 0            # In V2, the number of rows filtered by the ZoneMap index, including the deletion condition. V1 also contains the number of rows filtered by BloomFilter.
@@ -248,8 +248,8 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
 The predicate push down and index usage can be inferred from the related indicators of the number of data rows in the profile. The following only describes the profile in the reading process of segment V2 format data. In segment V1 format, the meaning of these indicators is slightly different.
 
   - When reading a segment V2, if the query has key_ranges (the query range composed of prefix keys), first filter the data through the SortkeyIndex index, and the number of filtered rows is recorded in `RowsKeyRangeFiltered`.
-  - After that, use the Bitmap index to perform precise filtering on the columns containing the bitmap index in the query condition, and the number of filtered rows is recorded in `RowsBitmapIndexFiltered`.
-  - After that, according to the equivalent (eq, in, is) condition in the query condition, use the BloomFilter index to filter the data and record it in `RowsBloomFilterFiltered`. The value of `RowsBloomFilterFiltered` is the difference between the total number of rows of the Segment (not the number of rows filtered by the Bitmap index) and the number of remaining rows after BloomFilter, so the data filtered by BloomFilter may overlap with the data filtered by Bitmap.
+  - After that, use the Inverted index to perform precise filtering on the columns containing the inverted index in the query condition, and the number of filtered rows is recorded in `RowsInvertedIndexFiltered`.
+  - After that, according to the equivalent (eq, in, is) condition in the query condition, use the BloomFilter index to filter the data and record it in `RowsBloomFilterFiltered`. The value of `RowsBloomFilterFiltered` is the difference between the total number of rows of the Segment (not the number of rows filtered by the Inverted index) and the number of remaining rows after BloomFilter, so the data filtered by BloomFilter may overlap with the data filtered by inverted index.
   - After that, use the ZoneMap index to filter the data according to the query conditions and delete conditions and record it in `RowsStatsFiltered`.
   - `RowsConditionsFiltered` is the number of rows filtered by various indexes, including the values ​​of `RowsBloomFilterFiltered` and `RowsStatsFiltered`.
   - So far, the Init phase is completed, and the number of rows filtered by the condition to be deleted in the Next phase is recorded in `RowsDelFiltered`. Therefore, the number of rows actually filtered by the delete condition are recorded in `RowsStatsFiltered` and `RowsDelFiltered` respectively.

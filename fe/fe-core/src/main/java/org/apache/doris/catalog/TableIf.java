@@ -85,6 +85,8 @@ public interface TableIf {
 
     List<Column> getBaseSchema();
 
+    List<Column> getSchemaAllIndexes(boolean full);
+
     default List<Column> getBaseSchemaOrEmpty() {
         try {
             return getBaseSchema();
@@ -123,6 +125,8 @@ public interface TableIf {
 
     long getRowCount();
 
+    long fetchRowCount();
+
     long getDataLength();
 
     long getAvgRowLength();
@@ -135,7 +139,10 @@ public interface TableIf {
 
     BaseAnalysisTask createAnalysisTask(AnalysisInfo info);
 
-    long estimatedRowCount();
+    // For empty table, nereids require getting 1 as row count. This is a wrap function for nereids to call getRowCount.
+    default long getRowCountForNereids() {
+        return Math.max(getRowCount(), 1);
+    }
 
     DatabaseIf getDatabase();
 

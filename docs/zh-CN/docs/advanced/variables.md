@@ -389,11 +389,11 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `system_time_zone`
 
-  显示当前系统时区。不可更改。
+  集群初始化时设置为当前系统时区。不可更改。
 
 - `time_zone`
 
-  用于设置当前会话的时区。时区会对某些时间函数的结果产生影响。关于时区，可以参阅 [这里](./time-zone.md)。
+  用于设置当前会话的时区。默认值为 `system_time_zone` 的值。时区会对某些时间函数的结果产生影响。关于时区，可以参阅 [时区](./time-zone)文档。
 
 - `tx_isolation`
 

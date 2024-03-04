@@ -33,6 +33,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
+#include "runtime/query_statistics.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep

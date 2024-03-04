@@ -67,6 +67,7 @@ Status LoadPathMgr::init() {
     _path_vec.clear();
     for (auto& path : _exec_env->store_paths()) {
         _path_vec.push_back(path.path + "/" + MINI_PREFIX);
+        io::global_local_filesystem()->create_directory(_path_vec.back());
     }
     LOG(INFO) << "Load path configured to [" << boost::join(_path_vec, ",") << "]";
 

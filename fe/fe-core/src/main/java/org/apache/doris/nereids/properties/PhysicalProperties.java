@@ -93,6 +93,14 @@ public class PhysicalProperties {
         return new PhysicalProperties(distributionSpecHash);
     }
 
+    public static PhysicalProperties createAnyFromHash(DistributionSpecHash childSpec) {
+        if (childSpec.getShuffleType() == ShuffleType.NATURAL) {
+            return PhysicalProperties.STORAGE_ANY;
+        } else {
+            return PhysicalProperties.ANY;
+        }
+    }
+
     public PhysicalProperties withOrderSpec(OrderSpec orderSpec) {
         return new PhysicalProperties(distributionSpec, orderSpec);
     }

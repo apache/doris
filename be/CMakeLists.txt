@@ -107,6 +107,10 @@ execute_process(COMMAND bash "-c" "uname -m"
                 OUTPUT_STRIP_TRAILING_WHITESPACE)
 message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
 
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "aarch64" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "arm64")
+    set (ARCH_ARM 1)
+endif()
+
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/..")
@@ -302,6 +306,7 @@ if (RECORD_COMPILER_SWITCHES)
     add_compile_options(-frecord-gcc-switches)
 endif()
 
+# simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
     if (USE_AVX2)
@@ -309,12 +314,13 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
     endif()
 endif()
 
+if (ARCH_ARM)
+    add_compile_options(-march=armv8-a+crc)
+endif()
+#
+
 if (WITH_MYSQL)
     add_compile_options(-DDORIS_WITH_MYSQL)
-endif()
-
-if (WITH_LZO)
-    add_compile_options(-DDORIS_WITH_LZO)
 endif()
 
 # Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
@@ -464,6 +470,7 @@ set(AWS_LIBS
     aws-c-compression
     aws-c-http
     aws-c-mqtt
+    aws-c-sdkutils
     aws-sdk-s3-crt)
 
 if (OS_MACOSX)
@@ -626,10 +633,6 @@ set(DORIS_DEPENDENCIES
     ${COMMON_THIRDPARTY}
     ${KRB5_LIBS}
 )
-
-if(WITH_LZO)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} lzo)
-endif()
 
 if (WITH_MYSQL)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)

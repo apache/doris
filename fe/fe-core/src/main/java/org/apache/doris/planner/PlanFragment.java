@@ -33,8 +33,8 @@ import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -144,7 +144,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private Set<RuntimeFilterId> targetRuntimeFilterIds;
 
     // has colocate plan node
-    private boolean hasColocatePlanNode = false;
+    protected boolean hasColocatePlanNode = false;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -169,8 +169,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition,
             Set<RuntimeFilterId> builderRuntimeFilterIds, Set<RuntimeFilterId> targetRuntimeFilterIds) {
         this(id, root, partition);
-        this.builderRuntimeFilterIds = ImmutableSet.copyOf(builderRuntimeFilterIds);
-        this.targetRuntimeFilterIds = ImmutableSet.copyOf(targetRuntimeFilterIds);
+        this.builderRuntimeFilterIds = Sets.newHashSet(builderRuntimeFilterIds);
+        this.targetRuntimeFilterIds = Sets.newHashSet(targetRuntimeFilterIds);
     }
 
     /**

@@ -55,11 +55,22 @@ public class Optimizer {
                 cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         serializeStatUsed(cascadesContext.getConnectContext());
+        boolean optimizeWithUnknownColStats = false;
+        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
+            if (ConnectContext.get().getStatementContext().isHasUnknownColStats()) {
+                optimizeWithUnknownColStats = true;
+            }
+        }
         // DPHyp optimize
+        int maxTableCount = getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+        if (optimizeWithUnknownColStats) {
+            // if column stats are unknown, 10~20 table-join is optimized by cascading framework
+            maxTableCount = 2 * maxTableCount;
+        }
         int maxJoinCount = cascadesContext.getMemo().countMaxContinuousJoin();
         cascadesContext.getStatementContext().setMaxContinuousJoin(maxJoinCount);
         boolean isDpHyp = getSessionVariable().enableDPHypOptimizer
-                || maxJoinCount > getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+                || maxJoinCount > maxTableCount;
         cascadesContext.getStatementContext().setDpHyp(isDpHyp);
         cascadesContext.getStatementContext().setOtherJoinReorder(false);
         if (!getSessionVariable().isDisableJoinReorder() && isDpHyp
@@ -74,7 +85,6 @@ public class Optimizer {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
-    // DependsRules: EnsureProjectOnTopJoin.class
     private void dpHypOptimize() {
         Group root = cascadesContext.getMemo().getRoot();
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group

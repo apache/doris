@@ -41,7 +41,8 @@ import java.util.concurrent.ExecutorService;
 /**
  * Cache meta of external catalog
  * 1. Meta for hive meta store, mainly for partition.
- * 2. Table Schema cahce.
+ * 2. Table Schema cache.
+ * 3. Row count cache.
  */
 public class ExternalMetaCacheMgr {
     private static final Logger LOG = LogManager.getLogger(ExternalMetaCacheMgr.class);
@@ -55,6 +56,8 @@ public class ExternalMetaCacheMgr {
     private ExecutorService executor;
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
+    // all external table row count cache.
+    private ExternalRowCountCache rowCountCache;
     private final IcebergMetadataCacheMgr icebergMetadataCacheMgr;
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
 
@@ -65,6 +68,7 @@ public class ExternalMetaCacheMgr {
                 "ExternalMetaCacheMgr", 120, true);
         hudiPartitionMgr = HudiPartitionMgr.get(executor);
         fsCache = new FileSystemCache(executor);
+        rowCountCache = new ExternalRowCountCache(executor);
         icebergMetadataCacheMgr = new IcebergMetadataCacheMgr();
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
     }
@@ -109,6 +113,10 @@ public class ExternalMetaCacheMgr {
 
     public FileSystemCache getFsCache() {
         return fsCache;
+    }
+
+    public ExternalRowCountCache getRowCountCache() {
+        return rowCountCache;
     }
 
     public void removeCache(long catalogId) {

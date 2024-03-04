@@ -86,11 +86,15 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
             state, block, &eos,
             std::bind(&UnionSourceOperator::pull_data, this, std::placeholders::_1,
                       std::placeholders::_2, std::placeholders::_3)));
-    //have exectue const expr, queue have no data any more, and child could be colsed
-    if (eos || (!_has_data() && _data_queue->is_all_finish())) {
+    //have executing const expr, queue have no data anymore, and child could be closed.
+    if (eos) { // reach limit
         source_state = SourceState::FINISHED;
     } else if (_has_data()) {
         source_state = SourceState::MORE_DATA;
+    } else if (_data_queue->is_all_finish()) {
+        // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
+        // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
+        source_state = _has_data() ? SourceState::MORE_DATA : SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
     }

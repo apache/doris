@@ -45,6 +45,7 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSslContext;
+import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -285,12 +286,18 @@ public class ConnectContext {
     }
 
     public ConnectContext(StreamConnection connection) {
+        this(connection, false);
         state = new QueryState();
         returnRows = 0;
+    }
+
+    public ConnectContext(StreamConnection connection, boolean isProxy) {
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         isKilled = false;
         if (connection != null) {
-            mysqlChannel = new MysqlChannel(connection);
+            mysqlChannel = new MysqlChannel(connection, this);
+        } else if (isProxy) {
+            mysqlChannel = new ProxyMysqlChannel();
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
@@ -822,7 +829,7 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(int connId, long nowMs) {
+        public List<String> toRow(int connId, long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
             if (connId == connectionId) {
                 row.add("Yes");
@@ -850,6 +857,11 @@ public class ConnectContext {
             } else {
                 row.add("");
             }
+
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
+
             return row;
         }
     }
@@ -889,6 +901,14 @@ public class ConnectContext {
 
     public String getWorkloadGroupName() {
         return this.workloadGroupName;
+    }
+
+    public int getNetReadTimeout() {
+        return this.sessionVariable.getNetReadTimeout();
+    }
+
+    public int getNetWriteTimeout() {
+        return this.sessionVariable.getNetWriteTimeout();
     }
 
 }

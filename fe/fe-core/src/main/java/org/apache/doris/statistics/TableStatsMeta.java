@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -37,6 +38,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -66,6 +68,12 @@ public class TableStatsMeta implements Writable {
 
     @SerializedName("trigger")
     public JobType jobType;
+
+    @SerializedName("newPartitionLoaded")
+    public AtomicBoolean newPartitionLoaded = new AtomicBoolean(false);
+
+    @SerializedName("userInjected")
+    public boolean userInjected;
 
     @VisibleForTesting
     public TableStatsMeta() {
@@ -125,13 +133,15 @@ public class TableStatsMeta implements Writable {
 
     public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
+        userInjected = analyzedJob.userInject;
         String colNameStr = analyzedJob.colName;
         // colName field AnalyzeJob's format likes: "[col1, col2]", we need to remove brackets here
         // TODO: Refactor this later
         if (analyzedJob.colName.startsWith("[") && analyzedJob.colName.endsWith("]")) {
             colNameStr = colNameStr.substring(1, colNameStr.length() - 1);
         }
-        List<String> cols = Arrays.stream(colNameStr.split(",")).map(String::trim).collect(Collectors.toList());
+        List<String> cols = Arrays.stream(colNameStr.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
         for (String col : cols) {
             ColStatsMeta colStatsMeta = colNameToColStatsMeta.get(col);
             if (colStatsMeta == null) {
@@ -147,13 +157,22 @@ public class TableStatsMeta implements Writable {
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
-                rowCount = tableIf.getRowCount();
+                rowCount = analyzedJob.emptyJob ? 0 : tableIf.getRowCount();
             }
             if (!analyzedJob.emptyJob && analyzedJob.colToPartitions.keySet()
                     .containsAll(tableIf.getBaseSchema().stream()
                             .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                             .map(Column::getName).collect(Collectors.toSet()))) {
                 updatedRows.set(0);
+                newPartitionLoaded.set(false);
+            }
+            if (tableIf instanceof OlapTable) {
+                PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
+                if (partitionInfo != null && analyzedJob.colToPartitions.keySet()
+                        .containsAll(partitionInfo.getPartitionColumns().stream()
+                            .map(Column::getName).collect(Collectors.toSet()))) {
+                    newPartitionLoaded.set(false);
+                }
             }
         }
     }

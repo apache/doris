@@ -156,6 +156,10 @@ public abstract class AlterJobV2 implements Writable {
         this.finishedTimeMs = finishedTimeMs;
     }
 
+    public String getRawSql() {
+        return rawSql;
+    }
+
     // /api/debug_point/add/{name}?value=100
     private void stateWait(final String name) {
         long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);

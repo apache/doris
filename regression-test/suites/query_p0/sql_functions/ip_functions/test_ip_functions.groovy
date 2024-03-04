@@ -17,9 +17,9 @@
 suite("test_ip_functions") {
     sql "set batch_size = 4096;"
 
-    qt_sql "SELECT ipv4numtostring(-1);"
-    qt_sql "SELECT ipv4numtostring(2130706433);"
-    qt_sql "SELECT ipv4numtostring(4294967298);"
+    qt_sql "SELECT ipv4_num_to_string(-1);"
+    qt_sql "SELECT ipv4_num_to_string(2130706433);"
+    qt_sql "SELECT ipv4_num_to_string(4294967298);"
     qt_sql "SELECT inet_ntoa(3232235521);"
 
 }

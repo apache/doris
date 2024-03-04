@@ -367,9 +367,11 @@ public:
     bool is_stateful() const override { return false; }
     bool is_variadic() const override { return false; }
 
-    /// Default implementation. Will check only in non-variadic case.
+    // Default implementation. Will check only in non-variadic case.
     void check_number_of_arguments(size_t number_of_arguments) const override;
-
+    // the return type should be same with what FE plans.
+    // it returns: `get_return_type_impl` if `use_default_implementation_for_nulls` = false
+    //  `get_return_type_impl` warpped in NULL if `use_default_implementation_for_nulls` = true and input has NULL
     DataTypePtr get_return_type(const ColumnsWithTypeAndName& arguments) const;
 
     DataTypes get_variadic_argument_types() const override {
@@ -383,7 +385,9 @@ public:
     }
 
 protected:
-    /// Get the result type by argument type. If the function does not apply to these arguments, throw an exception.
+    // Get the result type by argument type. If the function does not apply to these arguments, throw an exception.
+    // the get_return_type_impl and its overrides should only return the nested type if `use_default_implementation_for_nulls` is true.
+    // whether to wrap in nullable type will be automatically decided.
     virtual DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const {
         DataTypes data_types(arguments.size());
         for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
@@ -400,7 +404,7 @@ protected:
       *  if some of arguments are Nullable(Nothing) then don't call get_return_type(), call build_impl() with return_type = Nullable(Nothing),
       *  if some of arguments are Nullable, then:
       *   - Nullable types are substituted with nested types for get_return_type() function
-      *   - wrap get_return_type() result in Nullable type and pass to build_impl
+      *   - WRAP get_return_type() RESULT IN NULLABLE type and pass to build_impl
       *
       * Otherwise build returns build_impl(arguments, get_return_type(arguments));
       */

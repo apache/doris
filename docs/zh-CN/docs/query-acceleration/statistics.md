@@ -66,8 +66,14 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回JOB ID。
 - sample percent | rows：抽样收集统计信息。可以指定抽样比例或者抽样行数。
 
+默认情况下（不指定WITH SAMPLE)，会对一张表全量采样。 对于比较大的表（5GiB以上），从集群资源的角度出发，一般情况下我们建议采样收集，采样的行数建议不低于400万行。下面是一些例子
 
-下面是一些例子
+对一张表全量收集统计信息：
+
+```sql
+ANALYZE TABLE lineitem;
+```
+
 
 对一张表按照10%的比例采样收集统计数据：
 
@@ -87,7 +93,7 @@ ANALYZE TABLE lineitem WITH SAMPLE ROWS 100000;
 
 此功能从2.0.3开始正式支持，默认为全天开启状态。下面对其基本运行逻辑进行阐述，在每次导入事务提交后，Doris将记录本次导入事务更新的表行数用以估算当前已有表的统计数据的健康度（对于没有收集过统计数据的表，其健康度为0）。当表的健康度低于60（可通过参数`table_stats_health_threshold`调节）时，Doris会认为该表的统计信息已经过时，并在之后触发对该表的统计信息收集作业。而对于统计信息健康度高于60的表，则不会重复进行收集。
 
-统计信息的收集作业本身需要占用一定的系统资源，为了尽可能降低开销，对于数据量较大（默认为5GiB，可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为）的表，Doris会自动采取采样的方式去收集，自动采样默认采样4194304(2^22)行，以尽可能降低对系统造成的负担并尽快完成收集作业。如果希望采样更多的行以获得更准确的数据分布信息，可通过调整参数`huge_table_default_sample_rows`增大采样行数。另外对于数据量大于`huge_table_lower_bound_size_in_bytes` * 5 的表，Doris保证其收集时间间隔不小于12小时（该时间可通过调整参数`huge_table_auto_analyze_interval_in_millis`控制）。
+统计信息的收集作业本身需要占用一定的系统资源，为了尽可能降低开销，Doris会使用采样的方式去收集，自动采样默认采样4194304(2^22)行，以尽可能降低对系统造成的负担并尽快完成收集作业。如果希望采样更多的行以获得更准确的数据分布信息，可通过调整参数`huge_table_default_sample_rows`增大采样行数。用户还可通过参数控制小表全量收集，大表收集时间间隔等行为。详细配置请参考详[3.1](statistics.md#31-会话变量)。
 
 如果担心自动收集作业对业务造成干扰，可结合自身需求通过设置参数`auto_analyze_start_time`和参数`auto_analyze_end_time`指定自动收集作业在业务负载较低的时间段执行。也可以通过设置参数`enable_auto_analyze` 为`false`来彻底关闭本功能。
 
@@ -303,7 +309,7 @@ mysql> KILL ANALYZE 52357;
 |huge_table_auto_analyze_interval_in_millis|控制对大表的自动ANALYZE的最小时间间隔，在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes * 5的表仅ANALYZE一次|0|
 |table_stats_health_threshold|取值在0-100之间，当自上次统计信息收集操作之后，数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时|60|
 |analyze_timeout|控制ANALYZE超时时间，单位为秒|43200|
-|auto_analyze_table_width_threshold|控制自动统计信息收集处理的最大表宽度，列数大于该值的表不会参与自动统计信息收集|70|
+|auto_analyze_table_width_threshold|控制自动统计信息收集处理的最大表宽度，列数大于该值的表不会参与自动统计信息收集|100|
 
 <br/>
 

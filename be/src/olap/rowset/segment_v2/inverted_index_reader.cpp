@@ -177,6 +177,17 @@ void InvertedIndexReader::get_analyse_result(std::vector<std::string>& analyse_r
     }
 }
 
+Status InvertedIndexReader::get_index_search(OlapReaderStatistics* stats,
+                                             IndexSearcherPtr& index_searcher,
+                                             const std::string& index_dir,
+                                             const std::string& index_file_name) {
+    InvertedIndexCacheHandle inverted_index_cache_handle;
+    RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->get_index_searcher(
+            _fs, index_dir, index_file_name, &inverted_index_cache_handle, stats));
+    index_searcher = inverted_index_cache_handle.get_index_searcher();
+    return Status::OK();
+}
+
 Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
                                              lucene::store::Directory* dir) {
     lucene::store::IndexInput* null_bitmap_in = nullptr;
@@ -197,7 +208,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 
         if (!dir) {
             dir = new DorisCompoundReader(
-                    DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
+                    DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
                     index_file_name.c_str(), config::inverted_index_read_buffer_size);
             owned_dir = true;
         }
@@ -293,19 +304,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             }
         }
 
-        // check index file existence
-        if (!indexExists(index_file_path)) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                    "inverted index path: {} not exist.", index_file_path.string());
-        }
-
-        auto get_index_search = [this, &index_dir, &index_file_name, &stats]() {
-            InvertedIndexCacheHandle inverted_index_cache_handle;
-            static_cast<void>(InvertedIndexSearcherCache::instance()->get_index_searcher(
-                    _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats));
-            return inverted_index_cache_handle.get_index_searcher();
-        };
-
+        IndexSearcherPtr index_searcher = nullptr;
         std::unique_ptr<lucene::search::Query> query;
         std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
 
@@ -336,7 +335,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             } else {
                 stats->inverted_index_query_cache_miss++;
 
-                auto index_searcher = get_index_search();
+                RETURN_IF_ERROR(get_index_search(stats, index_searcher, index_dir.c_str(),
+                                                 index_file_name));
 
                 term_match_bitmap = std::make_shared<roaring::Roaring>();
 
@@ -387,7 +387,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             } else {
                 stats->inverted_index_query_cache_miss++;
 
-                auto index_searcher = get_index_search();
+                RETURN_IF_ERROR(get_index_search(stats, index_searcher, index_dir.c_str(),
+                                                 index_file_name));
 
                 term_match_bitmap = std::make_shared<roaring::Roaring>();
 
@@ -422,7 +423,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                 } else {
                     stats->inverted_index_query_cache_miss++;
 
-                    auto index_searcher = get_index_search();
+                    RETURN_IF_ERROR(get_index_search(stats, index_searcher, index_dir.c_str(),
+                                                     index_file_name));
 
                     term_match_bitmap = std::make_shared<roaring::Roaring>();
                     // unique_ptr with custom deleter
@@ -625,12 +627,6 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
         stats->inverted_index_query_cache_miss++;
     }
 
-    // check index file existence
-    if (!indexExists(index_file_path)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "inverted index path: {} not exist.", index_file_path.string());
-    }
-
     switch (query_type) {
     case InvertedIndexQueryType::MATCH_ANY_QUERY:
     case InvertedIndexQueryType::MATCH_ALL_QUERY:
@@ -661,10 +657,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     }
 
     roaring::Roaring result;
-    InvertedIndexCacheHandle inverted_index_cache_handle;
-    InvertedIndexSearcherCache::instance()->get_index_searcher(
-            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats);
-    auto index_searcher = inverted_index_cache_handle.get_index_searcher();
+    IndexSearcherPtr index_searcher = nullptr;
+    RETURN_IF_ERROR(get_index_search(stats, index_searcher, index_dir.c_str(), index_file_name));
 
     // try to reuse index_searcher's directory to read null_bitmap to cache
     // to avoid open directory additionally for null_bitmap
@@ -734,8 +728,8 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
     }
     _file_full_path = index_file;
     _compoundReader = std::make_unique<DorisCompoundReader>(
-            DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str(),
-            config::inverted_index_read_buffer_size);
+            DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()),
+            index_file_name.c_str(), config::inverted_index_read_buffer_size);
 }
 
 Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
@@ -1095,14 +1089,18 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
                                                        uint32_t segment_num_rows,
                                                        roaring::Roaring* bit_map, bool skip_try) {
     if (!skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
-        auto query_bkd_limit_percent = config::query_bkd_inverted_index_limit_percent;
-        uint32_t hit_count = 0;
-        RETURN_IF_ERROR(
-                try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
-        if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                    "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}", hit_count,
-                    query_bkd_limit_percent, segment_num_rows);
+        if (_runtime_state->query_options().inverted_index_skip_threshold > 0 &&
+            _runtime_state->query_options().inverted_index_skip_threshold < 100) {
+            auto query_bkd_limit_percent =
+                    _runtime_state->query_options().inverted_index_skip_threshold;
+            uint32_t hit_count = 0;
+            RETURN_IF_ERROR(
+                    try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
+            if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                        "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}",
+                        hit_count, query_bkd_limit_percent, segment_num_rows);
+            }
         }
     }
 

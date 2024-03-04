@@ -88,7 +88,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String COLLATION_CONNECTION = "collation_connection";
     public static final String COLLATION_DATABASE = "collation_database";
     public static final String COLLATION_SERVER = "collation_server";
-    public static final String SQL_AUTO_IS_NULL = "SQL_AUTO_IS_NULL";
+    public static final String SQL_AUTO_IS_NULL = "sql_auto_is_null";
     public static final String SQL_SELECT_LIMIT = "sql_select_limit";
     public static final String MAX_ALLOWED_PACKET = "max_allowed_packet";
     public static final String AUTO_INCREMENT_INCREMENT = "auto_increment_increment";
@@ -210,6 +210,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
+    public static final String ENABLE_BUCKET_SHUFFLE_DOWNGRADE = "enable_bucket_shuffle_downgrade";
+
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
@@ -240,6 +242,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+    public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
@@ -404,6 +407,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
+    public static final String INVERTED_INDEX_SKIP_THRESHOLD = "inverted_index_skip_threshold";
+
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
     public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
@@ -433,6 +438,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TABLE_STATS_HEALTH_THRESHOLD
             = "table_stats_health_threshold";
+
+    public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
+
+    public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
+
+    public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
+    public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -629,6 +642,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_DOWNGRADE, needForward = true)
+    public boolean enableBucketShuffleDownGrade = false;
+
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
 
@@ -726,7 +742,8 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     private boolean enableSharedScan = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL,
+            needForward = true)
     public boolean enableAggState = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
@@ -761,7 +778,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterSize = 2097152;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
-    private int runtimeBloomFilterMinSize = 1048576;
+    private int runtimeBloomFilterMinSize = 2048;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
     private int runtimeBloomFilterMaxSize = 16777216;
@@ -964,6 +981,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
     public boolean enableNewShuffleHashMethod = true;
 
+    @VariableMgr.VarAttr(name = "nereids_timeout_second", needForward = true)
+    public int nereidsTimeoutSecond = 5;
+
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
 
@@ -1016,6 +1036,17 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkExternalAggBytesThreshold", fuzzy = true)
     public long externalAggBytesThreshold = 0;
 
+    public boolean isEnableLeftZigZag() {
+        return enableLeftZigZag;
+    }
+
+    public void setEnableLeftZigZag(boolean enableLeftZigZag) {
+        this.enableLeftZigZag = enableLeftZigZag;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_LEFT_ZIG_ZAG)
+    private boolean enableLeftZigZag = false;
+
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 8;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
@@ -1059,6 +1090,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
+
+    // Whether enable pushdown minmax to scan node of unique table.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
+        "是否启用pushdown minmax on unique table。", "Set whether to pushdown minmax on unique table."})
+    public boolean enablePushDownMinMaxOnUnique = false;
+
+    // Whether enable push down string type minmax to scan node.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = {
+        "是否启用string类型min max下推。", "Set whether to enable push down string type minmax."})
+    public boolean enablePushDownStringMinMax = false;
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -1199,6 +1240,13 @@ public class SessionVariable implements Serializable, Writable {
                     + " thereby controlling query performance"})
     public int invertedIndexMaxExpansions = 50;
 
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_SKIP_THRESHOLD,
+                description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
+                        "In the inverted index,"
+                        + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
+                        + " then skip the index and proceed directly to matching."})
+    public int invertedIndexSkipThreshold = 50;
+
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
@@ -1219,7 +1267,7 @@ public class SessionVariable implements Serializable, Writable {
                 "Maximum table width to enable auto analyze, "
                     + "table with more columns than this value will not be auto analyzed."},
             flag = VariableMgr.GLOBAL)
-    public int autoAnalyzeTableWidthThreshold = 70;
+    public int autoAnalyzeTableWidthThreshold = 100;
 
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的开始时间",
@@ -1284,7 +1332,16 @@ public class SessionVariable implements Serializable, Writable {
                             + "considered outdated."})
     public int tableStatsHealthThreshold = 60;
 
+    @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
+            description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
+    private boolean forceJniScanner = false;
+
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
+
+    @VariableMgr.VarAttr(name = SHOW_ALL_FE_CONNECTION,
+            description = {"when it's true show processlist statement list all fe's connection",
+                    "当变量为true时，show processlist命令展示所有fe的连接"})
+    public boolean showAllFeConnection = false;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         return Arrays.stream(ignoreRuntimeFilterIds.split(",[\\s]*"))
@@ -1730,6 +1787,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableBucketShuffleJoin;
     }
 
+    public boolean isEnableBucketShuffleDownGrade() {
+        return enableBucketShuffleDownGrade;
+    }
+
     public boolean isEnableOdbcTransaction() {
         return enableOdbcTransaction;
     }
@@ -2000,7 +2061,7 @@ public class SessionVariable implements Serializable, Writable {
         return forbidUnknownColStats;
     }
 
-    public void setForbidUnownColStats(boolean forbid) {
+    public void setForbidUnknownColStats(boolean forbid) {
         forbidUnknownColStats = forbid;
     }
 
@@ -2173,6 +2234,18 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDisableJoinReorder(boolean disableJoinReorder) {
         this.disableJoinReorder = disableJoinReorder;
+    }
+
+    public boolean isEnablePushDownMinMaxOnUnique() {
+        return enablePushDownMinMaxOnUnique;
+    }
+
+    public void setEnablePushDownMinMaxOnUnique(boolean enablePushDownMinMaxOnUnique) {
+        this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
+    }
+
+    public boolean isEnablePushDownStringMinMax() {
+        return enablePushDownStringMinMax;
     }
 
     /**
@@ -2446,6 +2519,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setFasterFloatConvert(fasterFloatConvert);
 
+        tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
         return tResult;
     }
 
@@ -2715,6 +2790,14 @@ public class SessionVariable implements Serializable, Writable {
         VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 
+    public void disableNereidsJoinReorderOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("true")));
+    }
+
     // return number of variables by given experimental type
     public int getVariableNumByExperimentalType(ExperimentalType type) {
         int num = 0;
@@ -2771,6 +2854,18 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Parse analyze start/end time format fail", e);
             throw new UnsupportedOperationException("Expect format: HH:mm:ss");
         }
+    }
+
+    public boolean isForceJniScanner() {
+        return forceJniScanner;
+    }
+
+    public void setForceJniScanner(boolean force) {
+        forceJniScanner = force;
+    }
+
+    public boolean getShowAllFeConnection() {
+        return this.showAllFeConnection;
     }
 }
 

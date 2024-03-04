@@ -173,7 +173,7 @@ RAGEL_SOURCE=ragel-6.10
 RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
 
 # boost
-BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.gz"
+BOOST_DOWNLOAD="https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.gz"
 BOOST_NAME=boost_1_81_0.tar.gz
 BOOST_SOURCE=boost_1_81_0
 BOOST_MD5SUM="4bf02e84afb56dfdccd1e6aec9911f4b"
@@ -263,10 +263,10 @@ BITSHUFFLE_SOURCE=bitshuffle-0.5.1
 BITSHUFFLE_MD5SUM="b3bf6a9838927f7eb62214981c138e2f"
 
 # croaringbitmap
-CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v0.4.0.tar.gz"
-CROARINGBITMAP_NAME=CRoaring-0.4.0.tar.gz
-CROARINGBITMAP_SOURCE=CRoaring-0.4.0
-CROARINGBITMAP_MD5SUM="7c5cb6f2089cedc5ad9373f538a83334"
+CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v2.1.2.tar.gz"
+CROARINGBITMAP_NAME=CRoaring-2.1.2.tar.gz
+CROARINGBITMAP_SOURCE=CRoaring-2.1.2
+CROARINGBITMAP_MD5SUM="419bfbafdf93e9a7e6cdc234454908fc"
 
 # fmt
 FMT_DOWNLOAD="https://github.com/fmtlib/fmt/archive/7.1.3.tar.gz"
@@ -332,10 +332,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.272.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.9.272.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.9.272"
-AWS_SDK_MD5SUM="3a9190e3d14b81bfdd9c41a89a419202"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.119.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.119.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.119"
+AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -459,10 +459,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.5-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.4.5-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.5-for-doris"
-HADOOP_LIBS_MD5SUM="15b7be1747b27c37923b0cb9db6cff8c"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.1-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.6.1-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.1-for-doris"
+HADOOP_LIBS_MD5SUM="8a4455b07f5df2bb10a2718c957972b8"
 
 # libdragonbox for faster double/float to string
 DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
