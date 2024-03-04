@@ -116,11 +116,11 @@ suite("test_hive_default_partition", "p2,external,hive,external_remote,external_
         }
         explain {
             sql("${one_partition3}")
-            contains "partition=3/3"
+            contains "partition=2/3"
         }
         explain {
             sql("${one_partition4}")
-            contains "partition=3/3"
+            contains "partition=2/3"
         }
         explain {
             sql("${one_partition5}")
@@ -137,47 +137,47 @@ suite("test_hive_default_partition", "p2,external,hive,external_remote,external_
         }
         explain {
             sql("${two_partition2}")
-            contains "partition=3/4"
+            contains "partition=2/4"
         }
         explain {
             sql("${two_partition3}")
-            contains "partition=4/4"
+            contains "partition=2/4"
         }
         explain {
             sql("${two_partition4}")
-            contains "partition=3/4"
+            contains "partition=2/4"
         }
         explain {
             sql("${two_partition5}")
-            contains "partition=4/4"
+            contains "partition=2/4"
         }
         explain {
             sql("${two_partition6}")
-            contains "partition=4/4"
+            contains "partition=1/4"
         }
         explain {
             sql("${two_partition7}")
-            contains "partition=3/4"
+            contains "partition=1/4"
         }
         explain {
             sql("${two_partition8}")
-            contains "partition=3/4"
+            contains "partition=1/4"
         }
         explain {
             sql("${two_partition9}")
-            contains "partition=3/4"
+            contains "partition=1/4"
         }
         explain {
             sql("${two_partition10}")
-            contains "partition=4/4"
+            contains "partition=3/4"
         }
         explain {
             sql("${two_partition11}")
-            contains "partition=4/4"
+            contains "partition=3/4"
         }
         explain {
             sql("${two_partition12}")
-            contains "partition=4/4"
+            contains "partition=3/4"
         }
         explain {
             sql("${two_partition13}")
@@ -185,7 +185,7 @@ suite("test_hive_default_partition", "p2,external,hive,external_remote,external_
         }
         explain {
             sql("${two_partition14}")
-            contains "partition=4/4"
+            contains "partition=3/4"
         }
         explain {
             sql("${two_partition15}")
@@ -193,15 +193,15 @@ suite("test_hive_default_partition", "p2,external,hive,external_remote,external_
         }
         explain {
             sql("${two_partition16}")
-            contains "partition=4/4"
+            contains "partition=2/4"
         }
         explain {
             sql("${two_partition17}")
-            contains "partition=3/4"
+            contains "partition=1/4"
         }
         explain {
             sql("${two_partition18}")
-            contains "partition=4/4"
+            contains "partition=1/4"
         }
 
         explain {
