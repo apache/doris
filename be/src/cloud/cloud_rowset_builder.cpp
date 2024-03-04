@@ -62,6 +62,8 @@ Status CloudRowsetBuilder::init() {
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
     // New loaded data is always written to latest shared storage
+    // TODO(AlexYue): use the passed resource id to retrive the corresponding
+    // fs to pass to the RowsetWriterContext
     context.fs = _engine.latest_fs();
     context.rowset_dir = _tablet->tablet_path();
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));

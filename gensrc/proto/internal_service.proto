@@ -103,6 +103,7 @@ message PTabletWriterOpenRequest {
     optional bool is_incremental = 15 [default = false];
     optional int64 txn_expiration = 16; // Absolute time
     optional bool write_file_cache = 17;
+    optional string storage_vault_id = 18;
 };
 
 message PTabletWriterOpenResult {
