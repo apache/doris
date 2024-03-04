@@ -29,7 +29,9 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Infer output column name when it refers an expression and not has an alias manually.
@@ -38,17 +40,27 @@ public class InferPlanOutputAlias {
 
     private final List<Slot> currentOutputs;
     private final List<NamedExpression> finalOutputs;
+    private final Set<Integer> shouldProcessOutputIndex;
 
+    /** InferPlanOutputAlias */
     public InferPlanOutputAlias(List<Slot> currentOutputs) {
         this.currentOutputs = currentOutputs;
         this.finalOutputs = new ArrayList<>(currentOutputs);
+        this.shouldProcessOutputIndex = new HashSet<>();
+        for (int i = 0; i < currentOutputs.size(); i++) {
+            shouldProcessOutputIndex.add(i);
+        }
     }
 
     /** infer */
     public List<NamedExpression> infer(Plan plan, ImmutableMultimap<ExprId, Integer> currentExprIdAndIndexMap) {
         ImmutableSet<ExprId> currentOutputExprIdSet = currentExprIdAndIndexMap.keySet();
-        plan.foreach(p -> {
-            for (Expression expression : plan.getExpressions()) {
+        // Breath First Search
+        plan.foreachBreath(childPlan -> {
+            if (shouldProcessOutputIndex.isEmpty()) {
+                return true;
+            }
+            for (Expression expression : ((Plan) childPlan).getExpressions()) {
                 if (!(expression instanceof Alias)) {
                     continue;
                 }
@@ -58,14 +70,22 @@ public class InferPlanOutputAlias {
                 if (currentOutputExprIdSet.contains(projectItem.getExprId())
                         && projectItem.isNameFromChild()) {
                     String inferredAliasName = projectItem.child().getExpressionName();
-                    ImmutableCollection<Integer> outPutExprIndexes = currentExprIdAndIndexMap.get(exprId);
+                    ImmutableCollection<Integer> outputExprIndexes = currentExprIdAndIndexMap.get(exprId);
                     // replace output name by inferred name
-                    for (Integer index : outPutExprIndexes) {
+                    for (Integer index : outputExprIndexes) {
                         Slot slot = currentOutputs.get(index);
                         finalOutputs.set(index, slot.withName("__" + inferredAliasName + "_" + index));
+                        shouldProcessOutputIndex.remove(index);
+
+                        if (shouldProcessOutputIndex.isEmpty()) {
+                            // replace finished
+                            return true;
+                        }
                     }
                 }
             }
+            // continue replace
+            return false;
         });
         return finalOutputs;
     }

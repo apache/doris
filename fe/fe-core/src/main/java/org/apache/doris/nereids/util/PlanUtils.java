@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -123,6 +124,23 @@ public class PlanUtils {
         ImmutableSet<TableIf> resultSet = tableSet.stream().map(e -> e.getTable())
                 .collect(ImmutableSet.toImmutableSet());
         return resultSet;
+    }
+
+    /** fastGetChildrenOutput */
+    public static List<Slot> fastGetChildrenOutputs(List<Plan> children) {
+        int outputNum = 0;
+        // child.output is cached by AbstractPlan.logicalProperties,
+        // we can compute output num without the overhead of re-compute output
+        for (Plan child : children) {
+            List<Slot> output = child.getOutput();
+            outputNum += output.size();
+        }
+        // generate output list only copy once and without resize the list
+        Builder<Slot> output = ImmutableList.builderWithExpectedSize(outputNum);
+        for (Plan child : children) {
+            output.addAll(child.getOutput());
+        }
+        return output.build();
     }
 
     /**

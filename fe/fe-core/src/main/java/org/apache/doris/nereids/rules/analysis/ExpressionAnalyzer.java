@@ -24,6 +24,7 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -70,11 +71,13 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -96,6 +99,7 @@ import java.util.stream.Collectors;
 /** ExpressionAnalyzer */
 public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext> {
 
+    private final Plan currentPlan;
     /*
     bounded={table.a, a}
     unbound=a
@@ -108,14 +112,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      */
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
+    private boolean currentInLambda;
 
-    public ExpressionAnalyzer(List<Scope> scopes, CascadesContext cascadesContext) {
-        this(scopes, cascadesContext, true, true);
-    }
-
-    public ExpressionAnalyzer(List<Scope> scopes, CascadesContext cascadesContext,
+    public ExpressionAnalyzer(Plan currentPlan, Scope scope, CascadesContext cascadesContext,
             boolean enableExactMatch, boolean bindSlotInOuterScope) {
-        super(scopes, cascadesContext);
+        super(scope, cascadesContext);
+        this.currentPlan = currentPlan;
         this.enableExactMatch = enableExactMatch;
         this.bindSlotInOuterScope = bindSlotInOuterScope;
     }
@@ -137,6 +139,17 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         }
         return expr;
+    }
+
+    @Override
+    public Expression visitLambda(Lambda lambda, ExpressionRewriteContext context) {
+        boolean originInLambda = currentInLambda;
+        try {
+            currentInLambda = true;
+            return super.visitLambda(lambda, context);
+        } finally {
+            currentInLambda = originInLambda;
+        }
     }
 
     /* ********************************************************************************************
@@ -176,7 +189,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression child = unboundAlias.child().accept(this, context);
         if (unboundAlias.getAlias().isPresent()) {
             return new Alias(child, unboundAlias.getAlias().get());
-        } else if (child instanceof NamedExpression) {
+            // TODO: the variant bind element_at(slot, 'name') will return a slot, and we should
+            //       assign an Alias to this function, this is trick and should refactor it
+        } else if (!(unboundAlias.child() instanceof ElementAt) && child instanceof NamedExpression) {
             return new Alias(child, ((NamedExpression) child).getName());
         } else {
             return new Alias(child);
@@ -184,28 +199,35 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     @Override
-    public Slot visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
-        Optional<Scope> outerScope = getDefaultScope().getOuterScope();
-        Optional<List<Slot>> boundedOpt = Optional.of(
-                bindSlotByMultiScopes(unboundSlot, getScopes())
-        );
+    public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
+        Optional<Scope> outerScope = getScope().getOuterScope();
+        Optional<List<? extends Expression>> boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
         boolean foundInThisScope = !boundedOpt.get().isEmpty();
         // Currently only looking for symbols on the previous level.
         if (bindSlotInOuterScope && !foundInThisScope && outerScope.isPresent()) {
-            boundedOpt = Optional.of(bindSlot(unboundSlot, outerScope.get()));
+            boundedOpt = Optional.of(bindSlotByScope(unboundSlot, outerScope.get()));
         }
-        List<Slot> bounded = boundedOpt.get();
+        List<? extends Expression> bounded = boundedOpt.get();
         switch (bounded.size()) {
             case 0:
-                // just return, give a chance to bind on another slot.
-                // if unbound finally, check will throw exception
+                if (!currentInLambda) {
+                    String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
+                    if (tableName.isEmpty()) {
+                        tableName = "table list";
+                    }
+                    throw new AnalysisException("Unknown column '"
+                            + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                            + "' in '" + tableName + "' in "
+                            + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause");
+                }
                 return unboundSlot;
             case 1:
-                if (!foundInThisScope
-                        && !outerScope.get().getCorrelatedSlots().contains(bounded.get(0))) {
-                    outerScope.get().getCorrelatedSlots().add(bounded.get(0));
+                Expression firstBound = bounded.get(0);
+                if (!foundInThisScope && firstBound instanceof Slot
+                        && !outerScope.get().getCorrelatedSlots().contains(firstBound)) {
+                    outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
                 }
-                return bounded.get(0);
+                return firstBound;
             default:
                 if (enableExactMatch) {
                     // select t1.k k, t2.k
@@ -219,6 +241,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     // alias_k is exactly matched, since its full name is exactly match full name of order_k
                     // t2.k is not exactly matched, since t2.k's full name is larger than order_k
                     List<Slot> exactMatch = bounded.stream()
+                            .filter(Slot.class::isInstance)
+                            .map(Slot.class::cast)
                             .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
                             .collect(Collectors.toList());
                     if (exactMatch.size() == 1) {
@@ -228,7 +252,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 throw new AnalysisException(String.format("%s is ambiguous: %s.",
                         unboundSlot.toSql(),
                         bounded.stream()
-                                .map(Slot::toString)
+                                .map(Expression::toString)
                                 .collect(Collectors.joining(", "))));
         }
     }
@@ -237,7 +261,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundStar(UnboundStar unboundStar, ExpressionRewriteContext context) {
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
-        List<Slot> slots = getDefaultScope().getSlots()
+        List<Slot> slots = getScope().getSlots()
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || (((SlotReference) slot).isVisible()) || showHidden)
@@ -319,19 +343,28 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
-        Expression boundFunction = visitBoundFunction(elementAt, context);
+        ElementAt boundFunction = (ElementAt) visitBoundFunction(elementAt, context);
         if (PushDownToProjectionFunction.validToPushDown(boundFunction)) {
             if (ConnectContext.get() != null
                     && ConnectContext.get().getSessionVariable() != null
                     && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
                 return boundFunction;
             }
-            Slot slot = elementAt.getInputSlots().stream().findFirst().get();
+            Slot slot = boundFunction.getInputSlots().stream().findFirst().get();
             if (slot.hasUnbound()) {
-                slot = (Slot) super.visit(slot, context);
+                slot = (Slot) slot.accept(this, context);
             }
+            StatementContext statementContext = context.cascadesContext.getStatementContext();
+            Expression originBoundFunction = boundFunction.rewriteUp(expr -> {
+                if (expr instanceof SlotReference) {
+                    Expression originalExpr = statementContext.getOriginalExpr((SlotReference) expr);
+                    return originalExpr == null ? expr : originalExpr;
+                }
+                return expr;
+            });
             // rewrite to slot and bound this slot
-            return PushDownToProjectionFunction.rewriteToSlot(elementAt, (SlotReference) slot);
+            return PushDownToProjectionFunction.rewriteToSlot(
+                    (PushDownToProjectionFunction) originBoundFunction, (SlotReference) slot);
         }
         return boundFunction;
     }
@@ -589,60 +622,22 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return new BoundStar(slots);
     }
 
-    private List<Slot> bindSlotByMultiScopes(UnboundSlot unboundSlot, List<Scope> scopes) {
-        for (Scope candidateScope : scopes) {
-            List<Slot> slots = bindSlot(unboundSlot, candidateScope);
-            if (!slots.isEmpty()) {
-                return slots;
-            }
-        }
-        return ImmutableList.of();
+    protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
+        return bindSlotByScope(unboundSlot, getScope());
     }
 
-    private List<Slot> bindSlot(UnboundSlot unboundSlot, Scope scope) {
-        // return scope.getSlots().stream().distinct().filter(boundSlot -> {
-        //     if (boundSlot instanceof SlotReference
-        //             && ((SlotReference) boundSlot).hasSubColPath()) {
-        //         // already bounded
-        //         return false;
-        //     }
-        //     List<String> nameParts = unboundSlot.getNameParts();
-        //     int qualifierSize = boundSlot.getQualifier().size();
-        //     int namePartsSize = nameParts.size();
-        //     if (namePartsSize > qualifierSize + 1) {
-        //         return false;
-        //     }
-        //     if (namePartsSize == 1) {
-        //         return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
-        //     }
-        //     if (namePartsSize == 2) {
-        //         String qualifierTableName = boundSlot.getQualifier().get(qualifierSize - 1);
-        //         return sameTableName(qualifierTableName, nameParts.get(0))
-        //                 && boundSlot.getName().equalsIgnoreCase(nameParts.get(1));
-        //     }
-        //     if (nameParts.size() == 3) {
-        //         String qualifierTableName = boundSlot.getQualifier().get(qualifierSize - 1);
-        //         String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 2);
-        //         return compareDbName(nameParts.get(0), qualifierDbName)
-        //                 && sameTableName(qualifierTableName, nameParts.get(1))
-        //                 && boundSlot.getName().equalsIgnoreCase(nameParts.get(2));
-        //     }
-        //     // catalog.db.table.column
-        //     if (nameParts.size() == 4) {
-        //         String qualifierTableName = boundSlot.getQualifier().get(qualifierSize - 1);
-        //         String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 2);
-        //         String qualifierCatalogName = boundSlot.getQualifier().get(qualifierSize - 3);
-        //         return qualifierCatalogName.equalsIgnoreCase(nameParts.get(0))
-        //                 && compareDbName(nameParts.get(1), qualifierDbName)
-        //                 && sameTableName(qualifierTableName, nameParts.get(2))
-        //                 && boundSlot.getName().equalsIgnoreCase(nameParts.get(3));
-        //     }
-        //     //TODO: handle name parts more than three.
-        //     throw new AnalysisException("Not supported name: "
-        //             + StringUtils.join(nameParts, "."));
-        // })
-        // .map(s -> s.withName(unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)))
-        // .collect(Collectors.toList());
+    protected List<Slot> bindExactSlotsByThisScope(UnboundSlot unboundSlot, Scope scope) {
+        List<Slot> candidates = bindSlotByScope(unboundSlot, scope);
+        if (candidates.size() == 1) {
+            return candidates;
+        }
+        return Utils.filterImmutableList(candidates, bound ->
+                unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1
+        );
+    }
+
+    /** bindSlotByScope */
+    public List<Slot> bindSlotByScope(UnboundSlot unboundSlot, Scope scope) {
         List<String> nameParts = unboundSlot.getNameParts();
         int namePartSize = nameParts.size();
         switch (namePartSize) {
@@ -723,7 +718,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 .build());
     }
 
-    private boolean shouldSlotBindBy(int namePartSize, Slot boundSlot) {
+    private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {
         if (boundSlot instanceof SlotReference
                 && ((SlotReference) boundSlot).hasSubColPath()) {
             // already bounded
@@ -739,7 +734,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         int namePartSize = 1;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
         for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
-            if (!shouldSlotBindBy(namePartSize, boundSlot)) {
+            if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
             // set sql case as alias
@@ -752,7 +747,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         int namePartSize = 2;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
         for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
-            if (!shouldSlotBindBy(namePartSize, boundSlot)) {
+            if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
             List<String> boundSlotQualifier = boundSlot.getQualifier();
@@ -770,13 +765,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         int namePartSize = 3;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
         for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
-            if (!shouldSlotBindBy(namePartSize, boundSlot)) {
+            if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
             List<String> boundSlotQualifier = boundSlot.getQualifier();
             String boundSlotDb = boundSlotQualifier.get(boundSlotQualifier.size() - 2);
             String boundSlotTable = boundSlotQualifier.get(boundSlotQualifier.size() - 1);
-            if (!compareDbName(boundSlotDb, db) && !sameTableName(boundSlotTable, table)) {
+            if (!compareDbName(boundSlotDb, db) || !sameTableName(boundSlotTable, table)) {
                 continue;
             }
             // set sql case as alias
@@ -789,7 +784,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         int namePartSize = 4;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
         for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
-            if (!shouldSlotBindBy(namePartSize, boundSlot)) {
+            if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
             List<String> boundSlotQualifier = boundSlot.getQualifier();
@@ -797,8 +792,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             String boundSlotDb = boundSlotQualifier.get(boundSlotQualifier.size() - 2);
             String boundSlotTable = boundSlotQualifier.get(boundSlotQualifier.size() - 1);
             if (!boundSlotCatalog.equalsIgnoreCase(catalog)
-                    && !compareDbName(boundSlotDb, db)
-                    && !sameTableName(boundSlotTable, table)) {
+                    || !compareDbName(boundSlotDb, db)
+                    || !sameTableName(boundSlotTable, table)) {
                 continue;
             }
             // set sql case as alias

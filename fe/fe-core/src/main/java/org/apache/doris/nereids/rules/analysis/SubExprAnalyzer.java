@@ -49,19 +49,11 @@ import java.util.Optional;
  * Use the visitor to iterate sub expression.
  */
 class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
-    // some plan maybe bind slots in multi scopes in different priority
-    // example: sort(aggregate()), we try to bind sort.orderKey by Scope(aggregate.output)
-    //          if some orderKeys can not bind, we can try to bind sort.orderKey by
-    //          Scope(aggregate.child.output)
-    private final List<Scope> scopes;
+    private final Scope scope;
     private final CascadesContext cascadesContext;
 
     public SubExprAnalyzer(Scope scope, CascadesContext cascadesContext) {
-        this(ImmutableList.of(scope), cascadesContext);
-    }
-
-    public SubExprAnalyzer(List<Scope> scopes, CascadesContext cascadesContext) {
-        this.scopes = scopes;
+        this.scope = scope;
         this.cascadesContext = cascadesContext;
     }
 
@@ -174,17 +166,13 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     }
 
     private Scope genScopeWithSubquery(SubqueryExpr expr) {
-        return new Scope(getDefaultScope().getOuterScope(),
-                getDefaultScope().getSlots(),
+        return new Scope(getScope().getOuterScope(),
+                getScope().getSlots(),
                 Optional.ofNullable(expr));
     }
 
-    public Scope getDefaultScope() {
-        return scopes.get(0);
-    }
-
-    public List<Scope> getScopes() {
-        return scopes;
+    public Scope getScope() {
+        return scope;
     }
 
     public CascadesContext getCascadesContext() {

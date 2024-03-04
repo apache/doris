@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -336,11 +337,30 @@ public class Utils {
                 // NOTE: ImmutableList.copyOf(list) has additional clone of the list, so here we
                 //       direct generate a ImmutableList
                 Builder<E> copyChildren = ImmutableList.builderWithExpectedSize(originList.size());
-                for (E child : originList) {
-                    copyChildren.add(child);
-                }
+                copyChildren.addAll(originList);
                 return copyChildren.build();
             }
         }
+    }
+
+    /** reverseImmutableList */
+    public static <E> ImmutableList<E> reverseImmutableList(List<? extends E> list) {
+        Builder<E> reverseList = ImmutableList.builderWithExpectedSize(list.size());
+        for (int i = list.size() - 1; i >= 0; i--) {
+            reverseList.add(list.get(i));
+        }
+        return reverseList.build();
+    }
+
+    /** filterImmutableList */
+    public static <E> ImmutableList<E> filterImmutableList(List<? extends E> list, Predicate<E> filter) {
+        Builder<E> newList = ImmutableList.builderWithExpectedSize(list.size());
+        for (int i = 0; i < list.size(); i++) {
+            E item = list.get(i);
+            if (filter.test(item)) {
+                newList.add(item);
+            }
+        }
+        return newList.build();
     }
 }

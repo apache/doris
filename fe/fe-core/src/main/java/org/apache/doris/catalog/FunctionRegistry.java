@@ -98,12 +98,12 @@ public class FunctionRegistry {
                 String combinatorSuffix = AggCombinerFunctionBuilder.getCombinatorSuffix(name);
                 functionBuilders = name2InternalBuiltinBuilders.get(nestedName.toLowerCase());
                 if (functionBuilders != null) {
-                    List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(arguments.size());
+                    List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(functionBuilders.size());
                     for (FunctionBuilder functionBuilder : functionBuilders) {
-                        AggCombinerFunctionBuilder builder
+                        AggCombinerFunctionBuilder combinerBuilder
                                 = new AggCombinerFunctionBuilder(combinatorSuffix, functionBuilder);
-                        if (builder.canApply(arguments)) {
-                            candidateBuilders.add(functionBuilder);
+                        if (combinerBuilder.canApply(arguments)) {
+                            candidateBuilders.add(combinerBuilder);
                         }
                     }
                     functionBuilders = candidateBuilders;

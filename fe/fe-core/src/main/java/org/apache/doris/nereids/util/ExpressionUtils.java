@@ -68,6 +68,7 @@ import com.google.common.collect.Sets;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -609,7 +610,7 @@ public class ExpressionUtils {
         return anyMatch(expressions, type::isInstance);
     }
 
-    public static <E> Set<E> collect(List<? extends Expression> expressions,
+    public static <E> Set<E> collect(Collection<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         return expressions.stream()
                 .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
@@ -649,7 +650,7 @@ public class ExpressionUtils {
                 .collect(Collectors.toSet());
     }
 
-    public static <E> List<E> collectAll(List<? extends Expression> expressions,
+    public static <E> List<E> collectAll(Collection<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         return expressions.stream()
                 .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
@@ -788,5 +789,18 @@ public class ExpressionUtils {
                 return inferred;
             }
         }, null);
+    }
+
+    /** distinctSlotByName */
+    public static List<Slot> distinctSlotByName(List<Slot> slots) {
+        Set<String> existSlotNames = new HashSet<>(slots.size() * 2);
+        Builder<Slot> distinctSlots = ImmutableList.builderWithExpectedSize(slots.size());
+        for (Slot slot : slots) {
+            String name = slot.getName();
+            if (existSlotNames.add(name)) {
+                distinctSlots.add(slot);
+            }
+        }
+        return distinctSlots.build();
     }
 }
