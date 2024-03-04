@@ -22,7 +22,11 @@ import org.apache.doris.common.jni.vec.ColumnType.Type;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorTable;
 
+import com.google.common.util.concurrent.MoreExecutors;
+
+import java.sql.Connection;
 import java.sql.Date;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
@@ -31,6 +35,18 @@ import java.time.LocalDateTime;
 public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
     public SQLServerJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
+    }
+
+    @Override
+    protected boolean abortReadConnection(Connection connection, ResultSet resultSet)
+            throws SQLException {
+        if (!resultSet.isAfterLast()) {
+            // Abort connection before closing. Without this, the SQLServer driver
+            // attempts to drain the connection by reading all the results.
+            connection.abort(MoreExecutors.directExecutor());
+            return true;
+        }
+        return false;
     }
 
     @Override
