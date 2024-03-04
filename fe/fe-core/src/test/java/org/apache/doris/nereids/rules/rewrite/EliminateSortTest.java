@@ -17,11 +17,24 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 /**
  * column prune ut.
@@ -34,6 +47,34 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 + "age int,sex int)\n" + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
+    }
+
+    @Test
+    void testSortRemoveUnderTableSink() {
+        // topN under table sink should not be removed
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .sort(scan.getOutput().stream().map(c -> new OrderKey(c, true, true)).collect(Collectors.toList()))
+                .limit(1, 1).build();
+        plan = new LogicalOlapTableSink<>(new Database(), scan.getTable(), scan.getTable().getBaseSchema(),
+                new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
+                Collectors.toList()), false, DMLCommandType.NONE, plan);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .rewrite()
+                .nonMatch(logicalSort())
+                .matches(logicalTopN());
+
+        // sort under table sink should be removed
+        scan = PlanConstructor.newLogicalOlapScan(0, "t2", 0);
+        plan = new LogicalPlanBuilder(scan)
+                .sort(scan.getOutput().stream().map(c -> new OrderKey(c, true, true)).collect(Collectors.toList()))
+                .build();
+        plan = new LogicalOlapTableSink<>(new Database(), scan.getTable(), scan.getTable().getBaseSchema(),
+                new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
+                Collectors.toList()), false, DMLCommandType.NONE, plan);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .rewrite()
+                .nonMatch(logicalSort());
     }
 
     @Test

@@ -19,9 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
@@ -29,52 +29,39 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Eliminate sort that is not directly below result sink
+ * Eliminate sort that is not directly below result sink, can also eliminate sort under table sink
  * Note we have put limit in sort node so that we don't need to consider limit
  */
 
 public class EliminateSort extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        Boolean eliminateSort = false;
-        return plan.accept(this, eliminateSort);
+        // default eliminate = true
+        return plan.accept(this, true);
     }
 
     @Override
     public Plan visit(Plan plan, Boolean pruneSort) {
-        List<Plan> newChildren = new ArrayList<>();
-        boolean hasNewChildren = false;
-        for (Plan child : plan.children()) {
-            Plan newChild = child.accept(this, true);
-            if (newChild != child) {
-                hasNewChildren = true;
-            }
-            newChildren.add(newChild);
+        if (plan instanceof LogicalTableSink) {
+            return doEliminateSort(plan, true);
         }
-        return hasNewChildren ? plan.withChildren(newChildren) : plan;
+        return doEliminateSort(plan, pruneSort);
     }
 
     @Override
-    public Plan visitLogicalSort(LogicalSort<? extends Plan> sort, Boolean eliminateSort) {
-        if (eliminateSort) {
-            return visit(sort.child(), true);
+    public Plan visitLogicalSort(LogicalSort<? extends Plan> sort, Boolean pruneSort) {
+        if (pruneSort) {
+            return doEliminateSort(sort.child(), true);
         }
-        return visit(sort, true);
+        return doEliminateSort(sort, pruneSort);
     }
 
     @Override
-    public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Boolean eliminateSort) {
-        return skipEliminateSort(project, eliminateSort);
+    public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Boolean context) {
+        return doEliminateSort(logicalResultSink, false);
     }
 
-    @Override
-    public Plan visitLogicalSink(LogicalSink<? extends Plan> sink, Boolean eliminateSort) {
-        // 1. table sink: eliminate -> true
-        // 2. sink -> tablesink -> olaptablesink
-        return skipEliminateSort(sink, eliminateSort);
-    }
-
-    private Plan skipEliminateSort(Plan plan, Boolean eliminateSort) {
+    private Plan doEliminateSort(Plan plan, Boolean eliminateSort) {
         List<Plan> newChildren = new ArrayList<>();
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
