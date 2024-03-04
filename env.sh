@@ -260,7 +260,7 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
 
     # check java home
     if [[ -z "${JAVA_HOME}" ]]; then
-        if [[ "${JDK_17}" ]]; then
+        if [[ -n "${JDK_17}" ]]; then
             echo "Use JDK_17 = ${JDK_17}"
             JAVA="${JDK_17}/bin/java"
             JAVAP="${JDK_17}/bin/javap"
@@ -281,7 +281,7 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
         )"
         if [[ "${java_version}" -ne 17 ]]; then
             echo "JAVA_HOME=${JAVA_HOME}. It does not point to JDK-17."
-            if [[ "${JDK_17}" ]]; then
+            if [[ -n "${JDK_17}" ]]; then
                 echo "Use JDK_17=${JDK_17}."
                 JAVA="${JDK_17}/bin/java"
                 JAVAP="${JDK_17}/bin/javap"
