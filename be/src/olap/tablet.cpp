@@ -173,7 +173,8 @@ struct WriteCooldownMetaExecutors {
     WriteCooldownMetaExecutors(size_t executor_nums = 5);
     ~WriteCooldownMetaExecutors() {
         for (int i = 0; i < _executors.size(); ++i) {
-            _executors[i]->shutdown();
+            // _executors[i]->shutdown();
+            _executors[i]->join();
         }
     }
 
