@@ -1310,6 +1310,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         if (request.isSetTableId() && request.getTableId() > 0) {
             Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
+            if (table == null) {
+                throw new MetaNotFoundException("unknown table, table_id=" + request.getTableId());
+            }
             return Collections.singletonList(table);
         }
 
@@ -1501,7 +1504,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 status.addToErrorMsgs("transaction commit successfully, BUT data will be visible later");
             }
         } catch (UserException e) {
-            LOG.warn("failed to commit txn: {}: {}", request.getTxnId(), e.getMessage());
+            LOG.warn("failed to commit txn: {}", request.getTxnId(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
