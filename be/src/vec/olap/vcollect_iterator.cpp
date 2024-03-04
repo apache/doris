@@ -421,7 +421,9 @@ Status VCollectIterator::_topn_next(Block* block) {
 
                 // update orderby_extrems in query global context
                 auto* query_ctx = _reader->_reader_context.runtime_state->get_query_ctx();
-                RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(new_top));
+                for (int id : _reader->_reader_context.topn_filter_source_node_ids) {
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate(id).update(new_top));
+                }
             }
         } // end of while (read_rows < _topn_limit && !eof)
         VLOG_DEBUG << "topn debug rowset " << i << " read_rows=" << read_rows << " eof=" << eof
