@@ -67,14 +67,18 @@ public class TabletStatMgr extends MasterDaemon {
                             result.getTabletsStatsSize());
                     updateTabletStat(backend.getId(), result);
                     ok = true;
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     LOG.warn("task exec error. backend[{}]", backend.getId(), e);
-                } finally {
+                }
+
+                try {
                     if (ok) {
                         ClientPool.backendPool.returnObject(address, client);
                     } else {
                         ClientPool.backendPool.invalidateObject(address, client);
                     }
+                } catch (Throwable e) {
+                    LOG.warn("client pool recyle error. backend[{}]", backend.getId(), e);
                 }
             });
         }).join();
