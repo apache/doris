@@ -28,7 +28,7 @@
 namespace doris {
 
 // only used in Runtime Filter
-class BitmapFilterFuncBase : public FilterFuncBase {
+class BitmapFilterFuncBase : public RuntimeFilterFuncBase {
 public:
     virtual void insert(const void* data) = 0;
     virtual void insert_many(const std::vector<const BitmapValue*>& bitmaps) = 0;

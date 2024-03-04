@@ -453,7 +453,9 @@ function set_doris_session_variables_from_file() {
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local archive_name="$1"
-    if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
+    if [[ -z ${archive_name} || ${archive_name} != *".tar.gz" ]]; then
+        echo "USAGE: ${FUNCNAME[0]} xxxx.tar.gz" && return 1
+    fi
     local archive_dir="${archive_name%.tar.gz}"
     rm -rf "${DORIS_HOME:?}/${archive_dir}"
     mkdir -p "${DORIS_HOME}/${archive_dir}"
@@ -468,12 +470,18 @@ archive_doris_logs() {
             if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" regression-test/log/* &>/dev/null; then :; fi
             cp --parents -rf "regression-test/log" "${archive_dir}"/
         fi
+        if [[ -d "${DORIS_HOME}"/../regression-test/conf ]]; then
+            # try to hide ak and sk
+            if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" ../regression-test/conf/* &>/dev/null; then :; fi
+            mkdir -p "${archive_dir}"/regression-test/conf
+            cp -rf ../regression-test/conf/* "${archive_dir}"/regression-test/conf/
+        fi
         if [[ -f "${DORIS_HOME}"/session_variables ]]; then
             cp --parents -rf "session_variables" "${archive_dir}"/
         fi
         if [[ -d "${DORIS_HOME}"/ms ]]; then
             mkdir -p "${archive_dir}"/foundationdb/log
-            cp --parents -rf /var/log/foundationdb/* "${archive_dir}"/foundationdb/log/
+            cp -rf /var/log/foundationdb/* "${archive_dir}"/foundationdb/log/
             cp --parents -rf "ms/conf" "${archive_dir}"/
             cp --parents -rf "ms/log" "${archive_dir}"/
         fi
@@ -551,6 +559,7 @@ archive_doris_coredump() {
         --directory "${DORIS_HOME}" \
         -cf "${DORIS_HOME}/${archive_name}" \
         "${archive_dir}"; then
+        rm -rf "${DORIS_HOME:?}/${archive_dir}"
         echo "${DORIS_HOME}/${archive_name}"
     else
         return 1

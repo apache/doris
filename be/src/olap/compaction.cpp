@@ -33,8 +33,11 @@
 #include <shared_mutex>
 #include <utility>
 
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "common/sync_point.h"
 #include "io/fs/file_system.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/cumulative_compaction_policy.h"
@@ -177,6 +180,8 @@ Status Compaction::merge_input_rowsets() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_output_rs_writer->build(_output_rowset),
                                    fmt::format("rowset writer build failed. output_version: {}",
                                                _output_version.to_string()));
+
+    //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), true));
 
     // Now we support delete in cumu compaction, to make all data in rowsets whose version
     // is below output_version to be delete in the future base compaction, we should carry
@@ -844,6 +849,82 @@ void Compaction::_load_segment_to_cache() {
                      << _output_rowset->start_version() << "-" << _output_rowset->end_version()
                      << ".";
     }
+}
+
+void CloudCompactionMixin::build_basic_info() {
+    _output_version =
+            Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
+
+    _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
+
+    std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
+    std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
+                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+}
+
+int64_t CloudCompactionMixin::get_compaction_permits() {
+    int64_t permits = 0;
+    for (auto&& rowset : _input_rowsets) {
+        permits += rowset->rowset_meta()->get_compaction_score();
+    }
+    return permits;
+}
+
+CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet,
+                                           const std::string& label)
+        : Compaction(tablet, label), _engine(engine) {}
+
+Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
+    OlapStopWatch watch;
+
+    build_basic_info();
+
+    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
+              << ", output_version=" << _output_version << ", permits: " << permits;
+
+    RETURN_IF_ERROR(merge_input_rowsets());
+
+    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), true));
+
+    // 4. modify rowsets in memory
+    RETURN_IF_ERROR(modify_rowsets());
+
+    return Status::OK();
+}
+
+Status CloudCompactionMixin::execute_compact() {
+    TEST_INJECTION_POINT("Compaction::do_compaction");
+    int64_t permits = get_compaction_permits();
+    Status st = execute_compact_impl(permits);
+    if (!st.ok()) {
+        garbage_collection();
+        return st;
+    }
+    _load_segment_to_cache();
+    return st;
+}
+
+Status CloudCompactionMixin::modify_rowsets() {
+    return Status::OK();
+}
+
+Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
+    ctx.fs = _engine.latest_fs();
+    ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
+                 std::numeric_limits<int64_t>::max(); // MUST be positive
+    ctx.txn_expiration = _expiration;
+
+    ctx.version = _output_version;
+    ctx.rowset_state = VISIBLE;
+    ctx.segments_overlap = NONOVERLAPPING;
+    ctx.tablet_schema = _cur_tablet_schema;
+    ctx.newest_write_timestamp = _newest_write_timestamp;
+    ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
+    RETURN_IF_ERROR(
+            _engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get(), true));
+    return Status::OK();
 }
 
 } // namespace doris
