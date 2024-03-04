@@ -521,6 +521,11 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
         column->insert_data(reinterpret_cast<const char*>(&t_expr.bool_literal.value), 0);
         break;
     }
+    case TExprNodeType::NULL_LITERAL: {
+        // insert a null literal
+        column->insert_data(nullptr, 0);
+        break;
+    }
     default: {
         return Status::InternalError("unsupported partition column node type, type={}",
                                      t_expr.node_type);
