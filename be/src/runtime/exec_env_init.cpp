@@ -178,9 +178,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
-            .set_min_threads(8)
-            .set_max_threads(32)
-            .build(&_send_table_stats_thread_pool));
+                              .set_min_threads(8)
+                              .set_max_threads(32)
+                              .build(&_send_table_stats_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
                               .set_min_threads(16)

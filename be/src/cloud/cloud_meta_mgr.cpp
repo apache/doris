@@ -39,10 +39,10 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/sync_point.h"
-#include "gen_cpp/cloud.pb.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/cloud.pb.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -62,7 +62,8 @@ namespace {
 constexpr int kBrpcRetryTimes = 3;
 
 static bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
-static bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stats_report_latency");
+static bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency(
+        "cloud_table_stats_report_latency");
 } // namespace
 
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
@@ -747,8 +748,7 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
-    auto st =
-            retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
+    auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
         send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res);
