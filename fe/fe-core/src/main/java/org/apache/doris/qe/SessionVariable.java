@@ -867,7 +867,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
-    private boolean enableParallelScan = false;
+    private boolean enableParallelScan = true;
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1718,8 +1718,7 @@ public class SessionVariable implements Serializable, Writable {
             }
 
             this.runtimeFilterType = 1 << randomInt;
-            // this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
-            this.enableParallelScan = false;
+            this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
             switch (randomInt) {
                 case 0:
                     this.parallelScanMaxScannersCount = 32;
