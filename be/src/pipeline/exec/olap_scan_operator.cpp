@@ -264,34 +264,38 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     bool has_cpu_limit = state()->query_options().__isset.resource_limit &&
                          state()->query_options().resource_limit.__isset.cpu_limit;
 
+    std::vector<TabletWithVersion> tablets;
+    tablets.reserve(_scan_ranges.size());
+    for (auto&& scan_range : _scan_ranges) {
+        // TODO(plat1ko): Get cloud tablet in parallel
+        auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
+        int64_t version = 0;
+        std::from_chars(scan_range->version.data(),
+                        scan_range->version.data() + scan_range->version.size(), version);
+        tablets.emplace_back(std::move(tablet), version);
+    }
+
+    if (config::is_cloud_mode()) {
+        std::vector<std::function<Status()>> tasks;
+        tasks.reserve(_scan_ranges.size());
+        for (auto&& [tablet, version] : tablets) {
+            tasks.emplace_back([tablet, version]() {
+                return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
+            });
+        }
+        RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
+    }
+
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE) {
-        std::vector<TabletWithVersion> tablets;
         bool is_dup_mow_key = true;
-        for (auto&& scan_range : _scan_ranges) {
-            auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
+        for (auto&& [tablet, _] : tablets) {
             is_dup_mow_key =
                     tablet->keys_type() == DUP_KEYS || (tablet->keys_type() == UNIQUE_KEYS &&
                                                         tablet->enable_unique_key_merge_on_write());
             if (!is_dup_mow_key) {
                 break;
             }
-
-            int64_t version = 0;
-            std::from_chars(scan_range->version.data(),
-                            scan_range->version.data() + scan_range->version.size(), version);
-            tablets.emplace_back(TabletWithVersion {std::move(tablet), version});
-        }
-
-        if (config::is_cloud_mode()) {
-            std::vector<std::function<Status()>> tasks;
-            tasks.reserve(tablets.size());
-            for (auto&& [tablet, version] : tablets) {
-                tasks.emplace_back([tablet, version]() {
-                    return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
-                });
-            }
-            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         }
 
         if (is_dup_mow_key) {
@@ -351,9 +355,10 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                       });
         RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
         scanner->set_compound_filters(_compound_filters);
-        scanners->push_back(scanner);
+        scanners->push_back(std::move(scanner));
         return Status::OK();
     };
+
     for (auto& scan_range : _scan_ranges) {
         auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
         int64_t version = 0;
