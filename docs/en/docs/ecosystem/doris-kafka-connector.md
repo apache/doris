@@ -1,7 +1,7 @@
 ---
 {
-"title": "DBT Doris Adapter",
-"language": "zh-CN"
+"title": "Doris Kafka Connector",
+"language": "en"
 }
 ---
 
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Doris-Kafka-Connector
+# Doris Kafka Connector
 
 [Kafka Connect](https://docs.confluent.io/platform/current/connect/index.html) is a scalable and reliable tool for data transmission between Apache Kafka and other systems. Connectors can be defined Move large amounts of data in and out of Kafka.
 
