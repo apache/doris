@@ -191,7 +191,7 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
-    vectorized::AutoIncIDBuffer* _auto_inc_id_buffer = nullptr;
+    std::shared_ptr<vectorized::AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
     vectorized::AutoIncIDAllocator _auto_inc_id_allocator;
 };
 

@@ -225,7 +225,7 @@ private:
     PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
-    vectorized::AutoIncIDBuffer* _auto_inc_id_buffer = nullptr;
+    std::shared_ptr<vectorized::AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
     vectorized::AutoIncIDAllocator _auto_inc_id_allocator;
 };
 
