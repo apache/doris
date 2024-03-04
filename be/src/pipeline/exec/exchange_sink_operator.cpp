@@ -467,18 +467,21 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         // check out of limit
         RETURN_IF_ERROR(local_state._send_new_partition_batch());
-        std::shared_ptr<vectorized::Block> convert_block;
-        bool has_filtered_rows = false;
-        int64_t filtered_rows = 0;
-        local_state._number_input_rows += block->rows();
-        RETURN_IF_ERROR(local_state._row_distribution.generate_rows_distribution(
-                *block, convert_block, filtered_rows, has_filtered_rows,
-                local_state._row_part_tablet_ids, local_state._number_input_rows));
-
+        std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
         const auto& num_channels = local_state._partition_count;
         std::vector<std::vector<uint32>> channel2rows;
         channel2rows.resize(num_channels);
-        if (!local_state._row_part_tablet_ids.empty()) {
+        auto input_rows = block->rows();
+
+        if (input_rows > 0) {
+            bool has_filtered_rows = false;
+            int64_t filtered_rows = 0;
+            local_state._number_input_rows += input_rows;
+
+            RETURN_IF_ERROR(local_state._row_distribution.generate_rows_distribution(
+                    *block, convert_block, filtered_rows, has_filtered_rows,
+                    local_state._row_part_tablet_ids, local_state._number_input_rows));
+
             const auto& row_ids = local_state._row_part_tablet_ids[0].row_ids;
             const auto& tablet_ids = local_state._row_part_tablet_ids[0].tablet_ids;
             for (int idx = 0; idx < row_ids.size(); ++idx) {

@@ -57,6 +57,8 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
         std::shared_ptr<vectorized::Block>& block, vectorized::VExprContextSPtrs output_vexpr_ctxs,
         size_t rows, bool& has_filtered_rows) {
+    DCHECK(input_block->rows() > 0);
+
     block = vectorized::Block::create_shared(input_block->get_columns_with_type_and_name());
     if (!output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load

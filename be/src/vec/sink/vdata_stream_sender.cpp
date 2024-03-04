@@ -687,18 +687,20 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         // check out of limit
         RETURN_IF_ERROR(_send_new_partition_batch());
-        std::shared_ptr<vectorized::Block> convert_block;
-        bool has_filtered_rows = false;
-        int64_t filtered_rows = 0;
-        _number_input_rows += block->rows();
-        RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-                *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
-                _number_input_rows));
-
+        std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
         const auto& num_channels = _channels.size();
         std::vector<std::vector<uint32>> channel2rows;
         channel2rows.resize(num_channels);
-        if (!_row_part_tablet_ids.empty()) {
+        auto input_rows = block->rows();
+
+        if (input_rows > 0) {
+            bool has_filtered_rows = false;
+            int64_t filtered_rows = 0;
+            _number_input_rows += input_rows;
+            RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
+                    *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
+                    _number_input_rows));
+
             const auto& row_ids = _row_part_tablet_ids[0].row_ids;
             const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
             for (int idx = 0; idx < row_ids.size(); ++idx) {
