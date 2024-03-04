@@ -277,15 +277,9 @@ struct TOlapTableSink {
     23: optional double max_filter_ratio
 }
 
-struct TWriteLocation {
+struct THiveLocationParams {
   1: optional string write_path
   2: optional string target_path
-}
-
-struct TWritePartition {
-  1: optional list<string> values
-  2: optional TWriteLocation location
-  3: optional PlanNodes.TFileFormatType file_format
 }
 
 struct TSortedColumn {
@@ -293,18 +287,28 @@ struct TSortedColumn {
     2: optional i32 order // asc(1) or desc(0)
 }
 
-struct TWriteBucket {
+struct TBucketingMode {
+    1: optional i32 bucket_version
+}
+
+struct THiveBucket {
     1: optional list<string> bucketed_by
-    2: optional i32 bucket_version
+    2: optional TBucketingMode bucket_mode
     3: optional i32 bucket_count
     4: optional list<TSortedColumn> sorted_by
 }
 
-enum TWriteCompressionType {
+enum THiveCompressionType {
     SNAPPY = 3,
     LZ4 = 4,
     ZLIB = 6,
     ZSTD = 7,
+}
+
+struct THivePartition {
+  1: optional list<string> values
+  2: optional THiveLocationParams location
+  3: optional PlanNodes.TFileFormatType file_format
 }
 
 struct THiveTableSink {
@@ -312,11 +316,26 @@ struct THiveTableSink {
     2: optional string table_name
     3: optional list<string> data_column_names
     4: optional list<string> partition_column_names
-    5: optional list<TWritePartition> partitions
-    6: optional list<TWriteBucket> buckets
+    5: optional list<THivePartition> partitions
+    6: optional list<THiveBucket> buckets
     7: optional PlanNodes.TFileFormatType file_format
-    8: optional TWriteCompressionType compression_type
-    9: optional TWriteLocation location
+    8: optional THiveCompressionType compression_type
+    9: optional THiveLocationParams location
+}
+
+enum TUpdateMode {
+    NEW = 0, // add partition
+    APPEND = 1, // alter partition
+    OVERWRITE = 2 // insert overwrite
+}
+
+struct THivePartitionUpdate {
+    1: optional string name
+    2: optional TUpdateMode update_mode
+    3: optional THiveLocationParams location
+    4: optional list<string> file_names
+    5: optional i64 row_count
+    6: optional i64 file_size
 }
 
 struct TDataSink {
@@ -332,19 +351,4 @@ struct TDataSink {
   11: optional TJdbcTableSink jdbc_table_sink
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
   13: optional THiveTableSink hive_table_sink
-}
-
-enum TUpdateMode {
-    NEW = 0, // add partition
-    APPEND = 1, // alter partition
-    OVERWRITE = 2 // insert overwrite
-}
-
-struct THivePartitionUpdate {
-    1: optional string name
-    2: optional TUpdateMode update_mode
-    3: optional TWriteLocation location
-    4: optional list<string> file_names
-    5: optional i64 row_count
-    6: optional i64 file_size
 }
