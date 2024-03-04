@@ -290,7 +290,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             if (option instanceof Literal) {
                 // remove the options which is out of compareExpr.range
                 if (compareExprStats.minValue <= optionStats.maxValue
-                        && optionStats.maxValue <= compareExprStats.maxValue) {
+                        && optionStats.minValue <= compareExprStats.maxValue) {
                     validInOptCount++;
                     LiteralExpr optionLiteralExpr = ((Literal) option).toLegacyLiteral();
                     if (maxOptionLiteral == null || optionLiteralExpr.compareTo(maxOptionLiteral) >= 0) {
