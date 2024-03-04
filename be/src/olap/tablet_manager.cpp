@@ -943,16 +943,23 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                 io::global_local_filesystem()->list(schema_hash_path, true, &files, &exists));
         for (auto& file : files) {
             auto& filename = file.file_name;
-            if (!filename.ends_with(".binlog")) {
+            if (filename.ends_with(".binlog")) {
+                // change clone_file suffix .binlog to .dat
+                std::string new_filename = filename;
+                new_filename.replace(filename.size() - 7, 7, ".dat");
+                auto from = fmt::format("{}/{}", schema_hash_path, filename);
+                auto to = fmt::format("{}/_binlog/{}", schema_hash_path, new_filename);
+                RETURN_IF_ERROR(io::global_local_filesystem()->rename(from, to));
+            } else if (filename.ends_with(".binlog-index")) {
+                // change clone_file suffix from .binlog-index to .idx
+                std::string new_filename = filename;
+                new_filename.replace(filename.size() - 13, 13, ".idx");
+                auto from = fmt::format("{}/{}", schema_hash_path, filename);
+                auto to = fmt::format("{}/_binlog/{}", schema_hash_path, new_filename);
+                RETURN_IF_ERROR(io::global_local_filesystem()->rename(from, to));
+            } else {
                 continue;
             }
-
-            // change clone_file suffix .binlog to .dat
-            std::string new_filename = filename;
-            new_filename.replace(filename.size() - 7, 7, ".dat");
-            auto from = fmt::format("{}/{}", schema_hash_path, filename);
-            auto to = fmt::format("{}/_binlog/{}", schema_hash_path, new_filename);
-            RETURN_IF_ERROR(io::global_local_filesystem()->rename(from, to));
         }
 
         auto meta = store->get_meta();

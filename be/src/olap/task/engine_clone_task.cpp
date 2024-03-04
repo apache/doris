@@ -83,10 +83,16 @@ namespace {
 /// return value: if binlog file not exist, then return to binlog file path
 Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
                                             const std::string& clone_file, bool* skip_link_file) {
-    // change clone_file suffix .binlog to .dat
+    std::string to;
     std::string new_clone_file = clone_file;
-    new_clone_file.replace(clone_file.size() - 7, 7, ".dat");
-    auto to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
+    if (clone_file.ends_with(".binlog")) {
+        // change clone_file suffix from .binlog to .dat
+        new_clone_file.replace(clone_file.size() - 7, 7, ".dat");
+    } else if (clone_file.ends_with(".binlog-index")) {
+        // change clone_file suffix from .binlog-index to .idx
+        new_clone_file.replace(clone_file.size() - 13, 13, ".idx");
+    }
+    to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
 
     // check to to file exist
     bool exists = true;
@@ -670,7 +676,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
 
         auto from = fmt::format("{}/{}", clone_dir, clone_file);
         std::string to;
-        if (clone_file.ends_with(".binlog")) {
+        if (clone_file.ends_with(".binlog") || clone_file.ends_with(".binlog-index")) {
             if (!contain_binlog) {
                 LOG(WARNING) << "clone binlog file, but not contain binlog metas. "
                              << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;

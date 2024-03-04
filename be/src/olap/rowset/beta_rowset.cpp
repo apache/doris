@@ -470,6 +470,27 @@ Status BetaRowset::add_to_binlog() {
         }
     }
 
+    // link inverted index files
+    for (const auto& column : tablet_schema()->columns()) {
+        if (tablet_schema()->has_inverted_index(column)) {
+            const auto* index_info = tablet_schema()->get_inverted_index(column);
+            auto index_id = index_info->index_id();
+            for (int i = 0; i < segments_num; ++i) {
+                auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
+                        _rowset_dir, rowset_id(), i, index_id, index_info->get_index_suffix());
+                auto binlog_index_file = (std::filesystem::path(binlog_dir) /
+                                          std::filesystem::path(index_file).filename())
+                                                 .string();
+                VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
+                if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
+                    return Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                }
+            }
+        }
+    }
+
     return Status::OK();
 }
 

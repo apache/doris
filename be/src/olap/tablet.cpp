@@ -2657,6 +2657,19 @@ std::string Tablet::get_segment_filepath(std::string_view rowset_id, int64_t seg
     return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
 }
 
+std::string Tablet::get_segment_index_filepath(std::string_view rowset_id,
+                                               std::string_view segment_index,
+                                               std::string_view index_index) const {
+    return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index,
+                       index_index);
+}
+
+std::string Tablet::get_segment_index_filepath(std::string_view rowset_id, int64_t segment_index,
+                                               int64_t index_index) const {
+    return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index,
+                       index_index);
+}
+
 std::vector<std::string> Tablet::get_binlog_filepath(std::string_view binlog_version) const {
     const auto& [rowset_id, num_segments] = get_binlog_info(binlog_version);
     std::vector<std::string> binlog_filepath;
@@ -2700,10 +2713,24 @@ void Tablet::gc_binlogs(int64_t version) {
         wait_for_deleted_binlog_keys.emplace_back(key);
         wait_for_deleted_binlog_keys.push_back(get_binlog_data_key_from_meta_key(key));
 
+        // add binlog segment files
         for (int64_t i = 0; i < num_segments; ++i) {
             auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
             wait_for_deleted_binlog_files.emplace_back(
                     fmt::format("{}/_binlog/{}", tablet_path, segment_file));
+        }
+
+        // add binlog segment index files
+        auto tablet_schema = this->tablet_schema();
+        for (const auto& column : tablet_schema->columns()) {
+            if (tablet_schema->has_inverted_index(column)) {
+                const auto* index_info = tablet_schema->get_inverted_index(column);
+                auto index_id = index_info->index_id();
+                for (int i = 0; i < num_segments; ++i) {
+                    auto segment_index_file = fmt::format("{}_{}_{}.idx", rowset_id, i, index_id);
+                    wait_for_deleted_binlog_files.emplace_back(segment_index_file);
+                }
+            }
         }
     };
 
