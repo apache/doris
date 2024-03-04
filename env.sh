@@ -261,7 +261,7 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
     # check java home
     if [[ -z "${JAVA_HOME}" ]]; then
         if [[ "${JDK_17}" ]]; then
-            echo "Use JDK_17"
+            echo "Use JDK_17 = ${JDK_17}"
             JAVA="${JDK_17}/bin/java"
             JAVAP="${JDK_17}/bin/javap"
             export JAVA_HOME="${JDK_17}"
@@ -280,14 +280,15 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
             jdk_version "${JAVA}"
         )"
         if [[ "${java_version}" -ne 17 ]]; then
-            echo "JAVA_HOME does not point to JDK-17."
+            echo "JAVA_HOME=${JAVA_HOME}. It does not point to JDK-17."
             if [[ "${JDK_17}" ]]; then
-                echo "Use JDK_17 environment variable."
+                echo "Use JDK_17=${JDK_17}."
                 JAVA="${JDK_17}/bin/java"
                 JAVAP="${JDK_17}/bin/javap"
                 export JAVA_HOME="${JDK_17}"
                 check_jdk_version
             else
+                echo "The 'JDK_17' environment variable is not set."
                 echo "ERROR: The JAVA version is ${java_version}, it must be JDK-17."
                 exit 1
             fi
