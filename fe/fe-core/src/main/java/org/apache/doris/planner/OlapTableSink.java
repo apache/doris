@@ -145,7 +145,7 @@ public class OlapTableSink extends DataSink {
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
         if (!dstTable.getTableProperty().getStorageVaultId().isEmpty()) {
-            tSink.setResourceId(dstTable.getTableProperty().getStorageVaultId());
+            tSink.setStorageVaultId(dstTable.getTableProperty().getStorageVaultId());
         }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
