@@ -110,7 +110,7 @@ DECLARE_mString(public_access_ip);
 DECLARE_Int32(brpc_num_threads);
 
 // Declare a selection strategy for those servers have many ips.
-// Note that there should at most one ip match this list.
+// Note that there should be at most one ip match this list.
 // This is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
