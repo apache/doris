@@ -221,12 +221,13 @@ public final class QeProcessorImpl implements QeProcessor {
                 result.setStatus(new TStatus(TStatusCode.OK));
             } else {
                 result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
+                LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
+                        DebugUtil.printId(params.query_id), params.query_type);
             }
-            LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
-                    DebugUtil.printId(params.query_id), params.query_type);
             return result;
         }
         try {
+            // Profile is updated in this function
             info.getCoord().updateFragmentExecStatus(params);
             if (params.isSetProfile()) {
                 writeProfileExecutor.submit(new WriteProfileTask(params, info));

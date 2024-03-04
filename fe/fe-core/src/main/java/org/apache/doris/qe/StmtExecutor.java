@@ -108,6 +108,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -258,6 +259,9 @@ public class StmtExecutor {
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
         this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile);
+        if (this.context.getSessionVariable().enableProfile) {
+            ProfileManager.getInstance().pushProfile(profile);
+        }
     }
 
     // for test
@@ -288,6 +292,9 @@ public class StmtExecutor {
         }
         this.context.setStatementContext(statementContext);
         this.profile = new Profile("Query", context.getSessionVariable().enableProfile());
+        if (this.context.getSessionVariable().enableProfile) {
+            ProfileManager.getInstance().pushProfile(profile);
+        }
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
@@ -982,7 +989,7 @@ public class StmtExecutor {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-        // If any error happends in update profile, we should ignore this error
+        // If any error happens in update profile, we should ignore this error
         // and ensure the sql is finished normally. For example, if update profile
         // failed, the insert stmt should be success
         try {
@@ -990,7 +997,7 @@ public class StmtExecutor {
                     context.getSessionVariable().profileLevel, this.planner,
                     context.getSessionVariable().getEnablePipelineXEngine());
         } catch (Throwable t) {
-            LOG.warn("failed to update profile, ingore this error", t);
+            LOG.warn("failed to update profile, ignore this error", t);
         }
     }
 
