@@ -164,7 +164,8 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     opt.messages_in_batch = config::load_stream_messages_in_batch;
     opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, self);
     brpc::Controller cntl;
-    if (int ret = StreamCreate(&_stream_id, cntl, &opt)) {
+    if (int ret = brpc::StreamCreate(&_stream_id, cntl, &opt)) {
+        delete opt.handler;
         return Status::Error<true>(ret, "Failed to create stream");
     }
     cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
@@ -192,6 +193,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
                                               resp.enable_unique_key_merge_on_write());
     }
     if (cntl.Failed()) {
+        brpc::StreamClose(_stream_id);
         return Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
                                      cntl.ErrorText());
     }
