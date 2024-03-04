@@ -53,6 +53,19 @@ suite("list_partition_with_null") {
             verbose true
             contains("partitions=2/3 (P2_CITY,P3_CITY)")
     }
-    qt_order1 """select * from table_null_list_parition where city is null;"""
-    qt_order2 """select * from table_null_list_parition where user_id is null;"""
+    explain {
+            sql("select * from table_null_list_parition where city is not null;")
+            verbose true
+            contains("partitions=3/3 (P1_CITY,P2_CITY,P3_CITY)")
+    }
+    
+    explain {
+            sql("select * from table_null_list_parition where user_id is not null;")
+            verbose true
+            contains("partitions=3/3 (P1_CITY,P2_CITY,P3_CITY)")
+    }
+    qt_select1 """select city from table_null_list_parition where city is null order by city;"""
+    qt_select2 """select user_id from table_null_list_parition where user_id is null;"""
+    qt_select3 """select city from table_null_list_parition where city is not null;"""
+    qt_select4 """select user_id from table_null_list_parition where user_id is not null;"""
 }
