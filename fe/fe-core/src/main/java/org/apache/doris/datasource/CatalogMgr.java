@@ -623,7 +623,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
             ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-            db.setUnInitialized(log.isInvalidCache());
+            if (db != null) {
+                db.setUnInitialized(log.isInvalidCache());
+            }
         } finally {
             writeUnlock();
         }
