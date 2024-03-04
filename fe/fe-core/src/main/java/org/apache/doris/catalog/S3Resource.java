@@ -70,10 +70,9 @@ public class S3Resource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    // for Gson fromJson
-    // TODO(plat1ko): other Resource subclass also MUST define default ctor, otherwise when reloading object from json
-    //  some not serialized field (i.e. `lock`) will be `null`.
-    public S3Resource() {}
+    public S3Resource() {
+        super();
+    }
 
     public S3Resource(String name) {
         super(name, ResourceType.S3);

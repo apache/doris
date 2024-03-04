@@ -44,6 +44,10 @@ public class HMSResource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
+    public HMSResource() {
+        super();
+    }
+
     public HMSResource(String name) {
         super(name, ResourceType.HMS);
         this.properties = Maps.newHashMap();
