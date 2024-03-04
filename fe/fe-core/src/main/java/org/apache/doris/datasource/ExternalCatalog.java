@@ -110,6 +110,8 @@ public abstract class ExternalCatalog
     private volatile String comment;
     private volatile boolean initialized = false;
     private volatile boolean objectCreated = false;
+    // record the journal id of the most recent initialization of this catalog
+    private volatile long lastInitJournalId;
 
     // db name does not contains "default_cluster"
     protected volatile @NotNull Map<String, Long> dbNameToId = Maps.newConcurrentMap();
@@ -307,19 +309,21 @@ public abstract class ExternalCatalog
         }
 
         Env.getCurrentEnv().getExternalMetaIdMgr().replayMetaIdMappingsLog(log);
-        Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
+        lastInitJournalId = Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
     }
 
-    protected synchronized void initForAllNodes(ExternalMetaIdMgr.CtlMetaIdMgr ctlMetaIdMgr, long lastUpdateTime) {
+    protected void initForAllNodes(ExternalMetaIdMgr.CtlMetaIdMgr ctlMetaIdMgr, long lastUpdateTime) {
         // use a temp map and replace the old one later
         Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<String, ExternalMetaIdMgr.DbMetaIdMgr> dbNameToMgr = ctlMetaIdMgr.getDbNameToMgr();
         // refresh all dbs, reuse the exists dbs if possible
         for (String dbName : dbNameToMgr.keySet()) {
-            ExternalDatabase<? extends ExternalTable> db = dbNameToId.containsKey(dbName)
-                        ? idToDb.get(dbNameToId.get(dbName))
-                        : getDbForInit(dbName, dbNameToMgr.get(dbName).dbId, type);
+            ExternalDatabase<? extends ExternalTable> db = idToDb.getOrDefault(
+                        dbNameToId.getOrDefault(dbName, -1L), null);
+            if (db == null) {
+                db = getDbForInit(dbName, dbNameToMgr.get(dbName).dbId, type);
+            }
             Preconditions.checkNotNull(db);
             db.setUnInitialized(true);
             tmpIdToDb.put(db.getId(), db);
@@ -705,6 +709,10 @@ public abstract class ExternalCatalog
     @Override
     public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
         return new ConcurrentHashMap<>(idToDb);
+    }
+
+    public long getLastInitJournalId() {
+        return this.lastInitJournalId;
     }
 
     public enum Type {

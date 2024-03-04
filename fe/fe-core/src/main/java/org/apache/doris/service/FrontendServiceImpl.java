@@ -2349,7 +2349,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
         try {
             ((ExternalCatalog) catalog).makeSureInitialized();
-            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            result.setMaxJournalId(((ExternalCatalog) catalog).getLastInitJournalId());
             result.setStatus(MasterCatalogExecutor.STATUS_OK);
         } catch (Throwable t) {
             LOG.warn("init catalog failed. catalog: {}", catalog.getName(), t);
@@ -2374,7 +2374,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
         try {
             ((ExternalDatabase) db).makeSureInitialized();
-            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            result.setMaxJournalId(((ExternalDatabase) db).getLastInitJournalId());
             result.setStatus(MasterCatalogExecutor.STATUS_OK);
         } catch (Throwable t) {
             LOG.warn("init database failed. catalog.database: {}", catalog.getName(), db.getFullName(), t);

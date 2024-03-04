@@ -62,6 +62,8 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
 
     protected volatile long lastUpdateTime;
     protected volatile boolean initialized = false;
+    // record the journal id of the most recent initialization of this database
+    protected volatile long lastInitJournalId;
     protected volatile Map<Long, T> idToTbl = Maps.newConcurrentMap();
     protected volatile Map<String, Long> tableNameToId = Maps.newConcurrentMap();
 
@@ -137,17 +139,20 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
             }
         }
         Env.getCurrentEnv().getExternalMetaIdMgr().replayMetaIdMappingsLog(log);
-        Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
+        lastInitJournalId = Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
     }
 
-    protected synchronized void initForAllNodes(ExternalMetaIdMgr.DbMetaIdMgr dbMetaIdMgr, long lastUpdateTime) {
+    protected void initForAllNodes(ExternalMetaIdMgr.DbMetaIdMgr dbMetaIdMgr, long lastUpdateTime) {
         // use a temp map and replace the old one later
         Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
         Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
         Map<String, ExternalMetaIdMgr.TblMetaIdMgr> tblNameToMgr = dbMetaIdMgr.getTblNameToMgr();
         // refresh all tables, reuse the exists tables if possible
         for (String tableName : tblNameToMgr.keySet()) {
-            T table = newExternalTable(tableName, tblNameToMgr.get(tableName).getTblId(), extCatalog);
+            T table = idToTbl.getOrDefault(tableNameToId.getOrDefault(tableName, -1L), null);
+            if (table == null) {
+                table = newExternalTable(tableName, tblNameToMgr.get(tableName).getTblId(), extCatalog);
+            }
             Preconditions.checkNotNull(table);
             table.unsetObjectCreated();
             tmpIdToTbl.put(table.getId(), table);
@@ -323,5 +328,9 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
     @Override
     public Map<Long, TableIf> getIdToTable() {
         return new HashMap<>(idToTbl);
+    }
+
+    public long getLastInitJournalId() {
+        return this.lastInitJournalId;
     }
 }

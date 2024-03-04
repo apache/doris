@@ -2036,8 +2036,8 @@ public class EditLog {
         logEdit(OperationType.OP_INSERT_OVERWRITE, log);
     }
 
-    public void logMetaIdMappingsLog(MetaIdMappingsLog log) {
-        logEdit(OperationType.OP_ADD_META_ID_MAPPINGS, log);
+    public long logMetaIdMappingsLog(MetaIdMappingsLog log) {
+        return logEdit(OperationType.OP_ADD_META_ID_MAPPINGS, log);
     }
 
     public String getNotReadyReason() {
