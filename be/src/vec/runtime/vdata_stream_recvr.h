@@ -296,11 +296,15 @@ public:
 
     Status get_batch(Block* block, bool* eos) override {
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue
-        DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)
-                << " _is_cancelled: " << _is_cancelled
-                << ", _block_queue_empty: " << _block_queue.empty()
-                << ", _num_remaining_senders: " << _num_remaining_senders << "\n"
-                << _debug_string_info();
+#ifndef NDEBUG
+        if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "_is_cancelled: {}, _block_queue_empty: {}, "
+                                   "_num_remaining_senders: {}, _debug_string_info: {}",
+                                   _is_cancelled, _block_queue.empty(), _num_remaining_senders,
+                                   _debug_string_info());
+        }
+#endif
         return _inner_get_batch_without_lock(block, eos);
     }
 
