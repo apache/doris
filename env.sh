@@ -296,7 +296,6 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
     fi
     export JAVA
 
-
     JAVA_VER="$("${JAVAP}" -verbose java.lang.String | grep "major version" | cut -d " " -f5)"
     if [[ "${JAVA_VER}" -lt 52 ]]; then
         echo "Error: require JAVA with JDK version at least 1.8"
