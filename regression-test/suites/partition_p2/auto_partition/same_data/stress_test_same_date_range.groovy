@@ -21,7 +21,7 @@ import java.nio.file.Paths
 import java.net.URL
 import java.io.File
 
-suite("stress_test_same_date_range") {
+suite("stress_test_same_date_range", "p2,nonConcurrent") {
 
     sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '10000000')"""
 

@@ -28,6 +28,7 @@ set +x
 export teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
 export commit_id_from_checkout="%build.vcs.number%"
 export target_branch='%teamcity.pullRequest.target.branch%'
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64/"
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
     bash prepare.sh
@@ -65,11 +66,21 @@ if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
     commit_id_from_trigger is outdate"
     exit 1
 fi
+
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
+# shellcheck source=/dev/null
+# install_java
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
+
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
-if [[ "${target_branch}" == "master" || "${target_branch}" == "branch-2.0" ]]; then
-    echo "INFO: PR target branch ${target_branch} is in (master, branch-2.0)"
+if [[ "${target_branch}" == "master" ]]; then
+    echo "INFO: PR target branch ${target_branch}"
+    install_java
+    JAVA_HOME="${JAVA_HOME:-$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*' | sed -n '1p')}"
+    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export JAVA_HOME=\"${JAVA_HOME}\""
+elif [[ "${target_branch}" == "branch-2.0" ]]; then
+    echo "INFO: PR target branch ${target_branch}"
 else
     echo "WARNING: PR target branch ${target_branch} is NOT in (master, branch-2.0), skip pipeline."
     bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"

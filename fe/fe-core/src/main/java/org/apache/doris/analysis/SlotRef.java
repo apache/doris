@@ -94,7 +94,7 @@ public class SlotRef extends Expr {
         this.desc = desc;
         this.type = desc.getType();
         // TODO(zc): label is meaningful
-        this.label = null;
+        this.label = desc.getLabel();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
