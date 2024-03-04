@@ -523,9 +523,16 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         // build local_runtime_filter_mgr for each instance
         runtime_filter_mgr =
                 std::make_unique<RuntimeFilterMgr>(request.query_id, filterparams.get());
-        if (i == 0 && local_params.__isset.runtime_filter_params) {
-            _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                    local_params.runtime_filter_params);
+        if (i == 0) {
+            if (local_params.__isset.runtime_filter_params) {
+                _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                        local_params.runtime_filter_params);
+            }
+            if (local_params.__isset.topn_filter_source_node_ids) {
+                _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
+            } else {
+                _query_ctx->init_runtime_predicates({0});
+            }
         }
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
