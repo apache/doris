@@ -234,6 +234,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.tablet_schema = _tablet_schema;
     _reader_context.need_ordered_result = need_ordered_result;
     _reader_context.use_topn_opt = read_params.use_topn_opt;
+    _reader_context.topn_filter_source_node_ids = read_params.topn_filter_source_node_ids;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.filter_block_conjuncts = read_params.filter_block_conjuncts;
@@ -574,9 +575,11 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
     }
 
     if (read_params.use_topn_opt) {
-        auto& runtime_predicate =
-                read_params.runtime_state->get_query_ctx()->get_runtime_predicate();
-        runtime_predicate.set_tablet_schema(_tablet_schema);
+        for (int id : read_params.topn_filter_source_node_ids) {
+            auto& runtime_predicate =
+                    read_params.runtime_state->get_query_ctx()->get_runtime_predicate(id);
+            runtime_predicate.set_tablet_schema(_tablet_schema);
+        }
     }
 }
 

@@ -185,6 +185,7 @@ public class InternalSchemaInitializer extends Thread {
                         Math.max(1, Config.min_replication_num_per_tablet)));
             }
         };
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, InternalSchema.getCopiedSchema(StatisticConstants.STATISTIC_TBL_NAME),
                 engineName, keysDesc, null, distributionDesc,
@@ -208,6 +209,7 @@ public class InternalSchemaInitializer extends Thread {
                         Config.min_replication_num_per_tablet)));
             }
         };
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, InternalSchema.getCopiedSchema(StatisticConstants.HISTOGRAM_TBL_NAME),
                 engineName, keysDesc, null, distributionDesc,
@@ -240,6 +242,7 @@ public class InternalSchemaInitializer extends Thread {
                         Config.min_replication_num_per_tablet)));
             }
         };
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, InternalSchema.getCopiedSchema(AuditLoaderPlugin.AUDIT_LOG_TABLE),
                 engineName, keysDesc, partitionDesc, distributionDesc,
