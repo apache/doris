@@ -133,4 +133,14 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals("((col = 1) OR ((col = 2) AND col IN ('4', 3, 5.0)))",
                 rewritten.toSql());
     }
+
+    @Test
+    void testEnsureOrder() {
+        // ensure not rewrite to col2 in (1, 2) or  cor 1 in (1, 2)
+        String expr = "col1 IN (1, 2) OR col2 IN (1, 2)";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = new OrToIn().rewrite(expression, new ExpressionRewriteContext(null));
+        Assertions.assertEquals("(col1 IN (1, 2) OR col2 IN (1, 2))",
+                rewritten.toSql());
+    }
 }
