@@ -867,6 +867,16 @@ public class StatisticsUtil {
         return false;
     }
 
+    public static boolean enableAutoAnalyzeInternalCatalog() {
+        try {
+            return findConfigFromGlobalSessionVar(
+                        SessionVariable.ENABLE_AUTO_ANALYZE_INTERNAL_CATALOG).enableAutoAnalyzeInternalCatalog;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable auto analyze internal catalog, return false by default", e);
+        }
+        return false;
+    }
+
     public static int getInsertMergeCount() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.STATS_INSERT_MERGE_ITEM_COUNT)
