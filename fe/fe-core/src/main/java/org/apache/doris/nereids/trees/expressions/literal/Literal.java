@@ -291,6 +291,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         DataType dataType = DataType.fromCatalogType(type);
         if (literalExpr instanceof org.apache.doris.analysis.MaxLiteral) {
             return new MaxLiteral(dataType);
+        } else if (literalExpr instanceof org.apache.doris.analysis.NullLiteral) {
+            return new NullLiteral(dataType);
         }
         String stringValue = literalExpr.getStringValue();
         if (dataType.isBooleanType()) {
