@@ -1125,6 +1125,15 @@ under the License.
                 <version>3.1.0</version>
                 <configuration>
                     <skip>${skip.clean}</skip>
+                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                    <filesets>
+                        <fileset>
+                            <directory>target</directory>
+                            <excludes>
+                                <exclude>checkstyle-cachefile</exclude>
+                            </excludes>
+                        </fileset>
+                    </filesets>
                 </configuration>
                 <executions>
                     <execution>
