@@ -601,6 +601,23 @@ public class TabletInvertedIndex {
         }
     }
 
+    // cloud mode, create table not need backendId, represent with -1.
+    public void addCloudReplica(long tabletId, Replica replica) {
+        long stamp = writeLock();
+        try {
+            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+                    "cloudTablet " + tabletId + " not exists, replica " + replica.getId());
+            replicaMetaTable.put(tabletId, (long) -1, replica);
+            replicaToTabletMap.put(replica.getId(), tabletId);
+            backingReplicaMetaTable.put((long) -1, tabletId, replica);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("add replica {} of tablet {} in backend", replica.getId(), tabletId);
+            }
+        } finally {
+            writeUnlock(stamp);
+        }
+    }
+
     public void deleteReplica(long tabletId, long backendId) {
         long stamp = writeLock();
         try {

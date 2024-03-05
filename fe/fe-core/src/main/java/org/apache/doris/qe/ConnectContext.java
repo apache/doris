@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -1092,10 +1093,8 @@ public class ConnectContext {
 
         if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
-            /*
             getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
                     "Cant get a Valid cluster for you to use, plz connect admin");
-             */
         } else {
             this.cloudCluster = cluster;
             LOG.info("finally set context cluster name {}", cloudCluster);
