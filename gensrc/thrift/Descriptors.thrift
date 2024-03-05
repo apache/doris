@@ -234,7 +234,8 @@ struct TOlapTableSchemaParam {
     7: optional bool is_dynamic_schema // deprecated
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
-    10: optional bool is_strict_mode = false;
+    10: optional bool is_strict_mode = false
+    11: optional string auto_increment_column
 }
 
 struct TTabletLocation {

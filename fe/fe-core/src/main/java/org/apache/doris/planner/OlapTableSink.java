@@ -301,6 +301,11 @@ public class OlapTableSink extends DataSink {
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
             }
+            for (Column col : table.getFullSchema()) {
+                if (col.isAutoInc()) {
+                    schemaParam.setAutoIncrementColumn(col.getName());
+                }
+            }
         }
         return schemaParam;
     }

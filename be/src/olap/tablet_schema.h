@@ -78,6 +78,7 @@ public:
     void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
+    bool is_auto_increment() const { return _is_auto_increment; }
     bool is_variant_type() const { return _type == FieldType::OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
@@ -109,6 +110,7 @@ public:
     void set_index_length(size_t index_length) { _index_length = index_length; }
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
+    void set_is_auto_increment(bool is_auto_increment) { _is_auto_increment = is_auto_increment; }
     void set_has_default_value(bool has) { _has_default_value = has; }
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
@@ -167,6 +169,7 @@ private:
     FieldAggregationMethod _aggregation;
     std::string _aggregation_name;
     bool _is_nullable = false;
+    bool _is_auto_increment = false;
 
     bool _has_default_value = false;
     std::string _default_value;
@@ -337,9 +340,15 @@ public:
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     vectorized::Block create_block(bool ignore_dropped_col = true) const;
     void set_schema_version(int32_t version) { _schema_version = version; }
+    void set_auto_increment_column(const std::string& auto_increment_column) {
+        _auto_increment_column = auto_increment_column;
+    }
+    std::string auto_increment_column() const { return _auto_increment_column; }
 
     void set_table_id(int32_t table_id) { _table_id = table_id; }
     int32_t table_id() const { return _table_id; }
+    void set_db_id(int32_t db_id) { _db_id = db_id; }
+    int32_t db_id() const { return _db_id; }
     void build_current_tablet_schema(int64_t index_id, int32_t version,
                                      const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
@@ -425,6 +434,7 @@ private:
     CompressKind _compress_kind = COMPRESS_NONE;
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     size_t _next_column_unique_id = 0;
+    std::string _auto_increment_column;
 
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
@@ -434,6 +444,7 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _schema_version = -1;
     int32_t _table_id = -1;
+    int32_t _db_id = -1;
     bool _disable_auto_compaction = false;
     bool _enable_single_replica_compaction = false;
     int64_t _mem_size = 0;

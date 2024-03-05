@@ -210,6 +210,7 @@ message ColumnPB {
     optional segment_v2.ColumnPathInfo column_path_info = 20;
     // sparse column within a variant column
     repeated ColumnPB sparse_columns = 21;
+    optional bool is_auto_increment = 22;
 }
 
 enum IndexType {
