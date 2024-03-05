@@ -156,7 +156,7 @@ private:
     std::condition_variable _cv;
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
-    bool _need_plan_fragment = false;
+    bool _is_creating_plan_fragment = false;
 };
 
 class GroupCommitMgr {
