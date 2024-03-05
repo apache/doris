@@ -29,11 +29,11 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -60,7 +60,7 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
 
     public static final OrToIn INSTANCE = new OrToIn();
 
-    private static final int REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = 2;
+    public static final int REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = 2;
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
@@ -69,7 +69,9 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
 
     @Override
     public Expression visitOr(Or or, ExpressionRewriteContext ctx) {
-        Map<NamedExpression, Set<Literal>> slotNameToLiteral = new HashMap<>();
+        // NOTICE: use linked hash map to avoid unstable order or entry.
+        //  unstable order entry lead to dead loop since return expression always un-equals to original one.
+        Map<NamedExpression, Set<Literal>> slotNameToLiteral = Maps.newLinkedHashMap();
         List<Expression> expressions = ExpressionUtils.extractDisjunction(or);
         for (Expression expression : expressions) {
             if (expression instanceof EqualTo) {
@@ -125,7 +127,7 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
 
     public void addSlotToLiteral(NamedExpression namedExpression, Literal literal,
             Map<NamedExpression, Set<Literal>> slotNameToLiteral) {
-        Set<Literal> literals = slotNameToLiteral.computeIfAbsent(namedExpression, k -> new HashSet<>());
+        Set<Literal> literals = slotNameToLiteral.computeIfAbsent(namedExpression, k -> new LinkedHashSet<>());
         literals.add(literal);
     }
 
