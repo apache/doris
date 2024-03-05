@@ -225,12 +225,6 @@ public class CreateTableInfo {
             properties = Maps.newHashMap();
         }
 
-        if (Config.isCloudMode() && properties != null
-                && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
-            // FIXME: MOW is not supported in cloud mode yet.
-            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
-        }
-
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {
             if (distribution == null) {
                 throw new AnalysisException("Create olap table should contain distribution desc");
@@ -671,9 +665,6 @@ public class CreateTableInfo {
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
             throw new AnalysisException(
                     "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
-        }
-        if (partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && column.isNullable()) {
-            throw new AnalysisException("The list partition column must be NOT NULL");
         }
     }
 

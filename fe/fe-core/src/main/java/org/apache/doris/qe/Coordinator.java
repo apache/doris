@@ -270,6 +270,10 @@ public class Coordinator implements CoordInterface {
         this.tWorkloadGroups = tWorkloadGroups;
     }
 
+    public List<TPipelineWorkloadGroup> gettWorkloadGroups() {
+        return tWorkloadGroups;
+    }
+
     private List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
 
     private final ExecutionProfile executionProfile;
@@ -1827,7 +1831,7 @@ public class Coordinator implements CoordInterface {
             throw new UserException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
         }
         if (backend.getArrowFlightSqlPort() < 0) {
-            return null;
+            throw new UserException("be arrow_flight_sql_port cannot be empty.");
         }
         return backend.getArrowFlightAddress();
     }

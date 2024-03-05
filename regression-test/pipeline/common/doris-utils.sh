@@ -89,14 +89,25 @@ function start_doris_recycler() {
     fi
 }
 
-function start_doris_fe() {
-    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+function install_java() {
     if ! java -version >/dev/null ||
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
         sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
     fi
-    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
-    export JAVA_HOME
+    # doris master branch use java-17
+    if ! java -version >/dev/null ||
+        [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*')" ]]; then
+        sudo apt update && sudo apt install openjdk-17-jdk -y >/dev/null
+    fi
+}
+
+function start_doris_fe() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if install_java && [[ -z "${JAVA_HOME}" ]]; then
+        # default to use java-8
+        JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+        export JAVA_HOME
+    fi
     # export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
     "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
 
@@ -117,12 +128,11 @@ function start_doris_fe() {
 
 function start_doris_be() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if ! java -version >/dev/null ||
-        [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
-        sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
+    if install_java && [[ -z "${JAVA_HOME}" ]]; then
+        # default to use java-8
+        JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+        export JAVA_HOME
     fi
-    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
-    export JAVA_HOME
     ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"
     if [[ -z "${ASAN_SYMBOLIZER_PATH}" ]]; then ASAN_SYMBOLIZER_PATH='/var/local/ldb-toolchain/bin/llvm-symbolizer'; fi
     export ASAN_SYMBOLIZER_PATH

@@ -282,20 +282,19 @@ suite("filter_equal_or_notequal_case") {
         notContains "${mv_name}(${mv_name})"
     }
 
-    // Todo: It is not currently supported and is expected to be
     // mv is range and sql equal and filter in mv range
-//    query_sql = """
-//        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-//        from lineitem_1
-//        left join orders_1
-//        on lineitem_1.l_orderkey = orders_1.o_orderkey
-//        where l_shipdate = '2023-10-19'
-//        """
-//    explain {
-//        sql("${query_sql}")
-//        contains "${mv_name}(${mv_name})"
-//    }
-//    compare_res(query_sql + " order by 1,2,3,4")
+    query_sql = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem_1
+        left join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        where l_shipdate = '2023-10-19'
+        """
+    explain {
+        sql("${query_sql}")
+        contains "${mv_name}(${mv_name})"
+    }
+    compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
@@ -350,20 +349,19 @@ suite("filter_equal_or_notequal_case") {
         notContains "${mv_name}(${mv_name})"
     }
 
-    // Todo: It is not currently supported and is expected to be
     // mv is range and sql is range and sql range is bigger than mv
-//    query_sql = """
-//        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-//        from lineitem_1
-//        left join orders_1
-//        on lineitem_1.l_orderkey = orders_1.o_orderkey
-//        where l_shipdate > '2023-10-19'
-//        """
-//    explain {
-//        sql("${query_sql}")
-//        contains "${mv_name}(${mv_name})"
-//    }
-//    compare_res(query_sql + " order by 1,2,3,4")
+    query_sql = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem_1
+        left join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        where l_shipdate > '2023-10-18'
+        """
+    explain {
+        sql("${query_sql}")
+        contains "${mv_name}(${mv_name})"
+    }
+    compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
@@ -418,20 +416,34 @@ suite("filter_equal_or_notequal_case") {
         notContains "${mv_name}(${mv_name})"
     }
 
-    // Todo: It is not currently supported and is expected to be
     // sql range is in mv range
-//    query_sql = """
-//        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-//        from lineitem_1
-//        left join orders_1
-//        on lineitem_1.l_orderkey = orders_1.o_orderkey
-//        where l_shipdate in ('2023-10-18')
-//        """
-//    explain {
-//        sql("${query_sql}")
-//        contains "${mv_name}(${mv_name})"
-//    }
-//    compare_res(query_sql + " order by 1,2,3,4")
+    // single value
+    query_sql = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem_1
+        left join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        where l_shipdate in ('2023-10-18')
+        """
+    explain {
+        sql("${query_sql}")
+        contains "${mv_name}(${mv_name})"
+    }
+    compare_res(query_sql + " order by 1,2,3,4")
+
+    // multi value
+    query_sql = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem_1
+        left join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        where l_shipdate in ('2023-10-18', '2023-11-18')
+        """
+    explain {
+        sql("${query_sql}")
+        contains "${mv_name}(${mv_name})"
+    }
+    compare_res(query_sql + " order by 1,2,3,4")
 
     // sql range like mv range
     query_sql = """
@@ -491,6 +503,20 @@ suite("filter_equal_or_notequal_case") {
         left join orders_1
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-19'
+        """
+    explain {
+        sql("${query_sql}")
+        contains "${mv_name}(${mv_name})"
+    }
+    compare_res(query_sql + " order by 1,2,3,4")
+
+
+    query_sql = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem_1
+        left join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        where l_shipdate > '2023-10-17' and l_shipdate < '2023-10-19'
         """
     explain {
         sql("${query_sql}")

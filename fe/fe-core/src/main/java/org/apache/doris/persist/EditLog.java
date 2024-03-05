@@ -88,7 +88,9 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.NewPartitionLoadedEvent;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -1181,8 +1183,14 @@ public class EditLog {
                     env.getExternalMetaIdMgr().replayMetaIdMappingsLog((MetaIdMappingsLog) journal.getData());
                     break;
                 }
-                case OperationType.OP_LOG_UPDATE_ROWS:
-                case OperationType.OP_LOG_NEW_PARTITION_LOADED:
+                case OperationType.OP_LOG_UPDATE_ROWS: {
+                    env.getAnalysisManager().replayUpdateRowsRecord((UpdateRowsEvent) journal.getData());
+                    break;
+                }
+                case OperationType.OP_LOG_NEW_PARTITION_LOADED: {
+                    env.getAnalysisManager().replayNewPartitionLoadedEvent((NewPartitionLoadedEvent) journal.getData());
+                    break;
+                }
                 case OperationType.OP_LOG_ALTER_COLUMN_STATS: {
                     // TODO: implement this while statistics finished related work.
                     break;
@@ -2020,6 +2028,14 @@ public class EditLog {
 
     public void logCreateTableStats(TableStatsMeta tableStats) {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
+    }
+
+    public void logUpdateRowsRecord(UpdateRowsEvent record) {
+        logEdit(OperationType.OP_LOG_UPDATE_ROWS, record);
+    }
+
+    public void logNewPartitionLoadedEvent(NewPartitionLoadedEvent event) {
+        logEdit(OperationType.OP_LOG_NEW_PARTITION_LOADED, event);
     }
 
     public void logDeleteTableStats(TableStatsDeletionLog log) {

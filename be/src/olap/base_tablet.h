@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
@@ -34,6 +35,7 @@ struct RowsetWriterContext;
 class RowsetWriter;
 class CalcDeleteBitmapToken;
 class SegmentCacheHandle;
+class RowIdConversion;
 
 struct TabletWithVersion {
     BaseTabletSPtr tablet;
@@ -125,8 +127,8 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     // begin MoW functions
     ////////////////////////////////////////////////////////////////////////////
-    std::vector<RowsetSharedPtr> get_rowset_by_ids(
-            const RowsetIdUnorderedSet* specified_rowset_ids);
+    std::vector<RowsetSharedPtr> get_rowset_by_ids(const RowsetIdUnorderedSet* specified_rowset_ids,
+                                                   bool include_stale = false);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -178,6 +180,10 @@ public:
     static void add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
                                                    const RowsetIdUnorderedSet& rowsetids);
 
+    Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
+                                           int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
+                                           std::vector<RowsetSharedPtr>* rowsets = nullptr);
+
     static Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
             const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
@@ -198,6 +204,31 @@ public:
                                         const std::vector<uint32_t>& rowids,
                                         const TabletColumn& tablet_column,
                                         vectorized::MutableColumnPtr& dst);
+
+    virtual Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
+            const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
+            int64_t txn_expiration = 0) = 0;
+
+    static Status update_delete_bitmap(const BaseTabletSPtr& self, const TabletTxnInfo* txn_info,
+                                       int64_t txn_id, int64_t txn_expiration = 0);
+
+    virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
+                                      DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
+                                      const RowsetIdUnorderedSet& cur_rowset_ids) = 0;
+    virtual CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() = 0;
+
+    void calc_compaction_output_rowset_delete_bitmap(
+            const std::vector<RowsetSharedPtr>& input_rowsets,
+            const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            std::set<RowLocation>* missed_rows,
+            std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
+            const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap);
+
+    Status check_rowid_conversion(
+            RowsetSharedPtr dst_rowset,
+            const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
+                    location_map);
+
     ////////////////////////////////////////////////////////////////////////////
     // end MoW functions
     ////////////////////////////////////////////////////////////////////////////
@@ -216,6 +247,7 @@ protected:
     static void _rowset_ids_difference(const RowsetIdUnorderedSet& cur,
                                        const RowsetIdUnorderedSet& pre,
                                        RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
+    static void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
 
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                 std::vector<RowsetSharedPtr>* rowsets) const;

@@ -50,7 +50,7 @@ private:
     Status _get_column_info(int64_t db_id, int64_t tb_id,
                             std::map<int64_t, std::string>& column_info_map);
 
-    Status _replay_one_txn_with_stremaload(int64_t wal_id, const std::string& wal,
+    Status _replay_one_wal_with_streamload(int64_t wal_id, const std::string& wal,
                                            const std::string& label);
     Status _handle_stream_load(int64_t wal_id, const std::string& wal, const std::string& label);
     Status _construct_sql_str(const std::string& wal, const std::string& label,

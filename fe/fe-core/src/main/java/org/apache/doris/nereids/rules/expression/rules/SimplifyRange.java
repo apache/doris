@@ -98,8 +98,8 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         private ValueDesc buildRange(ComparisonPredicate predicate) {
             Expression rewrite = ExpressionRuleExecutor.normalize(predicate);
             Expression right = rewrite.child(1);
-            // only handle `NumericType`
-            if (right.isLiteral() && right.getDataType().isNumericType()) {
+            // only handle `NumericType` and `DateLikeType`
+            if (right.isLiteral() && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())) {
                 return ValueDesc.range((ComparisonPredicate) rewrite);
             }
             return new UnknownValue(predicate);
@@ -132,9 +132,10 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
         @Override
         public ValueDesc visitInPredicate(InPredicate inPredicate, Void context) {
-            // only handle `NumericType`
+            // only handle `NumericType` and `DateLikeType`
             if (ExpressionUtils.isAllLiteral(inPredicate.getOptions())
-                    && ExpressionUtils.matchNumericType(inPredicate.getOptions())) {
+                    && (ExpressionUtils.matchNumericType(inPredicate.getOptions())
+                    || ExpressionUtils.matchDateLikeType(inPredicate.getOptions()))) {
                 return ValueDesc.discrete(inPredicate);
             }
             return new UnknownValue(inPredicate);
