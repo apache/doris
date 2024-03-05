@@ -55,6 +55,7 @@ public class FloatLiteral extends Literal {
     public String getStringValue() {
         NumberFormat nf = NumberFormat.getInstance();
         nf.setGroupingUsed(false);
+        nf.setMaximumFractionDigits(7);
         return nf.format(value);
     }
 }
