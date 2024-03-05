@@ -144,7 +144,6 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
 
 DataDir::~DataDir() {
     DorisBvarMetrics::instance()->metric_registry()->deregister_entity(data_dir_metric_entity_);
-    delete _id_generator;
     delete _meta;
 }
 
