@@ -267,6 +267,10 @@ public class Coordinator implements CoordInterface {
         this.tWorkloadGroups = tWorkloadGroups;
     }
 
+    public List<TPipelineWorkloadGroup> gettWorkloadGroups() {
+        return tWorkloadGroups;
+    }
+
     private List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
 
     private final ExecutionProfile executionProfile;
