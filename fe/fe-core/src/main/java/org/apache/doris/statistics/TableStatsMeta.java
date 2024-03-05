@@ -26,6 +26,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
@@ -130,12 +131,15 @@ public class TableStatsMeta implements Writable {
             ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
                 colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime,
-                        analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
+                        analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
+                        analyzedJob.updateRows));
             } else {
                 colStatsMeta.updatedTime = updatedTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
+                colStatsMeta.updatedRows = analyzedJob.updateRows;
+                colStatsMeta.rowCount = analyzedJob.rowCount;
             }
         }
         jobType = analyzedJob.jobType;
@@ -158,6 +162,12 @@ public class TableStatsMeta implements Writable {
                         .containsAll(tableIf.getColumnIndexPairs(partitionInfo.getPartitionColumns().stream()
                             .map(Column::getName).collect(Collectors.toSet())))) {
                     newPartitionLoaded.set(false);
+                }
+                if (analyzedJob.rowCount != 0 && analyzedJob.colToPartitions.keySet()
+                        .containsAll(tableIf.getBaseSchema().stream()
+                                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                                .map(Column::getName).collect(Collectors.toSet()))) {
+                    userInjected = false;
                 }
             }
         }
