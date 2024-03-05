@@ -214,6 +214,10 @@ public class PropertyAnalyzer {
             this.value = value;
         }
 
+        public String key() {
+            return this.key;
+        }
+
         public static RewriteProperty put(String key, String value) {
             return new RewriteProperty(RewriteType.PUT, key, value);
         }
@@ -1364,6 +1368,10 @@ public class PropertyAnalyzer {
 
     public void rewriteForceProperties(Map<String, String> properties) {
         forceProperties.forEach(property -> property.rewrite(properties));
+    }
+
+    public ImmutableList<RewriteProperty> getForceProperties() {
+        return forceProperties;
     }
 
     private static Map<String, String> rewriteReplicaAllocationProperties(
