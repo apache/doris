@@ -26,7 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.util.Collections;
@@ -73,15 +73,15 @@ public class MTMVExprUtil {
         String timeUnit = param.getStringValue().toLowerCase();
         // mtmv only support one partition column
         String lowerValue = partitionKeyDesc.getLowerValues().get(0).getStringValue();
-        DateTimeLiteral beginTime = dateTrunc(lowerValue, timeUnit);
-        DateTimeLiteral endTime = dateAdd(beginTime, timeUnit);
+        DateLiteral beginTime = dateTrunc(lowerValue, timeUnit);
+        DateLiteral endTime = dateAdd(beginTime, timeUnit);
         String upperValue = partitionKeyDesc.getUpperValues().get(0).getStringValue();
         checkUpperValue(upperValue, beginTime, endTime);
         return createPartitionKeyDescWithRange(beginTime, endTime);
     }
 
-    public static PartitionKeyDesc createPartitionKeyDescWithRange(DateTimeLiteral beginTime,
-            DateTimeLiteral endDateTime) throws AnalysisException {
+    public static PartitionKeyDesc createPartitionKeyDescWithRange(DateLiteral beginTime,
+            DateLiteral endDateTime) throws AnalysisException {
         PartitionValue lowerValue = new PartitionValue(beginTime.getStringValue());
         PartitionValue upperValue = new PartitionValue(endDateTime.getStringValue());
         return PartitionKeyDesc.createFixed(
@@ -89,20 +89,20 @@ public class MTMVExprUtil {
                 Collections.singletonList(upperValue));
     }
 
-    private static void checkUpperValue(String upperValue, DateTimeLiteral beginTime, DateTimeLiteral endTime) {
+    private static void checkUpperValue(String upperValue, DateLiteral beginTime, DateLiteral endTime) {
         // TODO: 2024/3/5 check
     }
 
-    private static DateTimeLiteral dateTrunc(String value, String timeUnit) throws AnalysisException {
+    private static DateLiteral dateTrunc(String value, String timeUnit) throws AnalysisException {
         Expression expression = DateTimeExtractAndTransform
-                .dateTrunc(new DateTimeLiteral(value), new VarcharLiteral(timeUnit));
-        if (!(expression instanceof DateTimeLiteral)) {
-            throw new AnalysisException("dateTrunc() should return DateTimeLiteral, expression: " + expression);
+                .dateTrunc(new DateLiteral(value), new VarcharLiteral(timeUnit));
+        if (!(expression instanceof DateLiteral)) {
+            throw new AnalysisException("dateTrunc() should return DateLiteral, expression: " + expression);
         }
-        return (DateTimeLiteral) expression;
+        return (DateLiteral) expression;
     }
 
-    public static DateTimeLiteral dateAdd(DateTimeLiteral value, String timeUnit)
+    public static DateLiteral dateAdd(DateLiteral value, String timeUnit)
             throws AnalysisException {
         Expression result;
         switch (timeUnit) {
@@ -118,10 +118,10 @@ public class MTMVExprUtil {
             default:
                 throw new AnalysisException("MTMV partition roll up not support timeUnit: " + timeUnit);
         }
-        if (!(result instanceof DateTimeLiteral)) {
+        if (!(result instanceof DateLiteral)) {
             throw new AnalysisException("sub() should return  DateTimeLiteral, result: " + result);
         }
-        return (DateTimeLiteral) result;
+        return (DateLiteral) result;
     }
 }
 
