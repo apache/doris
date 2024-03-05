@@ -18,4 +18,4 @@
 testGroups = "p0"
 //exclude groups and exclude suites is more prior than include groups and include suites.
 excludeSuites = "test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external,test_primary_key_partial_update_parallel"
-excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery,unique_with_mow_p0/cluster_key,unique_with_mow_p0/ssb_unique_sql_zstd_cluster,point_query_p0,nereids_rules_p0/mv"
+excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery,point_query_p0,nereids_rules_p0/mv"
