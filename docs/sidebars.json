@@ -274,6 +274,7 @@
             "items": [
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
+                "ecosystem/doris-kafka-connector",
                 "ecosystem/doris-streamloader",
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
