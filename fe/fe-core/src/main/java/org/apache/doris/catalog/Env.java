@@ -796,17 +796,19 @@ public class Env {
     }
 
     private void initSpiEnvironment() {
+        File trinoConnectorPluginDir = new File(TrinoConnectorPluginManager.trinoConnectorPluginsDir);
+        if (!trinoConnectorPluginDir.exists()) {
+            LOG.warn("trino_connector_plugin_dir="
+                    + TrinoConnectorPluginManager.trinoConnectorPluginsDir + " is not found.");
+            return;
+        } else if (trinoConnectorPluginDir.isFile()) {
+            LOG.warn("trino_connector_plugin_dir must be a directory, not a file.");
+            return;
+        }
+
         TypeOperators typeOperators = new TypeOperators();
         this.featuresConfig = new FeaturesConfig();
         this.typeRegistry = new TypeRegistry(typeOperators, featuresConfig);
-
-        File trinoConnectorPluginDir = new File(TrinoConnectorPluginManager.trinoConnectorPluginsDir);
-        if (!trinoConnectorPluginDir.exists()) {
-            throw new RuntimeException("trino_connector_plugin_dir="
-                    + TrinoConnectorPluginManager.trinoConnectorPluginsDir + " is not found.");
-        } else if (trinoConnectorPluginDir.isFile()) {
-            throw new RuntimeException("trino_connector_plugin_dir must be a directory, not a file");
-        }
 
         ServerPluginsProviderConfig serverPluginsProviderConfig = new ServerPluginsProviderConfig()
                 .setInstalledPluginsDir(trinoConnectorPluginDir);
