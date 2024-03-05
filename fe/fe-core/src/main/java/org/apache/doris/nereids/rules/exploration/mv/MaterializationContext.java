@@ -94,10 +94,6 @@ public class MaterializationContext {
         this.mvPlan = mtmvCache.getLogicalPlan();
     }
 
-    public Set<GroupId> getMatchedGroups() {
-        return matchedGroups;
-    }
-
     public boolean alreadyRewrite(GroupId groupId) {
         return this.matchedGroups.contains(groupId);
     }
@@ -146,13 +142,17 @@ public class MaterializationContext {
     /**
      * recordFailReason
      */
-    public void recordFailReason(ObjectId objectId, Pair<String, String> summaryAndReason) {
+    public void recordFailReason(StructInfo structInfo, Pair<String, String> summaryAndReason) {
+        // record it's rewritten
+        if (structInfo.getTopPlan().getGroupExpression().isPresent()) {
+            this.addMatchedGroup(structInfo.getTopPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
+        }
         // once success, do not record the fail reason
         if (this.success) {
             return;
         }
         this.success = false;
-        this.failReason.put(objectId, summaryAndReason);
+        this.failReason.put(structInfo.getOriginalPlanId(), summaryAndReason);
     }
 
     public boolean isSuccess() {

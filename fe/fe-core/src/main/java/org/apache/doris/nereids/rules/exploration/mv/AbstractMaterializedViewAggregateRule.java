@@ -103,14 +103,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // get view and query aggregate and top plan correspondingly
         Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair = splitToTopPlanAndAggregate(viewStructInfo);
         if (viewTopPlanAndAggPair == null) {
-            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+            materializationContext.recordFailReason(queryStructInfo,
                     Pair.of("Split view to top plan and agg fail, view doesn't not contain aggregate",
                             String.format("view plan = %s\n", viewStructInfo.getOriginalPlan().treeString())));
             return null;
         }
         Pair<Plan, LogicalAggregate<Plan>> queryTopPlanAndAggPair = splitToTopPlanAndAggregate(queryStructInfo);
         if (queryTopPlanAndAggPair == null) {
-            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+            materializationContext.recordFailReason(queryStructInfo,
                     Pair.of("Split query to top plan and agg fail",
                             String.format("query plan = %s\n", queryStructInfo.getOriginalPlan().treeString())));
             return null;
@@ -131,7 +131,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
             }
             // if fails, record the reason and then try to roll up aggregate function
-            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+            materializationContext.recordFailReason(queryStructInfo,
                     Pair.of("Can not rewrite expression when no roll up",
                             String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
                                             + "viewToQuerySlotMapping = %s",
@@ -145,7 +145,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         List<Expression> viewGroupByExpressions = viewTopPlanAndAggPair.value().getGroupByExpressions();
         if ((queryGroupByExpressions.isEmpty() && !viewGroupByExpressions.isEmpty())
                 || (!queryGroupByExpressions.isEmpty() && viewGroupByExpressions.isEmpty())) {
-            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+            materializationContext.recordFailReason(queryStructInfo,
                     Pair.of("only one the of query or view is scalar aggregate and "
                                     + "can not rewrite expression meanwhile",
                             String.format("query aggregate = %s,\n view aggregate = %s,\n",
@@ -178,7 +178,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 Expression rollupedExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
                         context);
                 if (!context.isValid()) {
-                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    materializationContext.recordFailReason(queryStructInfo,
                             Pair.of("Query function roll up fail",
                                     String.format("queryFunctionShuttled = %s,\n mvExprToMvScanExprQueryBased = %s",
                                             queryFunctionShuttled, mvExprToMvScanExprQueryBased)));
@@ -196,7 +196,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                         context);
                 if (!context.isValid()) {
                     // group expr can not rewrite by view
-                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    materializationContext.recordFailReason(queryStructInfo,
                             Pair.of("View dimensions doesn't not cover the query dimensions",
                                     String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
                                             mvExprToMvScanExprQueryBased, queryGroupShuttledExpr)));
