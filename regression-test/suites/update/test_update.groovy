@@ -32,8 +32,22 @@ suite("test_update", "p0") {
         """
     sql "insert into ${tbName} values(1,'20240131',100);"
     sql "insert into ${tbName} values(2,'20240131',100);"
-    qt_sql "select * from ${tbName} order by user_id;"
+    qt_sql1 "select * from ${tbName} order by user_id;"
+    // set group_id to 200 on all record
     sql "UPDATE ${tbName} SET group_id=200;"
+    // this insert will not work
     sql "insert into ${tbName} values(2,'20240131',100);"
-    qt_sql "select * from ${tbName} order by user_id;"
+    qt_sql2 "select * from ${tbName} order by user_id;"
+    // this insert will work
+    sql "insert into ${tbName} values(2,'20240131',300);"
+    qt_sql3 "select * from ${tbName} order by user_id;"
+    // set group_id to 400 on specific record
+    sql "UPDATE ${tbName} SET group_id=400 WHERE user_id=1;"
+    qt_sql4 "select * from ${tbName} order by user_id;"
+    // this insert will not work
+    sql "insert into ${tbName} values(1,'20240131',300);"
+    qt_sql5 "select * from ${tbName} order by user_id;"
+    // this insert will work
+    sql "insert into ${tbName} values(1,'20240131',500);"
+    qt_sql6 "select * from ${tbName} order by user_id;"
 }
