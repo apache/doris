@@ -1187,6 +1187,9 @@ struct TRuntimeFilterDesc {
   // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
   // ignore bloom_filter_size_bytes
   14: optional bool bloom_filter_size_calculated_by_ndv;
+ 
+  // true, if join type is null aware like <=>. rf should dispose the case
+  15: optional bool null_aware;
 }
 
 
