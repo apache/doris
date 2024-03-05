@@ -112,6 +112,8 @@ INFO Totally checked 5611 files, valid: 3926, invalid: 0, ignored: 1685, fixed: 
 ```
 +1 (binding) or +1 (non-binding)
 
+My Apache ID(optional): morningman
+
 I checked:
 
 [x] The download link is legal.
@@ -127,7 +129,7 @@ Other comments...
 PMC 成员拥有具有约束力的投票，但一般来说，社区鼓励所有成员投票，即使他们的投票只是建议性的。
 
 版本发布投票采用多数批准——即至少三名 PMC 成员必须对发布投赞成票，并且赞成票必须多于反对票。PMC 成员的投票是有约束力的，而其他投票则不是。但为了审查方便，PMC 成员投票通常显示指定 “binding”。
-但 Release Manager 需要检查投票的有效性。这可以通过 PMC 的花名册来验证电子邮件地址是否一致。
+但 Release Manager 需要检查投票的有效性。这可以通过 PMC 的花名册来验证电子邮件地址是否一致。所以，建议使用 Apache 邮箱进行投票，来确保投票的有效性。同时，也建议在投票中注明 Apache ID，方便 Release Manager 统计。
 
 一般来说，如果有人发现严重问题，社区将取消发布投票，但在大多数情况下，最终决定权在于 Release Manager。该流程的具体情况可能因项目而异，但“三+1 票的最低法定人数”规则是通用的。
 
