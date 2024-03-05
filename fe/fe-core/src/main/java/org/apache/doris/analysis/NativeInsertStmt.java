@@ -60,9 +60,7 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -394,14 +392,6 @@ public class NativeInsertStmt extends InsertStmt {
                         sourceType, timeoutSecond);
             }
             isTransactionBegin = true;
-        }
-
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx.getTxnEntry() == null) {
-            TTxnParams params = new TTxnParams().setTxnId(transactionId);
-            TransactionEntry transactionEntry = new TransactionEntry(params, (Database) db, targetTable);
-            transactionEntry.setLabel(label.getLabelName());
-            ctx.setTxnEntry(transactionEntry);
         }
 
         // init data sink

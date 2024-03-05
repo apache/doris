@@ -2972,7 +2972,7 @@ public class StmtExecutor {
         return exprToType(parsedStmt.getResultExprs());
     }
 
-    private void generateStreamLoadNereidsPlan(TUniqueId queryId) {
+    private HttpStreamParams generateStreamLoadNereidsPlan(TUniqueId queryId) {
         LOG.info("TUniqueId: {} generate stream load plan", queryId);
         context.setQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
@@ -2982,6 +2982,8 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         InsertIntoTableCommand insert = (InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        HttpStreamParams httpStreamParams = new HttpStreamParams();
+
         try {
             if (!StringUtils.isEmpty(context.getSessionVariable().groupCommit)) {
                 if (!Config.wait_internal_group_commit_finish && insert.getLabelName().isPresent()) {
@@ -2990,18 +2992,11 @@ public class StmtExecutor {
                 context.setGroupCommitStreamLoadSql(true);
             }
             OlapInsertExecutor insertExecutor = (OlapInsertExecutor) insert.initPlan(context, this);
-            context.getExecutor().setPlanner(this.planner);
-            if (context.getTxnEntry() == null) {
-                Database dbObj = Env.getCurrentInternalCatalog()
-                        .getDbOrException(insertExecutor.getDatabase().getFullName(),
-                            s -> new TException("database is invalid for dbName: " + s));
-                Table tblObj = dbObj.getTableOrException(insertExecutor.getTable().getName(),
-                        s -> new TException("table is invalid: " + s));
-                TransactionEntry transactionEntry =
-                        new TransactionEntry(new TTxnParams().setTxnId(insertExecutor.getTxnId()), dbObj, tblObj);
-                transactionEntry.setLabel(insertExecutor.getLabelName());
-                context.setTxnEntry(transactionEntry);
-            }
+            httpStreamParams.setTxnId(insertExecutor.getTxnId());
+            httpStreamParams.setDb(insertExecutor.getDatabase());
+            httpStreamParams.setTable(insertExecutor.getTable());
+            httpStreamParams.setLabel(insertExecutor.getLabelName());
+
             PlanNode planRoot = planner.getFragments().get(0).getPlanRoot();
             Preconditions.checkState(planRoot instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode,
                     "Nereids' planNode cannot be converted to " + planRoot.getClass().getName());
@@ -3023,9 +3018,10 @@ public class StmtExecutor {
             throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
                     new AnalysisException(e.getMessage(), e));
         }
+        return httpStreamParams;
     }
 
-    private void generateStreamLoadLegacyPlan(TUniqueId queryId) throws Exception {
+    private HttpStreamParams generateStreamLoadLegacyPlan(TUniqueId queryId) throws Exception {
         // Due to executing Nereids, it needs to be reset
         planner = null;
         context.getState().setNereids(false);
@@ -3042,15 +3038,23 @@ public class StmtExecutor {
             }
             ((NativeInsertStmt) parsedStmt).isGroupCommitStreamLoadSql = true;
         }
+        NativeInsertStmt insertStmt = (NativeInsertStmt) parsedStmt;
         analyze(context.getSessionVariable().toThrift());
+        HttpStreamParams httpStreamParams = new HttpStreamParams();
+        httpStreamParams.setTxn_id(insertStmt.getTransactionId());
+        httpStreamParams.setDb(insertStmt.getDbObj());
+        httpStreamParams.setTable(insertStmt.getTargetTable());
+        httpStreamParams.setLabel(insertStmt.getLabel());
+        return httpStreamParams;
     }
 
-    public void generateStreamLoadPlan(TUniqueId queryId) throws Exception {
+    public HttpStreamParams generateStreamLoadPlan(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
+        HttpStreamParams httpStreamParams = null;
         try {
             if (sessionVariable.isEnableNereidsPlanner()) {
                 try {
-                    generateStreamLoadNereidsPlan(queryId);
+                    httpStreamParams = generateStreamLoadNereidsPlan(queryId);
                 } catch (NereidsException | ParseException e) {
                     if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                         MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
@@ -3081,12 +3085,12 @@ public class StmtExecutor {
                     // and audit log. So we need to reset state to OK if query cancel be processd by lagency.
                     context.getState().reset();
                     context.getState().setNereids(false);
-                    generateStreamLoadLegacyPlan(queryId);
+                    httpStreamParams = generateStreamLoadLegacyPlan(queryId);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
             } else {
-                generateStreamLoadLegacyPlan(queryId);
+                httpStreamParams = generateStreamLoadLegacyPlan(queryId);
             }
         } finally {
             // revert Session Value
@@ -3100,6 +3104,7 @@ public class StmtExecutor {
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             }
         }
+        return httpStreamParams;
     }
 
     public SummaryProfile getSummaryProfile() {

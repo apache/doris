@@ -88,6 +88,7 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -2016,21 +2017,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private TExecPlanFragmentParams initHttpStreamPlan(TStreamLoadPutRequest request, ConnectContext ctx)
+    private HttpStreamParams initHttpStreamPlan(TStreamLoadPutRequest request, ConnectContext ctx)
             throws UserException {
         String originStmt = request.getLoadSql();
-        TExecPlanFragmentParams plan;
+        HttpStreamParams httpStreamParams;
         try {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             ctx.setExecutor(executor);
-            executor.generateStreamLoadPlan(ctx.queryId());
+            httpStreamParams = executor.generateStreamLoadPlan(ctx.queryId());
 
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
 
-            plan = coord.getStreamLoadPlan();
+            httpStreamParams.setParams(coord.getStreamLoadPlan());
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
             throw new UserException("exec sql error" + e);
@@ -2038,7 +2039,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result." + e);
         }
-        return plan;
+        return httpStreamParams;
     }
 
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result, ConnectContext ctx)
@@ -2055,25 +2056,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
         try {
-            TExecPlanFragmentParams plan = initHttpStreamPlan(request, ctx);
+            HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
             int loadStreamPerNode = 20;
             if (request.getStreamPerNode() > 0) {
                 loadStreamPerNode = request.getStreamPerNode();
             }
-            plan.setLoadStreamPerNode(loadStreamPerNode);
-            plan.setTotalLoadStreams(loadStreamPerNode);
-            plan.setNumLocalSink(1);
-            final long txn_id = ctx.getTxnEntry().getTxnConf().getTxnId();
-            result.setParams(plan);
-            result.getParams().setDbName(ctx.getTxnEntry().getDb().getFullName());
-            result.getParams().setTableName(ctx.getTxnEntry().getTable().getName());
-            result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
-            result.getParams().setImportLabel(ctx.getTxnEntry().getLabel());
-            result.setDbId(ctx.getTxnEntry().getDb().getId());
-            result.setTableId(ctx.getTxnEntry().getTable().getId());
-            result.setBaseSchemaVersion(((OlapTable) ctx.getTxnEntry().getTable()).getBaseSchemaVersion());
-            result.setGroupCommitIntervalMs(((OlapTable) ctx.getTxnEntry().getTable()).getGroupCommitIntervalMs());
-            result.setGroupCommitDataBytes(((OlapTable) ctx.getTxnEntry().getTable()).getGroupCommitDataBytes());
+            httpStreamParams.getParams().setLoadStreamPerNode(loadStreamPerNode);
+            httpStreamParams.getParams().setTotalLoadStreams(loadStreamPerNode);
+            httpStreamParams.getParams().setNumLocalSink(1);
+            result.setParams(httpStreamParams.getParams());
+            result.getParams().setDbName(httpStreamParams.getDb().getFullName());
+            result.getParams().setTableName(httpStreamParams.getTable().getName());
+            result.getParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxn_id()));
+            result.getParams().setImportLabel(httpStreamParams.getLabel());
+            result.setDbId(httpStreamParams.getDb().getId());
+            result.setTableId(httpStreamParams.getTable().getId());
+            result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());
+            result.setGroupCommitIntervalMs(((OlapTable) httpStreamParams.getTable()).getGroupCommitIntervalMs());
+            result.setGroupCommitDataBytes(((OlapTable) httpStreamParams.getTable()).getGroupCommitDataBytes());
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
