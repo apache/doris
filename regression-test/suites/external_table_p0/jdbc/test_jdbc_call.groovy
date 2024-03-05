@@ -113,6 +113,20 @@ suite("test_jdbc_call", "p0,external,doris,external_docker,external_docker_doris
     sql """create user ${user2}""";
     sql """grant load_priv, select_priv on *.*.* to ${user2}"""
 
+    def isCloudMode = {
+        def ret = sql_return_maparray  """show backends"""
+        ret.Tag[0].contains("cloud_cluster_name")
+    }
+    def cloudMode = isCloudMode.call()
+    //cloud-mode
+    if (cloudMode) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user1}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user2}""";
+    }    
+
     def result1 = connect(user="${user1}", password="", url=context.config.jdbcUrl) {
         sql """set enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""
