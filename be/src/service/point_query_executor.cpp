@@ -194,13 +194,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
         }
     }
-    auto res = ExecEnv::get_tablet(request->tablet_id());
-    _tablet = !res.has_value() ? nullptr : std::dynamic_pointer_cast<BaseTablet>(res.value());
-    if (_tablet == nullptr) {
-        LOG(WARNING) << "failed to do tablet_fetch_data. tablet [" << request->tablet_id()
-                     << "] is not exist";
-        return Status::NotFound(fmt::format("tablet {} not exist", request->tablet_id()));
-    }
+    _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
     if (request->has_version() && request->version() >= 0) {
         _version = request->version();
     }
