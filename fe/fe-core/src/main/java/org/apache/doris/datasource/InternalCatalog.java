@@ -3134,7 +3134,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     rowsToTruncate += partition.getBaseIndex().getRowCount();
                 }
             } else {
-                rowsToTruncate = olapTable.getRowCount();
                 for (Partition partition : olapTable.getPartitions()) {
                     // If need absolutely correct, should check running txn here.
                     // But if the txn is in prepare state, cann't known which partitions had load data.
@@ -3143,6 +3142,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     origPartitions.put(partition.getName(), partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
+                    rowsToTruncate += partition.getBaseIndex().getRowCount();
                 }
             }
             // if table currently has no partitions, this sql like empty command and do nothing, should return directly.
@@ -3303,10 +3303,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (truncateEntireTable) {
             // Drop the whole table stats after truncate the entire table
             Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
-        } else {
-            // Update the updated rows in table stats after truncate some partitions.
-            Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords);
         }
+        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords);
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 

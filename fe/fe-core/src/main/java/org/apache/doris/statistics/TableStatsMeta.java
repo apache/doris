@@ -126,11 +126,6 @@ public class TableStatsMeta implements Writable {
         return colNameToColStatsMeta.keySet();
     }
 
-    public void reset() {
-        updatedTime = 0;
-        colNameToColStatsMeta.values().forEach(ColStatsMeta::clear);
-    }
-
     public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
         userInjected = analyzedJob.userInject;
@@ -145,33 +140,33 @@ public class TableStatsMeta implements Writable {
         for (String col : cols) {
             ColStatsMeta colStatsMeta = colNameToColStatsMeta.get(col);
             if (colStatsMeta == null) {
-                colNameToColStatsMeta.put(col, new ColStatsMeta(updatedTime,
-                        analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
+                colNameToColStatsMeta.put(col, new ColStatsMeta(updatedTime, analyzedJob.analysisMethod,
+                        analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
+                        analyzedJob.updateRows));
             } else {
                 colStatsMeta.updatedTime = updatedTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
+                colStatsMeta.updatedRows = analyzedJob.updateRows;
+                colStatsMeta.rowCount = analyzedJob.rowCount;
             }
         }
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
-                rowCount = analyzedJob.emptyJob ? 0 : tableIf.getRowCount();
-            }
-            if (!analyzedJob.emptyJob && analyzedJob.colToPartitions.keySet()
-                    .containsAll(tableIf.getBaseSchema().stream()
-                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                            .map(Column::getName).collect(Collectors.toSet()))) {
-                updatedRows.set(0);
-                newPartitionLoaded.set(false);
-            }
-            if (tableIf instanceof OlapTable) {
+                rowCount = analyzedJob.rowCount;
                 PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
-                if (partitionInfo != null && analyzedJob.colToPartitions.keySet()
+                if (analyzedJob.rowCount != 0 && partitionInfo != null && analyzedJob.colToPartitions.keySet()
                         .containsAll(partitionInfo.getPartitionColumns().stream()
-                            .map(Column::getName).collect(Collectors.toSet()))) {
+                                .map(Column::getName).collect(Collectors.toSet()))) {
                     newPartitionLoaded.set(false);
+                }
+                if (analyzedJob.rowCount != 0 && analyzedJob.colToPartitions.keySet()
+                        .containsAll(tableIf.getBaseSchema().stream()
+                                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                                .map(Column::getName).collect(Collectors.toSet()))) {
+                    userInjected = false;
                 }
             }
         }
