@@ -60,7 +60,8 @@ public class CloudCoordinator extends Coordinator {
         super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance);
     }
 
-    protected void prepare() {
+    @Override
+    protected void prepare() throws Exception {
         String cluster = null;
         ConnectContext context = ConnectContext.get();
         if (context != null) {
@@ -88,11 +89,9 @@ public class CloudCoordinator extends Coordinator {
         }
 
         this.idToBackend = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudIdToBackend(cluster);
-        super.prepare();
-    }
 
-    protected void processFragmentAssignmentAndParams() throws Exception {
-        prepare();
+        super.prepare();
+
         if (idToBackend == null || idToBackend.isEmpty()) {
             LOG.warn("no available backends, idToBackend {}", idToBackend);
             String clusterName = ConnectContext.get() != null
@@ -100,10 +99,9 @@ public class CloudCoordinator extends Coordinator {
             throw new Exception("no available backends, the cluster maybe not be set or been dropped clusterName = "
                 + clusterName);
         }
-        computeScanRangeAssignment();
-        super.computeFragmentExecParams();
     }
 
+    @Override
     protected void computeScanRangeAssignment() throws Exception {
         setVisibleVersionForOlapScanNode();
         super.computeScanRangeAssignment();

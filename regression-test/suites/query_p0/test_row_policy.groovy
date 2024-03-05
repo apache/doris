@@ -29,13 +29,8 @@ suite("test_row_policy") {
     sql """DROP ROW POLICY IF EXISTS policy_01 ON ${tableName} FOR ${user}"""
     sql """CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO ${user} USING(id=1)"""
 
-    def isCloudMode = {
-        def ret = sql_return_maparray  """show backends"""
-        ret.Tag[0].contains("cloud_cluster_name")
-    }
-    def cloudMode = isCloudMode.call()
     //cloud-mode
-    if (cloudMode) {
+    if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]

@@ -508,7 +508,7 @@ public class Coordinator implements CoordInterface {
     }
 
     // Initialize
-    protected void prepare() {
+    protected void prepare() throws Exception {
         for (PlanFragment fragment : fragments) {
             fragmentExecParamsMap.put(fragment.getFragmentId(), new FragmentExecParams(fragment));
         }

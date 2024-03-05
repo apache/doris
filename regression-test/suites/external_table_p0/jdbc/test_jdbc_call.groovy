@@ -113,13 +113,8 @@ suite("test_jdbc_call", "p0,external,doris,external_docker,external_docker_doris
     sql """create user ${user2}""";
     sql """grant load_priv, select_priv on *.*.* to ${user2}"""
 
-    def isCloudMode = {
-        def ret = sql_return_maparray  """show backends"""
-        ret.Tag[0].contains("cloud_cluster_name")
-    }
-    def cloudMode = isCloudMode.call()
     //cloud-mode
-    if (cloudMode) {
+    if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
