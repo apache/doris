@@ -2338,6 +2338,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
 
+        // set storage vault
+        olapTable.setStorageVault(PropertyAnalyzer.analyzeStorageVault(properties));
+
         // check `update on current_timestamp`
         if (!enableUniqueKeyMergeOnWrite) {
             for (Column column : baseSchema) {

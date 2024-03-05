@@ -155,7 +155,6 @@ public class CloudInternalCatalog extends InternalCatalog {
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
                     + "indexId: {}",
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId);
-            // dataProperty.setStorageVaultId(storageVaultId);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
             if (resp.hasStorageVaultId() && !storageVaultIdSet) {
                 tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
