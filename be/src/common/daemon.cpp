@@ -60,7 +60,6 @@
 #include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/perf_counters.h"
-
 #include "util/thrift_util.h"
 #include "util/time.h"
 
