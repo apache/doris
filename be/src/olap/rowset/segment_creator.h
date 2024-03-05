@@ -43,6 +43,7 @@ class VerticalSegmentWriter;
 
 struct SegmentStatistics;
 class BetaRowsetWriter;
+class SegmentFileCollection;
 
 class FileWriterCreator {
 public:
@@ -88,11 +89,9 @@ private:
 
 class SegmentFlusher {
 public:
-    SegmentFlusher();
+    SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files);
 
     ~SegmentFlusher();
-
-    Status init(RowsetWriterContext& rowset_writer_context);
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
@@ -102,8 +101,6 @@ public:
     int64_t num_rows_written() const { return _num_rows_written; }
 
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
-
-    io::FileWriter* get_file_writer(int32_t segment_id);
 
     Status close();
 
@@ -153,10 +150,8 @@ private:
                                  int64_t* flush_size = nullptr);
 
 private:
-    RowsetWriterContext* _context;
-
-    mutable SpinLock _lock; // protect following vectors.
-    std::unordered_map<int32_t, io::FileWriterPtr> _file_writers;
+    RowsetWriterContext& _context;
+    SegmentFileCollection& _seg_files;
 
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
@@ -165,11 +160,9 @@ private:
 
 class SegmentCreator {
 public:
-    SegmentCreator() = default;
+    SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files);
 
     ~SegmentCreator() = default;
-
-    Status init(RowsetWriterContext& rowset_writer_context);
 
     void set_segment_start_id(uint32_t start_id) { _next_segment_id = start_id; }
 
@@ -198,10 +191,6 @@ public:
     }
 
     Status close();
-
-    io::FileWriter* get_file_writer(int32_t segment_id) {
-        return _segment_flusher.get_file_writer(segment_id);
-    }
 
 private:
     std::atomic<int32_t> _next_segment_id = 0;

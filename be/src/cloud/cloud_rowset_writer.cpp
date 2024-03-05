@@ -58,7 +58,6 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
-    RETURN_IF_ERROR(_segment_creator.init(_context));
     return Status::OK();
 }
 
@@ -105,7 +104,12 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
     }
 
-    // TODO(plat1ko): Record segment file size in rowset meta
+    if (auto seg_file_size = _seg_files.segments_file_size(_segment_start_id);
+        !seg_file_size.has_value()) [[unlikely]] {
+        LOG(ERROR) << "expected segment file sizes, but none presents: " << seg_file_size.error();
+    } else {
+        _rowset_meta->add_segments_file_size(seg_file_size.value());
+    }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
