@@ -18,8 +18,12 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateStorageVaultStmt;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.rpc.RpcException;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -32,9 +36,42 @@ public class StorageVaultMgr {
     // which indicates we can maintains one <VaultName, VaultId> map in FE master
 
     public void createStorageVaultResource(CreateStorageVaultStmt stmt) throws Exception {
-        if (stmt.getStorageVaultType() == StorageVault.StorageVaultType.UNKNOWN) {
-            throw new DdlException("Only support S3, HDFS storage vault.");
+        switch (stmt.getStorageVaultType()) {
+            case HDFS:
+                createHdfsVault(StorageVault.fromStmt(stmt));
+                break;
+            case S3:
+                throw new DdlException("Currently S3 is not support.");
+            case UNKNOWN:
+                throw new DdlException("Only support S3, HDFS storage vault.");
         }
-        StorageVault.fromStmt(stmt).alterMetaService();
+    }
+
+    @VisibleForTesting
+    public void createHdfsVault(StorageVault vault) throws DdlException {
+        HdfsStorageVault hdfsStorageVault = (HdfsStorageVault) vault;
+        Cloud.HdfsInfo hdfsInfos = HdfsStorageVault.generateHdfsParam(hdfsStorageVault.getCopiedProperties());
+        Cloud.AlterHdfsInfo.Builder alterHdfsInfoBuilder = Cloud.AlterHdfsInfo.newBuilder();
+        alterHdfsInfoBuilder.setVaultName(hdfsStorageVault.getName());
+        alterHdfsInfoBuilder.setHdfs(hdfsInfos);
+        Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
+                = Cloud.AlterObjStoreInfoRequest.newBuilder();
+        requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
+        requestBuilder.setHdfs(alterHdfsInfoBuilder.build());
+        try {
+            Cloud.AlterObjStoreInfoResponse response =
+                    MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
+            if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
+                    && hdfsStorageVault.ifNotExists()) {
+                return;
+            }
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to alter storage vault response: {} ", response);
+                throw new DdlException(response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            LOG.warn("failed to alter storage vault due to RpcException: {}", e);
+            throw new DdlException(e.getMessage());
+        }
     }
 }

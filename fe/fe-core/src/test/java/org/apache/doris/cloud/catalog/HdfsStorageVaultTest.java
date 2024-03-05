@@ -20,6 +20,7 @@ package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.catalog.HdfsStorageVault;
 import org.apache.doris.catalog.StorageVault;
+import org.apache.doris.catalog.StorageVaultMgr;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceResponseStatus;
@@ -35,16 +36,23 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 public class HdfsStorageVaultTest {
-
+    private StorageVaultMgr mgr = new StorageVaultMgr();
+    Method method;
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         Config.cloud_unique_id = "cloud_unique_id";
         Config.meta_service_endpoint = "127.0.0.1:20121";
+        Class<?> myClass = StorageVaultMgr.class;
+        String methodName = "createHdfsVault";
+        method = myClass.getDeclaredMethod(methodName, StorageVault.class);
+        method.setAccessible(true);
     }
 
     StorageVault createHdfsVault(String name, Map<String, String> properties) throws DdlException {
@@ -54,7 +62,7 @@ public class HdfsStorageVaultTest {
     }
 
     @Test
-    public void testAlterMetaServiceNormal() throws DdlException {
+    public void testAlterMetaServiceNormal() throws Exception {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             @Mock
             public Cloud.AlterObjStoreInfoResponse
@@ -68,11 +76,11 @@ public class HdfsStorageVaultTest {
         StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/"));
-        vault.alterMetaService();
+        method.invoke(mgr, vault);
     }
 
     @Test
-    public void testAlterMetaServiceWithDuplicateName() throws DdlException {
+    public void testAlterMetaServiceWithDuplicateName() throws Exception {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             private Set<String> existed = new HashSet<>();
             @Mock
@@ -94,15 +102,15 @@ public class HdfsStorageVaultTest {
         StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/"));
-        vault.alterMetaService();
-        Assertions.assertThrows(DdlException.class,
+        method.invoke(mgr, vault);
+        Assertions.assertThrows(InvocationTargetException.class,
                 () -> {
-                    vault.alterMetaService();
+                    method.invoke(mgr, vault);
                 });
     }
 
     @Test
-    public void testAlterMetaServiceWithMissingFiels() throws DdlException {
+    public void testAlterMetaServiceWithMissingFiels() throws Exception {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             @Mock
             public Cloud.AlterObjStoreInfoResponse
@@ -121,14 +129,14 @@ public class HdfsStorageVaultTest {
         StorageVault vault = createHdfsVault("", ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/"));
-        Assertions.assertThrows(DdlException.class,
+        Assertions.assertThrows(InvocationTargetException.class,
                 () -> {
-                    vault.alterMetaService();
+                    method.invoke(mgr, vault);
                 });
     }
 
     @Test
-    public void testAlterMetaServiceIfNotExists() throws DdlException {
+    public void testAlterMetaServiceIfNotExists() throws Exception {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             private Set<String> existed = new HashSet<>();
             @Mock
@@ -151,6 +159,6 @@ public class HdfsStorageVaultTest {
         vault.modifyProperties(ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/"));
-        vault.alterMetaService();
+        method.invoke(mgr, vault);
     }
 }

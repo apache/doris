@@ -62,38 +62,10 @@ public class HdfsStorageVault extends StorageVault {
     }
 
     @Override
-    public void alterMetaService() throws DdlException {
-        Cloud.HdfsParams hdfsParams = generateHdfsParam(properties);
-        Cloud.AlterHdfsParams.Builder alterHdfsParamsBuilder = Cloud.AlterHdfsParams.newBuilder();
-        alterHdfsParamsBuilder.setVaultName(name);
-        alterHdfsParamsBuilder.setHdfs(hdfsParams);
-        Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
-                = Cloud.AlterObjStoreInfoRequest.newBuilder();
-        requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
-        requestBuilder.setHdfs(alterHdfsParamsBuilder.build());
-        try {
-            Cloud.AlterObjStoreInfoResponse response =
-                    MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
-            if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
-                    && ifNotExists()) {
-                return;
-            }
-            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("failed to alter storage vault response: {} ", response);
-                throw new DdlException(response.getStatus().getMsg());
-            }
-        } catch (RpcException e) {
-            LOG.warn("failed to alter storage vault due to RpcException: {}", e);
-            throw new DdlException(e.getMessage());
-        }
-    }
-
-    @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
-        super.modifyProperties(properties);
     }
 
     @Override
@@ -111,38 +83,30 @@ public class HdfsStorageVault extends StorageVault {
         return Maps.newHashMap(properties);
     }
 
-    @Override
-    protected void getProcNodeData(BaseProcResult result) {
-        // String lowerCaseType = type.name().toLowerCase();
-        // for (Map.Entry<String, String> entry : properties.entrySet()) {
-        //     result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
-        // }
-    }
-
     public static boolean enableShortCircuitRead(Map<String, String> properties) {
         return "true".equalsIgnoreCase(properties.getOrDefault(HADOOP_SHORT_CIRCUIT, "false"))
                     && properties.containsKey(HADOOP_SOCKET_PATH);
     }
 
-    public static Cloud.HdfsParams generateHdfsParam(Map<String, String> properties) {
-        Cloud.HdfsParams.Builder hdfsParamsBuilder =
-                    Cloud.HdfsParams.newBuilder();
+    public static Cloud.HdfsInfo generateHdfsParam(Map<String, String> properties) {
+        Cloud.HdfsInfo.Builder hdfsInfoBuilder =
+                    Cloud.HdfsInfo.newBuilder();
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
-                hdfsParamsBuilder.setFsName(property.getValue());
+                hdfsInfoBuilder.setFsName(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_USER_NAME)) {
-                hdfsParamsBuilder.setUser(property.getValue());
+                hdfsInfoBuilder.setUser(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL)) {
-                hdfsParamsBuilder.setHdfsKerberosPrincipal(property.getValue());
+                hdfsInfoBuilder.setHdfsKerberosPrincipal(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB)) {
-                hdfsParamsBuilder.setHdfsKerberosKeytab(property.getValue());
+                hdfsInfoBuilder.setHdfsKerberosKeytab(property.getValue());
             } else {
                 Cloud.HdfsConf.Builder hdfsConfBuilder = Cloud.HdfsConf.newBuilder();
                 hdfsConfBuilder.setKey(property.getKey());
                 hdfsConfBuilder.setValue(property.getValue());
-                hdfsParamsBuilder.addHdfsConfs(hdfsConfBuilder.build());
+                hdfsInfoBuilder.addHdfsConfs(hdfsConfBuilder.build());
             }
         }
-        return hdfsParamsBuilder.build();
+        return hdfsInfoBuilder.build();
     }
 }

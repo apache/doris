@@ -39,7 +39,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public abstract class StorageVault implements Writable, GsonPostProcessable {
+public abstract class StorageVault {
     private static final Logger LOG = LogManager.getLogger(StorageVault.class);
     public static final String REFERENCE_SPLIT = "@";
     public static final String INCLUDE_DATABASE_LIST = "include_database_list";
@@ -62,13 +62,9 @@ public abstract class StorageVault implements Writable, GsonPostProcessable {
         }
     }
 
-    @SerializedName(value = "name")
     protected String name;
-    @SerializedName(value = "type")
     protected StorageVaultType type;
-    @SerializedName(value = "id")
     protected String id;
-    @SerializedName(value = "ifNotExists")
     private boolean ifNotExists;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
@@ -104,8 +100,6 @@ public abstract class StorageVault implements Writable, GsonPostProcessable {
         return storageVault;
     }
 
-    public abstract void alterMetaService() throws DdlException;
-
     public boolean ifNotExists() {
         return this.ifNotExists;
     }
@@ -132,9 +126,6 @@ public abstract class StorageVault implements Writable, GsonPostProcessable {
         boolean ifNotExists = stmt.isIfNotExists();
         StorageVault vault;
         switch (type) {
-            // case S3:
-            //     vault = new S3StorageVault(name);
-            //     break;
             case HDFS:
                 vault = new HdfsStorageVault(name, ifNotExists);
                 break;
@@ -158,9 +149,7 @@ public abstract class StorageVault implements Writable, GsonPostProcessable {
      * @param properties
      * @throws DdlException
      */
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
-        notifyUpdate(properties);
-    }
+    public abstract void modifyProperties(Map<String, String> properties) throws DdlException;
 
     /**
      * Check properties in child resources
@@ -181,46 +170,4 @@ public abstract class StorageVault implements Writable, GsonPostProcessable {
     protected abstract void setProperties(Map<String, String> properties) throws DdlException;
 
     public abstract Map<String, String> getCopiedProperties();
-
-    /**
-     * Fill BaseProcResult with different properties in child resources
-     * ResourceMgr.RESOURCE_PROC_NODE_TITLE_NAMES format:
-     * | Name | ResourceType | Key | Value |
-     */
-    protected abstract void getProcNodeData(BaseProcResult result);
-
-    @Override
-    public String toString() {
-        return GsonUtils.GSON.toJson(this);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static Resource read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Resource.class);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-    }
-
-    @Override
-    public Resource clone() {
-        Resource copied = DeepCopy.copy(this, Resource.class, FeConstants.meta_version);
-        if (copied == null) {
-            LOG.warn("failed to clone odbc resource: " + getName());
-            return null;
-        }
-        return copied;
-    }
-
-    private void notifyUpdate(Map<String, String> properties) {
-    }
-
-    public void applyDefaultProperties() {}
 }
