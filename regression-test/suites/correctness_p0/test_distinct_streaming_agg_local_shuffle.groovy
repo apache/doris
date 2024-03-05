@@ -20,8 +20,6 @@
 // and modified by Doris.
 
 suite("test_distinct_streaming_agg_local_shuffle") {
-    sql """set experimental_enable_pipeline_x_engine=true"""
-    sql """set enable_local_shuffle = true"""
 
     sql """drop table if exists table_10_undef_partitions2_keys3_properties4_distributed_by5;"""
     sql """ 
@@ -78,6 +76,21 @@ suite("test_distinct_streaming_agg_local_shuffle") {
     sql """
     insert into table_10_undef_partitions2_keys3_properties4_distributed_by53(pk,col_bigint_undef_signed,col_varchar_10__undef_signed,col_varchar_64__undef_signed) values (0,null,'right','g'),(1,-486256,'on','on'),(2,-1,'I''ll','at'),(3,29263,'h','don''t'),(4,5453,'a','s'),(5,-119,'j','can''t'),(6,89,'one','n'),(7,-7227,'s','u'),(8,94,'time','b'),(9,1816630,'yes','yes');
     """
+
+    sql """set experimental_enable_pipeline_x_engine=true"""
+    sql """set enable_local_shuffle = true"""
+
+    qt_select """
+    
+    SELECT table1 . `pk` AS field1 , COUNT( DISTINCT table1 . `pk` ) AS field2 , table1 . `pk` AS field3 FROM  table_10_undef_partitions2_keys3_properties4_distributed_by52 AS table1  LEFT OUTER JOIN table_10_undef_partitions2_keys3_properties4_distributed_by52 AS table2 ON table2 . `pk`
+<= table2 . `pk` LEFT  JOIN table_10_undef_partitions2_keys3_properties4_distributed_by5 AS table3 ON table2 . col_varchar_10__undef_signed = table2 . col_varchar_10__undef_signed WHERE   table1 . col_varchar_64__undef_signed > 'look' AND table1 . col_varchar_64__undef_signed <= 'zzzz' OR   table1 . col_varchar_10__undef_signed = table1 . col_varchar_10__undef_signed OR table1 . col_varchar_10__undef_signed > 'wmXlKwiRcZ' AND table1 . col_varchar_10__undef_signed <= 'z' AND   table1 . `pk`  IN ( 1 ) OR  table1 . `pk` = 4  GROUP BY field1,field3 order by field1;
+    
+    """
+
+
+    sql """set experimental_enable_pipeline_x_engine=false"""
+    sql """set enable_local_shuffle = false"""
+
 
     qt_select """
     
