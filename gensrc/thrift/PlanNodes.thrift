@@ -703,6 +703,7 @@ struct TOlapScanNode {
   15: optional set<i32> output_column_unique_ids
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
+  18: optional list<i32> topn_filter_source_node_ids
 }
 
 struct TEqJoinCondition {
@@ -1188,6 +1189,9 @@ struct TRuntimeFilterDesc {
   // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
   // ignore bloom_filter_size_bytes
   14: optional bool bloom_filter_size_calculated_by_ndv;
+ 
+  // true, if join type is null aware like <=>. rf should dispose the case
+  15: optional bool null_aware;
 }
 
 

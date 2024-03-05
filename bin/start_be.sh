@@ -298,21 +298,14 @@ CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
 
-if [[ "${java_version}" -gt 16 ]]; then
+if [[ "${java_version}" -eq 17 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_17} ]]; then
         JAVA_OPTS_FOR_JDK_17="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens=java.base/java.net=ALL-UNNAMED"
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
-elif [[ "${java_version}" -gt 8 ]]; then
-    if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
-        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS}"
-    fi
-    final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
 else
-    if [[ -z ${JAVA_OPTS} ]]; then
-        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS}"
-    fi
-    final_java_opt="${JAVA_OPTS}"
+    echo "ERROR: The jdk_version is ${java_version}, it must be 17." >>"${LOG_DIR}/be.out"
+    exit 1
 fi
 
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then
@@ -335,7 +328,7 @@ export LIBHDFS_OPTS="${final_java_opt}"
 #echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
-    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,lg_tcache_max:20,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
+    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then

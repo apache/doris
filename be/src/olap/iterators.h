@@ -82,7 +82,7 @@ public:
     std::unordered_map<uint32_t, std::shared_ptr<roaring::Roaring>> delete_bitmap;
 
     std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates =
-            std::make_shared<AndBlockColumnPredicate>();
+            AndBlockColumnPredicate::create_shared();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
     std::vector<ColumnPredicate*> column_predicates;
@@ -100,6 +100,7 @@ public:
     bool record_rowids = false;
     // flag for enable topn opt
     bool use_topn_opt = false;
+    std::vector<int> topn_filter_source_node_ids;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
