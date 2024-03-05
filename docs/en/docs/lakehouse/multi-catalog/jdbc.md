@@ -198,7 +198,7 @@ JDBC catalog has the following three stages for mapping rules for external table
 
   For specific rules, please refer to the introduction of `lower_case_meta_names` at the beginning of this section.
 
-  Users who have previously set the JDBC catalog `lower_case_table_names` parameter will automatically have `lower_case_table_names` converted to `lower_case_meta_names` when upgrading to 2.1.0.
+  Users who have previously set the JDBC catalog `lower_case_table_names` parameter will automatically have `lower_case_table_names` converted to `lower_case_meta_names` when upgrading to 2.0.4.
 
 ### Specify synchronization database:
 
@@ -890,7 +890,6 @@ When mapping DB2, Doris's Database corresponds to a Schema under the specified D
 | LONG VARGRAPHIC  | STRING       |       |
 | TIME             | STRING       |       |
 | CLOB             | STRING       |       |
-| XML              | STRING       |       |
 | OTHER            | UNSUPPORTED  |       |
 
 ## JDBC Drivers

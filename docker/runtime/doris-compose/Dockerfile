@@ -38,8 +38,8 @@ RUN <<EOF
 EOF
 
 # set environment variables
-ENV JAVA_HOME="/usr/local/openjdk-8/"
-ENV jacoco_version 0.8.8
+ENV JAVA_HOME="/usr/local/openjdk"
+ENV JACOCO_VERSION 0.8.8
 
 RUN mkdir -p /opt/apache-doris/coverage
 
@@ -47,7 +47,7 @@ RUN  sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list
 RUN  apt-get clean
 
 RUN apt-get update && \
-    apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq && \
+    apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq procps && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
     apt-get clean
@@ -57,7 +57,7 @@ RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/j
     unzip jacoco.zip -d /jacoco
 
 # cloud
-COPY ${OUT_DIRECTORY}/../cloud/CMakeLists.txt ${OUT_DIRECTORY}/../cloud/output* /opt/apache-doris/cloud/
+COPY cloud/CMakeLists.txt cloud/output* /opt/apache-doris/cloud/
 RUN <<EOF
     mkdir /opt/apache-doris/fdb
     if [ -d /opt/apache-doris/cloud/bin ]; then
@@ -66,7 +66,7 @@ RUN <<EOF
 EOF
 
 # fe and be
-COPY $OUT_DIRECTORY /opt/apache-doris/
+COPY output /opt/apache-doris/
 # in docker, run 'chmod 755 doris_be' first time cost 1min, remove it.
 RUN sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/be/bin/start_be.sh
 

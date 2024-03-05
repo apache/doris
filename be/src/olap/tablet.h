@@ -369,6 +369,9 @@ public:
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
 
+    static Status update_delete_bitmap_without_lock(const TabletSharedPtr& self,
+                                                    const RowsetSharedPtr& rowset);
+
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
     Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,

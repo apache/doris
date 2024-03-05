@@ -90,8 +90,6 @@ public class PointQueryExec implements CoordInterface {
     // using this ID to find for this prepared statement
     private UUID cacheID;
 
-    private final int maxMsgSizeOfResultReceiver;
-
     // used for snapshot read in cloud mode
     private List<Long> versions;
 
@@ -127,7 +125,6 @@ public class PointQueryExec implements CoordInterface {
             // TODO
             // planner.getDescTable().toThrift();
         }
-        this.maxMsgSizeOfResultReceiver = maxMessageSize;
     }
 
     private void updateCloudPartitionVersions() throws RpcException {

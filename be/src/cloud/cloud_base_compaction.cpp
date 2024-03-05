@@ -29,7 +29,7 @@
 #include "service/backend_options.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
-
+#include "util/doris_bvar_metrics.h"
 namespace doris {
 using namespace ErrorCode;
 
@@ -242,8 +242,8 @@ Status CloudBaseCompaction::execute_compact() {
     //_compaction_succeed = true;
     _state = CompactionState::SUCCESS;
 
-    DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
+    g_adder_base_compaction_deltas_total.increment(_input_rowsets.size());
+    g_adder_base_compaction_bytes_total.increment(_input_rowsets_size);
     base_output_size << _output_rowset->data_disk_size();
 
     return Status::OK();

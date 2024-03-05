@@ -183,7 +183,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
                             config::memory_limitation_per_thread_for_schema_change_bytes));
         SCOPED_ATTACH_TASK(mem_tracker);
-        DorisMetrics::instance()->create_rollup_requests_total->increment(1);
+        g_adder_create_rollup_requests_total.increment(1);
         Status res = Status::OK();
         try {
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
@@ -193,7 +193,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
             status = e.to_status();
         }
         if (!status.ok()) {
-            DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
+            g_adder_create_rollup_requests_failed.increment(1);
         }
     }
 
@@ -251,7 +251,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
                             config::memory_limitation_per_thread_for_schema_change_bytes));
         SCOPED_ATTACH_TASK(mem_tracker);
-        DorisMetrics::instance()->create_rollup_requests_total->increment(1);
+        g_adder_create_rollup_requests_total.increment(1);
         Status res = Status::OK();
         try {
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
@@ -263,7 +263,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
             status = e.to_status();
         }
         if (!status.ok()) {
-            DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
+            g_adder_create_rollup_requests_failed.increment(1);
         }
     }
 
@@ -1877,7 +1877,7 @@ void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskReq
 
     TFinishTaskRequest finish_task_request;
     if (!status) {
-        DorisMetrics::instance()->publish_task_failed_total->increment(1);
+        g_adder_publish_task_failed_total.increment(1);
         LOG_WARNING("failed to calculate delete bitmap")
                 .tag("signature", req.signature)
                 .tag("transaction_id", calc_delete_bitmap_req.transaction_id)

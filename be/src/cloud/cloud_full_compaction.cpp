@@ -31,6 +31,7 @@
 #include "service/backend_options.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
+#include "util/doris_bvar_metrics.h"
 #include "vec/columns/column.h"
 
 namespace doris {
@@ -162,8 +163,8 @@ Status CloudFullCompaction::execute_compact() {
 
     _state = CompactionState::SUCCESS;
 
-    DorisMetrics::instance()->full_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->full_compaction_bytes_total->increment(_input_rowsets_size);
+    g_adder_full_compaction_deltas_total.increment(_input_rowsets.size());
+    g_adder_full_compaction_bytes_total.increment(_input_rowsets_size);
     full_output_size << _output_rowset->data_disk_size();
 
     return Status::OK();

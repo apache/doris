@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_desc", "nonConcurrent"){
-    if (isCloudMode()) {
+    if (isCloudCluster()) {
         return
     }
 

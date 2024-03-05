@@ -59,4 +59,34 @@ suite("slot_both_appear_in_agg_fun_and_grouping_sets") {
           select sum(rank() over (partition by col_text_undef_signed order by col_int_undef_signed)) 
           as col1 from table_10_undef_undef4 group by grouping sets((col_int_undef_signed)) order by 1;
     """
+
+    qt_select6 """
+        select sum(sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed) 
+        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by 
+        grouping sets ((col_int_undef_signed)) order by 1;
+    """
+
+    qt_select7 """
+        select sum(sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed) 
+        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by 
+        grouping sets ((col_text_undef_signed)) order by 1;
+    """
+
+    qt_select8 """
+        select sum(sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed)
+        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by
+        grouping sets ((col_text_undef_signed,col_int_undef_signed)) order by 1;
+    """
+
+    qt_select9 """
+        select sum(sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed)
+        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by
+        grouping sets ((col_text_undef_signed,col_int_undef_signed), (col_text_undef_signed), ()) order by 1;
+    """
+    
+    qt_select10 """
+        select sum(col_int_undef_signed + sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed)
+        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by
+        grouping sets ((col_text_undef_signed,col_int_undef_signed)) order by 1;
+    """
 }

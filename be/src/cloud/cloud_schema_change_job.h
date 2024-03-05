@@ -39,9 +39,6 @@ public:
 private:
     Status _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 
-    Status _process_delete_bitmap(int64_t alter_version, int64_t start_calc_delete_bitmap_version,
-                                  int64_t initiator);
-
 private:
     CloudStorageEngine& _cloud_storage_engine;
     std::shared_ptr<CloudTablet> _base_tablet;
