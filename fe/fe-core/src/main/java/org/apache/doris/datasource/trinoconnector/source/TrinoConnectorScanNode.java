@@ -20,7 +20,6 @@ package org.apache.doris.datasource.trinoconnector.source;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -29,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorPluginLoader;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
@@ -41,7 +41,6 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTrinoConnectorFileDesc;
 import org.apache.doris.trinoconnector.TrinoColumnMetadata;
-import org.apache.doris.trinoconnector.TrinoConnectorPluginManager;
 
 import com.fasterxml.jackson.databind.Module;
 import com.google.common.collect.ImmutableMap;
@@ -207,7 +206,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
                         filed -> new TrinoColumnMetadata(filed.getName(), filed.getType(), filed.isNullable(),
                                 filed.getComment(),
                                 filed.getExtraInfo(), filed.isHidden(), filed.getProperties()))
-                        .collect(Collectors.toList()), objectMapperProvider));
+                .collect(Collectors.toList()), objectMapperProvider));
 
         // set TTableFormatFileDesc
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
@@ -220,11 +219,10 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
 
     private ObjectMapperProvider createObjectMapperProvider() {
         // mock ObjectMapperProvider
-        TrinoConnectorPluginManager trinoConnectorPluginManager = Env.getCurrentEnv().getTrinoConnectorPluginManager();
-        TypeManager typeManager = new InternalTypeManager(trinoConnectorPluginManager.getTypeRegistry());
+        TypeManager typeManager = new InternalTypeManager(TrinoConnectorPluginLoader.getTypeRegistry());
         ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
         Set<Module> modules = new HashSet<Module>();
-        HandleResolver handleResolver = trinoConnectorPluginManager.getHandleResolver();
+        HandleResolver handleResolver = TrinoConnectorPluginLoader.getHandleResolver();
         modules.add(HandleJsonModule.tableHandleModule(handleResolver));
         modules.add(HandleJsonModule.columnHandleModule(handleResolver));
         modules.add(HandleJsonModule.splitModule(handleResolver));

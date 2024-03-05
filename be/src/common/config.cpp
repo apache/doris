@@ -1195,6 +1195,8 @@ DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
 
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
