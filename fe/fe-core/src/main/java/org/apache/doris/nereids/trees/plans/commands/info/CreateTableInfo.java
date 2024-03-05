@@ -875,7 +875,13 @@ public class CreateTableInfo {
                 comment, addRollups, null);
     }
 
-    private static ArrayList<Expr> convertToLegacyAutoPartitionExprs(List<Expression> expressions) {
+    /**
+     * convertToLegacyAutoPartitionExprs
+     *
+     * @param expressions expressions
+     * @return Expr
+     */
+    public static ArrayList<Expr> convertToLegacyAutoPartitionExprs(List<Expression> expressions) {
         return new ArrayList<>(expressions.stream().map(expression -> {
             if (expression instanceof UnboundSlot) {
                 return new SlotRef(null, ((UnboundSlot) expression).getName());

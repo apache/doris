@@ -46,13 +46,27 @@ public class MTMVUtil {
         return table;
     }
 
+    public static MTMVRelatedTableIf getRelatedTable(BaseTableInfo baseTableInfo) {
+        TableIf relatedTable = null;
+        try {
+            relatedTable = MTMVUtil.getTable(baseTableInfo);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(e.getMessage(), e);
+        }
+        if (!(relatedTable instanceof MTMVRelatedTableIf)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "base table for partitioning only can be OlapTable or HMSTable");
+        }
+        return (MTMVRelatedTableIf) relatedTable;
+    }
+
     public static MTMV getMTMV(long dbId, long mtmvId) throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
     /**
-     *  if base tables of mtmv contains external table
+     * if base tables of mtmv contains external table
      *
      * @param mtmv
      * @return

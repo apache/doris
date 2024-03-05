@@ -17,8 +17,11 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.gson.annotations.SerializedName;
 
 /**
@@ -28,17 +31,24 @@ public class MTMVPartitionInfo {
 
     public enum MTMVPartitionType {
         FOLLOW_BASE_TABLE,
+        EXPR,
         SELF_MANAGE
     }
 
+    public static final ImmutableSet<String> MTMV_PARTITION_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
+            String.CASE_INSENSITIVE_ORDER).add("date_trunc")
+            .build();
+
     @SerializedName("pt")
-    MTMVPartitionType partitionType;
+    private MTMVPartitionType partitionType;
     @SerializedName("rt")
-    BaseTableInfo relatedTable;
+    private BaseTableInfo relatedTable;
     @SerializedName("rc")
-    String relatedCol;
+    private String relatedCol;
     @SerializedName("pc")
-    String partitionCol;
+    private String partitionCol;
+    // TODO: 2024/3/4 read and write
+    private Expr expr;
 
     public MTMVPartitionInfo() {
     }
@@ -87,6 +97,14 @@ public class MTMVPartitionInfo {
 
     public void setPartitionCol(String partitionCol) {
         this.partitionCol = partitionCol;
+    }
+
+    public Expr getExpr() {
+        return expr;
+    }
+
+    public void setExpr(Expr expr) {
+        this.expr = expr;
     }
 
     /**
