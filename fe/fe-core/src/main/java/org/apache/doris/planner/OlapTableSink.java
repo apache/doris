@@ -45,6 +45,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -508,7 +509,7 @@ public class OlapTableSink extends DataSink {
                                 + " < quorum replica num " + loadRequiredReplicaNum
                                 + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]";
                         errMsg += " or you may not have permission to access the current cluster";
-                        if (ConnectContext.get() != null) {
+                        if (ConnectContext.get() != null && Config.isCloudMode()) {
                             errMsg += " clusterName=" + ConnectContext.get().getCloudCluster();
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
