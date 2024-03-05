@@ -23,9 +23,12 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <stdlib.h>
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
@@ -191,13 +194,9 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
         }
     }
-    // TODO(plat1ko): CloudStorageEngine
-    _tablet = ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->get_tablet(
-            request->tablet_id());
-    if (_tablet == nullptr) {
-        LOG(WARNING) << "failed to do tablet_fetch_data. tablet [" << request->tablet_id()
-                     << "] is not exist";
-        return Status::NotFound(fmt::format("tablet {} not exist", request->tablet_id()));
+    _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
+    if (request->has_version() && request->version() >= 0) {
+        _version = request->version();
     }
     RETURN_IF_ERROR(_init_keys(request));
     _result_block = _reusable->get_block();
@@ -267,6 +266,10 @@ Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
     // 2. lookup row location
     Status st;
+    if (_version >= 0) {
+        CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(_version));
+    }
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
