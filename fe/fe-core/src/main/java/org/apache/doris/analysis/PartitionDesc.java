@@ -45,7 +45,6 @@ public class PartitionDesc {
     protected ArrayList<Expr> partitionExprs; //eg: auto partition by range date_trunc(column, 'day')
     protected boolean isAutoCreatePartitions;
     protected PartitionType type;
-    protected List<Expr> partitionFields;
     public static final ImmutableSet<String> RANGE_PARTITION_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
             String.CASE_INSENSITIVE_ORDER).add("date_trunc").add("date_ceil").add("date_floor").add("second_floor")
             .add("minute_floor").add("hour_floor").add("day_floor").add("month_floor").add("year_floor")
@@ -257,10 +256,6 @@ public class PartitionDesc {
 
     public ArrayList<Expr> getPartitionExprs() {
         return partitionExprs;
-    }
-
-    public List<Expr> getPartitionFields() {
-        return partitionFields;
     }
 
     public boolean isAutoCreatePartitions() {

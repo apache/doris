@@ -59,7 +59,7 @@ public class PartitionTableInfo {
                 false,
                 PartitionType.UNPARTITIONED.name(),
                 null,
-            null);
+                null);
 
     private boolean isAutoPartition;
     private String partitionType;
