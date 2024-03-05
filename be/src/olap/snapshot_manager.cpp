@@ -618,7 +618,34 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             auto num_segments = rowset_binlog_meta.num_segments();
             std::string_view rowset_id = rowset_binlog_meta.rowset_id();
 
-            // link segment files
+            RowsetMetaPB rowset_meta_pb;
+            if (!rowset_meta_pb.ParseFromString(rowset_binlog_meta.data())) {
+                auto err_msg = fmt::format("fail to parse binlog meta data value:{}",
+                                           rowset_binlog_meta.data());
+                res = Status::InternalError(err_msg);
+                LOG(WARNING) << err_msg;
+                return res;
+            }
+            const auto& tablet_schema_pb = rowset_meta_pb.tablet_schema();
+            TabletSchema tablet_schema;
+            tablet_schema.init_from_pb(tablet_schema_pb);
+
+            std::vector<string> linked_success_files;
+            Defer remove_linked_files {[&]() { // clear linked files if errors happen
+                if (!res.ok()) {
+                    LOG(WARNING) << "will delete linked success files due to error " << res;
+                    std::vector<io::Path> paths;
+                    for (auto& file : linked_success_files) {
+                        paths.emplace_back(file);
+                        LOG(WARNING)
+                                << "will delete linked success file " << file << " due to error";
+                    }
+                    static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
+                    LOG(WARNING) << "done delete linked success files due to error " << res;
+                }
+            }};
+
+            // link segment files and index files
             for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
                 segment_file_path = ref_tablet->get_segment_filepath(rowset_id, segment_index);
                 auto snapshot_segment_file_path =
@@ -631,48 +658,33 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                                  << ", dest=" << snapshot_segment_file_path << "]";
                     break;
                 }
+                linked_success_files.push_back(snapshot_segment_file_path);
+
+                for (const auto& index : tablet_schema.indexes()) {
+                    if (index.index_type() != IndexType::INVERTED) {
+                        continue;
+                    }
+                    auto index_id = index.index_id();
+                    auto index_file = ref_tablet->get_segment_index_filepath(
+                            rowset_id, segment_index, index_id);
+                    auto snapshot_segment_index_file_path =
+                            fmt::format("{}/{}_{}_{}.binlog-index", schema_full_path, rowset_id,
+                                        segment_index, index_id);
+                    VLOG_DEBUG << "link " << index_file << " to "
+                               << snapshot_segment_index_file_path;
+                    res = io::global_local_filesystem()->link_file(
+                            index_file, snapshot_segment_index_file_path);
+                    if (!res.ok()) {
+                        LOG(WARNING) << "fail to link binlog index file. [src=" << index_file
+                                     << ", dest=" << snapshot_segment_index_file_path << "]";
+                        break;
+                    }
+                    linked_success_files.push_back(snapshot_segment_index_file_path);
+                }
             }
 
             if (!res.ok()) {
                 break;
-            }
-
-            // link inverted index files
-            RowsetMetaPB rowset_meta_pb;
-            if (!rowset_meta_pb.ParseFromString(rowset_binlog_meta.data())) {
-                auto err_msg = fmt::format("fail to parse binlog meta data value:{}",
-                                           rowset_binlog_meta.data());
-                res = Status::InternalError(err_msg);
-                LOG(WARNING) << err_msg;
-                return res;
-            }
-
-            const auto& tablet_schema_pb = rowset_meta_pb.tablet_schema();
-            TabletSchema tablet_schema;
-            tablet_schema.init_from_pb(tablet_schema_pb);
-
-            for (const auto& column : tablet_schema.columns()) {
-                if (tablet_schema.has_inverted_index(column)) {
-                    const auto* index_info = tablet_schema.get_inverted_index(column);
-                    auto index_id = index_info->index_id();
-                    for (int i = 0; i < num_segments; ++i) {
-                        auto index_file =
-                                ref_tablet->get_segment_index_filepath(rowset_id, i, index_id);
-                        auto snapshot_segment_index_file_path =
-                                fmt::format("{}/{}_{}_{}.binlog-index", schema_full_path, rowset_id,
-                                            i, index_id);
-
-                        VLOG_DEBUG << "link " << index_file << " to "
-                                   << snapshot_segment_index_file_path;
-                        res = io::global_local_filesystem()->link_file(
-                                index_file, snapshot_segment_index_file_path);
-                        if (!res.ok()) {
-                            LOG(WARNING) << "fail to link binlog index file. [src=" << index_file
-                                         << ", dest=" << snapshot_segment_index_file_path << "]";
-                            break;
-                        }
-                    }
-                }
             }
         }
     } while (false);

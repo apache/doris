@@ -943,26 +943,28 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                 io::global_local_filesystem()->list(schema_hash_path, true, &files, &exists));
         for (auto& file : files) {
             auto& filename = file.file_name;
+            std::string new_suffix;
+            std::string old_suffix;
+
             if (filename.ends_with(".binlog")) {
-                // change clone_file suffix .binlog to .dat
-                std::string new_filename = filename;
-                new_filename.replace(filename.size() - 7, 7, ".dat");
-                auto from = fmt::format("{}/{}", schema_hash_path, filename);
-                auto to = fmt::format("{}/_binlog/{}", schema_hash_path, new_filename);
-                RETURN_IF_ERROR(io::global_local_filesystem()->rename(from, to));
+                old_suffix = ".binlog";
+                new_suffix = ".dat";
             } else if (filename.ends_with(".binlog-index")) {
-                // change clone_file suffix from .binlog-index to .idx
-                std::string new_filename = filename;
-                new_filename.replace(filename.size() - 13, 13, ".idx");
-                auto from = fmt::format("{}/{}", schema_hash_path, filename);
-                auto to = fmt::format("{}/_binlog/{}", schema_hash_path, new_filename);
-                RETURN_IF_ERROR(io::global_local_filesystem()->rename(from, to));
+                old_suffix = ".binlog-index";
+                new_suffix = ".idx";
             } else {
                 continue;
             }
+
+            std::string new_filename = filename;
+            new_filename.replace(filename.size() - old_suffix.size(), old_suffix.size(),
+                                 new_suffix);
+            auto from = fmt::format("{}/{}", schema_hash_path, filename);
+            auto to = fmt::format("{}/_binlog/{}", schema_hash_path, new_filename);
+            RETURN_IF_ERROR(io::global_local_filesystem()->rename(from, to));
         }
 
-        auto meta = store->get_meta();
+        auto* meta = store->get_meta();
         // if ingest binlog metas error, it will be gc in gc_unused_binlog_metas
         RETURN_IF_ERROR(
                 RowsetMetaManager::ingest_binlog_metas(meta, tablet_uid, &rowset_binlog_metas_pb));
