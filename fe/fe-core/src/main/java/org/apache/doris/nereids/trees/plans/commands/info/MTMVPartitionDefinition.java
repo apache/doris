@@ -73,8 +73,6 @@ public class MTMVPartitionDefinition {
         }
         String partitionColName;
         if (this.partitionType == MTMVPartitionType.EXPR) {
-            // partitionColName = ((UnboundSlot) this.functionCallExpression.collect(UnboundSlot.class::isInstance))
-            //         .getName();
             // TODO: 2024/3/4 common method
             Expr expr = CreateTableInfo.convertToLegacyAutoPartitionExprs(Lists.newArrayList(functionCallExpression))
                     .get(0);
@@ -85,9 +83,8 @@ public class MTMVPartitionDefinition {
         }
         mtmvPartitionInfo.setPartitionCol(partitionColName);
         RelatedTableInfo relatedTableInfo = getRelatedTableInfo(planner, ctx, logicalQuery, partitionColName);
-        mtmvPartitionInfo.setPartitionCol(relatedTableInfo.getColumn());
+        mtmvPartitionInfo.setRelatedCol(relatedTableInfo.getColumn());
         mtmvPartitionInfo.setRelatedTable(relatedTableInfo.getTableInfo());
-        // partitionDesc = generatePartitionDesc(mtmvBaseRealtedTable, ctx);
         return mtmvPartitionInfo;
     }
 
