@@ -128,7 +128,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         const TabletColumn& col = read_options.tablet_schema->column(column_id);
         ColumnReader* reader = nullptr;
         if (col.is_extracted_column()) {
-            const auto* node = _sub_column_tree.find_exact(col.path_info());
+            const auto* node = _sub_column_tree.find_exact(*col.path_info_ptr());
             reader = node != nullptr ? node->data.reader.get() : nullptr;
         } else {
             reader = _column_readers.contains(col.unique_id())
