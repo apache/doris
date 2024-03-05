@@ -35,7 +35,9 @@ public:
         return doris::segment_v2::BloomFilter::optimal_bit_num(expect_num, fpp) / 8;
     }
 
-    static BloomFilterAdaptor* create() { return new BloomFilterAdaptor(); }
+    static BloomFilterAdaptor* create(bool null_aware) {
+        return new BloomFilterAdaptor(null_aware);
+    }
 
     Status merge(BloomFilterAdaptor* other) { return _bloom_filter->merge(*other->_bloom_filter); }
 
@@ -96,6 +98,8 @@ public:
 
     void set_build_bf_exactly(bool build_bf_exactly) { _build_bf_exactly = build_bf_exactly; }
 
+    void set_null_aware(bool null_aware) { _null_aware = null_aware; }
+
     Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
 
     Status init_with_cardinality(const size_t build_bf_cardinality) {
@@ -125,7 +129,7 @@ public:
         DCHECK(bloom_filter_length >= 0);
         DCHECK_EQ((bloom_filter_length & (bloom_filter_length - 1)), 0);
         _bloom_filter_alloced = bloom_filter_length;
-        _bloom_filter.reset(BloomFilterAdaptor::create());
+        _bloom_filter.reset(BloomFilterAdaptor::create(_null_aware));
         RETURN_IF_ERROR(_bloom_filter->init(bloom_filter_length));
         _inited = true;
         return Status::OK();
@@ -171,7 +175,7 @@ public:
 
     Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
         if (_bloom_filter == nullptr) {
-            _bloom_filter.reset(BloomFilterAdaptor::create());
+            _bloom_filter.reset(BloomFilterAdaptor::create(_null_aware));
         }
 
         _bloom_filter_alloced = data_size;
@@ -210,6 +214,7 @@ protected:
     std::mutex _lock;
     int64_t _bloom_filter_length;
     bool _build_bf_exactly = false;
+    bool _null_aware = false;
 };
 
 template <typename T, bool need_trim = false>
