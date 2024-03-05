@@ -19,6 +19,8 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
@@ -51,14 +53,26 @@ public class EliminateSort extends DefaultPlanRewriter<Boolean> implements Custo
     @Override
     public Plan visitLogicalSort(LogicalSort<? extends Plan> sort, Boolean pruneSort) {
         if (pruneSort) {
+            // remove current sort
             return doEliminateSort(sort.child(), true);
         }
-        return doEliminateSort(sort, pruneSort);
+        // if pruneSort = false, doesn't remove current sort but need to remove sort under it
+        return doEliminateSort(sort, true);
     }
 
     @Override
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Boolean context) {
         return doEliminateSort(logicalResultSink, false);
+    }
+
+    @Override
+    public Plan visitLogicalFileSink(LogicalFileSink<? extends Plan> logicalFileSink, Boolean context) {
+        return doEliminateSort(logicalFileSink, false);
+    }
+
+    @Override
+    public Plan visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN, Boolean context) {
+        return doEliminateSort(topN, false);
     }
 
     private Plan doEliminateSort(Plan plan, Boolean eliminateSort) {
