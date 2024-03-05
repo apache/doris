@@ -34,6 +34,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "cloud/config.h"
 #include "exec/data_sink.h"
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
