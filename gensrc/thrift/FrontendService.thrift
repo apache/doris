@@ -1401,6 +1401,18 @@ struct TShowProcessListResult {
     1: optional list<list<string>> process_list
 }
 
+struct TQueryColumn {
+    1: optional i64 catalogId
+    2: optional i64 dbId
+    3: optional i64 tblId
+    4: optional string colName
+}
+
+struct TSyncQueryColumns {
+    1: optional list<TQueryColumn> highPriorityColumns;
+    2: optional list<TQueryColumn> midPriorityColumns;
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1485,4 +1497,5 @@ service FrontendService {
     Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
 
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
+    Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
 }
