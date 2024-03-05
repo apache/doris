@@ -18,11 +18,13 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -81,6 +83,21 @@ public class AddColumnClause extends AlterTableClause {
                 columnDef.setIsKey(true);
             }
         }
+
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrDdlException(this.tableName.getDb())
+                .getTableOrDdlException(tableName.getTbl(),
+                        TableType.OLAP);
+        if (table.getKeysType() != KeysType.AGG_KEYS) {
+            AggregateType type = AggregateType.REPLACE;
+            if (table.getKeysType() == KeysType.DUP_KEYS) {
+                type = AggregateType.NONE;
+            }
+            if (table.getKeysType() == KeysType.UNIQUE_KEYS && table.getEnableUniqueKeyMergeOnWrite()) {
+                type = AggregateType.NONE;
+            }
+            columnDef.setAggregateType(type);
+        }
+
         columnDef.analyze(true);
         if (colPos != null) {
             colPos.analyze();
