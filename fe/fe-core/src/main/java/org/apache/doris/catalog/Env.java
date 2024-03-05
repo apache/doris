@@ -796,10 +796,9 @@ public class Env {
     }
 
     private void initSpiEnvironment() {
-        File trinoConnectorPluginDir = new File(TrinoConnectorPluginManager.trinoConnectorPluginsDir);
+        File trinoConnectorPluginDir = new File(Config.trino_connector_plugin_dir);
         if (!trinoConnectorPluginDir.exists()) {
-            LOG.warn("trino_connector_plugin_dir="
-                    + TrinoConnectorPluginManager.trinoConnectorPluginsDir + " is not found.");
+            LOG.warn("trino_connector_plugin_dir=" + Config.trino_connector_plugin_dir + " is not found.");
             return;
         } else if (trinoConnectorPluginDir.isFile()) {
             LOG.warn("trino_connector_plugin_dir must be a directory, not a file.");

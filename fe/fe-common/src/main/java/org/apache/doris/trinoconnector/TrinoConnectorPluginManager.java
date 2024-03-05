@@ -18,8 +18,6 @@
 
 package org.apache.doris.trinoconnector;
 
-import org.apache.doris.common.Config;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import io.trino.connector.ConnectorName;
@@ -47,7 +45,8 @@ import javax.annotation.concurrent.ThreadSafe;
 
 @ThreadSafe
 public class TrinoConnectorPluginManager implements PluginInstaller {
-    public static final String trinoConnectorPluginsDir = Config.trino_connector_plugin_dir;
+    private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginManager.class);
+
     private static final ImmutableList<String> SPI_PACKAGES = ImmutableList.<String>builder()
             .add("io.trino.spi.")
             .add("com.fasterxml.jackson.annotation.")
@@ -57,10 +56,7 @@ public class TrinoConnectorPluginManager implements PluginInstaller {
             .add("io.opentelemetry.context.")
             .build();
 
-    private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginManager.class);
-
-    private final ConcurrentMap<ConnectorName, ConnectorFactory> connectorFactories =
-            new ConcurrentHashMap();
+    private final ConcurrentMap<ConnectorName, ConnectorFactory> connectorFactories = new ConcurrentHashMap();
     private final PluginsProvider pluginsProvider;
     private final TypeRegistry typeRegistry;
     private final HandleResolver handleResolver;
