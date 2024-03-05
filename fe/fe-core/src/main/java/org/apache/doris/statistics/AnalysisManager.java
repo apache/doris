@@ -416,7 +416,10 @@ public class AnalysisManager implements Writable {
         infoBuilder.setColToPartitions(colToPartitions);
         infoBuilder.setTaskIds(Lists.newArrayList());
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
-        infoBuilder.setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0);
+        long rowCount = table.getRowCount();
+        infoBuilder.setRowCount(rowCount);
+        TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
+        infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
         return infoBuilder.build();
     }
 
@@ -572,7 +575,7 @@ public class AnalysisManager implements Writable {
         }
         TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
         if (tableStats == null) {
-            updateTableStatsStatus(new TableStatsMeta(jobInfo.emptyJob ? 0 : tbl.getRowCount(), jobInfo, tbl));
+            updateTableStatsStatus(new TableStatsMeta(jobInfo.rowCount, jobInfo, tbl));
         } else {
             tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);
@@ -807,7 +810,7 @@ public class AnalysisManager implements Writable {
                     analysisInfo.dbId, analysisInfo.tblId);
             return table.createAnalysisTask(analysisInfo);
         } catch (Throwable t) {
-            LOG.warn("Failed to find table", t);
+            LOG.warn("Failed to create task.", t);
             throw new DdlException("Failed to create task", t);
         }
     }
@@ -1156,10 +1159,12 @@ public class AnalysisManager implements Writable {
 
 
     public void updateColumnUsedInPredicate(Set<Slot> slotReferences) {
+        LOG.info("Add slots to high priority queues.");
         updateColumn(slotReferences, highPriorityColumns);
     }
 
     public void updateQueriedColumn(Collection<Slot> slotReferences) {
+        LOG.info("Add slots to mid priority queues.");
         updateColumn(slotReferences, midPriorityColumns);
     }
 
@@ -1179,6 +1184,8 @@ public class AnalysisManager implements Writable {
                     if (catalog != null) {
                         queue.offer(new HighPriorityColumn(catalog.getId(), database.getId(),
                                 table.getId(), optionalColumn.get().getName()));
+                        LOG.info("Offer column " + table.getName() + "(" + table.getId() + ")."
+                                + optionalColumn.get().getName());
                     }
                 }
             }
