@@ -976,16 +976,16 @@ public class Coordinator implements CoordInterface {
                     futures = Lists.newArrayList();
 
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                if (LOG.isDebugEnabled()) {
-                    String infos = "";
-                    for (PipelineExecContext pec : ctxs.ctxs) {
-                        infos += pec.fragmentId + " ";
-                    }
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("query {}, sending pipeline fragments: {} to be {} bprc address {}",
-                                DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
-                    }
+                // if (LOG.isDebugEnabled()) {
+                String infos = "";
+                for (PipelineExecContext pec : ctxs.ctxs) {
+                    infos += pec.fragmentId + " ";
                 }
+                // if (LOG.isDebugEnabled()) {
+                LOG.info("query {}, sending pipeline fragments: {} to be {} bprc address {}",
+                        DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
+                // }
+                // }
 
                 ctxs.unsetFields();
                 BackendServiceProxy proxy = BackendServiceProxy.getInstance();
@@ -1160,6 +1160,12 @@ public class Coordinator implements CoordInterface {
                         MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
                                 .increase(1L);
                         SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
+                        boolean alive1 = Env.getCurrentSystemInfo().checkBackendAlive(triple.getLeft().beId);
+                        boolean alive2 = Env.getCurrentSystemInfo().checkBackendLoadAvailable(triple.getLeft().beId);
+                        boolean alive3 = Env.getCurrentSystemInfo().checkBackendQueryAvailable(triple.getLeft().beId);
+                        boolean alive4 = Env.getCurrentSystemInfo()
+                                .checkBackendScheduleAvailable(triple.getLeft().beId);
+                        LOG.info("THRIFT_RPC_ERROR exception: " + alive1 + " " + alive2 + " " + alive3 + " " + alive4);
                         throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
                     default:
                         throw new UserException(errMsg, exception);
