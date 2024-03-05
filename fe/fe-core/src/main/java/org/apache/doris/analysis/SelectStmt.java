@@ -2775,7 +2775,7 @@ public class SelectStmt extends QueryStmt {
     }
 
     public boolean isPointQueryShortCircuit() {
-        return false;
+        return isPointQuery;
     }
 
     // Check if it is a point query and set EQUAL predicates
