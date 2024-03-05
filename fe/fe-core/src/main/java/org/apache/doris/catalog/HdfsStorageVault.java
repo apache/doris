@@ -18,11 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;

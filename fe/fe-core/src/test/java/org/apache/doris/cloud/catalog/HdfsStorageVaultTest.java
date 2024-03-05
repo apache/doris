@@ -45,6 +45,7 @@ import java.util.Set;
 public class HdfsStorageVaultTest {
     private StorageVaultMgr mgr = new StorageVaultMgr();
     Method method;
+
     @Before
     public void setUp() throws Exception {
         Config.cloud_unique_id = "cloud_unique_id";

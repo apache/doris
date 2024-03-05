@@ -43,6 +43,7 @@ public class StorageVaultMgr {
             case S3:
                 throw new DdlException("Currently S3 is not support.");
             case UNKNOWN:
+            default:
                 throw new DdlException("Only support S3, HDFS storage vault.");
         }
     }
