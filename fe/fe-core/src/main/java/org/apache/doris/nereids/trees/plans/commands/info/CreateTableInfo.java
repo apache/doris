@@ -426,7 +426,7 @@ public class CreateTableInfo {
             });
 
             // validate partition
-            partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, isEnableMergeOnWrite);
+            partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
 
             // validate distribution descriptor
             distribution.updateCols(columns.get(0).getName());
@@ -687,7 +687,7 @@ public class CreateTableInfo {
      * translate to catalog create table stmt
      */
     public CreateTableStmt translateToLegacyStmt() {
-        PartitionDesc partitionDesc = partitionTableInfo.convertToPartitionDesc();
+        PartitionDesc partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
         List<AlterClause> addRollups = Lists.newArrayList();
         if (!rollups.isEmpty()) {
             addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)

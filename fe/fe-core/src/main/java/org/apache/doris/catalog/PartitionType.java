@@ -22,8 +22,7 @@ import org.apache.doris.thrift.TPartitionType;
 public enum PartitionType {
     UNPARTITIONED("UNPARTITIONED"),
     RANGE("RANGE"),
-    LIST("LIST"),
-    FIELD("FIELD");
+    LIST("LIST");
 
     public String typeString;
 

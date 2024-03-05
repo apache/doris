@@ -25,7 +25,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -2485,67 +2484,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public List<ColumnDefinition> visitColumnDefs(ColumnDefsContext ctx) {
-        return ctx.cols.stream().map(this::visitColumnDef).collect(Collectors.toList());
-    }
-
-    @Override
-    public PartitionTableInfo visitPartitionForInternal(DorisParser.PartitionForInternalContext ctx) {
+    public PartitionTableInfo visitPartitionTable(DorisParser.PartitionTableContext ctx) {
         boolean isAutoPartition = ctx.autoPartition != null;
-        ImmutableList.Builder<Expression> autoPartitionExpr = new ImmutableList.Builder<>();
-        if (isAutoPartition) {
-            if (ctx.RANGE() != null) {
-                // AUTO PARTITION BY RANGE FUNC_CALL_EXPR
-                if (ctx.partitionExpr != null) {
-                    autoPartitionExpr.add(visitFunctionCallExpression(ctx.partitionExpr));
-                } else {
-                    throw new AnalysisException(
-                        "AUTO PARTITION BY RANGE must provide a function expr");
-                }
-            } else {
-                // AUTO PARTITION BY LIST(`partition_col`)
-                if (ctx.partitionKeys != null) {
-                    // only support one column in auto partition
-                    autoPartitionExpr.addAll(visitIdentifierList(ctx.partitionKeys).stream()
-                            .distinct().map(name -> UnboundSlot.quoted(name))
-                            .collect(Collectors.toList()));
-                } else {
-                    throw new AnalysisException(
-                        "AUTO PARTITION BY List must provide a partition column");
-                }
-            }
-        }
-        return new PartitionTableInfo(
-                isAutoPartition,
-                autoPartitionExpr.build(),
-                ctx.RANGE() != null ? "RANGE" : "LIST",
-                ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
-                null);
-    }
-
-    @Override
-    public PartitionTableInfo visitPartitionForExternal(DorisParser.PartitionForExternalContext ctx) {
-        ImmutableList<Expression> partitionFields = null;
-        if (ctx.partitions != null) {
-            partitionFields = ctx.partitions.stream()
+        ImmutableList<Expression> partitionList = ctx.partitionList.identityOrFunction().stream()
                 .map(partition -> {
                     IdentifierContext identifier = partition.identifier();
                     if (identifier != null) {
-                        return new UnboundSlot(partition.identifier().getText());
+                        return UnboundSlot.quoted(identifier.getText());
                     } else {
                         return visitFunctionCallExpression(partition.functionCallExpression());
                     }
-                }).collect(ImmutableList.toImmutableList());
-        }
-
+                })
+                .collect(ImmutableList.toImmutableList());
         return new PartitionTableInfo(
-                false,
-                null,
-                PartitionType.FIELD.name(),
-                null,
-                null,
-                partitionFields);
+            isAutoPartition,
+            ctx.RANGE() != null ? "RANGE" : "LIST",
+            ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+            partitionList);
+    }
+
+    @Override
+    public List<ColumnDefinition> visitColumnDefs(ColumnDefsContext ctx) {
+        return ctx.cols.stream().map(this::visitColumnDef).collect(Collectors.toList());
     }
 
     @Override

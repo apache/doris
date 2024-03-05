@@ -128,13 +128,15 @@ partitionSpec
     ;
 
 partitionTable
-    : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST) (partitionKeys=identifierList | partitionExpr=functionCallExpression)
-      LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN)                                       # partitionForInternal
-    | (PARTITION BY LEFT_PAREN partitions+=identityOrPartitionFunction
-          (COMMA partitions+=identityOrPartitionFunction)* RIGHT_PAREN)                           # partitionForExternal
+    : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST)? partitionList=identityOrFunctionList
+       (LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN))
     ;
 
-identityOrPartitionFunction
+identityOrFunctionList
+    : LEFT_PAREN identityOrFunction (COMMA partitions+=identityOrFunction)* RIGHT_PAREN
+    ;
+
+identityOrFunction
     : (identifier | functionCallExpression)
     ;
 

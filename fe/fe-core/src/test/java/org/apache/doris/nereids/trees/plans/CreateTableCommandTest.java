@@ -712,31 +712,55 @@ public class CreateTableCommandTest extends TestWithFeService {
     @Test
     public void testCreateTablePartitionForExternalCatalog() {
 
+        PartitionDesc par = null;
+
+        par = getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null)"
+                + "partition by (id, id3) () distributed by hash (id) properties (\"a\"=\"b\")");
+        Assertions.assertEquals("PARTITION BY LIST(`id`, `id3`)\n(\n\n)", par.toSql());
+
         try {
-            createTable(
-                    "create table tb1 (id int) engine = iceberg distributed by hash (id) properties (\"a\"=\"b\")");
+            getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null)"
+                    + "partition by (id, func1(id2, 1), func(3,id1), id3) () "
+                    + "distributed by hash (id) properties (\"a\"=\"b\")");
         } catch (Exception e) {
-            Assertions.assertTrue(e instanceof AnalysisException);
-            Assertions.assertInstanceOf(AnalysisException.class, e);
             Assertions.assertEquals(
-                    "Iceberg doesn't support 'DISTRIBUTE BY', and you can use 'bucket(num, column)' in 'PARTITIONED BY'.",
+                    "internal catalog does not support functions in 'LIST' partition",
                     e.getMessage());
         }
 
         try {
-            createTable("create table tb1 (id int) engine = iceberg rollup (ab (cd)) properties (\"a\"=\"b\")");
+            getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
+                    + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () "
+                    + "distributed by hash (id) properties (\"a\"=\"b\")");
         } catch (Exception e) {
-            Assertions.assertTrue(e instanceof AnalysisException);
-            Assertions.assertInstanceOf(AnalysisException.class, e);
-            Assertions.assertEquals("iceberg catalog doesn't support rollup tables.", e.getMessage());
+            Assertions.assertEquals(
+                    "Iceberg doesn't support 'DISTRIBUTE BY', "
+                            + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.",
+                    e.getMessage());
+        }
+
+        par = getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
+                + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () properties (\"a\"=\"b\")");
+        Assertions.assertEquals(
+                "PARTITION BY LIST(`id`, func1(`id2`, '1'), func('3', `id1`), `id3`)\n" + "(\n" + "\n" + ")",
+                par.toSql());
+
+        try {
+            getCreateTableStmt(
+                    "create table tb1 (id int) "
+                    + "engine = iceberg rollup (ab (cd)) properties (\"a\"=\"b\")");
+        } catch (Exception e) {
+            Assertions.assertEquals(
+                    "iceberg catalog doesn't support rollup tables.",
+                     e.getMessage());
         }
 
         try {
-            createTable("create table tb1 (id int) engine = hive rollup (ab (cd)) properties (\"a\"=\"b\")");
+            getCreateTableStmt("create table tb1 (id int) engine = hive rollup (ab (cd)) properties (\"a\"=\"b\")");
         } catch (Exception e) {
-            Assertions.assertTrue(e instanceof AnalysisException);
-            Assertions.assertInstanceOf(AnalysisException.class, e);
-            Assertions.assertEquals("hive catalog doesn't support rollup tables.", e.getMessage());
+            Assertions.assertEquals(
+                    "hive catalog doesn't support rollup tables.",
+                    e.getMessage());
         }
 
         // test with empty partitions
@@ -750,12 +774,12 @@ public class CreateTableCommandTest extends TestWithFeService {
         // test with multi partitions
         LogicalPlan plan2 = new NereidsParser().parseSingle(
                 "create table tb1 (id int) engine = iceberg "
-                    + "partition by (val, bucket(2, id), par, day(ts), efg(a,b,c)) properties (\"a\"=\"b\")");
+                    + "partition by (val, bucket(2, id), par, day(ts), efg(a,b,c)) () properties (\"a\"=\"b\")");
         Assertions.assertTrue(plan2 instanceof CreateTableCommand);
         CreateTableInfo createTableInfo2 = ((CreateTableCommand) plan2).getCreateTableInfo();
         createTableInfo2.validate(connectContext);
         PartitionDesc partitionDesc2 = createTableInfo2.translateToLegacyStmt().getPartitionDesc();
-        List<Expr> partitionFields2 = partitionDesc2.getPartitionFields();
+        List<Expr> partitionFields2 = partitionDesc2.getPartitionExprs();
         Assertions.assertEquals(5, partitionFields2.size());
 
         Expr expr0 = partitionFields2.get(0);
@@ -797,7 +821,15 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertEquals("c", params4.get(2).getExprName());
 
         Assertions.assertEquals(
-                "PARTITION BY (val, bucket(2, `id`), par, day(`ts`), efg(`a`, `b`, `c`))\n",
+                "PARTITION BY LIST(`val`, bucket('2', `id`), `par`, day(`ts`), efg(`a`, `b`, `c`))\n(\n\n)",
                 partitionDesc2.toSql());
+    }
+
+    private PartitionDesc getCreateTableStmt(String sql) {
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof CreateTableCommand);
+        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
+        createTableInfo.validate(connectContext);
+        return createTableInfo.translateToLegacyStmt().getPartitionDesc();
     }
 }

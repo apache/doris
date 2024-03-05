@@ -23,7 +23,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
-import org.apache.doris.analysis.PartitionFieldDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -40,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -59,42 +57,38 @@ public class PartitionTableInfo {
 
     public static final PartitionTableInfo EMPTY = new PartitionTableInfo(
                 false,
-                null,
                 PartitionType.UNPARTITIONED.name(),
                 null,
-                null,
-                null);
+            null);
 
     private boolean isAutoPartition;
-    private List<Expression> autoPartitionExprs;
     private String partitionType;
     private List<String> partitionColumns;
-    private List<PartitionDefinition> partitions;
-    private List<Expression> partitionFields;
+    private List<PartitionDefinition> partitionDefs;
+    private List<Expression> partitionList;
 
     /**
      * struct for partition definition
      *
      * @param isAutoPartition Whether it is an automatic partition
-     * @param autoPartitionExprs partition values
      * @param partitionType partition type
-     * @param partitionColumns partition columns
-     * @param partitions partition definitions
      * @param partitionFields partition fields
      */
     public PartitionTableInfo(
             boolean isAutoPartition,
-            List<Expression> autoPartitionExprs,
             String partitionType,
-            List<String> partitionColumns,
-            List<PartitionDefinition> partitions,
+            List<PartitionDefinition> partitionDefs,
             List<Expression> partitionFields) {
         this.isAutoPartition = isAutoPartition;
-        this.autoPartitionExprs = autoPartitionExprs;
         this.partitionType = partitionType;
-        this.partitionColumns = partitionColumns;
-        this.partitions = partitions;
-        this.partitionFields = partitionFields;
+        this.partitionDefs = partitionDefs;
+        this.partitionList = partitionFields;
+        if (this.partitionList != null) {
+            this.partitionColumns = this.partitionList.stream()
+                .filter(UnboundSlot.class::isInstance)
+                .map(partition -> ((UnboundSlot) partition).getName())
+                .collect(Collectors.toList());
+        }
     }
 
     public boolean isAutoPartition() {
@@ -109,24 +103,20 @@ public class PartitionTableInfo {
         return partitionColumns;
     }
 
-    public List<PartitionDefinition> getPartitions() {
-        return partitions;
-    }
-
     /**
      * check partitions types.
      */
     private boolean checkPartitionsTypes() {
         if (partitionType.equalsIgnoreCase(PartitionType.RANGE.name())) {
-            if (partitions.stream().allMatch(
+            if (partitionDefs.stream().allMatch(
                     p -> p instanceof StepPartition || p instanceof FixedRangePartition)) {
                 return true;
             }
-            return partitions.stream().allMatch(
+            return partitionDefs.stream().allMatch(
                 p -> (p instanceof LessThanPartition) || (p instanceof FixedRangePartition));
         }
         return partitionType.equalsIgnoreCase(PartitionType.LIST.name())
-            && partitions.stream().allMatch(p -> p instanceof InPartition);
+            && partitionDefs.stream().allMatch(p -> p instanceof InPartition);
     }
 
     private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx, boolean isEnableMergeOnWrite) {
@@ -167,14 +157,18 @@ public class PartitionTableInfo {
             Map<String, ColumnDefinition> columnMap,
             Map<String, String> properties,
             ConnectContext ctx,
-            boolean isEnableMergeOnWrite) {
-        if (isAutoPartition) {
-            partitionColumns = ExpressionUtils
-                    .collectAll(autoPartitionExprs, UnboundSlot.class::isInstance).stream()
-                    .map(slot -> ((UnboundSlot) slot).getName()).collect(Collectors.toList());
-        }
+            boolean isEnableMergeOnWrite,
+            boolean isExternal) {
 
         if (partitionColumns != null) {
+
+            if (partitionColumns.size() != partitionList.size()) {
+                if (!isExternal) {
+                    throw new AnalysisException("internal catalog does not support functions in 'LIST' partition");
+                }
+                isAutoPartition = true;
+            }
+
             partitionColumns.forEach(p -> {
                 if (!columnMap.containsKey(p)) {
                     throw new AnalysisException(
@@ -191,14 +185,14 @@ public class PartitionTableInfo {
                         "Duplicated partition column " + duplicatesKeys.get(0));
             }
 
-            if (partitions != null) {
+            if (partitionDefs != null) {
                 if (!checkPartitionsTypes()) {
                     throw new AnalysisException(
                             "partitions types is invalid, expected FIXED or LESS in range partitions"
                                     + " and IN in list partitions");
                 }
                 Set<String> partitionNames = Sets.newHashSet();
-                for (PartitionDefinition partition : partitions) {
+                for (PartitionDefinition partition : partitionDefs) {
                     if (partition instanceof StepPartition) {
                         continue;
                     }
@@ -209,7 +203,7 @@ public class PartitionTableInfo {
                     }
                     partitionNames.add(partitionName);
                 }
-                partitions.forEach(p -> {
+                partitionDefs.forEach(p -> {
                     p.setPartitionTypes(partitionColumns.stream()
                             .map(s -> columnMap.get(s).getType()).collect(Collectors.toList()));
                     p.validate(Maps.newHashMap(properties));
@@ -221,15 +215,15 @@ public class PartitionTableInfo {
     /**
      *  Convert to PartitionDesc types.
      */
-    public PartitionDesc convertToPartitionDesc() {
+    public PartitionDesc convertToPartitionDesc(boolean isExternal) {
         PartitionDesc partitionDesc = null;
-        if (partitionType.equalsIgnoreCase(PartitionType.FIELD.name()) && partitionFields != null) {
-            partitionDesc = new PartitionFieldDesc(
-                convertToLegacyAutoPartitionExprs(partitionFields));
-        } else if (partitionColumns != null || isAutoPartition) {
+        if (isExternal) {
+            isAutoPartition = true;
+        }
+        if (!partitionType.equalsIgnoreCase(PartitionType.UNPARTITIONED.name())) {
             List<AllPartitionDesc> partitionDescs =
-                    partitions != null
-                    ? partitions.stream().map(PartitionDefinition::translateToCatalogStyle)
+                    partitionDefs != null
+                    ? partitionDefs.stream().map(PartitionDefinition::translateToCatalogStyle)
                     .collect(Collectors.toList())
                     : null;
 
@@ -247,7 +241,7 @@ public class PartitionTableInfo {
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
                         partitionDesc = new RangePartitionDesc(
-                            convertToLegacyAutoPartitionExprs(autoPartitionExprs),
+                            convertToLegacyAutoPartitionExprs(partitionList),
                             partitionColumns, partitionDescs);
                     } else {
                         partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
@@ -255,7 +249,7 @@ public class PartitionTableInfo {
                 } else {
                     if (isAutoPartition) {
                         partitionDesc = new ListPartitionDesc(
-                            convertToLegacyAutoPartitionExprs(autoPartitionExprs),
+                            convertToLegacyAutoPartitionExprs(partitionList),
                             partitionColumns, partitionDescs);
                     } else {
                         partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
