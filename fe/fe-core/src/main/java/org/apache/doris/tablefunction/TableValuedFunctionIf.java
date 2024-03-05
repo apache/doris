@@ -78,6 +78,8 @@ public abstract class TableValuedFunctionIf {
                 return new ActiveQueriesTableValuedFunction(params);
             case WorkloadSchedPolicyTableValuedFunction.NAME:
                 return new WorkloadSchedPolicyTableValuedFunction(params);
+            case ActiveBeTasksTableValuedFunction.NAME:
+                return new ActiveBeTasksTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

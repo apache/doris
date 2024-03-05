@@ -22,18 +22,18 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.tablefunction.ActiveQueriesTableValuedFunction;
+import org.apache.doris.tablefunction.ActiveBeTasksTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
 
 /**
- * queries tvf
+ *  stands be running tasks status, currently main including select/streamload/broker load/insert select
  */
-public class ActiveQueries extends TableValuedFunction {
+public class ActiveBeTasks extends TableValuedFunction {
 
-    public ActiveQueries(Properties properties) {
-        super("active_queries", properties);
+    public ActiveBeTasks(Properties properties) {
+        super("active_be_tasks", properties);
     }
 
     @Override
@@ -45,15 +45,14 @@ public class ActiveQueries extends TableValuedFunction {
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new ActiveQueriesTableValuedFunction(arguments);
+            return new ActiveBeTasksTableValuedFunction(arguments);
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build ActiveQueriesTableValuedFunction by "
+            throw new AnalysisException("Can not build ActiveBeTasksTableValuedFunction by "
                     + this + ": " + t.getMessage(), t);
         }
     }
 
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitQueries(this, context);
+        return visitor.visitActiveBeTasks(this, context);
     }
 }
