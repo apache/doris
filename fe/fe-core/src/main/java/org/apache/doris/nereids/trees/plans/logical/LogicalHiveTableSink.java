@@ -57,7 +57,7 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
                                 List<Long> partitionIds, List<NamedExpression> outputExprs,
                                 DMLCommandType dmlCommandType, Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_OLAP_TABLE_SINK, outputExprs, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_HIVE_TABLE_SINK, outputExprs, groupExpression, logicalProperties, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalHiveTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalHiveTableSink");
         this.cols = Utils.copyRequiredList(cols);

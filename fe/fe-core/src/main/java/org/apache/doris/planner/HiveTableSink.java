@@ -60,8 +60,15 @@ public class HiveTableSink extends DataSink {
     }
 
     public void init() {
+
     }
 
     public void complete(Analyzer analyzer) {
+
     }
+
+    private void toTDataSink() {
+
+    }
+
 }

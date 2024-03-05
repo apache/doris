@@ -728,18 +728,6 @@ struct TUserIdentity {
     3: optional bool is_domain
 }
 
-enum TCompressionType {
-    UNKNOWN_COMPRESSION = 0,
-    DEFAULT_COMPRESSION = 1,
-    NO_COMPRESSION = 2,
-    SNAPPY = 3,
-    LZ4 = 4,
-    LZ4F = 5,
-    ZLIB = 6,
-    ZSTD = 7,
-    LZ4HC = 8
-}
-
 const i32 TSNAPSHOT_REQ_VERSION1 = 3; // corresponding to alpha rowset
 const i32 TSNAPSHOT_REQ_VERSION2 = 4; // corresponding to beta rowset
 // the snapshot request should always set prefer snapshot version to TPREFER_SNAPSHOT_REQ_VERSION

@@ -28,6 +28,7 @@ import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -156,25 +157,30 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      */
     private void insertInto(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames)
             throws Exception {
-        UnboundTableSink<?> sink = (UnboundTableSink<?>) logicalQuery;
-        UnboundTableSink<?> copySink = new UnboundTableSink<>(
-                sink.getNameParts(),
-                sink.getColNames(),
-                sink.getHints(),
-                true,
-                tempPartitionNames,
-                sink.isPartialUpdate(),
-                sink.getDMLCommandType(),
-                (LogicalPlan) (sink.child(0)));
-        // for overwrite situation, we disable auto create partition.
-        OlapInsertCommandContext insertCtx = new OlapInsertCommandContext();
-        insertCtx.setAllowAutoPartition(false);
-        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
-        insertCommand.run(ctx, executor);
-        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
-            String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
-            LOG.warn("InsertInto state error:{}", errMsg);
-            throw new UserException(errMsg);
+        if (logicalQuery instanceof UnboundTableSink) {
+            UnboundTableSink<?> sink = (UnboundTableSink<?>) logicalQuery;
+            UnboundTableSink<?> copySink = (UnboundTableSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
+                    sink.getNameParts(),
+                    sink.getColNames(),
+                    sink.getHints(),
+                    true,
+                    tempPartitionNames,
+                    sink.isPartialUpdate(),
+                    sink.getDMLCommandType(),
+                    (LogicalPlan) (sink.child(0)));
+            // for overwrite situation, we disable auto create partition.
+            OlapInsertCommandContext insertCtx = new OlapInsertCommandContext();
+            insertCtx.setAllowAutoPartition(false);
+            InsertIntoTableCommand insertCommand =
+                    new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
+            insertCommand.run(ctx, executor);
+            if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
+                LOG.warn("InsertInto state error:{}", errMsg);
+                throw new UserException(errMsg);
+            }
+        } else {
+            throw new RuntimeException("Current catalog has not supported insert overwrite yet.");
         }
     }
 

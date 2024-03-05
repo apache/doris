@@ -27,7 +27,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -47,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -342,20 +346,60 @@ public class BindSink implements AnalysisRuleFactory {
                                                 .collect(ImmutableList.toImmutableList())))
                 ),
                 // TODO: bind hive taget table
-                RuleType.BINDING_INSERT_TARGET_EXTERNAL_TABLE.build(
-                        logicalHiveTableSink().when(s -> s.getOutputExprs().isEmpty())
-                                .then(hiveTableSink -> hiveTableSink.withOutputExprs(
-                                        hiveTableSink.child().getOutput().stream()
-                                                .map(NamedExpression.class::cast)
-                                                .collect(ImmutableList.toImmutableList())))
-                )
+                RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(ctx -> {
+                    UnboundHiveTableSink<?> sink = ctx.root;
+                    Pair<HMSExternalDatabase, HMSExternalTable> pair = bind(ctx.cascadesContext, sink);
+                    HMSExternalDatabase database = pair.first;
+                    HMSExternalTable table = pair.second;
+                    LogicalPlan child = ((LogicalPlan) sink.child());
+
+                    List<Column> bindColumns;
+                    if (sink.getColNames().isEmpty()) {
+                        bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
+                    } else {
+                        // TODO: process nullable column default values
+                        bindColumns = sink.getColNames().stream().map(cn -> {
+                            Column column = table.getColumn(cn);
+                            if (column == null) {
+                                throw new AnalysisException(String.format("column %s is not found in table %s",
+                                        cn, table.getName()));
+                            }
+                            return column;
+                        }).collect(ImmutableList.toImmutableList());
+                    }
+
+                    List<Long> partitionIds = sink.getPartitions().isEmpty()
+                            ? ImmutableList.of()
+                            : sink.getPartitions().stream().map(pn -> {
+                                Partition partition = table.getPartition(pn);
+                                if (partition == null) {
+                                    throw new AnalysisException(String.format("partition %s is not found in table %s",
+                                            pn, table.getName()));
+                                }
+                                return partition.getId();
+                            }).collect(Collectors.toList());
+
+                    LogicalHiveTableSink<?> boundSink = new LogicalHiveTableSink<>(
+                            database,
+                            table,
+                            bindColumns,
+                            partitionIds,
+                            child.getOutput().stream()
+                                    .map(NamedExpression.class::cast)
+                                    .collect(ImmutableList.toImmutableList()),
+                            sink.getDMLCommandType(),
+                            Optional.empty(),
+                            Optional.empty(),
+                            child);
+                    return boundSink;
+                }))
         );
     }
 
     private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, UnboundTableSink<? extends Plan> sink) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
-        Pair<DatabaseIf, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv());
         if (!(pair.second instanceof OlapTable)) {
             try {
@@ -366,6 +410,18 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("the target table of insert into is not an OLAP table");
         }
         return Pair.of(((Database) pair.first), (OlapTable) pair.second);
+    }
+
+    private Pair<HMSExternalDatabase, HMSExternalTable> bind(CascadesContext cascadesContext,
+                                                             UnboundHiveTableSink<? extends Plan> sink) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                sink.getNameParts());
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+                cascadesContext.getConnectContext().getEnv());
+        if (pair.second instanceof HMSExternalTable) {
+            return Pair.of(((HMSExternalDatabase) pair.first), (HMSExternalTable) pair.second);
+        }
+        throw new AnalysisException("the target table of insert into is not a Hive table");
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {

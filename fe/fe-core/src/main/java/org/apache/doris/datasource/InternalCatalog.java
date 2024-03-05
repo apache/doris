@@ -309,7 +309,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Database db : fullNameToDb.values()) {
             Table table = db.getTableNullable(tableId);
             if (table != null) {
-                return new TableName("", db.getFullName(), table.getName());
+                return new TableName(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName());
             }
         }
         return null;

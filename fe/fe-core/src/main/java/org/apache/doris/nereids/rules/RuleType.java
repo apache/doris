@@ -30,7 +30,7 @@ public enum RuleType {
 
     // **** make sure BINDING_UNBOUND_LOGICAL_PLAN is the lowest priority in the rewrite rules. ****
     BINDING_RESULT_SINK(RuleTypeClass.REWRITE),
-    BINDING_INSERT_TARGET_EXTERNAL_TABLE(RuleTypeClass.REWRITE),
+    BINDING_INSERT_HIVE_TABLE(RuleTypeClass.REWRITE),
     BINDING_INSERT_TARGET_TABLE(RuleTypeClass.REWRITE),
     BINDING_INSERT_FILE(RuleTypeClass.REWRITE),
     BINDING_ONE_ROW_RELATION_SLOT(RuleTypeClass.REWRITE),

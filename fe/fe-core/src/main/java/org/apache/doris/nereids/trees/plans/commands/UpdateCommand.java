@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.SlotBinder;
@@ -149,7 +149,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 && !targetTable.hasVariantColumns();
 
         // make UnboundTableSink
-        return new UnboundTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
+        return UnboundTableSinkCreator.createUnboundTableSink(nameParts, ImmutableList.of(), ImmutableList.of(),
                 false, ImmutableList.of(), isPartialUpdate, DMLCommandType.UPDATE, logicalQuery);
     }
 

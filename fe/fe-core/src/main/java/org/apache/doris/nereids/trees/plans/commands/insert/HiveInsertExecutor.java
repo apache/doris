@@ -19,7 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -28,9 +31,14 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -81,17 +89,53 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void beforeExec() {
-
+        // check params
     }
 
     @Override
     protected void onComplete() throws UserException {
-
+        if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            try {
+                String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
+                Env.getCurrentGlobalTransactionMgr().abortTransaction(
+                        database.getId(), txnId,
+                        (errMsg == null ? "unknown reason" : errMsg));
+            } catch (Exception abortTxnException) {
+                LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier(), abortTxnException);
+            }
+        } else if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                database, Lists.newArrayList((Table) table),
+                txnId,
+                TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
+                ctx.getSessionVariable().getInsertVisibleTimeoutMs())) {
+            txnStatus = TransactionStatus.VISIBLE;
+        } else {
+            txnStatus = TransactionStatus.COMMITTED;
+        }
     }
 
     @Override
     protected void onFail(Throwable t) {
-
+        errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
+        String queryId = DebugUtil.printId(ctx.queryId());
+        // if any throwable being thrown during insert operation, first we should abort this txn
+        LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
+        if (txnId != INVALID_TXN_ID) {
+            try {
+                Env.getCurrentGlobalTransactionMgr().abortTransaction(
+                        database.getId(), txnId, errMsg);
+            } catch (Exception abortTxnException) {
+                // just print a log if abort txn failed. This failure do not need to pass to user.
+                // user only concern abort how txn failed.
+                LOG.warn("insert [{}] with query id {} abort txn {} failed",
+                        labelName, queryId, txnId, abortTxnException);
+            }
+        }
+        StringBuilder sb = new StringBuilder(t.getMessage());
+        if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
+            sb.append(". url: ").append(coordinator.getTrackingUrl());
+        }
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
     }
 
     @Override
