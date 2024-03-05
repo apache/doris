@@ -17,10 +17,6 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.MaxLiteral;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -100,14 +96,14 @@ public class MTMVUtil {
         // get current time
         Expression now = DateTimeAcquire.now();
         if (!(now instanceof DateTimeLiteral)) {
-            throw new AnalysisException("Obtaining current time does not meet expectations, now: " + now);
+            throw new AnalysisException("now() should return DateTimeLiteral, now: " + now);
         }
         DateTimeLiteral nowLiteral = (DateTimeLiteral) now;
         // date trunc
         now = DateTimeExtractAndTransform
                 .dateTrunc(nowLiteral, new VarcharLiteral(timeUnit.name()));
         if (!(now instanceof DateTimeLiteral)) {
-            throw new AnalysisException("date trunc not meet expectations, nowTrunc: " + now);
+            throw new AnalysisException("dateTrunc() should return DateTimeLiteral, now: " + now);
         }
         nowLiteral = (DateTimeLiteral) now;
         // date sub
@@ -134,10 +130,10 @@ public class MTMVUtil {
                 result = DateTimeArithmetic.monthsSub(date, integerLiteral);
                 break;
             default:
-                throw new AnalysisException("not support timeUnit: " + timeUnit.name());
+                throw new AnalysisException("MTMV partition limit not support timeUnit: " + timeUnit.name());
         }
         if (!(result instanceof DateTimeLiteral)) {
-            throw new AnalysisException("date sub not meet expectations, result: " + result);
+            throw new AnalysisException("sub() should return  DateTimeLiteral, result: " + result);
         }
         return (DateTimeLiteral) result;
     }
@@ -150,15 +146,16 @@ public class MTMVUtil {
      * @return
      * @throws AnalysisException
      */
-    public static long getExprTimeSec(LiteralExpr expr, Optional<String> dateFormatOptional) throws AnalysisException {
-        if (expr instanceof MaxLiteral) {
+    public static long getExprTimeSec(org.apache.doris.analysis.LiteralExpr expr, Optional<String> dateFormatOptional)
+            throws AnalysisException {
+        if (expr instanceof org.apache.doris.analysis.MaxLiteral) {
             return Long.MAX_VALUE;
         }
-        if (expr instanceof NullLiteral) {
+        if (expr instanceof org.apache.doris.analysis.NullLiteral) {
             return Long.MIN_VALUE;
         }
-        if (expr instanceof DateLiteral) {
-            return ((DateLiteral) expr).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
+        if (expr instanceof org.apache.doris.analysis.DateLiteral) {
+            return ((org.apache.doris.analysis.DateLiteral) expr).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
         }
         if (!dateFormatOptional.isPresent()) {
             throw new AnalysisException("expr is not DateLiteral and DateFormat is not present.");

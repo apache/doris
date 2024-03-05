@@ -62,7 +62,7 @@ public interface MTMVRelatedTableIf extends TableIf {
         Optional<String> dateFormat = config.getDateFormat();
         Map<Long, PartitionItem> res = Maps.newHashMap();
         for (Entry<Long, PartitionItem> entry : partitionItems.entrySet()) {
-            if (entry.getValue().isSatisfyConfig(pos, dateFormat, nowTruncSubSec)) {
+            if (entry.getValue().isGreaterThanSpecifiedTime(pos, dateFormat, nowTruncSubSec)) {
                 res.put(entry.getKey(), entry.getValue());
             }
         }

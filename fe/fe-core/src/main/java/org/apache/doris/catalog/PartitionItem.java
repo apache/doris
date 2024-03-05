@@ -57,6 +57,7 @@ public abstract class PartitionItem implements Comparable<PartitionItem>, Writab
      * @return
      * @throws AnalysisException
      */
-    public abstract boolean isSatisfyConfig(int pos, Optional<String> dateFormatOptional, long nowTruncSubSec)
+    public abstract boolean isGreaterThanSpecifiedTime(int pos, Optional<String> dateFormatOptional,
+            long nowTruncSubSec)
             throws AnalysisException;
 }

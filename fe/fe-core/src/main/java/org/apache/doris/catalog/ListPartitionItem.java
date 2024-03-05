@@ -102,7 +102,7 @@ public class ListPartitionItem extends PartitionItem {
     }
 
     @Override
-    public boolean isSatisfyConfig(int pos, Optional<String> dateFormatOptional, long nowTruncSubSec)
+    public boolean isGreaterThanSpecifiedTime(int pos, Optional<String> dateFormatOptional, long nowTruncSubSec)
             throws AnalysisException {
         for (PartitionKey partitionKey : partitionKeys) {
             if (partitionKey.getKeys().size() <= pos) {

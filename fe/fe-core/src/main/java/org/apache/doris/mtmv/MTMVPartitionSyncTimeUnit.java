@@ -24,7 +24,6 @@ public enum MTMVPartitionSyncTimeUnit {
     MONTH,
     DAY;
 
-
     public static Optional<MTMVPartitionSyncTimeUnit> fromString(String unit) {
         for (MTMVPartitionSyncTimeUnit u : MTMVPartitionSyncTimeUnit.values()) {
             if (u.name().equalsIgnoreCase(unit)) {
