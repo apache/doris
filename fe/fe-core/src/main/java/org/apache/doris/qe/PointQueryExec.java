@@ -35,6 +35,7 @@ import org.apache.doris.proto.InternalService.KeyTuple;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
@@ -85,6 +86,8 @@ public class PointQueryExec implements CoordInterface {
     // using this ID to find for this prepared statement
     private UUID cacheID;
 
+    private final int maxMsgSizeOfResultReceiver;
+
     private OlapScanNode getPlanRoot() {
         List<PlanFragment> fragments = planner.getFragments();
         PlanFragment fragment = fragments.get(0);
@@ -96,7 +99,7 @@ public class PointQueryExec implements CoordInterface {
         return planRoot;
     }
 
-    public PointQueryExec(Planner planner, Analyzer analyzer) {
+    public PointQueryExec(Planner planner, Analyzer analyzer, int maxMessageSize) {
         // init from planner
         this.planner = planner;
         List<PlanFragment> fragments = planner.getFragments();
@@ -117,6 +120,7 @@ public class PointQueryExec implements CoordInterface {
             // TODO
             // planner.getDescTable().toThrift();
         }
+        this.maxMsgSizeOfResultReceiver = maxMessageSize;
     }
 
     void setScanRangeLocations() throws Exception {
@@ -310,8 +314,17 @@ public class PointQueryExec implements CoordInterface {
         } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
             byte[] serialResult = pResult.getRowBatch().toByteArray();
             TResultBatch resultBatch = new TResultBatch();
-            TDeserializer deserializer = new TDeserializer();
-            deserializer.deserialize(resultBatch, serialResult);
+            TDeserializer deserializer = new TDeserializer(
+                    new TCustomProtocolFactory(this.maxMsgSizeOfResultReceiver));
+            try {
+                deserializer.deserialize(resultBatch, serialResult);
+            } catch (TException e) {
+                if (e.getMessage().contains("MaxMessageSize reached")) {
+                    throw new TException("MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
+                } else {
+                    throw e;
+                }
+            }
             rowBatch.setBatch(resultBatch);
             rowBatch.setEos(true);
             return rowBatch;
