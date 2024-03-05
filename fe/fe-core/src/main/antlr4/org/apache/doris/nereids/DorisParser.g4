@@ -130,7 +130,12 @@ partitionSpec
 partitionTable
     : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST) (partitionKeys=identifierList | partitionExpr=functionCallExpression)
       LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN)                                       # partitionForInternal
-    | (PARTITION BY partitionExpr=partitionFunctionCallExpression)                              # partitionForExternal
+    | (PARTITION BY LEFT_PAREN partitions+=identityOrPartitionFunction
+          (COMMA partitions+=identityOrPartitionFunction)* RIGHT_PAREN)                           # partitionForExternal
+    ;
+
+identityOrPartitionFunction
+    : (identifier | functionCallExpression)
     ;
 
 dataDesc
@@ -736,20 +741,6 @@ primaryExpression
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
 
-partitionFunctionCallExpression
-    : LEFT_PAREN partitionFunctionList RIGHT_PAREN
-    ;
-
-partitionFunctionList
-    : functions+=partitionFunction (COMMA functions+=partitionFunction)*
-    ;
-
-partitionFunction
-    : identity=identifier
-              (LEFT_PAREN (
-                  arguments+=expression (COMMA arguments+=expression)*
-              )? RIGHT_PAREN)?
-    ;
 
 functionCallExpression
     : functionIdentifier

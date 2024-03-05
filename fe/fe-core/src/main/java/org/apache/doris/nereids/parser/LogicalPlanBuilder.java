@@ -25,6 +25,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -2454,11 +2455,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                     "",
-                    partitionInfo.isAutoPartition(),
-                    partitionInfo.getAutoPartitionExprs(),
-                    partitionInfo.getPartitionType(),
-                    partitionInfo.getPartitionColumns(),
-                    partitionInfo.getPartitions(),
+                    partitionInfo,
                     desc,
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
@@ -2476,11 +2473,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                     "",
-                    partitionInfo.isAutoPartition(),
-                    partitionInfo.getAutoPartitionExprs(),
-                    partitionInfo.getPartitionType(),
-                    partitionInfo.getPartitionColumns(),
-                    partitionInfo.getPartitions(),
+                    partitionInfo,
                     desc,
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
@@ -2527,42 +2520,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 autoPartitionExpr.build(),
                 ctx.RANGE() != null ? "RANGE" : "LIST",
                 ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null);
-    }
-
-    @Override
-    public PartitionTableInfo visitPartitionForExternal(DorisParser.PartitionForExternalContext ctx) {
-        ImmutableList.Builder<Expression> partitionExpr = new ImmutableList.Builder<>();
-        if (ctx.partitionExpr != null) {
-            partitionExpr.addAll(visitPartitionFunctionCallExpression(ctx.partitionExpr));
-        }
-
-        return new PartitionTableInfo(
-                false,
-                partitionExpr.build(),
-                "",
-                null,
+                ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
                 null);
     }
 
     @Override
-    public List<Expression> visitPartitionFunctionCallExpression(
-                DorisParser.PartitionFunctionCallExpressionContext ctx) {
-        return visitPartitionFunctionList(ctx.partitionFunctionList());
-    }
+    public PartitionTableInfo visitPartitionForExternal(DorisParser.PartitionForExternalContext ctx) {
+        ImmutableList<Expression> partitionFields = null;
+        if (ctx.partitions != null) {
+            partitionFields = ctx.partitions.stream()
+                .map(partition -> {
+                    IdentifierContext identifier = partition.identifier();
+                    if (identifier != null) {
+                        return new UnboundSlot(partition.identifier().getText());
+                    } else {
+                        return visitFunctionCallExpression(partition.functionCallExpression());
+                    }
+                }).collect(ImmutableList.toImmutableList());
+        }
 
-    @Override
-    public List<Expression> visitPartitionFunctionList(DorisParser.PartitionFunctionListContext ctx) {
-        return ctx.functions.stream()
-            .map(this::visitPartitionFunction)
-            .collect(ImmutableList.toImmutableList());
-    }
-
-    @Override
-    public Expression visitPartitionFunction(DorisParser.PartitionFunctionContext ctx) {
-        String name = ctx.identity.getText();
-        List<Expression> params = visit(ctx.expression(), Expression.class);
-        return new UnboundFunction(name, params);
+        return new PartitionTableInfo(
+                false,
+                null,
+                PartitionType.FIELD.name(),
+                null,
+                null,
+                partitionFields);
     }
 
     @Override

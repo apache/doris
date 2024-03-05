@@ -17,13 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import java.util.ArrayList;
 import java.util.List;
 
-public class ExprPartitionDesc extends PartitionDesc {
+public class PartitionFieldDesc extends PartitionDesc {
 
-    public ExprPartitionDesc(ArrayList<Expr> exprs) {
-        partitionExprs = exprs;
+    public PartitionFieldDesc(List<Expr> partitionFields) {
+        this.partitionFields = partitionFields;
     }
 
     @Override
@@ -31,23 +30,27 @@ public class ExprPartitionDesc extends PartitionDesc {
         StringBuilder sb = new StringBuilder();
         sb.append("PARTITION BY (");
         int idx = 0;
-        for (Expr expr : partitionExprs) {
+        for (Expr expr : partitionFields) {
             if (idx != 0) {
                 sb.append(", ");
             }
-            FunctionCallExpr funcExpr = (FunctionCallExpr) expr;
-            List<Expr> fnParams = funcExpr.getFnParams().exprs();
-            if (fnParams.size() > 0) {
-                sb.append(funcExpr.getFnName()).append("(");
-                for (int i = 0; i < fnParams.size(); i++) {
-                    if (i > 0) {
-                        sb.append(", ");
+
+            if (expr instanceof SlotRef) {
+                sb.append(expr.getExprName());
+            } else if (expr instanceof FunctionCallExpr) {
+                FunctionCallExpr funcExpr = (FunctionCallExpr) expr;
+                List<Expr> fnParams = funcExpr.getFnParams().exprs();
+                if (fnParams.size() > 0) {
+                    sb.append(funcExpr.getFnName()).append("(");
+                    for (int i = 0; i < fnParams.size(); i++) {
+                        if (i > 0) {
+                            sb.append(", ");
+                        }
+                        sb.append(fnParams.get(i).toString());
                     }
-                    sb.append(fnParams.get(i).toString());
+                    sb.append(")");
                 }
-                sb.append(")");
-            } else {
-                sb.append("`").append(funcExpr.getFnName()).append("`");
+
             }
             idx++;
         }
