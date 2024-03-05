@@ -21,7 +21,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
-import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -55,36 +54,24 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalJoin(logicalProject(logicalJoin()), group())
+                logicalJoin(logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)), group())
                     .when(j -> j.left().child().getJoinType().isLeftSemiOrAntiJoin())
                     // Just pushdown project with non-column expr like (t.id + 1)
                     .whenNot(j -> j.left().isAllSlots())
                     .whenNot(j -> j.left().child().hasDistributeHint())
                     .then(topJoin -> {
                         LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
-                        Set<Slot> childOutput = project.child().getOutputSet();
-                        if (project.getOutput().stream()
-                                .filter(MarkJoinSlotReference.class::isInstance)
-                                .anyMatch(slot -> childOutput.contains(slot))) {
-                            return null;
-                        }
                         Plan newLeft = pushdownProject(project);
                         return topJoin.withChildren(newLeft, topJoin.right());
                     }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN_LEFT),
 
-                logicalJoin(group(), logicalProject(logicalJoin()))
+                logicalJoin(group(), logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)))
                     .when(j -> j.right().child().getJoinType().isLeftSemiOrAntiJoin())
                     // Just pushdown project with non-column expr like (t.id + 1)
                     .whenNot(j -> j.right().isAllSlots())
                     .whenNot(j -> j.right().child().hasDistributeHint())
                     .then(topJoin -> {
                         LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.right();
-                        Set<Slot> childOutput = project.child().getOutputSet();
-                        if (project.getOutput().stream()
-                                .filter(MarkJoinSlotReference.class::isInstance)
-                                .anyMatch(slot -> childOutput.contains(slot))) {
-                            return null;
-                        }
                         Plan newRight = pushdownProject(project);
                         return topJoin.withChildren(topJoin.left(), newRight);
                     }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN_RIGHT)

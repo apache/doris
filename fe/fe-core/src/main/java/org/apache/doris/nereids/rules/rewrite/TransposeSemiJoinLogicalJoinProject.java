@@ -30,10 +30,9 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
-import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * <ul>
@@ -67,8 +66,8 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                     if (containsType == ContainsType.ALL) {
                         return null;
                     }
-                    List<NamedExpression> topProjects = topSemiJoin.getOutput().stream()
-                            .map(slot -> (NamedExpression) slot).collect(Collectors.toList());
+                    ImmutableList<NamedExpression> topProjects = topSemiJoin.getOutput().stream()
+                            .map(slot -> (NamedExpression) slot).collect(ImmutableList.toImmutableList());
                     if (containsType == ContainsType.LEFT) {
                         /*-
                          *     topSemiJoin                    project
