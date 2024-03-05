@@ -377,6 +377,7 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 | datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                              |
 | char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                              |
 | time/datetimeoffset                    | STRING        |                                                              |
+| timestamp                              | STRING        | 读取二进制数据的十六进制显示，无实际意义                            |
 | Other                                  | UNSUPPORTED   |                                                              |
 
 ### Doris

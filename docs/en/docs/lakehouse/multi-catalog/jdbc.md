@@ -360,23 +360,24 @@ As for data mapping from SQLServer to Doris, one Database in Doris corresponds t
 
 #### Type Mapping
 
-| SQLServer Type                         | Doris Type    | Comment                                                                  |
-|----------------------------------------|---------------|--------------------------------------------------------------------------|
-| bit                                    | BOOLEAN       |                                                                          |
-| tinyint                                | SMALLINT      | SQLServer's tinyint is an unsigned number, so it maps to Doris' SMALLINT |
-| smallint                               | SMALLINT      |                                                                          |
-| int                                    | INT           |                                                                          |
-| bigint                                 | BIGINT        |                                                                          |
-| real                                   | FLOAT         |                                                                          |
-| float                                  | DOUBLE        |                                                                          |
-| money                                  | DECIMAL(19,4) |                                                                          |
-| smallmoney                             | DECIMAL(10,4) |                                                                          |
-| decimal/numeric                        | DECIMAL       |                                                                          |
-| date                                   | DATE          |                                                                          |
-| datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                                          |
-| char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                                          |
-| time/datetimeoffset                    | STRING        |                                                                          |
-| Other                                  | UNSUPPORTED   |                                                                          |
+| SQLServer Type                         | Doris Type    | Comment                                                                           |
+|----------------------------------------|---------------|-----------------------------------------------------------------------------------|
+| bit                                    | BOOLEAN       |                                                                                   |
+| tinyint                                | SMALLINT      | SQLServer's tinyint is an unsigned number, so it maps to Doris' SMALLINT          |
+| smallint                               | SMALLINT      |                                                                                   |
+| int                                    | INT           |                                                                                   |
+| bigint                                 | BIGINT        |                                                                                   |
+| real                                   | FLOAT         |                                                                                   |
+| float                                  | DOUBLE        |                                                                                   |
+| money                                  | DECIMAL(19,4) |                                                                                   |
+| smallmoney                             | DECIMAL(10,4) |                                                                                   |
+| decimal/numeric                        | DECIMAL       |                                                                                   |
+| date                                   | DATE          |                                                                                   |
+| datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                                                   |
+| char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                                                   |
+| time/datetimeoffset                    | STRING        |                                                                                   |
+| timestamp                              | STRING        | Read the hexadecimal display of binary data, which has no practical significance. |
+| Other                                  | UNSUPPORTED   |                                                                                   |
 
 ### Doris
 
