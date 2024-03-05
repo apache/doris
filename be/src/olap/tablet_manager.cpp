@@ -266,7 +266,9 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
 
     int64_t tablet_id = request.tablet_id;
-    LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id;
+    LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id
+              << ", table_id=" << request.table_id << ", partition_id=" << request.partition_id
+              << ", replica_id=" << request.replica_id;
 
     // when we create rollup tablet A(assume on shard-1) from tablet B(assume on shard-2)
     // we need use write lock on shard-1 and then use read lock on shard-2
@@ -530,7 +532,8 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
 // Drop specified tablet.
 Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id,
                                             bool keep_files, bool is_drop_table_or_partition) {
-    LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id;
+    LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id
+              << ", is_drop_table_or_partition=" << is_drop_table_or_partition;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
 
     // Fetch tablet which need to be dropped
