@@ -111,6 +111,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -418,16 +419,18 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
         // update rowCountfor AnalysisManager
+        Map<Long, Long> updatedRows = new HashMap<>();
         for (TableStatsPB tableStats : commitTxnResponse.getTableStatsList()) {
             LOG.info("Update RowCount for AnalysisManager. transactionId:{}, table_id:{}, updated_row_count:{}",
                      txnState.getTransactionId(), tableStats.getTableId(), tableStats.getUpdatedRowCount());
-            Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(tableStats.getTableId(),
-                                                                       tableStats.getUpdatedRowCount());
+            updatedRows.put(tableStats.getTableId(), tableStats.getUpdatedRowCount());
         }
+        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updatedRows);
         // notify partition first load
         int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
         // a map to record <tableId, [partitionIds]>
         Map<Long, List<Long>> tablePartitionMap = Maps.newHashMap();
+        List<Long> newPartitionTableIds = Lists.newArrayList();
         for (int idx = 0; idx < totalPartitionNum; ++idx) {
             long version = commitTxnResponse.getVersions(idx);
             if (version == 2) {
@@ -435,7 +438,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 tablePartitionMap.computeIfAbsent(tableId, k -> Lists.newArrayList());
                 tablePartitionMap.get(tableId).add(commitTxnResponse.getPartitionIds(idx));
                 // 1. inform AnalysisManager
-                Env.getCurrentEnv().getAnalysisManager().setNewPartitionLoaded(tableId);
+                newPartitionTableIds.add(tableId);
                 // 2. update CloudPartition
                 Env env = Env.getCurrentEnv();
                 OlapTable olapTable = (OlapTable) env.getInternalCatalog().getDb(dbId)
@@ -452,6 +455,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 partition.setCachedVisibleVersion(2);
             }
         }
+        Env.getCurrentEnv().getAnalysisManager().setNewPartitionLoaded(newPartitionTableIds);
         // tablePartitionMap to string
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<Long, List<Long>> entry : tablePartitionMap.entrySet()) {

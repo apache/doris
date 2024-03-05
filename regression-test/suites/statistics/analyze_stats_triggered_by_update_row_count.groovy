@@ -1,5 +1,3 @@
-import java.util.stream.Collectors
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,6 +14,8 @@ import java.util.stream.Collectors
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+import java.util.stream.Collectors
 
 suite("test_analyze_triggered_by_update_row_count") {
 

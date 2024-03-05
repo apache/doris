@@ -3693,17 +3693,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
 
             // update rowCountfor AnalysisManager
+            Map<Long, Long> updatedRows = new HashMap<>();
             for (TableStatsPB tableStats : commitTxnResponse.getTableStatsList()) {
                 LOG.info("Update RowCount for AnalysisManager. transactionId:{}, table_id:{}, updated_row_count:{}",
                          request.getTxnId(), tableStats.getTableId(), tableStats.getUpdatedRowCount());
-                Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(tableStats.getTableId(),
-                                                                           tableStats.getUpdatedRowCount());
+                updatedRows.put(tableStats.getTableId(), tableStats.getUpdatedRowCount());
             }
-
+            Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updatedRows);
             // notify partition first load
             int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
             // a map to record <tableId, [partitionIds]>
             Map<Long, List<Long>> tablePartitionMap = Maps.newHashMap();
+            // a list to record tableIds which have new partitions
+            List<Long> newPartitionTableIds = Lists.newArrayList();
             for (int idx = 0; idx < totalPartitionNum; ++idx) {
                 long version = commitTxnResponse.getVersions(idx);
                 if (version == 2) {
@@ -3711,7 +3713,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     tablePartitionMap.computeIfAbsent(tableId, k -> Lists.newArrayList());
                     tablePartitionMap.get(tableId).add(commitTxnResponse.getPartitionIds(idx));
                     // 1. inform AnalysisManager
-                    Env.getCurrentEnv().getAnalysisManager().setNewPartitionLoaded(tableId);
+                    newPartitionTableIds.add(tableId);
                     // 2. update CloudPartition
                     Env env = Env.getCurrentEnv();
                     OlapTable olapTable = (OlapTable) env.getInternalCatalog().getDb(request.getDbId())
@@ -3728,6 +3730,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     partition.setCachedVisibleVersion(2);
                 }
             }
+            Env.getCurrentEnv().getAnalysisManager().setNewPartitionLoaded(newPartitionTableIds);
             // tablePartitionMap to string
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<Long, List<Long>> entry : tablePartitionMap.entrySet()) {
