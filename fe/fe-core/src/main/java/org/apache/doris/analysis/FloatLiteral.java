@@ -137,6 +137,11 @@ public class FloatLiteral extends LiteralExpr {
         }
         NumberFormat nf = NumberFormat.getInstance();
         nf.setGroupingUsed(false);
+        if (type == Type.FLOAT) {
+            nf.setMaximumFractionDigits(7);
+        } else {
+            nf.setMaximumFractionDigits(16);
+        }
         return nf.format(value);
     }
 
