@@ -909,6 +909,7 @@ struct TInitExternalCtlMetaRequest {
     1: optional i64 catalogId
     2: optional i64 dbId
     3: optional i64 tableId
+    4: optional i64 maxJournalId
 }
 
 struct TInitExternalCtlMetaResult {

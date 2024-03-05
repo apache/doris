@@ -2333,21 +2333,28 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TInitExternalCtlMetaResult initExternalCtlMeta(TInitExternalCtlMetaRequest request) throws TException {
         if (request.isSetCatalogId() && request.isSetDbId()) {
-            return initDb(request.catalogId, request.dbId);
+            return initDb(request.catalogId, request.dbId, request.maxJournalId);
         } else if (request.isSetCatalogId()) {
-            return initCatalog(request.catalogId);
+            return initCatalog(request.catalogId, request.maxJournalId);
         } else {
             throw new TException("Catalog name is not set. Init failed.");
         }
     }
 
-    private TInitExternalCtlMetaResult initCatalog(long catalogId) throws TException {
+    private TInitExternalCtlMetaResult initCatalog(long catalogId, long slaveMaxJournalId) throws TException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
         if (!(catalog instanceof ExternalCatalog)) {
             throw new TException("Only support forward ExternalCatalog init operation.");
         }
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
         try {
+            long lastInitJournalId = ((ExternalCatalog) catalog).getLastInitJournalId();
+            if (slaveMaxJournalId >= lastInitJournalId) {
+                // `idToDb`/`dbNameToId` of ExternalCatalog is not serialized,
+                // if slaveMaxJournalId is equal or bigger than lastInitJournalId,
+                // we need to forced refresh the catalog because slave FE may just load from the images recently
+                ((ExternalCatalog) catalog).onRefresh(false);
+            }
             ((ExternalCatalog) catalog).makeSureInitialized();
             result.setMaxJournalId(((ExternalCatalog) catalog).getLastInitJournalId());
             result.setStatus(MasterCatalogExecutor.STATUS_OK);
@@ -2358,7 +2365,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private TInitExternalCtlMetaResult initDb(long catalogId, long dbId) throws TException {
+    private TInitExternalCtlMetaResult initDb(long catalogId, long dbId, long slaveMaxJournalId) throws TException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
         if (!(catalog instanceof ExternalCatalog)) {
             throw new TException("Only support forward ExternalCatalog init operation.");
@@ -2373,6 +2380,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
         try {
+            long lastInitJournalId = ((ExternalDatabase) db).getLastInitJournalId();
+            if (slaveMaxJournalId >= lastInitJournalId) {
+                // `idToDb`/`dbNameToId` of ExternalDatabase is not serialized,
+                // if slaveMaxJournalId is equal or bigger than lastInitJournalId,
+                // we need to forced refresh the database because slave FE may just load from the images recently
+                ((ExternalDatabase) db).setUnInitialized(false);
+            }
             ((ExternalDatabase) db).makeSureInitialized();
             result.setMaxJournalId(((ExternalDatabase) db).getLastInitJournalId());
             result.setStatus(MasterCatalogExecutor.STATUS_OK);

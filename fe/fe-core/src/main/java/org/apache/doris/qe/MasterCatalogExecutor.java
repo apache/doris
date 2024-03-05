@@ -58,6 +58,7 @@ public class MasterCatalogExecutor {
             throw new Exception("Failed to get master client.", e);
         }
         TInitExternalCtlMetaRequest request = new TInitExternalCtlMetaRequest();
+        request.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         request.setCatalogId(catalogId);
         if (dbId != -1) {
             request.setDbId(dbId);
