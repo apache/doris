@@ -267,80 +267,24 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
     return Status::OK();
 }
 
-template <typename SharedStateType>
-constexpr bool NeedToCreate = true;
-template <>
-inline constexpr bool NeedToCreate<MultiCastSharedState> = false;
-template <>
-inline constexpr bool NeedToCreate<SetSharedState> = false;
-template <>
-inline constexpr bool NeedToCreate<UnionSharedState> = false;
-template <>
-inline constexpr bool NeedToCreate<LocalExchangeSharedState> = false;
-
 template <typename LocalStateType>
-void DataSinkOperatorX<LocalStateType>::get_dependency(
-        vector<DependencySPtr>& dependency,
-        std::map<int, std::shared_ptr<BasicSharedState>>& shared_states, QueryContext* ctx) {
-    std::shared_ptr<BasicSharedState> ss = nullptr;
-    if constexpr (NeedToCreate<typename LocalStateType::SharedStateType>) {
-        ss.reset(new typename LocalStateType::SharedStateType());
-        DCHECK(!shared_states.contains(dests_id().front()));
-        if constexpr (!std::is_same_v<typename LocalStateType::SharedStateType, FakeSharedState>) {
-            shared_states.insert({dests_id().front(), ss});
-        }
+std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shared_state() const {
+    if constexpr (std::is_same_v<typename LocalStateType::SharedStateType,
+                                 LocalExchangeSharedState>) {
+        return nullptr;
     } else if constexpr (std::is_same_v<typename LocalStateType::SharedStateType,
                                         MultiCastSharedState>) {
-        ss = ((MultiCastDataStreamSinkOperatorX*)this)->create_multi_cast_data_streamer();
-        auto& dests = dests_id();
-        for (auto& dest_id : dests) {
-            DCHECK(!shared_states.contains(dest_id));
-            shared_states.insert({dest_id, ss});
-        }
-    }
-    if constexpr (std::is_same_v<typename LocalStateType::SharedStateType, AndSharedState>) {
-        auto& dests = dests_id();
-        for (auto& dest_id : dests) {
-            dependency.push_back(std::make_shared<AndDependency>(dest_id, _node_id, ctx));
-            dependency.back()->set_shared_state(ss.get());
-        }
-    } else if constexpr (!std::is_same_v<typename LocalStateType::SharedStateType,
-                                         FakeSharedState>) {
-        auto& dests = dests_id();
-        for (auto& dest_id : dests) {
-            dependency.push_back(std::make_shared<Dependency>(dest_id, _node_id,
-                                                              _name + "_DEPENDENCY", true, ctx));
-            dependency.back()->set_shared_state(ss.get());
-        }
+        LOG(FATAL) << "should not reach here!";
+        return nullptr;
     } else {
-        dependency.push_back(nullptr);
-    }
-}
-
-template <typename LocalStateType>
-DependencySPtr OperatorX<LocalStateType>::get_dependency(
-        QueryContext* ctx, std::map<int, std::shared_ptr<BasicSharedState>>& shared_states) {
-    std::shared_ptr<BasicSharedState> ss = nullptr;
-    if constexpr (std::is_same_v<typename LocalStateType::SharedStateType, SetSharedState>) {
+        std::shared_ptr<BasicSharedState> ss = nullptr;
         ss.reset(new typename LocalStateType::SharedStateType());
-        shared_states.insert({operator_id(), ss});
-    } else if constexpr (std::is_same_v<typename LocalStateType::SharedStateType,
-                                        UnionSharedState>) {
-        ss.reset(new typename LocalStateType::SharedStateType(
-                ((UnionSourceOperatorX*)this)->get_child_count()));
-        shared_states.insert({operator_id(), ss});
+        ss->id = operator_id();
+        for (auto& dest : dests_id()) {
+            ss->related_op_ids.insert(dest);
+        }
+        return ss;
     }
-    DependencySPtr dep = nullptr;
-    if constexpr (std::is_same_v<typename LocalStateType::SharedStateType, AndSharedState>) {
-        dep = std::make_shared<AndDependency>(_operator_id, _node_id, ctx);
-    } else if constexpr (std::is_same_v<typename LocalStateType::SharedStateType,
-                                        FakeSharedState>) {
-        dep = std::make_shared<FakeDependency>(_operator_id, _node_id, ctx);
-    } else {
-        dep = std::make_shared<Dependency>(_operator_id, _node_id, _op_name + "_DEPENDENCY", ctx);
-        dep->set_shared_state(ss.get());
-    }
-    return dep;
 }
 
 template <typename LocalStateType>
@@ -373,25 +317,22 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _runtime_profile->set_is_sink(false);
     info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
     constexpr auto is_fake_shared = std::is_same_v<SharedStateArg, FakeSharedState>;
-    _dependency = info.dependency.get();
     if constexpr (!is_fake_shared) {
-        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
-        auto& deps = info.upstream_dependencies;
         if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
-            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first.get());
-            _shared_state = _dependency->shared_state()->template cast<SharedStateArg>();
+            _shared_state = info.le_state_map[_parent->operator_id()].first.get();
 
-            _shared_state->source_dep = info.dependency;
-        } else if constexpr (!std::is_same_v<SharedStateArg, EmptySharedState> &&
-                             !std::is_same_v<SharedStateArg, AndSharedState>) {
-            _dependency->set_shared_state(info.shared_state);
-            _shared_state = _dependency->shared_state()->template cast<SharedStateArg>();
+            _dependency = _shared_state->get_dep_by_channel_id(info.task_idx);
+            _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                    _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+        } else if (info.shared_state) {
+            // For UnionSourceOperator without children, there is no shared state.
+            _shared_state = info.shared_state->template cast<SharedStateArg>();
 
-            _shared_state->source_dep = info.dependency;
-            if (!deps.empty()) {
-                _shared_state->sink_dep = deps.front();
-            }
+            _dependency = _shared_state->create_source_dependency(
+                    _parent->operator_id(), _parent->node_id(), _parent->get_name(),
+                    state->get_query_ctx());
+            _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                    _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
     }
 
@@ -445,20 +386,19 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
     constexpr auto is_fake_shared = std::is_same_v<SharedState, FakeSharedState>;
     if constexpr (!is_fake_shared) {
-        auto& deps = info.dependencies;
-        _dependency = deps.front().get();
         if constexpr (std::is_same_v<LocalExchangeSharedState, SharedState>) {
             _dependency = info.le_state_map[_parent->dests_id().front()].second.get();
-        }
-        if (_dependency) {
             _shared_state = (SharedState*)_dependency->shared_state();
-            _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-                    _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+        } else {
+            _shared_state = info.shared_state->template cast<SharedState>();
+            _dependency = _shared_state->create_sink_dependency(
+                    _parent->dests_id().front(), _parent->node_id(), _parent->get_name(),
+                    state->get_query_ctx());
         }
+        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
     } else {
-        auto& deps = info.dependencies;
-        deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());
-        _dependency = deps.front().get();
+        _dependency = nullptr;
     }
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
@@ -550,7 +490,7 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
-    _writer->start_writer(state, _profile);
+    RETURN_IF_ERROR(_writer->start_writer(state, _profile));
     return Status::OK();
 }
 
@@ -656,7 +596,6 @@ template class PipelineXSinkLocalState<UnionSharedState>;
 template class PipelineXSinkLocalState<PartitionSortNodeSharedState>;
 template class PipelineXSinkLocalState<MultiCastSharedState>;
 template class PipelineXSinkLocalState<SetSharedState>;
-template class PipelineXSinkLocalState<AndSharedState>;
 template class PipelineXSinkLocalState<LocalExchangeSharedState>;
 template class PipelineXSinkLocalState<BasicSharedState>;
 
@@ -671,8 +610,6 @@ template class PipelineXLocalState<MultiCastSharedState>;
 template class PipelineXLocalState<PartitionSortNodeSharedState>;
 template class PipelineXLocalState<SetSharedState>;
 template class PipelineXLocalState<LocalExchangeSharedState>;
-template class PipelineXLocalState<EmptySharedState>;
-template class PipelineXLocalState<AndSharedState>;
 template class PipelineXLocalState<BasicSharedState>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;

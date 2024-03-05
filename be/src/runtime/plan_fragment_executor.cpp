@@ -114,7 +114,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
-    if (request.__isset.query_options) {
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
         _timeout_second = request.query_options.execution_timeout;
     }
 
@@ -625,7 +625,7 @@ void PlanFragmentExecutor::close() {
             }
         }
 
-        if (_is_report_success) {
+        if (_runtime_state->enable_profile()) {
             std::stringstream ss;
             // Compute the _local_time_percent before pretty_print the runtime_profile
             // Before add this operation, the print out like that:

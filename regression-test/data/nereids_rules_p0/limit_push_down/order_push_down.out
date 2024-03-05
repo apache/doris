@@ -147,10 +147,7 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalTopN[LOCAL_SORT]
-----------------hashAgg[LOCAL]
-------------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 
 -- !limit_distinct --
@@ -160,10 +157,7 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalTopN[LOCAL_SORT]
-----------------hashAgg[LOCAL]
-------------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 
 -- !limit_window --

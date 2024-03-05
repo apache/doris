@@ -37,7 +37,6 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,7 +50,6 @@ import java.nio.ByteBuffer;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.security.PrivilegedAction;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -82,18 +80,13 @@ public class DFSFileSystem extends RemoteFileSystem {
             conf.set(propEntry.getKey(), propEntry.getValue());
         }
 
-        UserGroupInformation ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(conf));
-        try {
-            dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
-                try {
-                    return FileSystem.get(new Path(remotePath).toUri(), conf);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        } catch (SecurityException e) {
-            throw new UserException(e);
-        }
+        dfsFileSystem = HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf), () -> {
+            try {
+                return FileSystem.get(new Path(remotePath).toUri(), conf);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
 
         Preconditions.checkNotNull(dfsFileSystem);
         operations = new HDFSFileOperations(dfsFileSystem);

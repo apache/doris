@@ -37,8 +37,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -373,7 +371,7 @@ public class OriginalPlanner extends Planner {
         PlanFragment topPlanFragment = fragments.get(0);
         ExchangeNode topPlanNode = (ExchangeNode) topPlanFragment.getPlanRoot();
         // try to push down result file sink
-        if (topPlanNode.isMergingExchange()) {
+        if (topPlanNode.isFunctionalExchange()) {
             return;
         }
         PlanFragment secondPlanFragment = fragments.get(1);
@@ -385,7 +383,7 @@ public class OriginalPlanner extends Planner {
             return;
         }
         // create result file sink desc
-        TupleDescriptor fileStatusDesc = constructFileStatusTupleDesc(analyzer);
+        TupleDescriptor fileStatusDesc = ResultFileSink.constructFileStatusTupleDesc(analyzer.getDescTbl());
         resultFileSink.resetByDataStreamSink((DataStreamSink) secondPlanFragment.getSink());
         resultFileSink.setOutputTupleId(fileStatusDesc.getId());
         secondPlanFragment.setOutputExprs(topPlanFragment.getOutputExprs());
@@ -543,8 +541,7 @@ public class OriginalPlanner extends Planner {
                     && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                     && sortNode.getSortInfo().getOrigOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getOrigOrderingExprs().get(0);
-                if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isStringType()
-                        && !firstSortExpr.getType().isFloatingPointType()) {
+                if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isFloatingPointType()) {
                     OlapScanNode scanNode = (OlapScanNode) child;
                     if (scanNode.isDupKeysOrMergeOnWrite()) {
                         sortNode.setUseTopnOpt(true);
@@ -553,41 +550,6 @@ public class OriginalPlanner extends Planner {
                 }
             }
         }
-    }
-
-    /**
-     * Construct a tuple for file status, the tuple schema as following:
-     * | FileNumber | Int     |
-     * | TotalRows  | Bigint  |
-     * | FileSize   | Bigint  |
-     * | URL        | Varchar |
-     */
-    private TupleDescriptor constructFileStatusTupleDesc(Analyzer analyzer) {
-        TupleDescriptor resultFileStatusTupleDesc =
-                analyzer.getDescTbl().createTupleDescriptor("result_file_status");
-        resultFileStatusTupleDesc.setIsMaterialized(true);
-        SlotDescriptor fileNumber = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        fileNumber.setLabel("FileNumber");
-        fileNumber.setType(ScalarType.createType(PrimitiveType.INT));
-        fileNumber.setIsMaterialized(true);
-        fileNumber.setIsNullable(false);
-        SlotDescriptor totalRows = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        totalRows.setLabel("TotalRows");
-        totalRows.setType(ScalarType.createType(PrimitiveType.BIGINT));
-        totalRows.setIsMaterialized(true);
-        totalRows.setIsNullable(false);
-        SlotDescriptor fileSize = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        fileSize.setLabel("FileSize");
-        fileSize.setType(ScalarType.createType(PrimitiveType.BIGINT));
-        fileSize.setIsMaterialized(true);
-        fileSize.setIsNullable(false);
-        SlotDescriptor url = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        url.setLabel("URL");
-        url.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-        url.setIsMaterialized(true);
-        url.setIsNullable(false);
-        resultFileStatusTupleDesc.computeStatAndMemLayout();
-        return resultFileStatusTupleDesc;
     }
 
     private static class QueryStatisticsTransferOptimizer {

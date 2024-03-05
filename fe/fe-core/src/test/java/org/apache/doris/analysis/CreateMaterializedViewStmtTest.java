@@ -62,22 +62,6 @@ public class CreateMaterializedViewStmtTest {
 
     }
 
-    @Test
-    public void testFunctionColumnInSelectClause(@Injectable ArithmeticExpr arithmeticExpr) throws UserException {
-        SelectList selectList = new SelectList();
-        SelectListItem selectListItem = new SelectListItem(arithmeticExpr, null);
-        selectList.addItem(selectListItem);
-        FromClause fromClause = new FromClause();
-        SelectStmt selectStmt = new SelectStmt(selectList, fromClause, null, null, null, null, LimitElement.NO_LIMIT);
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
-        try {
-            createMaterializedViewStmt.analyze(analyzer);
-            Assert.fail();
-        } catch (UserException e) {
-            System.out.print(e.getMessage());
-        }
-    }
-
     @Disabled
     public void testCountDistinct(@Injectable SlotRef slotRef, @Injectable ArithmeticExpr arithmeticExpr,
                                   @Injectable SelectStmt selectStmt, @Injectable Column column,

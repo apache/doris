@@ -25,7 +25,6 @@ suite("regression_test_variant_github_events_p0", "nonConcurrent"){
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
     } 
-    sql "set enable_memtable_on_sink_node = true"
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {

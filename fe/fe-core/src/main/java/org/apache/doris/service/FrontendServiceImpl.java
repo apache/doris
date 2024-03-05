@@ -48,6 +48,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -1312,6 +1313,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         if (request.isSetTableId() && request.getTableId() > 0) {
             Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
+            if (table == null) {
+                throw new MetaNotFoundException("unknown table, table_id=" + request.getTableId());
+            }
             return Collections.singletonList(table);
         }
 
@@ -1503,7 +1507,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 status.addToErrorMsgs("transaction commit successfully, BUT data will be visible later");
             }
         } catch (UserException e) {
-            LOG.warn("failed to commit txn: {}: {}", request.getTxnId(), e.getMessage());
+            LOG.warn("failed to commit txn: {}", request.getTxnId(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -1686,12 +1690,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             loadTxnRollbackImpl(request);
         } catch (MetaNotFoundException e) {
-            String msg = "failed to rollback txn" + request.getTxnId();
-            LOG.warn(msg, e);
+            LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);
             status.setStatusCode(TStatusCode.NOT_FOUND);
             status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
-            LOG.warn("failed to rollback txn {}: {}", request.getTxnId(), e.getMessage());
+            LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -3289,7 +3292,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
             errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to createPartition: {}", NOT_MASTER_ERR_MSG);
+            LOG.warn("failed to createPartition: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -3297,6 +3300,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db == null) {
             errorStatus.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3305,6 +3309,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3312,12 +3317,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             errorStatus.setErrorMsgs(
                     Lists.newArrayList(String.format("dbId=%d tableId=%d is not olap table", dbId, tableId)));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
         if (request.partitionValues == null) {
             errorStatus.setErrorMsgs(Lists.newArrayList("partitionValues should not null."));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3330,6 +3337,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         Lists.newArrayList(
                                 "Only support single partition of RANGE, partitionValues size should equal 1."));
                 result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
                 return result;
             }
             partitionValues.add(request.partitionValues.get(i));
@@ -3341,6 +3349,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (AnalysisException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3354,6 +3363,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn(errorMessage);
             errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3366,6 +3376,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 errorStatus.setErrorMsgs(
                         Lists.newArrayList(String.format("create partition failed. error:%s", e.getMessage())));
                 result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
                 return result;
             }
         }
@@ -3397,10 +3408,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     // BE id -> path hash
                     Multimap<Long, Long> bePathsMap;
                     try {
-                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        if (Config.isCloudMode() && request.isSetBeEndpoint()) {
+                            bePathsMap = ((CloudTablet) tablet)
+                                    .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
+                        } else {
+                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        }
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                         result.setStatus(errorStatus);
+                        LOG.warn("send create partition error status: {}", result);
                         return result;
                     }
                     if (bePathsMap.keySet().size() < quorum) {

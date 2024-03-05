@@ -42,6 +42,7 @@ public class PaimonFileExternalCatalog extends PaimonExternalCatalog {
     protected void initLocalObjectsImpl() {
         catalogType = PAIMON_FILESYSTEM;
         catalog = createCatalog();
+        super.initLocalObjectsImpl();
     }
 
     @Override

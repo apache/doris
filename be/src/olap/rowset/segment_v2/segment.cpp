@@ -37,6 +37,7 @@
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
@@ -124,16 +125,24 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (_tablet_schema->num_columns() <= column_id) {
             continue;
         }
-        // TODO handle var path
-        int32_t uid = read_options.tablet_schema->column(column_id).unique_id();
-        if (_column_readers.count(uid) < 1 || !_column_readers.at(uid)->has_zone_map()) {
+        const TabletColumn& col = read_options.tablet_schema->column(column_id);
+        ColumnReader* reader = nullptr;
+        if (col.is_extracted_column()) {
+            const auto* node = _sub_column_tree.find_exact(col.path_info());
+            reader = node != nullptr ? node->data.reader.get() : nullptr;
+        } else {
+            reader = _column_readers.contains(col.unique_id())
+                             ? _column_readers[col.unique_id()].get()
+                             : nullptr;
+        }
+        if (!reader || !reader->has_zone_map()) {
             continue;
         }
-        if (read_options.col_id_to_predicates.count(column_id) > 0 &&
+        if (read_options.col_id_to_predicates.contains(column_id) &&
             can_apply_predicate_safely(column_id,
                                        read_options.col_id_to_predicates.at(column_id).get(),
                                        *schema, read_options.io_ctx.reader_type) &&
-            !_column_readers.at(uid)->match_condition(entry.second.get())) {
+            !reader->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
             iter->reset(new EmptySegmentIterator(*schema));
             read_options.stats->filtered_segment_number++;
@@ -141,21 +150,21 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
     }
     if (read_options.use_topn_opt) {
-        auto query_ctx = read_options.runtime_state->get_query_ctx();
-        auto runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
-        if (runtime_predicate) {
-            // TODO handle var path
+        auto* query_ctx = read_options.runtime_state->get_query_ctx();
+        for (int id : read_options.topn_filter_source_node_ids) {
+            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate();
+
             int32_t uid =
                     read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
             AndBlockColumnPredicate and_predicate;
-            auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
-            and_predicate.add_column_predicate(single_predicate);
-            if (_column_readers.count(uid) >= 1 &&
+            and_predicate.add_column_predicate(
+                    SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
+            if (_column_readers.contains(uid) &&
                 can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
                                            *schema, read_options.io_ctx.reader_type) &&
                 !_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
-                iter->reset(new EmptySegmentIterator(*schema));
+                *iter = std::make_unique<EmptySegmentIterator>(*schema);
                 read_options.stats->filtered_segment_number++;
                 return Status::OK();
             }
@@ -193,11 +202,10 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 if (!options_with_pruned_predicates.col_id_to_predicates.contains(
                             pred->column_id())) {
                     options_with_pruned_predicates.col_id_to_predicates.insert(
-                            {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+                            {pred->column_id(), AndBlockColumnPredicate::create_shared()});
                 }
-                auto* single_column_block_predicate = new SingleColumnBlockPredicate(pred);
                 options_with_pruned_predicates.col_id_to_predicates[pred->column_id()]
-                        ->add_column_predicate(single_column_block_predicate);
+                        ->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
             }
             return iter->get()->init(options_with_pruned_predicates);
         }

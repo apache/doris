@@ -283,19 +283,12 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _opts = opts;
     _col_predicates.clear();
 
-    for (auto& predicate : opts.column_predicates) {
+    for (const auto& predicate : opts.column_predicates) {
         if (!_segment->can_apply_predicate_safely(predicate->column_id(), predicate, *_schema,
                                                   _opts.io_ctx.reader_type)) {
             continue;
         }
-        if (predicate->need_to_clone()) {
-            ColumnPredicate* cloned;
-            predicate->clone(&cloned);
-            _pool->add(cloned);
-            _col_predicates.emplace_back(cloned);
-        } else {
-            _col_predicates.emplace_back(predicate);
-        }
+        _col_predicates.emplace_back(predicate);
     }
     _tablet_id = opts.tablet_id;
     // Read options will not change, so that just resize here
@@ -303,7 +296,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
 
     // compound predicates
     _col_preds_except_leafnode_of_andnode.clear();
-    for (auto& predicate : opts.column_predicates_except_leafnode_of_andnode) {
+    for (const auto& predicate : opts.column_predicates_except_leafnode_of_andnode) {
         if (!_segment->can_apply_predicate_safely(predicate->column_id(), predicate, *_schema,
                                                   _opts.io_ctx.reader_type)) {
             continue;
@@ -519,14 +512,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_bitmap_index());
     RETURN_IF_ERROR(_apply_inverted_index());
 
-    std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
-    if (_opts.use_topn_opt) {
-        auto* query_ctx = _opts.runtime_state->get_query_ctx();
-        runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
-    }
-
     if (!_row_bitmap.isEmpty() &&
-        (runtime_predicate || !_opts.col_id_to_predicates.empty() ||
+        (_opts.use_topn_opt || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
         RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
@@ -603,27 +590,28 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                        condition_row_ranges);
 
-        std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
         if (_opts.use_topn_opt) {
             SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_zonemap_ns);
-            auto query_ctx = _opts.runtime_state->get_query_ctx();
-            runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
-            if (runtime_predicate &&
-                _segment->can_apply_predicate_safely(runtime_predicate->column_id(),
-                                                     runtime_predicate.get(), *_schema,
-                                                     _opts.io_ctx.reader_type)) {
-                AndBlockColumnPredicate and_predicate;
-                auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
-                and_predicate.add_column_predicate(single_predicate);
+            auto* query_ctx = _opts.runtime_state->get_query_ctx();
+            for (int id : _opts.topn_filter_source_node_ids) {
+                std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
+                        query_ctx->get_runtime_predicate(id).get_predicate();
+                if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
+                                                         runtime_predicate.get(), *_schema,
+                                                         _opts.io_ctx.reader_type)) {
+                    AndBlockColumnPredicate and_predicate;
+                    and_predicate.add_column_predicate(
+                            SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
 
-                RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
-                RETURN_IF_ERROR(_column_iterators[runtime_predicate->column_id()]
-                                        ->get_row_ranges_by_zone_map(&and_predicate, nullptr,
-                                                                     &column_rp_row_ranges));
+                    RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
+                    RETURN_IF_ERROR(_column_iterators[runtime_predicate->column_id()]
+                                            ->get_row_ranges_by_zone_map(&and_predicate, nullptr,
+                                                                         &column_rp_row_ranges));
 
-                // intersect different columns's row ranges to get final row ranges by zone map
-                RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
-                                               &zone_map_row_ranges);
+                    // intersect different columns's row ranges to get final row ranges by zone map
+                    RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
+                                                   &zone_map_row_ranges);
+                }
             }
         }
 
@@ -1372,10 +1360,8 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     DCHECK(pk_index_reader != nullptr);
 
     std::string index_key;
-    // when is_include is false, we shoudle append KEY_NORMAL_MARKER to the
-    // encode key. Otherwise, we will get an incorrect upper bound.
     encode_key_with_padding<RowCursor, true>(
-            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include, true);
+            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include);
     if (index_key < _segment->min_key()) {
         *rowid = 0;
         return Status::OK();
@@ -1521,11 +1507,11 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     // should add add for order by none-key column, since none-key column is not sorted and
     //  all rows should be read, so runtime predicate will reduce rows for topn node
     if (_opts.use_topn_opt &&
-        !(_opts.read_orderby_key_columns != nullptr && !_opts.read_orderby_key_columns->empty())) {
-        auto& runtime_predicate = _opts.runtime_state->get_query_ctx()->get_runtime_predicate();
-        _runtime_predicate = runtime_predicate.get_predictate();
-        if (_runtime_predicate) {
-            _col_predicates.push_back(_runtime_predicate.get());
+        (_opts.read_orderby_key_columns == nullptr || _opts.read_orderby_key_columns->empty())) {
+        for (int id : _opts.topn_filter_source_node_ids) {
+            auto& runtime_predicate =
+                    _opts.runtime_state->get_query_ctx()->get_runtime_predicate(id);
+            _col_predicates.push_back(runtime_predicate.get_predicate().get());
         }
     }
 

@@ -842,28 +842,81 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
  Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#mysql) 与 [Oracle](#oracle)
 :::
 
+### DB2
+
+#### 创建示例
+
+```sql
+CREATE CATALOG `jdbc_db2` PROPERTIES (
+    "user" = "db2inst1",
+    "type" = "jdbc",
+    "password" = "123456",
+    "jdbc_url" = "jdbc:db2://127.0.0.1:50000/doris",
+    "driver_url" = "jcc-11.5.8.0.jar",
+    "driver_class" = "com.ibm.db2.jcc.DB2Driver"
+);
+```
+
+#### 层级映射
+
+映射 DB2 时，Doris 的 Database 对应于 DB2 中指定 DataBase（如示例中 `jdbc_url` 参数中的 "doris"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 DB2 中 Schema 下的 Tables。即映射关系如下：
+
+|  Doris   |   DB2    |
+|:--------:|:--------:|
+| Catalog  | DataBase |
+| Database |  Schema  |
+|  Table   |  Table   |
+
+
+#### 类型映射
+
+| DB2 Type         | Trino Type   | Notes |
+|------------------|--------------|-------|
+| SMALLINT         | SMALLINT     |       |
+| INT              | INT          |       |
+| BIGINT           | BIGINT       |       |
+| DOUBLE           | DOUBLE       |       |
+| DOUBLE PRECISION | DOUBLE       |       |
+| FLOAT            | DOUBLE       |       |
+| REAL             | FLOAT        |       |
+| NUMERIC          | DECIMAL      |       |
+| DECIMAL          | DECIMAL      |       |
+| DECFLOAT         | DECIMAL      |       |
+| DATE             | DATE         |       |
+| TIMESTAMP        | DATETIME     |       |
+| CHAR             | CHAR         |       |
+| CHAR VARYING     | VARCHAR      |       |
+| VARCHAR          | VARCHAR      |       |
+| LONG VARCHAR     | VARCHAR      |       |
+| VARGRAPHIC       | STRING       |       |
+| LONG VARGRAPHIC  | STRING       |       |
+| TIME             | STRING       |       |
+| CLOB             | STRING       |       |
+| OTHER            | UNSUPPORTED  |       |
+
 ## JDBC Driver 列表
 
 推荐使用以下版本的 Driver 连接对应的数据库。其他版本的 Driver 未经测试，可能导致非预期的问题。
 
-|  Source | JDBC Driver Version |
-|:--------:|:--------:|
-| MySQL 5.x  | mysql-connector-java-5.1.47.jar |
-| MySQL 8.x  | mysql-connector-java-8.0.25.jar |
-| PostgreSQL | postgresql-42.5.1.jar |
-| Oracle   | ojdbc8.jar|
-| SQLServer | mssql-jdbc-11.2.3.jre8.jar |
-| Doris | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
-| Clickhouse | clickhouse-jdbc-0.4.2-all.jar  |
-| SAP HAHA | ngdbc.jar |
-| Trino/Presto | trino-jdbc-389.jar / presto-jdbc-0.280.jar |
-| OceanBase | oceanbase-client-2.4.2.jar |
+|    Source    |                        JDBC Driver Version                        |
+|:------------:|:-----------------------------------------------------------------:|
+|  MySQL 5.x   |                  mysql-connector-java-5.1.47.jar                  |
+|  MySQL 8.x   |                  mysql-connector-java-8.0.25.jar                  |
+|  PostgreSQL  |                       postgresql-42.5.1.jar                       |
+|    Oracle    |                            ojdbc8.jar                             |
+|  SQLServer   |                    mssql-jdbc-11.2.3.jre8.jar                     |
+|    Doris     | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+|  Clickhouse  |                   clickhouse-jdbc-0.4.2-all.jar                   |
+|   SAP HAHA   |                             ngdbc.jar                             |
+| Trino/Presto |            trino-jdbc-389.jar / presto-jdbc-0.280.jar             |
+|  OceanBase   |                    oceanbase-client-2.4.2.jar                     |
+|     DB2      |                         jcc-11.5.8.0.jar                          |
 
 ## 常见问题
 
-1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase 是否能够支持更多的数据库
+1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase,DB2 是否能够支持更多的数据库
 
-    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase,DB2. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写 MySQL外表的emoji表情出现乱码
 

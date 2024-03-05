@@ -311,6 +311,7 @@ public:
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
             _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
+            _context.bloom_filter_func->set_null_aware(params->null_aware);
             return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
@@ -318,6 +319,7 @@ public:
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
             _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
+            _context.bloom_filter_func->set_null_aware(params->null_aware);
             return Status::OK();
         }
         case RuntimeFilterType::BITMAP_FILTER: {
@@ -331,7 +333,7 @@ public:
         return Status::OK();
     }
 
-    void change_to_bloom_filter(bool need_init_bf = false) {
+    Status change_to_bloom_filter(bool need_init_bf = false) {
         CHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER)
                 << "Can not change to bloom filter because of runtime filter type is "
                 << IRuntimeFilter::to_string(_filter_type);
@@ -339,11 +341,12 @@ public:
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
         if (need_init_bf) {
             // BloomFilter may be not init
-            static_cast<void>(bf->init_with_fixed_length());
+            RETURN_IF_ERROR(bf->init_with_fixed_length());
             insert_to_bloom_filter(bf);
         }
         // release in filter
         _context.hybrid_set.reset();
+        return Status::OK();
     }
 
     Status init_bloom_filter(const size_t build_bf_cardinality) {
@@ -508,12 +511,12 @@ public:
                         VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                    << ") because: in_num(" << _context.hybrid_set->size()
                                    << ") >= max_in_num(" << _max_in_num << ")";
-                        change_to_bloom_filter(true);
+                        RETURN_IF_ERROR(change_to_bloom_filter(true));
                     }
                 } else {
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
-                    change_to_bloom_filter();
+                    RETURN_IF_ERROR(change_to_bloom_filter());
                     RETURN_IF_ERROR(_context.bloom_filter_func->merge(
                             wrapper->_context.bloom_filter_func.get()));
                 }
@@ -1025,6 +1028,8 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     merge_filter_request->set_filter_id(_filter_id);
     merge_filter_request->set_opt_remote_rf(opt_remote_rf);
     merge_filter_request->set_is_pipeline(_state->enable_pipeline_exec);
+    auto column_type = _wrapper->column_type();
+    merge_filter_request->set_column_type(to_proto(column_type));
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
 
     Status serialize_status = serialize(merge_filter_request.get(), &data, &len);
@@ -1228,6 +1233,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
+    if (desc->__isset.null_aware) {
+        params.null_aware = desc->null_aware;
+    }
     if (_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
         if (!build_ctx->root()->type().is_bitmap_type()) {
             return Status::InvalidArgument("Unexpected src expr type:{} for bitmap filter.",
@@ -1307,8 +1315,9 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     }
 }
 
-void IRuntimeFilter::change_to_bloom_filter() {
-    _wrapper->change_to_bloom_filter();
+Status IRuntimeFilter::change_to_bloom_filter() {
+    RETURN_IF_ERROR(_wrapper->change_to_bloom_filter());
+    return Status::OK();
 }
 
 Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {
@@ -1322,6 +1331,9 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
     PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
     if (param->request->has_in_filter()) {
         column_type = to_primitive_type(param->request->in_filter().column_type());
+    }
+    if (param->request->has_column_type()) {
+        column_type = to_primitive_type(param->request->column_type());
     }
     wrapper->reset(new RuntimePredicateWrapper(pool, column_type, get_type(filter_type),
                                                param->request->filter_id()));

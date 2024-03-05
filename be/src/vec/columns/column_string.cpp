@@ -99,7 +99,9 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     const ColumnString& src_concrete = assert_cast<const ColumnString&>(src);
 
     if (start + length > src_concrete.offsets.size()) {
-        LOG(FATAL) << "Parameter out of bound in IColumnString::insert_range_from method.";
+        throw doris::Exception(
+                doris::ErrorCode::INTERNAL_ERROR,
+                "Parameter out of bound in IColumnString::insert_range_from method.");
     }
 
     size_t nested_offset = src_concrete.offset_at(start);

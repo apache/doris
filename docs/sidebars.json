@@ -27,6 +27,7 @@
                     "items": [
                         "install/k8s-deploy/operator-deploy",
                         "install/k8s-deploy/helm-chart-deploy",
+                        "install/k8s-deploy/doris-cluster-upgrade",
                         "install/k8s-deploy/network",
                         "install/k8s-deploy/persistent-volume",
                         "install/k8s-deploy/root-user-use",
@@ -95,6 +96,7 @@
                             "type": "category",
                             "label": "Import Way",
                             "items": [
+                                "data-operate/import/import-way/binlog-load-manual",
                                 "data-operate/import/import-way/broker-load-manual",
                                 "data-operate/import/import-way/routine-load-manual",
                                 "data-operate/import/import-way/spark-load-manual",
@@ -183,13 +185,15 @@
                 "advanced/orthogonal-bitmap-manual",
                 "advanced/using-hll",
                 "advanced/variables",
+                "advanced/variables-template",
                 "advanced/time-zone",
                 "advanced/sql-mode",
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
                 "advanced/is-being-synced",
                 "advanced/lateral-view",
-                "advanced/auto-increment"
+                "advanced/auto-increment",
+                "advanced/is-being-synced"
             ]
         },
         {
@@ -270,6 +274,7 @@
             "items": [
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
+                "ecosystem/doris-kafka-connector",
                 "ecosystem/doris-streamloader",
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
@@ -354,6 +359,7 @@
                                 "sql-manual/sql-functions/array-functions/array-last",
                                 "sql-manual/sql-functions/array-functions/arrays-overlap",
                                 "sql-manual/sql-functions/array-functions/array-count",
+                                "sql-manual/sql-functions/array-functions/array-apply",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element-at",
                                 "sql-manual/sql-functions/array-functions/sequence"
@@ -408,6 +414,9 @@
                                 "sql-manual/sql-functions/date-time-functions/date-trunc",
                                 "sql-manual/sql-functions/date-time-functions/date-format",
                                 "sql-manual/sql-functions/date-time-functions/datediff",
+                                "sql-manual/sql-functions/date-time-functions/date_floor",
+                                "sql-manual/sql-functions/date-time-functions/date_ceil",
+                                "sql-manual/sql-functions/date-time-functions/microsecond",
                                 "sql-manual/sql-functions/date-time-functions/microseconds-add",
                                 "sql-manual/sql-functions/date-time-functions/microseconds-diff",
                                 "sql-manual/sql-functions/date-time-functions/microseconds-sub",
@@ -513,6 +522,7 @@
                                 "sql-manual/sql-functions/string-functions/space",
                                 "sql-manual/sql-functions/string-functions/sleep",
                                 "sql-manual/sql-functions/string-functions/esquery",
+                                "sql-manual/sql-functions/string-functions/random_bytes",
                                 {
                                     "type": "category",
                                     "label": "Search in String",
@@ -656,6 +666,8 @@
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate-count",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap-hash64",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-from-base64",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-to-base64",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap-remove"
                             ]
                         },
@@ -666,7 +678,10 @@
                                 "sql-manual/sql-functions/bitwise-functions/bitand",
                                 "sql-manual/sql-functions/bitwise-functions/bitor",
                                 "sql-manual/sql-functions/bitwise-functions/bitxor",
-                                "sql-manual/sql-functions/bitwise-functions/bitnot"
+                                "sql-manual/sql-functions/bitwise-functions/bitnot",
+                                "sql-manual/sql-functions/bitwise-functions/bitcount",
+                                "sql-manual/sql-functions/bitwise-functions/bitshiftleft",
+                                "sql-manual/sql-functions/bitwise-functions/bitshiftright"
                             ]
                         },
                         {
@@ -765,7 +780,8 @@
                                 "sql-manual/sql-functions/numeric-functions/least",
                                 "sql-manual/sql-functions/numeric-functions/random",
                                 "sql-manual/sql-functions/numeric-functions/mod",
-                                "sql-manual/sql-functions/numeric-functions/running-difference"
+                                "sql-manual/sql-functions/numeric-functions/running-difference",
+                                "sql-manual/sql-functions/numeric-functions/uuid_numeric"
                             ]
                         },
                         {
@@ -789,6 +805,7 @@
                                 "sql-manual/sql-functions/table-functions/explode-json-array",
                                 "sql-manual/sql-functions/table-functions/explode",
                                 "sql-manual/sql-functions/table-functions/explode-split",
+                                "sql-manual/sql-functions/table-functions/explode_map",
                                 "sql-manual/sql-functions/table-functions/explode-bitmap",
                                 "sql-manual/sql-functions/table-functions/numbers",
                                 "sql-manual/sql-functions/table-functions/explode-numbers",
@@ -803,10 +820,10 @@
                                 "sql-manual/sql-functions/table-functions/catalogs",
                                 "sql-manual/sql-functions/table-functions/frontends_disks",
                                 "sql-manual/sql-functions/table-functions/active_queries",
+                                "sql-manual/sql-functions/table-functions/job",
                                 "sql-manual/sql-functions/table-functions/jobs",
                                 "sql-manual/sql-functions/table-functions/mv_infos",
-                                "sql-manual/sql-functions/table-functions/tasks",
-                                "sql-manual/sql-functions/table-functions/job"
+                                "sql-manual/sql-functions/table-functions/tasks"
                             ]
                         },
                         {
@@ -1084,7 +1101,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CANCEL-LOAD",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CLEAN-LABEL"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CLEAN-LABEL",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CLEAN-PROFILE"
                                     ]
                                 },
                                 {
@@ -1127,12 +1145,14 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMN-STATS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLLATION",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CONVERT-LIGHT-SCHEMA-CHANGE-PROCESS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATABASES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATA-SKEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATABASE-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DYNAMIC-PARTITION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DELETE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATA",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-DATA-TYPES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ENGINES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-EVENTS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-EXPORT",
@@ -1211,7 +1231,8 @@
                                 "sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK",
                                 "sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW",
                                 "sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW",
-                                "sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW"
+                                "sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH-LDAP"
                             ]
                         }
                     ]
@@ -1284,6 +1305,7 @@
                         "admin-manual/config/config-dir",
                         "admin-manual/config/fe-config",
                         "admin-manual/config/be-config",
+                        "admin-manual/config/fe-config-template",
                         "admin-manual/config/user-property"
                     ]
                 },
@@ -1417,11 +1439,14 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.5",
                 "releasenotes/release-2.0.4",
                 "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",
+                "releasenotes/release-2.0-Beta",
+                "releasenotes/release-2.0-Alpha",
                 "releasenotes/release-1.2.7",
                 "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",

@@ -2596,11 +2596,9 @@ public class ShowExecutor {
         TableIf tableIf = showTableStatsStmt.getTable();
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
         /*
-           HMSExternalTable table will fetch row count from HMS
-           or estimate with file size and schema if it's not analyzed.
            tableStats == null means it's not analyzed, in this case show the estimated row count.
          */
-        if (tableStats == null && tableIf instanceof HMSExternalTable) {
+        if (tableStats == null) {
             resultSet = showTableStatsStmt.constructResultSet(tableIf.getRowCount());
         } else {
             resultSet = showTableStatsStmt.constructResultSet(tableStats);
@@ -2647,9 +2645,8 @@ public class ShowExecutor {
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
             List<Long> indexIds = Lists.newArrayList();
-            if (StatisticsUtil.isMvColumn(tableIf, colName)) {
-                OlapTable olapTable = (OlapTable) tableIf;
-                indexIds = olapTable.getMvColumnIndexIds(colName);
+            if (tableIf instanceof OlapTable) {
+                indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(colName);
             } else {
                 indexIds.add(-1L);
             }
@@ -3076,7 +3073,7 @@ public class ShowExecutor {
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.taskId));
             row.add(analysisInfo.colName);
-            if (StatisticsUtil.isMvColumn(table, analysisInfo.colName)) {
+            if (table instanceof OlapTable && analysisInfo.indexId != -1) {
                 row.add(((OlapTable) table).getIndexNameById(analysisInfo.indexId));
             } else {
                 row.add("N/A");

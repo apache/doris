@@ -54,10 +54,64 @@ under the License.
 	
 ## 使用 SQL 方言
 
-这里我们以 Presto/Trino SQL 方言为例。
+示例:
 
-1. `set sql_dialect = "presto";`
-2. 执行任意 Presto/Trino SQL 语法进行数据查询。
+- Presto
+
+```sql
+mysql> set sql_dialect=presto;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SELECT cast(start_time as varchar(20)) as col1,
+    ->        array_distinct(arr_int) as col2,
+    ->        FILTER(arr_str, x -> x LIKE '%World%') as col3,
+    ->        to_date(value,'%Y-%m-%d')as col4,
+    ->        YEAR(start_time) as col5,
+    ->        date_add('month', 1, start_time) as col6,
+    ->        date_format(start_time, '%Y%m%d')as col7,
+    ->        REGEXP_EXTRACT_ALL(value, '-.') as col8,
+    ->        JSON_EXTRACT('{"id": "33"}', '$.id')as col9,
+    ->        element_at(arr_int, 1) as col10,
+    ->        date_trunc('day',start_time) as col11
+    ->     FROM test_sqlconvert
+    ->     where date_trunc('day',start_time)= DATE'2024-05-20'     
+    -> order by id; 
++---------------------+-----------+-----------+-------------+------+---------------------+----------+-------------+------+-------+---------------------+
+| col1                | col2      | col3      | col4        | col5 | col6                | col7     | col8        | col9 | col10 | col11               |
++---------------------+-----------+-----------+-------------+------+---------------------+----------+-------------+------+-------+---------------------+
+| 2024-05-20 13:14:52 | [1, 2, 3] | ["World"] | 2024-01-14  | 2024 | 2024-06-20 13:14:52 | 20240520 | ['-0','-1'] | "33" |     1 | 2024-05-20 00:00:00 |
++---------------------+-----------+-----------+-------------+------+---------------------+----------+-------------+------+-------+---------------------+
+1 row in set (0.13 sec)
+
+```
+
+- Clickhouse
+
+```sql
+mysql> set sql_dialect=clickhouse;
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> select toString(start_time) as col1,
+    ->        arrayCompact(arr_int) as col2,
+    ->        arrayFilter(x -> x like '%World%',arr_str)as col3,
+    ->        toDate(value) as col4,
+    ->        toYear(start_time)as col5,
+    ->        addMonths(start_time, 1)as col6,
+    ->        toYYYYMMDD(start_time, 'US/Eastern')as col7,
+    ->        extractAll(value, '-.')as co8,
+    ->        JSONExtractString('{"id": "33"}' , 'id')as col9,
+    ->        arrayElement(arr_int, 1) as col10,
+    ->        date_trunc('day',start_time) as col11
+    ->      FROM test_sqlconvert
+    ->      where date_trunc('day',start_time)= '2024-05-20 00:00:00'
+    -> order by id;
++---------------------+-----------+-----------+------------+------+---------------------+----------+-------------+------+-------+---------------------+
+| col1                | col2      | col3      | col4       | col5 | col6                | col7     | co8         | col9 | col10 | col11               |
++---------------------+-----------+-----------+------------+------+---------------------+----------+-------------+------+-------+---------------------+
+| 2024-05-20 13:14:52 | [1, 2, 3] | ["World"] | 2024-01-14 | 2024 | 2024-06-20 13:14:52 | 20240520 | ['-0','-1'] | "33" |     1 | 2024-05-20 00:00:00 |
++---------------------+-----------+-----------+------------+------+---------------------+----------+-------------+------+-------+---------------------+
+1 row in set (0.04 sec)
+```
 
 目前支持的方言类型包括：
 

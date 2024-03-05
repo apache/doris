@@ -20,6 +20,7 @@
 
 package org.apache.doris.plsql;
 
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.PLLexer;
 import org.apache.doris.nereids.PLParser;
 import org.apache.doris.nereids.PLParser.Allocate_cursor_stmtContext;
@@ -150,6 +151,8 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayInputStream;
 import java.io.Closeable;
@@ -176,6 +179,7 @@ import java.util.stream.Collectors;
  * PL/SQL script executor
  */
 public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> implements Closeable {
+    private static final Logger LOG = LogManager.getLogger(Exec.class);
 
     public static final String VERSION = "PL/SQL 0.1";
     public static final String ERRORCODE = "ERRORCODE";
@@ -839,6 +843,8 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         init();
         try {
             parseAndEval(arguments);
+        } catch (Exception e) {
+            exec.signal(e);
         } finally {
             close();
         }
@@ -901,8 +907,6 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
      */
     public void init() {
         enterGlobalScope();
-        // specify the default log4j2 properties file.
-        System.setProperty("log4j.configurationFile", "hive-log4j2.properties");
         if (conf == null) {
             conf = new Conf();
         }
@@ -944,7 +948,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         PLParser parser = newParser(tokens);
         ParseTree tree = parser.program();
         if (trace) {
-            console.printError("Parser tree: " + tree.toStringTree(parser));
+            console.printLine("Parser tree: " + tree.toStringTree(parser));
         }
         return tree;
     }
@@ -978,7 +982,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     boolean parseArguments(String[] args) {
         boolean parsed = arguments.parse(args);
         if (parsed && arguments.hasVersionOption()) {
-            console.printError(VERSION);
+            console.printLine(VERSION);
             return false;
         }
         if (!parsed || arguments.hasHelpOption()
@@ -1092,13 +1096,24 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
             if (sig.type == Signal.Type.VALIDATION) {
                 error(((PlValidationException) sig.exception).getCtx(), sig.exception.getMessage());
             } else if (sig.type == Signal.Type.SQLEXCEPTION) {
-                console.printError("Unhandled exception in PL/SQL. " + ExceptionUtils.getStackTrace(sig.exception));
+                LOG.warn(ExceptionUtils.getStackTrace(sig.exception));
+                console.printError(ErrorCode.ERR_SP_BAD_SQLSTATE,
+                        "Unhandled exception in PL/SQL. " + sig.exception.toString());
             } else if (sig.type == Signal.Type.UNSUPPORTED_OPERATION) {
-                console.printError(sig.value == null ? "Unsupported operation" : sig.value);
+                console.printError(ErrorCode.ERR_SP_BAD_SQLSTATE,
+                        sig.value == null ? "Unsupported operation" : sig.value);
+            } else if (sig.type == Signal.Type.TOO_MANY_ROWS) {
+                console.printError(ErrorCode.ERR_SP_BAD_SQLSTATE,
+                        sig.value == null ? "Too many rows exception" : sig.value);
+            } else if (sig.type == Signal.Type.NOTFOUND) {
+                console.printError(ErrorCode.ERR_SP_FETCH_NO_DATA,
+                        sig.value == null ? "Not found data exception" : sig.value);
             } else if (sig.exception != null) {
-                console.printError("HPL/SQL error: " + ExceptionUtils.getStackTrace(sig.exception));
+                LOG.warn(ExceptionUtils.getStackTrace(sig.exception));
+                console.printError(ErrorCode.ERR_SP_BAD_SQLSTATE,
+                        "PL/SQL error: " + sig.exception.toString());
             } else if (sig.value != null) {
-                console.printError(sig.value);
+                console.printError(ErrorCode.ERR_SP_BAD_SQLSTATE, sig.value);
             } else {
                 trace(null, "Signal: " + sig.type);
             }
@@ -1156,14 +1171,9 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     @Override
     public Integer visitDoris_statement(Doris_statementContext ctx) {
         Integer rc = exec.stmt.statement(ctx);
-        if (rc != 0) {
-            printExceptions();
-            throw new RuntimeException(exec.signalPeek().getValue());
-        }
         // Sometimes the query results are not returned to the mysql client,
-        // such as declare result; select … into result;
+        // such as `declare result; select … into result;`, not need finalize.
         resultListener.onFinalize();
-        console.flushConsole(); // if running from plsql.sh
         return rc;
     }
 
@@ -1625,7 +1635,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         FuncNameInfo procedureName = new FuncNameInfo(nameParts);
         Package packCallContext = exec.getPackageCallContext();
         boolean executed = false;
-        Package pack = findPackage(procedureName.getDb());
+        Package pack = findPackage(procedureName.getDbName());
         if (pack != null) {
             executed = pack.execFunc(procedureName.getName(), params);
         }
@@ -1793,6 +1803,8 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
             } else if (ctx.multipartIdentifier() != null) {
                 functionCall(ctx, ctx.multipartIdentifier(), null);
             }
+        } catch (Exception e) {
+            exec.signal(e);
         } finally {
             exec.inCallStmt = false;
         }
@@ -2379,9 +2391,9 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
             return;
         }
         if (ctx != null) {
-            console.printError("Ln:" + ctx.getStart().getLine() + " " + message);
+            console.printLine("Ln:" + ctx.getStart().getLine() + " " + message);
         } else {
-            console.printError(message);
+            console.printLine(message);
         }
     }
 

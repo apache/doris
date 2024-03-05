@@ -1976,7 +1976,8 @@ public class Env {
         return checksum;
     }
 
-    public long loadAlterJob(DataInputStream dis, long checksum) throws IOException {
+    public long loadAlterJob(DataInputStream dis, long checksum)
+            throws IOException, AnalysisException {
         long newChecksum = checksum;
         for (JobType type : JobType.values()) {
             newChecksum = loadAlterJob(dis, newChecksum, type);
@@ -1985,7 +1986,8 @@ public class Env {
         return newChecksum;
     }
 
-    public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
+    public long loadAlterJob(DataInputStream dis, long checksum, JobType type)
+            throws IOException, AnalysisException {
         // alter jobs
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
@@ -3041,7 +3043,9 @@ public class Env {
      * 11. add this table to ColocateGroup if necessary
      */
     public void createTable(CreateTableStmt stmt) throws UserException {
-        getCurrentCatalog().createTable(stmt);
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.createTable(stmt);
     }
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
@@ -3671,7 +3675,9 @@ public class Env {
 
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        getCurrentCatalog().dropTable(stmt);
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.dropTable(stmt);
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,

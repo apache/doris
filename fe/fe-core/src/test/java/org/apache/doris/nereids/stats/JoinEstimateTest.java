@@ -83,7 +83,7 @@ public class JoinEstimateTest {
                     }
                 }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(eq),
-                left, right);
+                left, right, null);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
         ColumnStatistic outAStats = outputStats.findColumnStatistics(a);
         Assertions.assertNotNull(outAStats);
@@ -134,7 +134,7 @@ public class JoinEstimateTest {
                     }
                 }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         LogicalJoin join = new LogicalJoin(JoinType.LEFT_OUTER_JOIN, Lists.newArrayList(eq),
-                left, right);
+                left, right, null);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
         ColumnStatistic outAStats = outputStats.findColumnStatistics(a);
         Assertions.assertNotNull(outAStats);

@@ -347,15 +347,19 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
 
 Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          size_t num_rows) {
-    if (num_rows == 0) {
-        return Status::OK();
-    }
     auto& string_col = static_cast<const ColumnString&>(*doris_column);
     ColumnString::Chars& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
     ColumnString::Offsets& string_offsets =
             const_cast<ColumnString::Offsets&>(string_col.get_offsets());
     int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
     char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
+
+    // This judgment is necessary, otherwise the following statement `offsets[num_rows - 1]` out of bounds
+    // What's more, This judgment must be placed after `address.next_meta_as_ptr()`
+    // because `address.next_meta_as_ptr` will make `address._meta_index` plus 1
+    if (num_rows == 0) {
+        return Status::OK();
+    }
 
     size_t origin_chars_size = string_chars.size();
     string_chars.resize(origin_chars_size + offsets[num_rows - 1]);

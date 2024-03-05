@@ -131,13 +131,16 @@ private:
                                   int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
+    jobject _get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType);
 
     bool _closed = false;
+    jclass _executor_factory_clazz;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;
     jclass _executor_string_clazz;
     jobject _executor_obj;
+    jmethodID _executor_factory_ctor_id;
     jmethodID _executor_ctor_id;
     jmethodID _executor_stmt_write_id;
     jmethodID _executor_read_id;

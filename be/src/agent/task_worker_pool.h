@@ -165,6 +165,8 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
 
 void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
                     const TAgentTaskRequest& req);
 
@@ -177,5 +179,7 @@ void report_task_callback(const TMasterInfo& master_info);
 void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info);
 
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info);
+
+void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
 } // namespace doris

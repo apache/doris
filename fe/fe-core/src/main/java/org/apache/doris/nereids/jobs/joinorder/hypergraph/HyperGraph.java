@@ -551,7 +551,7 @@ public class HyperGraph {
                 LogicalJoin<?, ?> singleJoin = new LogicalJoin<>(join.getJoinType(), entry.getValue().first,
                         entry.getValue().second,
                         new DistributeHint(DistributeType.NONE), join.getMarkJoinSlotReference(),
-                        Lists.newArrayList(join.left(), join.right()));
+                        Lists.newArrayList(join.left(), join.right()), null);
                 Pair<Long, Long> ends = entry.getKey();
                 JoinEdge edge = new JoinEdge(singleJoin, joinEdges.size(), leftEdgeNodes.first, rightEdgeNodes.first,
                         LongBitmap.newBitmapUnion(leftEdgeNodes.second, rightEdgeNodes.second),

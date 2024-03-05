@@ -132,7 +132,9 @@ struct ToBitmap {
                         continue;
                     }
                 }
-                res_data[i].add(col->get_data()[i]);
+                if (auto value = col->get_data()[i]; value >= 0) {
+                    res_data[i].add(value);
+                }
             }
         }
     }

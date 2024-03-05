@@ -265,7 +265,12 @@ int main(int argc, char** argv) {
                 std::vector<FileInfo> files;
                 bool exists = false;
                 std::filesystem::path root_dir(FLAGS_directory);
-                static_cast<void>(fs->list(root_dir, true, &files, &exists));
+                doris::Status status = fs->list(root_dir, true, &files, &exists);
+                if (!status.ok) {
+                    std::cerr << "can't search from directory's all files,err : " << status
+                              << std::endl;
+                    return -1;
+                }
                 if (!exists) {
                     std::cerr << FLAGS_directory << " is not exists" << std::endl;
                     return -1;

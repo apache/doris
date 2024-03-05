@@ -86,6 +86,9 @@ Status WalReader::read_block(PBlock& block) {
 }
 
 Status WalReader::read_header(std::string& col_ids) {
+    if (file_reader->size() == 0) {
+        return Status::DataQualityError("empty file");
+    }
     size_t bytes_read = 0;
     std::string magic_str;
     magic_str.resize(k_wal_magic_length);

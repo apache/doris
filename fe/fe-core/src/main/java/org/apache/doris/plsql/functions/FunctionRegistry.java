@@ -32,6 +32,8 @@ public interface FunctionRegistry {
 
     void addUserProcedure(Create_procedure_stmtContext ctx);
 
+    void save(FuncNameInfo procedureName, String source, boolean isForce);
+
     boolean exists(FuncNameInfo procedureName);
 
     void remove(FuncNameInfo procedureName);

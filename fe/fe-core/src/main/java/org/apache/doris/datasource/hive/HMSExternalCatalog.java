@@ -144,9 +144,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             HadoopUGI.tryKrbLogin(this.getName(), AuthenticationConfig.getKerberosConfig(hiveConf,
                     AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
                     AuthenticationConfig.HIVE_KERBEROS_KEYTAB));
-            metadataOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
         }
-
+        metadataOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
     }
 
     @Override

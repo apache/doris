@@ -26,6 +26,7 @@
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
+#include "util/defer_op.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -111,15 +112,18 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
-    int child_count = p.get_child_count();
-    if (child_count != 0) {
-        auto& deps = info.upstream_dependencies;
-        for (auto& dep : deps) {
-            dep->set_shared_state(_dependency->shared_state());
-        }
+    if (p.get_child_count() != 0) {
+        ((UnionSharedState*)_dependency->shared_state())
+                ->data_queue.set_source_dependency(_shared_state->source_deps.front());
+    } else {
+        _only_const_dependency = Dependency::create_shared(
+                _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY",
+                state->get_query_ctx());
+        _dependency = _only_const_dependency.get();
+        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
     }
-    ((UnionSharedState*)_dependency->shared_state())
-            ->data_queue.set_source_dependency(info.dependency);
+
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
@@ -138,7 +142,8 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             RETURN_IF_ERROR(clone_expr_list(_const_expr_list, other_expr_list));
         }
     }
-    if (child_count == 0) {
+
+    if (p.get_child_count() == 0) {
         _dependency->set_ready();
     }
     return Status::OK();
@@ -147,22 +152,31 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 std::string UnionSourceLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
-    fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
-                   _shared_state->data_queue.is_all_finish(),
-                   _shared_state->data_queue.remaining_has_data());
+    if (_shared_state) {
+        fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
+                       _shared_state->data_queue.is_all_finish(),
+                       _shared_state->data_queue.remaining_has_data());
+    }
     return fmt::to_string(debug_string_buffer);
 }
 
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
+    Defer set_eos {[&]() {
+        //have executing const expr, queue have no data anymore, and child could be closed
+        *eos = (_child_size == 0 && !local_state._need_read_for_const_expr) ||
+               (_child_size > 0 && local_state._shared_state->data_queue.is_all_finish() &&
+                !_has_data(state));
+    }};
+
     SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
             RETURN_IF_ERROR(get_next_const(state, block));
         }
         local_state._need_read_for_const_expr = has_more_const(state);
-    } else {
-        std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
+    } else if (_child_size != 0) {
+        std::unique_ptr<vectorized::Block> output_block;
         int child_idx = 0;
         RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
                                                                                    &child_idx));
@@ -174,10 +188,6 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
     }
     local_state.reached_limit(block, eos);
-    //have executing const expr, queue have no data anymore, and child could be closed
-    *eos = (_child_size == 0 && !local_state._need_read_for_const_expr) ||
-           (local_state._shared_state->data_queue.is_all_finish() && !_has_data(state));
-
     return Status::OK();
 }
 

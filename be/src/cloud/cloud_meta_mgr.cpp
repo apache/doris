@@ -74,10 +74,7 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
         return nullptr;
     };
 
-    std::vector<bthread_t> bthread_ids;
-    bthread_ids.resize(tasks.size());
-    for (int task_idx = 0; task_idx < tasks.size(); ++task_idx) {
-        auto* task = &(tasks[task_idx]);
+    for (const auto& task : tasks) {
         {
             std::unique_lock lk(lock);
             // Wait until there are available slots
@@ -93,8 +90,8 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
         }
 
         // dispatch task into bthreads
-        auto* fn = new std::function<void()>([&, task] {
-            auto st = (*task)();
+        auto* fn = new std::function<void()>([&, &task = task] {
+            auto st = task();
             {
                 std::lock_guard lk(lock);
                 --count;
@@ -104,7 +101,9 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
                 cond.notify_one();
             }
         });
-        if (bthread_start_background(&bthread_ids[task_idx], nullptr, run_bthread_work, fn) != 0) {
+
+        bthread_t bthread_id;
+        if (bthread_start_background(&bthread_id, nullptr, run_bthread_work, fn) != 0) {
             run_bthread_work(fn);
         }
     }
@@ -620,7 +619,6 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
     req.set_temporary(is_tmp);
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
-    rs_meta.to_rowset_pb(&doris_rs_meta, true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
 
     Status st = retry_rpc("prepare rowset", req, &resp, &MetaService_Stub::prepare_rowset);

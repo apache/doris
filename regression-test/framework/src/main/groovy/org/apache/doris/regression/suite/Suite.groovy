@@ -642,9 +642,9 @@ class Suite implements GroovyInterceptable {
     }
 
     void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
-        String cmd = "scp -r ${username}@${host}:${files} ${filePath}"
+        String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
-            cmd = "scp -r ${files} ${username}@${host}:${filePath}"
+            cmd = "scp -o StrictHostKeyChecking=no -r ${files} ${username}@${host}:${filePath}"
         }
         logger.info("Execute: ${cmd}".toString())
         Process process = cmd.execute()
@@ -744,6 +744,15 @@ class Suite implements GroovyInterceptable {
     List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false){
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveRemoteConnection(), cleanedSqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
+
+    List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false){
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
+        def (result, meta) = JdbcUtils.executeToList(context.getDB2DockerConnection(), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }

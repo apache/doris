@@ -796,7 +796,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);
             if (!prepare_st.ok()) {
-                LOG(WARNING) << "Prepare failed: " << prepare_st.to_string();
                 context->close_if_prepare_failed();
                 return prepare_st;
             }
@@ -805,10 +804,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         for (size_t i = 0; i < params.local_params.size(); i++) {
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-            static_cast<void>(_runtimefilter_controller.add_entity(
+            RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
                     params.local_params[i], params.query_id, params.query_options, &handler,
                     RuntimeFilterParamsContext::create(context->get_runtime_state())));
-            if (i == 0 and handler) {
+            if (!i && handler) {
                 query_ctx->set_merge_controller_handler(handler);
             }
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
@@ -1082,6 +1081,16 @@ void FragmentMgr::cancel_worker() {
             for (auto& fragment_instance_itr : _fragment_instance_map) {
                 if (fragment_instance_itr.second->is_timeout(now)) {
                     to_cancel.push_back(fragment_instance_itr.second->fragment_instance_id());
+                }
+            }
+            for (auto& pipeline_itr : _pipeline_map) {
+                if (pipeline_itr.second->is_timeout(now)) {
+                    std::vector<TUniqueId> ins_ids;
+                    reinterpret_cast<pipeline::PipelineXFragmentContext*>(pipeline_itr.second.get())
+                            ->instance_ids(ins_ids);
+                    for (auto& ins_id : ins_ids) {
+                        to_cancel.push_back(ins_id);
+                    }
                 }
             }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {

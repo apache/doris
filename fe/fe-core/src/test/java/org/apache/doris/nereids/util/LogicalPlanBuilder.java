@@ -108,7 +108,7 @@ public class LogicalPlanBuilder {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
                 Collections.emptyList(), Collections.emptyList(),
                 new DistributeHint(DistributeType.NONE), Optional.of(new MarkJoinSlotReference("fake")),
-                this.plan, right);
+                this.plan, right, null);
         return from(join);
     }
 
@@ -117,7 +117,7 @@ public class LogicalPlanBuilder {
                 new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
-                this.plan, right);
+                this.plan, right, null);
         return from(join);
     }
 
@@ -128,19 +128,19 @@ public class LogicalPlanBuilder {
                 .collect(Collectors.toList());
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
-                this.plan, right);
+                this.plan, right, null);
         return from(join);
     }
 
     public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjucts) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjucts,
-                new DistributeHint(DistributeType.NONE), Optional.empty(), this.plan, right);
+                new DistributeHint(DistributeType.NONE), Optional.empty(), this.plan, right, null);
         return from(join);
     }
 
     public LogicalPlanBuilder joinEmptyOn(LogicalPlan right, JoinType joinType) {
-        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, this.plan, right);
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, this.plan, right, null);
         return from(join);
     }
 

@@ -209,11 +209,17 @@ Status GroupCommitTable::get_first_block_load_queue(
                         "schema version not match, maybe a schema change is in process. Please "
                         "retry this load manually.");
             }
-            if (!_need_plan_fragment) {
-                _need_plan_fragment = true;
+            if (!_is_creating_plan_fragment) {
+                _is_creating_plan_fragment = true;
                 RETURN_IF_ERROR(_thread_pool->submit_func([&] {
-                    [[maybe_unused]] auto st =
-                            _create_group_commit_load(load_block_queue, be_exe_version);
+                    auto st = _create_group_commit_load(load_block_queue, be_exe_version);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+                        load_block_queue.reset();
+                        std::unique_lock l(_lock);
+                        _is_creating_plan_fragment = false;
+                        _cv.notify_all();
+                    }
                 }));
             }
             _cv.wait_for(l, std::chrono::seconds(4));
@@ -238,13 +244,6 @@ Status GroupCommitTable::get_first_block_load_queue(
 Status GroupCommitTable::_create_group_commit_load(
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version) {
     Status st = Status::OK();
-    std::unique_ptr<int, std::function<void(int*)>> finish_plan_func((int*)0x01, [&](int*) {
-        if (!st.ok()) {
-            std::unique_lock l(_lock);
-            _need_plan_fragment = false;
-            _cv.notify_all();
-        }
-    });
     TStreamLoadPutRequest request;
     UniqueId load_id = UniqueId::gen_uid();
     TUniqueId tload_id;
@@ -278,13 +277,13 @@ Status GroupCommitTable::_create_group_commit_load(
             10000L);
     if (!st.ok()) {
         LOG(WARNING) << "create group commit load rpc error, st=" << st.to_string();
+        return st;
     }
-    RETURN_IF_ERROR(st);
     st = Status::create<false>(result.status);
     if (!st.ok()) {
         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+        return st;
     }
-    RETURN_IF_ERROR(st);
     auto schema_version = result.base_schema_version;
     auto is_pipeline = result.__isset.pipeline_params;
     auto& params = result.params;
@@ -311,8 +310,6 @@ Status GroupCommitTable::_create_group_commit_load(
                 result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
                 result.group_commit_data_bytes);
         std::unique_lock l(_lock);
-        _load_block_queues.emplace(instance_id, load_block_queue);
-        _need_plan_fragment = false;
         //create wal
         if (!is_pipeline) {
             RETURN_IF_ERROR(load_block_queue->create_wal(
@@ -324,6 +321,8 @@ Status GroupCommitTable::_create_group_commit_load(
                     pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
                     be_exe_version));
         }
+        _load_block_queues.emplace(instance_id, load_block_queue);
+        _is_creating_plan_fragment = false;
         _cv.notify_all();
     }
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,

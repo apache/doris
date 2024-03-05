@@ -49,7 +49,7 @@
 #include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
-const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/jdbc/JdbcExecutor";
+const char* JDBC_EXECUTOR_FACTORY_CLASS = "org/apache/doris/jdbc/JdbcExecutorFactory";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
@@ -85,6 +85,7 @@ Status JdbcConnector::close(Status /*unused*/) {
     }
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->DeleteGlobalRef(_executor_factory_clazz);
     env->DeleteGlobalRef(_executor_clazz);
     DELETE_BASIC_JAVA_CLAZZ_REF(object)
     DELETE_BASIC_JAVA_CLAZZ_REF(string)
@@ -104,7 +105,29 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, JDBC_EXECUTOR_CLASS, &_executor_clazz));
+    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, JDBC_EXECUTOR_FACTORY_CLASS,
+                                                   &_executor_factory_clazz));
+
+    _executor_factory_ctor_id =
+            env->GetStaticMethodID(_executor_factory_clazz, "getExecutorClass",
+                                   "(Lorg/apache/doris/thrift/TOdbcTableType;)Ljava/lang/String;");
+    if (_executor_factory_ctor_id == nullptr) {
+        return Status::InternalError("Failed to find method ID for getExecutorClass");
+    }
+
+    jobject jtable_type = _get_java_table_type(env, _conn_param.table_type);
+
+    jstring executor_name = (jstring)env->CallStaticObjectMethod(
+            _executor_factory_clazz, _executor_factory_ctor_id, jtable_type);
+    if (executor_name == nullptr) {
+        return Status::InternalError("getExecutorClass returned null");
+    }
+    const char* executor_name_str = env->GetStringUTFChars(executor_name, nullptr);
+
+    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, executor_name_str, &_executor_clazz));
+    env->DeleteLocalRef(jtable_type);
+    env->ReleaseStringUTFChars(executor_name, executor_name_str);
+    env->DeleteLocalRef(executor_name);
     GET_BASIC_JAVA_CLAZZ("java/util/List", list)
     GET_BASIC_JAVA_CLAZZ("java/lang/Object", object)
     GET_BASIC_JAVA_CLAZZ("java/lang/String", string)
@@ -747,4 +770,12 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     return Status::OK();
 }
 
+jobject JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType) {
+    jclass enumClass = env->FindClass("org/apache/doris/thrift/TOdbcTableType");
+    jmethodID findByValueMethod = env->GetStaticMethodID(
+            enumClass, "findByValue", "(I)Lorg/apache/doris/thrift/TOdbcTableType;");
+    jobject javaEnumObj =
+            env->CallStaticObjectMethod(enumClass, findByValueMethod, static_cast<jint>(tableType));
+    return javaEnumObj;
+}
 } // namespace doris::vectorized

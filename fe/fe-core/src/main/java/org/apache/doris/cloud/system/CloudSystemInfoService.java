@@ -71,12 +71,12 @@ public class CloudSystemInfoService extends SystemInfoService {
     private InstanceInfoPB.Status instanceStatus;
 
     @Override
-    public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
+    public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
             TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
             throws DdlException {
-        return Maps.newHashMap();
+        return Pair.of(Maps.newHashMap(), storageMedium);
     }
 
     /**
@@ -320,6 +320,15 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     public List<Backend> getBackendsByClusterId(final String clusterId) {
         return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>());
+    }
+
+    public String getClusterIdByBeAddr(String beEndpoint) {
+        for (Map.Entry<String, List<Backend>> idBe : clusterIdToBackend.entrySet()) {
+            if (idBe.getValue().stream().anyMatch(be -> be.getAddress().equals(beEndpoint))) {
+                return getClusterNameByClusterId(idBe.getKey());
+            }
+        }
+        return null;
     }
 
     public List<String> getCloudClusterIds() {

@@ -234,7 +234,8 @@ struct TOlapTableSchemaParam {
     7: optional bool is_dynamic_schema // deprecated
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
-    10: optional bool is_strict_mode = false;
+    10: optional bool is_strict_mode = false
+    11: optional string auto_increment_column
 }
 
 struct TTabletLocation {
@@ -339,6 +340,8 @@ struct TMCTable {
   4: optional string access_key
   5: optional string secret_key
   6: optional string public_access
+  7: optional string odps_url
+  8: optional string tunnel_url
 }
 
 // "Union" of all table types.

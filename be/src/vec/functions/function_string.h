@@ -26,8 +26,11 @@
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
+#include <iomanip>
 #include <memory>
 #include <ostream>
+#include <random>
+#include <sstream>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -2871,6 +2874,61 @@ public:
 
             StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
             decoded_url.clear();
+        }
+
+        block.get_by_position(result).column = std::move(res);
+
+        return Status::OK();
+    }
+};
+
+class FunctionRandomBytes : public IFunction {
+public:
+    static constexpr auto name = "random_bytes";
+    static FunctionPtr create() { return std::make_shared<FunctionRandomBytes>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool is_variadic() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        auto res = ColumnString::create();
+        auto& res_offsets = res->get_offsets();
+        auto& res_chars = res->get_chars();
+        res_offsets.resize(input_rows_count);
+
+        ColumnPtr argument_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto* length_col = check_and_get_column<ColumnInt32>(argument_column.get());
+
+        if (!length_col) {
+            return Status::InternalError("Not supported input argument type");
+        }
+
+        std::vector<uint8_t> random_bytes;
+        std::random_device rd;
+        std::mt19937 gen(rd());
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            UInt64 length = length_col->get64(i);
+            random_bytes.resize(length);
+
+            std::uniform_int_distribution<uint8_t> distribution(0, 255);
+            for (auto& byte : random_bytes) {
+                byte = distribution(gen);
+            }
+
+            std::ostringstream oss;
+            for (const auto& byte : random_bytes) {
+                oss << std::setw(2) << std::setfill('0') << std::hex << static_cast<int>(byte);
+            }
+
+            StringOP::push_value_string("0x" + oss.str(), i, res_chars, res_offsets);
+            random_bytes.clear();
         }
 
         block.get_by_position(result).column = std::move(res);

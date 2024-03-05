@@ -111,6 +111,19 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
+    std::shared_ptr<BasicSharedState> create_shared_state() const override {
+        if (_cur_child_id > 0) {
+            return nullptr;
+        } else {
+            std::shared_ptr<BasicSharedState> ss = std::make_shared<UnionSharedState>(_child_size);
+            ss->id = operator_id();
+            for (auto& dest : dests_id()) {
+                ss->related_op_ids.insert(dest);
+            }
+            return ss;
+        }
+    }
+
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
 

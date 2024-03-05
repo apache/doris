@@ -198,10 +198,8 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
     // Create result_expr_ctx_lists_ from thrift exprs.
     if (tnode.node_type == TPlanNodeType::type::INTERSECT_NODE) {
         result_texpr_lists = &(tnode.intersect_node.result_expr_lists);
-        _child_quantity = tnode.intersect_node.result_expr_lists.size();
     } else if (tnode.node_type == TPlanNodeType::type::EXCEPT_NODE) {
         result_texpr_lists = &(tnode.except_node.result_expr_lists);
-        _child_quantity = tnode.except_node.result_expr_lists.size();
     } else {
         return Status::NotSupported("Not Implemented, Check The Operation Node.");
     }

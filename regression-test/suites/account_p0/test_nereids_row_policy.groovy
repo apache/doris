@@ -21,6 +21,18 @@ suite("test_nereids_row_policy") {
     def user='row_policy_user'
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
+    def isCloudMode = {
+        def ret = sql_return_maparray  """show backends"""
+        ret.Tag[0].contains("cloud_cluster_name")
+    }
+    def cloudMode = isCloudMode.call()
+    //cloud-mode
+    if (cloudMode) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
 
     def assertQueryResult = { size ->
         def result1 = connect(user=user, password='123abc!@#', url=url) {
@@ -37,7 +49,7 @@ suite("test_nereids_row_policy") {
             sql "set enable_fallback_to_original_planner = false"
             test {
                 sql "SELECT * FROM ${viewName}"
-                exception "SELECT command denied to user"
+                exception "does not have privilege for"
             }
         }
         assertEquals(size, result1.size())
@@ -82,6 +94,14 @@ suite("test_nereids_row_policy") {
     sql "GRANT SELECT_PRIV ON internal.${dbName}.${tableName} TO ${user}"
 
     sql 'sync'
+
+    //cloud-mode
+    if (cloudMode) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
 
     // no policy
     assertQueryResult 3

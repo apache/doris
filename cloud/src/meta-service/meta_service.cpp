@@ -50,6 +50,7 @@
 #include "common/string_util.h"
 #include "common/sync_point.h"
 #include "common/util.h"
+#include "keys.h"
 #include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
 #include "meta-service/keys.h"
@@ -1008,8 +1009,15 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         DCHECK(rowset_meta.tablet_schema().has_schema_version());
         DCHECK_GE(rowset_meta.tablet_schema().schema_version(), 0);
         rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
-        auto schema_key = meta_schema_key(
-                {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+        std::string schema_key;
+        if (rowset_meta.has_variant_type_in_schema()) {
+            // encodes schema in a seperate kv, since variant schema is volatile
+            schema_key = meta_rowset_schema_key({instance_id,
+                    rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
+        } else {
+            schema_key = meta_schema_key(
+                    {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+        }
         put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
         if (code != MetaServiceCode::OK) return;
         rowset_meta.set_allocated_tablet_schema(nullptr);
@@ -1248,6 +1256,28 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
     return versions;
 }
 
+static bool try_fetch_and_parse_schema(
+            Transaction* txn, RowsetMetaCloudPB& rowset_meta,
+            const std::string& key, MetaServiceCode& code, std::string& msg) {
+    ValueBuf val_buf;
+    TxnErrorCode err = cloud::get(txn, key, &val_buf);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get schema, schema_version={}, rowset_version=[{}-{}]: {}",
+                          rowset_meta.schema_version(), rowset_meta.start_version(),
+                          rowset_meta.end_version(),
+                          err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "not found" : "internal error");
+        return false;
+    }
+    auto schema = rowset_meta.mutable_tablet_schema();
+    if (!parse_schema_value(val_buf, schema)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("malformed schema value, key={}", key);
+        return false;
+    }
+    return true;
+}
+
 void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                                  const GetRowsetRequest* request, GetRowsetResponse* response,
                                  ::google::protobuf::Closure* done) {
@@ -1352,6 +1382,14 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     rowset_meta.start_version(), rowset_meta.end_version());
             return;
         }
+        if (rowset_meta.has_variant_type_in_schema()) {
+            // get rowset schema kv
+            auto key = meta_rowset_schema_key({instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
+            if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
+                return;
+            }
+            continue;
+        }
         if (auto it = version_to_schema.find(rowset_meta.schema_version());
             it != version_to_schema.end()) {
             if (arena != nullptr) {
@@ -1361,24 +1399,10 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             }
         } else {
             auto key = meta_schema_key({instance_id, idx.index_id(), rowset_meta.schema_version()});
-            ValueBuf val_buf;
-            TxnErrorCode err = cloud::get(txn.get(), key, &val_buf);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format(
-                        "failed to get schema, schema_version={}, rowset_version=[{}-{}]: {}",
-                        rowset_meta.schema_version(), rowset_meta.start_version(),
-                        rowset_meta.end_version(),
-                        err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "not found" : "internal error");
+            if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
-            auto schema = rowset_meta.mutable_tablet_schema();
-            if (!parse_schema_value(val_buf, schema)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = fmt::format("malformed schema value, key={}", key);
-                return;
-            }
-            version_to_schema.emplace(rowset_meta.schema_version(), schema);
+            version_to_schema.emplace(rowset_meta.schema_version(), rowset_meta.mutable_tablet_schema());
         }
     }
 }

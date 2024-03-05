@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -222,13 +223,17 @@ public class Tablet extends MetaObject implements Writable {
         }
     }
 
-    // return map of (BE id -> path hash) of normal replicas
-    // for load plan.
-    public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
+    @FunctionalInterface
+    interface BackendIdGetter {
+        long get(Replica rep, String be);
+    }
+
+    private Multimap<Long, Long> getNormalReplicaBackendPathMapImpl(String beEndpoint, BackendIdGetter idGetter)
+            throws UserException {
         Multimap<Long, Long> map = HashMultimap.create();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Replica replica : replicas) {
-            long backendId = replica.getBackendId();
+            long backendId = idGetter.get(replica, beEndpoint);
             if (!infoService.checkBackendAlive(backendId)) {
                 continue;
             }
@@ -244,6 +249,18 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
         return map;
+    }
+
+    // return map of (BE id -> path hash) of normal replicas
+    // for load plan.
+    public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
+        return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendId());
+    }
+
+    // for cloud mode without ConnectContext. use BE IP to find replica
+    protected Multimap<Long, Long> getNormalReplicaBackendPathMapCloud(String beEndpoint) throws UserException {
+        return getNormalReplicaBackendPathMapImpl(beEndpoint,
+                (rep, be) -> ((CloudReplica) rep).getBackendId(be));
     }
 
     // for query

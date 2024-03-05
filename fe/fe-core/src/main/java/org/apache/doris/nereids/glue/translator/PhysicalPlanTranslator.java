@@ -70,6 +70,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
+import org.apache.doris.nereids.properties.DistributionSpecTabletIdShuffle;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
@@ -117,6 +118,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -244,10 +246,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     public PlanFragment translatePlan(PhysicalPlan physicalPlan) {
         PlanFragment rootFragment = physicalPlan.accept(this, context);
-        List<Expr> outputExprs = Lists.newArrayList();
-        physicalPlan.getOutput().stream().map(Slot::getExprId)
-                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        rootFragment.setOutputExprs(outputExprs);
+        if (CollectionUtils.isEmpty(rootFragment.getOutputExprs())) {
+            List<Expr> outputExprs = Lists.newArrayList();
+            physicalPlan.getOutput().stream().map(Slot::getExprId)
+                    .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+            rootFragment.setOutputExprs(outputExprs);
+        }
         Collections.reverse(context.getPlanFragments());
         // TODO: maybe we need to trans nullable directly? and then we could remove call computeMemLayout
         context.getDescTable().computeMemLayout();
@@ -368,8 +372,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
             PlanTranslatorContext context) {
         PlanFragment planFragment = physicalResultSink.child().accept(this, context);
-        TResultSinkType resultSinkType = context.getConnectContext() != null ? context.getConnectContext()
-                .getResultSinkType() : null;
+        TResultSinkType resultSinkType = context.getConnectContext() != null
+                ? context.getConnectContext().getResultSinkType() : null;
         planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(), resultSinkType));
         return planFragment;
     }
@@ -423,9 +427,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
+    public PlanFragment visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink,
+                                                   PlanTranslatorContext context) {
+        PlanFragment rootFragment = hiveTableSink.child().accept(this, context);
+        return rootFragment;
+    }
+
+    @Override
     public PlanFragment visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink,
             PlanTranslatorContext context) {
-        PlanFragment rootFragment = fileSink.child().accept(this, context);
+        PlanFragment sinkFragment = fileSink.child().accept(this, context);
         OutFileClause outFile = new OutFileClause(
                 fileSink.getFilePath(),
                 fileSink.getFormat(),
@@ -435,7 +446,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> outputExprs = Lists.newArrayList();
         fileSink.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        rootFragment.setOutputExprs(outputExprs);
+        sinkFragment.setOutputExprs(outputExprs);
 
         // generate colLabels
         List<String> labels = fileSink.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList());
@@ -446,11 +457,49 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        ResultFileSink sink = new ResultFileSink(rootFragment.getPlanRoot().getId(), outFile,
+        ResultFileSink resultFileSink = new ResultFileSink(sinkFragment.getPlanRoot().getId(), outFile,
                 (ArrayList<String>) labels);
 
-        rootFragment.setSink(sink);
-        return rootFragment;
+        sinkFragment.setSink(resultFileSink);
+
+        // TODO: do parallel sink, we should do it in Nereids, but now we impl here temporarily
+        //   because impl in Nereids affect too many things
+        if (fileSink.requestProperties(context.getConnectContext()).equals(PhysicalProperties.GATHER)) {
+            return sinkFragment;
+        } else {
+            // create output tuple
+            TupleDescriptor fileStatusDesc = ResultFileSink.constructFileStatusTupleDesc(context.getDescTable());
+
+            // create exchange node
+            ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), sinkFragment.getPlanRoot());
+            exchangeNode.setPartitionType(TPartitionType.UNPARTITIONED);
+            exchangeNode.setNumInstances(1);
+
+            // create final result sink
+            TResultSinkType resultSinkType = context.getConnectContext() != null
+                    ? context.getConnectContext().getResultSinkType() : null;
+            ResultSink resultSink = new ResultSink(exchangeNode.getId(), resultSinkType);
+
+            // create top fragment
+            PlanFragment topFragment = new PlanFragment(context.nextFragmentId(), exchangeNode,
+                    DataPartition.UNPARTITIONED);
+            topFragment.addChild(sinkFragment);
+            topFragment.setSink(resultSink);
+            context.addPlanFragment(topFragment);
+
+            // update sink fragment and result file sink
+            DataStreamSink streamSink = new DataStreamSink(exchangeNode.getId());
+            streamSink.setOutputPartition(DataPartition.UNPARTITIONED);
+            resultFileSink.resetByDataStreamSink(streamSink);
+            resultFileSink.setOutputTupleId(fileStatusDesc.getId());
+            sinkFragment.setDestination(exchangeNode);
+
+            // set out expr and tuple correct
+            exchangeNode.resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
+            topFragment.resetOutputExprs(fileStatusDesc);
+
+            return topFragment;
+        }
     }
 
     /* ********************************************************************************************
@@ -1204,9 +1253,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setDistributeExprLists(distributeExprLists);
         PlanFragment currentFragment = connectJoinNode(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
 
-        if (joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN) {
-            currentFragment.setHasNullAwareLeftAntiJoin(true);
-        }
         if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
             // TODO: add reason
             hashJoinNode.setColocate(true, "");
@@ -2458,6 +2504,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             + distributionSpecHash.getShuffleType());
             }
             return new DataPartition(partitionType, partitionExprs);
+        } else if (distributionSpec instanceof DistributionSpecTabletIdShuffle) {
+            return DataPartition.TABLET_ID;
         } else {
             throw new RuntimeException("Unknown DistributionSpec: " + distributionSpec);
         }

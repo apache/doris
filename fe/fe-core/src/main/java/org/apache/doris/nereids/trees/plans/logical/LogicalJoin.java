@@ -84,76 +84,69 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     private DistributeHint hint;
 
-    public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+    public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
+                       JoinReorderContext otherJoinReorderContext) {
         this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
+                ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
+                ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE), Optional.empty(),
-                Optional.empty(), Optional.empty(), ImmutableList.of(leftChild, rightChild), null);
+                Optional.empty(), Optional.empty(), ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, DistributeHint hint, LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            RIGHT_CHILD_TYPE rightChild, JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
+                ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            RIGHT_CHILD_TYPE rightChild, JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
                 markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
+                ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
                        List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts, DistributeHint hint,
                        Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
-                       RIGHT_CHILD_TYPE rightChild) {
+                       RIGHT_CHILD_TYPE rightChild, JoinReorderContext joinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint,
                 markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
-    }
-
-    public LogicalJoin(long bitmap, JoinType joinType, List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts, DistributeHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
-                markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
-        this.bitmap = LongBitmap.or(this.bitmap, bitmap);
+                ImmutableList.of(leftChild, rightChild), joinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, DistributeHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children) {
+            Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children,
+            JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
-                markJoinSlotReference, Optional.empty(), Optional.empty(), children, null);
+                markJoinSlotReference, Optional.empty(), Optional.empty(), children, otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
                        List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts, DistributeHint hint,
-                       Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children) {
+                       Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children,
+                       JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint,
-                markJoinSlotReference, Optional.empty(), Optional.empty(), children, null);
+                markJoinSlotReference, Optional.empty(), Optional.empty(), children, otherJoinReorderContext);
     }
 
     private LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
@@ -177,7 +170,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin<? extends Plan, ? extends Plan> swap() {
         return withTypeChildren(getJoinType().swap(),
-                right(), left());
+                right(), left(), null);
     }
 
     public List<Expression> getOtherJoinConjuncts() {
@@ -254,6 +247,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public boolean isMarkJoin() {
         return markJoinSlotReference.isPresent();
+    }
+
+    public boolean isLeadingJoin() {
+        return joinReorderContext.isLeadingJoin();
     }
 
     public List<Expression> getMarkJoinConjuncts() {
@@ -370,63 +367,67 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 joinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right) {
+    public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right,
+                                                         JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
     /**
      * Using in binding using join, and must set logical properties to empty.
      */
     public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts) {
+            List<Expression> otherJoinConjuncts, JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                children, null);
+                children, otherJoinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
                                                      List<Expression> otherJoinConjuncts,
-                                                     List<Expression> markJoinConjuncts) {
+                                                     List<Expression> markJoinConjuncts,
+                                                     JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.of(getLogicalProperties()),
-                children, null);
+                children, otherJoinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
-            List<Expression> hashJoinConjuncts, Plan left, Plan right) {
+            List<Expression> hashJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts, Plan left, Plan right) {
+            List<Expression> otherJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
                                                          List<Expression> otherJoinConjuncts,
-                                                         List<Expression> markJoinConjuncts, Plan left, Plan right) {
+                                                         List<Expression> markJoinConjuncts, Plan left, Plan right,
+                                                         JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
+    public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType, JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                children, null);
+                children, otherJoinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right) {
+    public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right,
+                                                    JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
     /**

@@ -74,6 +74,19 @@ public class Replica implements Writable {
         DROP,  // user force drop replica on this backend
     }
 
+    public static class ReplicaContext {
+        public long replicaId;
+        public long backendId;
+        public ReplicaState state;
+        public long version;
+        public int schemaHash;
+        public long dbId;
+        public long tableId;
+        public long partitionId;
+        public long indexId;
+        public Replica originReplica;
+    }
+
     @SerializedName(value = "id")
     private long id;
     @SerializedName(value = "backendId")
@@ -163,6 +176,10 @@ public class Replica implements Writable {
     private long userDropTime = -1;
 
     public Replica() {
+    }
+
+    public Replica(ReplicaContext context) {
+        this(context.replicaId, context.backendId, context.state, context.version, context.schemaHash);
     }
 
     // for rollup

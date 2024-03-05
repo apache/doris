@@ -773,7 +773,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public Map<Long, PartitionItem> getPartitionItems() {
+    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
@@ -816,7 +816,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         long partitionId = 0L;
         long maxVersionTime = 0L;
         long visibleVersionTime;
-        for (Entry<Long, PartitionItem> entry : getPartitionItems().entrySet()) {
+        for (Entry<Long, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
             visibleVersionTime = getPartitionLastModifyTime(entry.getKey());
             if (visibleVersionTime > maxVersionTime) {
                 maxVersionTime = visibleVersionTime;
@@ -831,7 +831,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private HivePartition getPartitionById(long partitionId) throws AnalysisException {
-        PartitionItem item = getPartitionItems().get(partitionId);
+        PartitionItem item = getAndCopyPartitionItems().get(partitionId);
         List<List<String>> partitionValuesList = transferPartitionItemToPartitionValues(item);
         List<HivePartition> partitions = getPartitionsByPartitionValues(partitionValuesList);
         if (partitions.size() != 1) {

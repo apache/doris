@@ -67,7 +67,7 @@ public class JoinEdge extends Edge {
     }
 
     public JoinEdge withJoinTypeAndCleanCR(JoinType joinType) {
-        return new JoinEdge(join.withJoinType(joinType), getIndex(), getLeftChildEdges(), getRightChildEdges(),
+        return new JoinEdge(join.withJoinType(joinType, null), getIndex(), getLeftChildEdges(), getRightChildEdges(),
                 getSubTreeNodes(), getLeftRequiredNodes(), getRightRequiredNodes(), leftInputSlots, rightInputSlots);
     }
 

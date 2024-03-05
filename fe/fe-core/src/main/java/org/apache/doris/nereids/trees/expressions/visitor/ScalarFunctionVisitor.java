@@ -317,6 +317,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileState
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RandomBytes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace;
@@ -1590,6 +1591,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUrlDecode(UrlDecode urlDecode, C context) {
         return visitScalarFunction(urlDecode, context);
+    }
+
+    default R visitRandomBytes(RandomBytes randomBytes, C context) {
+        return visitScalarFunction(randomBytes, context);
     }
 
     default R visitPassword(Password password, C context) {

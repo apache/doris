@@ -74,7 +74,6 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
             profile(), p.is_merging());
-    auto* source_dependency = _dependency;
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());
@@ -82,10 +81,8 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                             "SHUFFLE_DATA_DEPENDENCY", state->get_query_ctx());
         queues[i]->set_dependency(deps[i]);
-        source_dependency->add_child(deps[i]);
     }
-    static const std::string timer_name =
-            "WaitForDependency[" + source_dependency->name() + "]Time";
+    static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
         metrics[i] = ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, fmt::format("WaitForData{}", i),

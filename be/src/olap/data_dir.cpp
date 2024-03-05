@@ -783,7 +783,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         };
 
         // rowset_id -> is_garbage
-        std::unordered_map<RowsetId, bool, HashOfRowsetId> checked_rowsets;
+        std::unordered_map<RowsetId, bool> checked_rowsets;
         for (auto&& [rowset_id, filename] : rowsets_not_pending) {
             if (auto it = checked_rowsets.find(rowset_id); it != checked_rowsets.end()) {
                 if (it->second) { // Is checked garbage rowset

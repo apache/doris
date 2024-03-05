@@ -57,7 +57,7 @@ suite("view_authorization") {
         // no privilege to base table
         test {
             sql "select * from ${db}.${baseTable}"
-            exception "SELECT command denied to user"
+            exception "does not have privilege for"
         }
 
         // has privilege to view1
@@ -69,7 +69,7 @@ suite("view_authorization") {
         // no privilege to view2
         test {
             sql "select * from ${db}.${view2}"
-            exception "SELECT command denied to user"
+            exception "does not have privilege for"
         }
 
         // nested view

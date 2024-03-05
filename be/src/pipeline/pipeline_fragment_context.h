@@ -67,6 +67,8 @@ public:
 
     ~PipelineFragmentContext() override;
 
+    bool is_timeout(const VecDateTimeValue& now) const;
+
     PipelinePtr add_pipeline();
 
     PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
@@ -206,6 +208,9 @@ protected:
 
     DescriptorTbl* _desc_tbl = nullptr;
     int _num_instances = 1;
+
+    VecDateTimeValue _start_time;
+    int _timeout = -1;
 
 private:
     std::vector<std::unique_ptr<PipelineTask>> _tasks;

@@ -23,10 +23,12 @@
 
 #include <memory>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "service/backend_options.h"
 #include "util/doris_bvar_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column_const.h"
@@ -60,9 +62,11 @@ Status VRowDistribution::_save_missing_values(std::vector<std::vector<std::strin
     }
 
     // to avoid too large mem use
-    if (_batching_rows > _batch_size) {
+    if (_batching_block->rows() > _batch_size) {
         _deal_batched = true;
     }
+
+    VLOG_NOTICE << "pushed some batching lines, now numbers = " << _batching_rows;
 
     return Status::OK();
 }
@@ -77,10 +81,12 @@ Status VRowDistribution::automatic_create_partition() {
     SCOPED_TIMER(_add_partition_request_timer);
     TCreatePartitionRequest request;
     TCreatePartitionResult result;
+    string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_txn_id(_txn_id);
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
     request.__set_partitionValues(_partitions_need_create);
+    request.__set_be_endpoint(be_endpoint);
 
     VLOG(1) << "automatic partition rpc begin request " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;

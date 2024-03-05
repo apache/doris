@@ -1612,6 +1612,7 @@ visible_functions = {
         [['substring_index'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
         [['url_decode'], 'VARCHAR', ['VARCHAR'], ''],
+        [['random_bytes'], 'VARCHAR', ['INT'], ''],
 
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
@@ -1666,7 +1667,8 @@ visible_functions = {
         [['money_format'], 'STRING', ['DECIMAL128'], ''],
         [['split_part'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE'],
         [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
-        [['url_decode'], 'STRING', ['STRING'], '']
+        [['url_decode'], 'STRING', ['STRING'], ''],
+        [['random_bytes'], 'STRING', ['INT'], '']
     ],
 
 

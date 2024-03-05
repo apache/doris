@@ -45,6 +45,8 @@
 
 #include "agent/utils.h"
 #include "cloud/cloud_delete_task.h"
+#include "cloud/cloud_engine_calc_delete_bitmap_task.h"
+#include "cloud/cloud_schema_change_job.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -63,7 +65,6 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
@@ -166,20 +167,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                   const TTaskType::type task_type, TFinishTaskRequest* finish_task_request) {
     Status status;
 
-    std::string_view process_name;
-    switch (task_type) {
-    case TTaskType::ALTER:
-        process_name = "alter tablet";
-        break;
-    default:
-        std::string task_name;
-        EnumToString(TTaskType, task_type, task_name);
-        LOG(WARNING) << "schema change type invalid. type: " << task_name
-                     << ", signature: " << signature;
-        status = Status::NotSupported("Schema change type invalid");
-        break;
-    }
-
+    std::string_view process_name = "alter tablet";
     // Check last schema change status, if failed delete tablet file
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
@@ -188,8 +176,25 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
-        EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
-        status = engine_task.execute();
+        auto mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
+                            std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
+                            std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
+                            config::memory_limitation_per_thread_for_schema_change_bytes));
+        SCOPED_ATTACH_TASK(mem_tracker);
+        g_adder_create_rollup_requests_total.increment(1);
+        Status res = Status::OK();
+        try {
+            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
+            SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2);
+            status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
+        } catch (const Exception& e) {
+            status = e.to_status();
+        }
+        if (!status.ok()) {
+            g_adder_create_rollup_requests_failed.increment(1);
+        }
     }
 
     if (status.ok()) {
@@ -219,6 +224,66 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                 .error(status);
     } else {
         finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
+        LOG_INFO("successfully {}", process_name)
+                .tag("signature", agent_task_req.signature)
+                .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                .tag("new_tablet_id", new_tablet_id);
+    }
+    finish_task_request->__set_task_status(status.to_thrift());
+}
+
+void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& agent_task_req,
+                        int64_t signature, const TTaskType::type task_type,
+                        TFinishTaskRequest* finish_task_request) {
+    Status status;
+
+    std::string_view process_name = "alter tablet";
+    // Check last schema change status, if failed delete tablet file
+    // Do not need to adjust delete success or not
+    // Because if delete failed create rollup will failed
+    TTabletId new_tablet_id = 0;
+    if (status.ok()) {
+        new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
+        auto mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
+                            std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
+                            std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
+                            config::memory_limitation_per_thread_for_schema_change_bytes));
+        SCOPED_ATTACH_TASK(mem_tracker);
+        g_adder_create_rollup_requests_total.increment(1);
+        Status res = Status::OK();
+        try {
+            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
+            CloudSchemaChangeJob job(engine,
+                                     std::to_string(agent_task_req.alter_tablet_req_v2.job_id),
+                                     agent_task_req.alter_tablet_req_v2.expiration);
+            status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
+        } catch (const Exception& e) {
+            status = e.to_status();
+        }
+        if (!status.ok()) {
+            g_adder_create_rollup_requests_failed.increment(1);
+        }
+    }
+
+    if (status.ok()) {
+        s_report_version.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // Return result to fe
+    finish_task_request->__set_backend(BackendOptions::get_local_backend());
+    finish_task_request->__set_report_version(s_report_version);
+    finish_task_request->__set_task_type(task_type);
+    finish_task_request->__set_signature(signature);
+
+    if (!status.ok() && !status.is<NOT_IMPLEMENTED_ERROR>()) {
+        LOG_WARNING("failed to {}", process_name)
+                .tag("signature", agent_task_req.signature)
+                .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                .tag("new_tablet_id", new_tablet_id)
+                .error(status);
+    } else {
         LOG_INFO("successfully {}", process_name)
                 .tag("signature", agent_task_req.signature)
                 .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
@@ -933,7 +998,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     request.__isset.tablets = true;
 
     uint64_t report_version = s_report_version;
-    static_cast<void>(engine.tablet_manager()->build_all_report_tablets_info(&request.tablets));
+    engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
     if (report_version < s_report_version) {
         // TODO llj This can only reduce the possibility for report error, but can't avoid it.
         // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
@@ -1252,7 +1317,8 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
             Status st;
             std::shared_ptr<io::HdfsFileSystem> fs;
             if (existed_resource.fs == nullptr) {
-                st = io::HdfsFileSystem::create(resource.hdfs_storage_param, "", nullptr, &fs);
+                st = io::HdfsFileSystem::create(resource.hdfs_storage_param,
+                                                std::to_string(resource.id), "", nullptr, &fs);
             } else {
                 fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
             }
@@ -1681,14 +1747,28 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
     if (!is_task_timeout) {
         TFinishTaskRequest finish_task_request;
         TTaskType::type task_type = req.task_type;
-        switch (task_type) {
-        case TTaskType::ALTER:
-            alter_tablet(engine, req, signature, task_type, &finish_task_request);
-            break;
-        default:
-            // pass
-            break;
+        alter_tablet(engine, req, signature, task_type, &finish_task_request);
+        finish_task(finish_task_request);
+    }
+    remove_task_info(req.task_type, req.signature);
+}
+
+void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    int64_t signature = req.signature;
+    LOG(INFO) << "get alter table task, signature: " << signature;
+    bool is_task_timeout = false;
+    if (req.__isset.recv_time) {
+        int64_t time_elapsed = time(nullptr) - req.recv_time;
+        if (time_elapsed > config::report_task_interval_seconds * 20) {
+            LOG(INFO) << "task elapsed " << time_elapsed
+                      << " seconds since it is inserted to queue, it is timeout";
+            is_task_timeout = true;
         }
+    }
+    if (!is_task_timeout) {
+        TFinishTaskRequest finish_task_request;
+        TTaskType::type task_type = req.task_type;
+        alter_cloud_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
     remove_task_info(req.task_type, req.signature);
@@ -1780,6 +1860,37 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     finish_task_request.__set_task_type(req.task_type);
     finish_task_request.__set_signature(req.signature);
     finish_task_request.__set_task_status(status.to_thrift());
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
+void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    std::vector<TTabletId> error_tablet_ids;
+    std::vector<TTabletId> succ_tablet_ids;
+    Status status;
+    error_tablet_ids.clear();
+    const auto& calc_delete_bitmap_req = req.calc_delete_bitmap_req;
+    CloudEngineCalcDeleteBitmapTask engine_task(engine, calc_delete_bitmap_req, &error_tablet_ids,
+                                                &succ_tablet_ids);
+    status = engine_task.execute();
+
+    TFinishTaskRequest finish_task_request;
+    if (!status) {
+        g_adder_publish_task_failed_total.increment(1);
+        LOG_WARNING("failed to calculate delete bitmap")
+                .tag("signature", req.signature)
+                .tag("transaction_id", calc_delete_bitmap_req.transaction_id)
+                .tag("error_tablets_num", error_tablet_ids.size())
+                .error(status);
+    }
+
+    status.to_thrift(&finish_task_request.task_status);
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    finish_task_request.__set_report_version(s_report_version);
+    finish_task_request.__set_error_tablet_ids(error_tablet_ids);
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);

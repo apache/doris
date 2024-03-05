@@ -256,8 +256,8 @@ suite("test_auto_partition_behavior") {
     }
 
     // PROHIBIT different timeunit of interval when use both auto & dynamic partition
+    sql "set experimental_enable_nereids_planner=true;"
     test{
-        sql "set experimental_enable_nereids_planner=true;"
         sql """
             CREATE TABLE tbl3
             (
@@ -280,8 +280,9 @@ suite("test_auto_partition_behavior") {
         """
         exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
     }
+
+    sql "set experimental_enable_nereids_planner=false;"
     test{
-        sql "set experimental_enable_nereids_planner=false;"
         sql """
             CREATE TABLE tbl3
             (
@@ -323,5 +324,54 @@ suite("test_auto_partition_behavior") {
         sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
 
         exception "Partition name's length is over limit of 50."
+    }
+
+    // illegal partiton definetion
+    sql "set experimental_enable_nereids_planner=false;"
+    test{
+        sql """
+            create table illegal(
+                k0 datetime(6) NOT null,
+                k1 datetime(6) NOT null
+            )
+            auto partition by range date_trunc(k0, k1, 'hour')
+            (
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+        exception "auto create partition only support one slotRef in function expr"
+    }
+
+    sql "set experimental_enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false;"
+    test{
+        sql """
+            create table illegal(
+                k0 datetime(6) NOT null,
+                k1 datetime(6) NOT null
+            )
+            auto partition by range date_trunc(k0, k1, 'hour')
+            (
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+        exception "partition expr date_trunc is illegal!"
+    }
+    // test displacement of partition function
+    test{
+        sql """
+            create table illegal(
+                k0 datetime(6) NOT null,
+                k1 int NOT null
+            )
+            auto partition by range date_trunc(k1, 'hour')
+            (
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+        exception "partition expr date_trunc is illegal!"
     }
 }

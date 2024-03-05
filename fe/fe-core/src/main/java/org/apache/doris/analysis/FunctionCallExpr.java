@@ -843,12 +843,6 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(
                         "COUNT must have DISTINCT for multiple arguments: " + this.toSql());
             }
-
-            for (Expr child : children) {
-                if (child.type.isOnlyMetricType() && !child.type.isComplexType()) {
-                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-                }
-            }
             return;
         }
 

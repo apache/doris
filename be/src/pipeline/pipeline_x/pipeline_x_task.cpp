@@ -60,10 +60,10 @@ PipelineXTask::PipelineXTask(
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
-    _sink->get_dependency(_downstream_dependency, _shared_states, state->get_query_ctx());
-    for (auto& op : _operators) {
-        _source_dependency.insert(
-                {op->operator_id(), op->get_dependency(state->get_query_ctx(), _shared_states)});
+
+    auto shared_state = _sink->create_shared_state();
+    if (shared_state) {
+        _sink_shared_state = shared_state;
     }
     pipeline->incr_created_tasks();
 }
@@ -82,7 +82,7 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
         LocalSinkStateInfo info {_task_idx,
                                  _task_profile.get(),
                                  local_params.sender_id,
-                                 get_downstream_dependency(),
+                                 get_sink_shared_state().get(),
                                  _le_state_map,
                                  tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
@@ -97,14 +97,8 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
-        auto& deps = get_upstream_dependency(op->operator_id());
-        LocalStateInfo info {parent_profile,
-                             scan_ranges,
-                             deps,
-                             get_shared_state(op->operator_id()),
-                             _le_state_map,
-                             _task_idx,
-                             _source_dependency[op->operator_id()]};
+        LocalStateInfo info {parent_profile, scan_ranges, get_op_shared_state(op->operator_id()),
+                             _le_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
         query_ctx->register_query_statistics(
@@ -126,9 +120,9 @@ Status PipelineXTask::_extract_dependencies() {
             return result.error();
         }
         auto* local_state = result.value();
-        auto* dep = local_state->dependency();
-        DCHECK(dep != nullptr);
-        _read_dependencies.push_back(dep);
+        const auto& deps = local_state->dependencies();
+        std::copy(deps.begin(), deps.end(),
+                  std::inserter(_read_dependencies, _read_dependencies.end()));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
@@ -136,9 +130,9 @@ Status PipelineXTask::_extract_dependencies() {
     }
     {
         auto* local_state = _state->get_sink_local_state();
-        auto* dep = local_state->dependency();
-        DCHECK(dep != nullptr);
-        _write_dependencies = dep;
+        _write_dependencies = local_state->dependencies();
+        DCHECK(std::all_of(_write_dependencies.begin(), _write_dependencies.end(),
+                           [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
@@ -277,7 +271,12 @@ Status PipelineXTask::execute(bool* eos) {
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+            try {
+                RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+            } catch (const Exception& e) {
+                return Status::InternalError(e.to_string() +
+                                             " task debug string: " + debug_string());
+            }
         } else {
             *eos = true;
         }
@@ -302,10 +301,8 @@ void PipelineXTask::finalize() {
     PipelineTask::finalize();
     std::unique_lock<std::mutex> lc(_release_lock);
     _finished = true;
-    std::vector<DependencySPtr> {}.swap(_downstream_dependency);
-    _upstream_dependency.clear();
-    _source_dependency.clear();
-    _shared_states.clear();
+    _sink_shared_state.reset();
+    _op_shared_states.clear();
     _le_state_map.clear();
 }
 
@@ -372,8 +369,10 @@ std::string PipelineXTask::debug_string() {
     }
 
     fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");
-    fmt::format_to(debug_string_buffer, "{}. {}\n", i, _write_dependencies->debug_string(1));
-    i++;
+    for (size_t j = 0; j < _write_dependencies.size(); j++, i++) {
+        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                       _write_dependencies[j]->debug_string(i + 1));
+    }
 
     if (_filter_dependency) {
         fmt::format_to(debug_string_buffer, "Runtime Filter Dependency Information: \n");

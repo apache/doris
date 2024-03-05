@@ -89,8 +89,8 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
             if (isCanceled.get()) {
                 throw new JobException("Export executor has been canceled, task id: {}", taskId);
             }
-            // check the version of tablets
-            if (exportJob.getExportTable().getType() == TableType.OLAP) {
+            // check the version of tablets, skip if the consistency is in partition level.
+            if (exportJob.getExportTable().getType() == TableType.OLAP && !exportJob.isPartitionConsistency()) {
                 try {
                     Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(
                             exportJob.getTableName().getDb());
@@ -136,7 +136,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
             }
 
             try (AutoCloseConnectContext r = buildConnectContext()) {
-
                 StatementBase statementBase = selectStmtLists.get(idx);
                 OriginStatement originStatement = new OriginStatement(
                         StringUtils.isEmpty(statementBase.getOrigStmt().originStmt)

@@ -56,6 +56,11 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
     }
 
     @Override
+    public void save(FuncNameInfo procedureName, String source, boolean isForce) {
+        throw new RuntimeException("InMemoryFunctionRegistry no support save");
+    }
+
+    @Override
     public boolean exists(FuncNameInfo procedureName) {
         return funcMap.containsKey(procedureName.toString()) || procMap.containsKey(procedureName.toString());
     }
