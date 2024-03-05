@@ -86,6 +86,8 @@ public:
     IntCounter* base_compaction_bytes_total = nullptr;
     IntCounter* cumulative_compaction_deltas_total = nullptr;
     IntCounter* cumulative_compaction_bytes_total = nullptr;
+    IntCounter* full_compaction_deltas_total = nullptr;
+    IntCounter* full_compaction_bytes_total = nullptr;
 
     IntCounter* publish_task_request_total = nullptr;
     IntCounter* publish_task_failed_total = nullptr;

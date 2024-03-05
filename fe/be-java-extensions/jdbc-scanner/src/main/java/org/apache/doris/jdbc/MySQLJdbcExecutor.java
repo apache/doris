@@ -279,13 +279,4 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
         }
         return hexString.toString();
     }
-
-    private String timeToString(java.sql.Time time) {
-        long milliseconds = time.getTime() % 1000L;
-        if (milliseconds > 0) {
-            return String.format("%s.%03d", time, milliseconds);
-        } else {
-            return time.toString();
-        }
-    }
 }

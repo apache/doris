@@ -15,30 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids.trees.plans.commands.insert;
 
-#include "cloud/cloud_storage_engine.h"
-#include "common/status.h"
-#include "http/action/compaction_action.h"
-#include "http/http_handler_with_auth.h"
+/**
+ * The context of insert command.
+ * You can add some fields or methods here if you need in derived classed
+ */
+public abstract class InsertCommandContext {
 
-namespace doris {
-class HttpRequest;
-
-/// This action is used for viewing the compaction status.
-/// See compaction-action.md for details.
-class CloudCompactionAction : public HttpHandlerWithAuth {
-public:
-    CloudCompactionAction(CompactionActionType ctype, ExecEnv* exec_env, CloudStorageEngine& engine,
-                          TPrivilegeHier::type hier, TPrivilegeType::type ptype);
-
-    ~CloudCompactionAction() override = default;
-
-    void handle(HttpRequest* req) override;
-
-private:
-    [[maybe_unused]] CloudStorageEngine& _engine;
-    [[maybe_unused]] CompactionActionType _type;
-};
-
-} // namespace doris
+}

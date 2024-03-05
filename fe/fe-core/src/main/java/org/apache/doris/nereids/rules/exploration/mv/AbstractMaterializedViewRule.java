@@ -473,7 +473,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 queryStructInfo,
                 viewStructInfo,
                 viewToQuerySlotMapping,
-                comparisonResult);
+                comparisonResult,
+                cascadesContext);
         // residual compensate
         final Set<Expression> residualCompensatePredicates = Predicates.compensateResidualPredicate(
                 queryStructInfo,

@@ -594,23 +594,25 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         if (_opts.use_topn_opt) {
             SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_zonemap_ns);
             auto* query_ctx = _opts.runtime_state->get_query_ctx();
-            std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
-                    query_ctx->get_runtime_predicate().get_predicate();
-            if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
-                                                     runtime_predicate.get(), *_schema,
-                                                     _opts.io_ctx.reader_type)) {
-                AndBlockColumnPredicate and_predicate;
-                auto* single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
-                and_predicate.add_column_predicate(single_predicate);
+            for (int id : _opts.topn_filter_source_node_ids) {
+                std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
+                        query_ctx->get_runtime_predicate(id).get_predicate();
+                if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
+                                                         runtime_predicate.get(), *_schema,
+                                                         _opts.io_ctx.reader_type)) {
+                    AndBlockColumnPredicate and_predicate;
+                    and_predicate.add_column_predicate(
+                            SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
 
-                RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
-                RETURN_IF_ERROR(_column_iterators[runtime_predicate->column_id()]
-                                        ->get_row_ranges_by_zone_map(&and_predicate, nullptr,
-                                                                     &column_rp_row_ranges));
+                    RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
+                    RETURN_IF_ERROR(_column_iterators[runtime_predicate->column_id()]
+                                            ->get_row_ranges_by_zone_map(&and_predicate, nullptr,
+                                                                         &column_rp_row_ranges));
 
-                // intersect different columns's row ranges to get final row ranges by zone map
-                RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
-                                               &zone_map_row_ranges);
+                    // intersect different columns's row ranges to get final row ranges by zone map
+                    RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
+                                                   &zone_map_row_ranges);
+                }
             }
         }
 
@@ -1507,8 +1509,11 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     //  all rows should be read, so runtime predicate will reduce rows for topn node
     if (_opts.use_topn_opt &&
         (_opts.read_orderby_key_columns == nullptr || _opts.read_orderby_key_columns->empty())) {
-        auto& runtime_predicate = _opts.runtime_state->get_query_ctx()->get_runtime_predicate();
-        _col_predicates.push_back(runtime_predicate.get_predicate().get());
+        for (int id : _opts.topn_filter_source_node_ids) {
+            auto& runtime_predicate =
+                    _opts.runtime_state->get_query_ctx()->get_runtime_predicate(id);
+            _col_predicates.push_back(runtime_predicate.get_predicate().get());
+        }
     }
 
     // Step1: extract columns that can be lazy materialization

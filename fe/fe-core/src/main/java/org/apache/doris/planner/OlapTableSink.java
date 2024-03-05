@@ -20,6 +20,8 @@ package org.apache.doris.planner;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -301,6 +303,11 @@ public class OlapTableSink extends DataSink {
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
             }
+            for (Column col : table.getFullSchema()) {
+                if (col.isAutoInc()) {
+                    schemaParam.setAutoIncrementColumn(col.getName());
+                }
+            }
         }
         return schemaParam;
     }
@@ -475,7 +482,12 @@ public class OlapTableSink extends DataSink {
             for (PartitionKey partitionKey : partitionKeys) {
                 List<TExprNode> tExprNodes = new ArrayList<>();
                 for (int i = 0; i < partColNum; i++) {
-                    tExprNodes.add(partitionKey.getKeys().get(i).treeToThrift().getNodes().get(0));
+                    LiteralExpr literalExpr = partitionKey.getKeys().get(i);
+                    if (literalExpr.isNullLiteral()) {
+                        tExprNodes.add(NullLiteral.create(literalExpr.getType()).treeToThrift().getNodes().get(0));
+                    } else {
+                        tExprNodes.add(literalExpr.treeToThrift().getNodes().get(0));
+                    }
                 }
                 tPartition.addToInKeys(tExprNodes);
                 tPartition.setIsDefaultPartition(partitionItem.isDefaultPartition());

@@ -45,37 +45,30 @@ active_queries
 
 active_queries()表结构：
 ```
-mysql [(none)]> desc function active_queries();
-+------------------------+--------+------+-------+---------+-------+
-| Field                  | Type   | Null | Key   | Default | Extra |
-+------------------------+--------+------+-------+---------+-------+
-| BeHost                 | TEXT   | No   | false | NULL    | NONE  |
-| BePort                 | BIGINT | No   | false | NULL    | NONE  |
-| QueryId                | TEXT   | No   | false | NULL    | NONE  |
-| StartTime              | TEXT   | No   | false | NULL    | NONE  |
-| QueryTimeMs            | BIGINT | No   | false | NULL    | NONE  |
-| WorkloadGroupId        | BIGINT | No   | false | NULL    | NONE  |
-| QueryCpuTimeMs         | BIGINT | No   | false | NULL    | NONE  |
-| ScanRows               | BIGINT | No   | false | NULL    | NONE  |
-| ScanBytes              | BIGINT | No   | false | NULL    | NONE  |
-| BePeakMemoryBytes      | BIGINT | No   | false | NULL    | NONE  |
-| CurrentUsedMemoryBytes | BIGINT | No   | false | NULL    | NONE  |
-| Database               | TEXT   | No   | false | NULL    | NONE  |
-| FrontendInstance       | TEXT   | No   | false | NULL    | NONE  |
-| Sql                    | TEXT   | No   | false | NULL    | NONE  |
-+------------------------+--------+------+-------+---------+-------+
-14 rows in set (0.00 sec)
+mysql [(none)]>desc function active_queries();
++------------------+--------+------+-------+---------+-------+
+| Field            | Type   | Null | Key   | Default | Extra |
++------------------+--------+------+-------+---------+-------+
+| QueryId          | TEXT   | No   | false | NULL    | NONE  |
+| StartTime        | TEXT   | No   | false | NULL    | NONE  |
+| QueryTimeMs      | BIGINT | No   | false | NULL    | NONE  |
+| WorkloadGroupId  | BIGINT | No   | false | NULL    | NONE  |
+| Database         | TEXT   | No   | false | NULL    | NONE  |
+| FrontendInstance | TEXT   | No   | false | NULL    | NONE  |
+| Sql              | TEXT   | No   | false | NULL    | NONE  |
++------------------+--------+------+-------+---------+-------+
+7 rows in set (0.00 sec)
 ```
 
 ### example
 ```
 mysql [(none)]>select * from active_queries();
-+------------+--------+----------------------------------+---------------------+-------------+-----------------+----------------+----------+------------+-------------------+------------------------+----------+------------------+-------+
-| BeHost     | BePort | QueryId                          | StartTime           | QueryTimeMs | WorkloadGroupId | QueryCpuTimeMs | ScanRows | ScanBytes  | BePeakMemoryBytes | CurrentUsedMemoryBytes | Database | FrontendInstance | Sql   |
-+------------+--------+----------------------------------+---------------------+-------------+-----------------+----------------+----------+------------+-------------------+------------------------+----------+------------------+-------+
-| 127.0.0.1 |   6090 | 71fd11b7b0e438c-bc98434b97b8cb98 | 2024-01-16 16:21:15 |        7260 |           10002 |           8392 | 16082249 | 4941889536 |         360470040 |              360420915 | hits     | localhost   | SELECT xxxx |
-+------------+--------+----------------------------------+---------------------+-------------+-----------------+----------------+----------+------------+-------------------+------------------------+----------+------------------+-------+
-1 row in set (0.01 sec)
++-----------------------------------+---------------------+-------------+-----------------+----------+------------------+--------------------------------+
+| QueryId                           | StartTime           | QueryTimeMs | WorkloadGroupId | Database | FrontendInstance | Sql                            |
++-----------------------------------+---------------------+-------------+-----------------+----------+------------------+--------------------------------+
+| a84bf9f3ea6348e1-ac542839f8f2af5d | 2024-03-04 17:33:09 |           9 |           10002 |          | localhost        | select * from active_queries() |
++-----------------------------------+---------------------+-------------+-----------------+----------+------------------+--------------------------------+
+1 row in set (0.03 sec)
 ```
 
 ### keywords
