@@ -504,6 +504,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     _type = TabletColumn::get_field_type_by_string(column.type());
     _is_key = column.is_key();
     _is_nullable = column.is_nullable();
+    _is_auto_increment = column.is_auto_increment();
 
     _has_default_value = column.has_default_value();
     if (_has_default_value) {
