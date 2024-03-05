@@ -115,9 +115,9 @@ suite("txn_insert") {
         }
 
         def result = sql """ show variables like 'enable_fallback_to_original_planner'; """
-        logger.info("variable: $result")
+        logger.info("enable_fallback_to_original_planner: $result")
 
-        // 1. insert into select to 3 tables
+        // 1. insert into select to 3 tables: batch insert into select only supports nereids planner, and can't fallback
         sql """ begin; """
         if (use_nereids_planner) {
             sql """ insert into ${table}_0 select * from $table; """

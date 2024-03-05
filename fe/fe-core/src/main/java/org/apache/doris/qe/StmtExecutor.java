@@ -511,12 +511,19 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    boolean isGroupCommit = (parsedStmt != null
+                    // FIXME: Force fallback for:
+                    //  1. group commit because nereids does not support it (see the following `isGroupCommit` variable)
+                    //  2. insert into command because some nereids cases fail (including case1)
+                    //  Skip force fallback for:
+                    //  1. Transaction insert because nereids support `insert into select` while legacy does not
+                    boolean isInsertCommand = parsedStmt != null
                             && parsedStmt instanceof LogicalPlanAdapter
-                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand)
-                            && !context.isTxnModel();
+                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
+                    /*boolean isGroupCommit = (Config.wait_internal_group_commit_finish
+                            || context.sessionVariable.isEnableInsertGroupCommit()) && isInsertCommand;*/
+                    boolean forceFallback = isInsertCommand && !context.isTxnModel();
                     if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner
-                            && !isGroupCommit) {
+                            && !forceFallback) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }

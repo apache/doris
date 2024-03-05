@@ -164,6 +164,7 @@ public class InsertUtils {
             String dbName, String tblName, List<Column> columns) {
         TransactionEntry txnEntry = ctx.getTxnEntry();
         if (txnEntry.isTransactionBegan()) {
+            // FIXME: support mix usage of `insert into values` and `insert into select`
             throw new AnalysisException(
                     "Transaction insert can not insert into values and insert into select at the same time");
         }

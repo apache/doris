@@ -163,10 +163,12 @@ public class TransactionEntry {
         this.pLoadId = pLoadId;
     }
 
+    // Used for insert into select
     public void beginTransaction(DatabaseIf database, TableIf table)
             throws DdlException, BeginTransactionException, MetaNotFoundException, AnalysisException,
             QuotaExceedException {
         if (isTxnBegin()) {
+            // FIXME: support mix usage of `insert into values` and `insert into select`
             throw new AnalysisException(
                     "Transaction insert can not insert into values and insert into select at the same time");
         }
@@ -259,15 +261,6 @@ public class TransactionEntry {
         }
     }
 
-    public void addCommitInfos(Table table, List<TTabletCommitInfo> commitInfos) {
-        this.tableList.add(table);
-        this.tabletCommitInfos.addAll(commitInfos);
-    }
-
-    public boolean isTransactionBegan() {
-        return this.isTransactionBegan;
-    }
-
     public long getTransactionId() {
         if (isTransactionBegan) {
             return transactionId;
@@ -276,5 +269,14 @@ public class TransactionEntry {
         } else {
             return -1;
         }
+    }
+
+    public void addCommitInfos(Table table, List<TTabletCommitInfo> commitInfos) {
+        this.tableList.add(table);
+        this.tabletCommitInfos.addAll(commitInfos);
+    }
+
+    public boolean isTransactionBegan() {
+        return this.isTransactionBegan;
     }
 }
