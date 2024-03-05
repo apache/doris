@@ -1884,7 +1884,7 @@ private:
 
         if (!from_type) {
             return create_unsupport_wrapper(
-                    "CAST AS Array can only be performed between same-dimensional Array, String "
+                    "CAST AS Array Array, String "
                     "types");
         }
 

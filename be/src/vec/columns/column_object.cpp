@@ -964,7 +964,7 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
     return find_leaf_node_by_path(current, path, idx + 1);
 }
 
-void find_and_set_leave_value(const IColumn* column, const PathInData& path,
+bool find_and_set_leave_value(const IColumn* column, const PathInData& path,
                               const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
                               rapidjson::Value& root, rapidjson::Document::AllocatorType& allocator,
                               int row) {
@@ -976,7 +976,7 @@ void find_and_set_leave_value(const IColumn* column, const PathInData& path,
     }
     const auto* nullable = assert_cast<const ColumnNullable*>(column);
     if (nullable->is_null_at(row)) {
-        return;
+        return false;
     }
     // TODO could cache the result of leaf nodes with it's path info
     rapidjson::Value* target = find_leaf_node_by_path(root, path);
@@ -988,6 +988,7 @@ void find_and_set_leave_value(const IColumn* column, const PathInData& path,
                    << ", root: " << std::string(buffer.GetString(), buffer.GetSize());
     }
     type_serde->write_one_cell_to_json(*column, *target, allocator, row);
+    return true;
 }
 
 // compact null values
@@ -1094,10 +1095,14 @@ bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBu
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
     for (const auto& subcolumn : subcolumns) {
-        find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
-                                 subcolumn->data.get_least_common_type_serde(),
-                                 subcolumn->data.get_least_common_type(), root,
-                                 doc_structure->GetAllocator(), row);
+        bool succ = find_and_set_leave_value(
+                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
+                subcolumn->data.get_least_common_type_serde(),
+                subcolumn->data.get_least_common_type(), root, doc_structure->GetAllocator(), row);
+        if (succ && subcolumn->path.empty()) {
+            // root was modified, only handle root node
+            break;
+        }
     }
     compact_null_values(root, doc_structure->GetAllocator());
     if (root.IsNull() && is_null != nullptr) {
@@ -1158,10 +1163,14 @@ void ColumnObject::merge_sparse_to_root_column() {
                 ++null_count;
                 continue;
             }
-            find_and_set_leave_value(column, subcolumn->path,
-                                     subcolumn->data.get_least_common_type_serde(),
-                                     subcolumn->data.get_least_common_type(), root,
-                                     doc_structure->GetAllocator(), i);
+            bool succ = find_and_set_leave_value(column, subcolumn->path,
+                                                 subcolumn->data.get_least_common_type_serde(),
+                                                 subcolumn->data.get_least_common_type(), root,
+                                                 doc_structure->GetAllocator(), i);
+            if (succ && subcolumn->path.empty()) {
+                // root was modified, only handle root node
+                break;
+            }
         }
 
         // all null values, store null to sparse root

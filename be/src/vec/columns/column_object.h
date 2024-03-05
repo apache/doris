@@ -494,4 +494,5 @@ public:
 
     std::string debug_string() const;
 };
+
 } // namespace doris::vectorized
