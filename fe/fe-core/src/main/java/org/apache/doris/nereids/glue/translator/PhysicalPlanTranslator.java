@@ -1246,6 +1246,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
+            // in order to process semi/anti join with no hash conjunct and having mark conjunct effeciently
+            // we can use mark conjunct as hash conjunct with slight different behavior if meets null values
+            // so we use null aware semi/anti join to indicate it's a null aware hash conjunct
+            // it's unnecessary to introduce new join type like NULL_AWARE_LEFT_SEMI_JOIN in nereids
+            // so we translate the join type here to let be known if the hash conjunct is null aware
             if (joinOperator == JoinOperator.LEFT_ANTI_JOIN) {
                 joinOperator = JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
             } else if (joinOperator == JoinOperator.LEFT_SEMI_JOIN) {
