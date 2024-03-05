@@ -83,7 +83,6 @@
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/primary_key_index.h"
-#include "olap/rowid_conversion.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -2377,112 +2376,8 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     return Status::OK();
 }
 
-void Tablet::calc_compaction_output_rowset_delete_bitmap(
-        const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
-        uint64_t start_version, uint64_t end_version, std::set<RowLocation>* missed_rows,
-        std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
-        const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
-    RowLocation src;
-    RowLocation dst;
-    for (auto& rowset : input_rowsets) {
-        src.rowset_id = rowset->rowset_id();
-        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
-            src.segment_id = seg_id;
-            DeleteBitmap subset_map(tablet_id());
-            input_delete_bitmap.subset({rowset->rowset_id(), seg_id, start_version},
-                                       {rowset->rowset_id(), seg_id, end_version}, &subset_map);
-            // traverse all versions and convert rowid
-            for (auto iter = subset_map.delete_bitmap.begin();
-                 iter != subset_map.delete_bitmap.end(); ++iter) {
-                auto cur_version = std::get<2>(iter->first);
-                for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
-                    src.row_id = *index;
-                    if (rowid_conversion.get(src, &dst) != 0) {
-                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler, "
-                                      << " src loaction: |" << src.rowset_id << "|"
-                                      << src.segment_id << "|" << src.row_id
-                                      << " version: " << cur_version;
-                        missed_rows->insert(src);
-                        continue;
-                    }
-                    VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
-                               << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
-                               << " src location: |" << src.rowset_id << "|" << src.segment_id
-                               << "|" << src.row_id << " start version: " << start_version
-                               << "end version" << end_version;
-                    (*location_map)[rowset].emplace_back(src, dst);
-                    output_rowset_delete_bitmap->add({dst.rowset_id, dst.segment_id, cur_version},
-                                                     dst.row_id);
-                }
-            }
-        }
-    }
-}
-
 void Tablet::merge_delete_bitmap(const DeleteBitmap& delete_bitmap) {
     _tablet_meta->delete_bitmap().merge(delete_bitmap);
-}
-
-Status Tablet::check_rowid_conversion(
-        RowsetSharedPtr dst_rowset,
-        const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
-                location_map) {
-    if (location_map.empty()) {
-        VLOG_DEBUG << "check_rowid_conversion, location_map is empty";
-        return Status::OK();
-    }
-    std::vector<segment_v2::SegmentSharedPtr> dst_segments;
-
-    RETURN_IF_ERROR(
-            std::dynamic_pointer_cast<BetaRowset>(dst_rowset)->load_segments(&dst_segments));
-    std::unordered_map<RowsetId, std::vector<segment_v2::SegmentSharedPtr>> input_rowsets_segment;
-
-    VLOG_DEBUG << "check_rowid_conversion, dst_segments size: " << dst_segments.size();
-    for (auto [src_rowset, locations] : location_map) {
-        std::vector<segment_v2::SegmentSharedPtr>& segments =
-                input_rowsets_segment[src_rowset->rowset_id()];
-        if (segments.empty()) {
-            RETURN_IF_ERROR(
-                    std::dynamic_pointer_cast<BetaRowset>(src_rowset)->load_segments(&segments));
-        }
-        for (auto& [src, dst] : locations) {
-            std::string src_key;
-            std::string dst_key;
-            Status s = segments[src.segment_id]->read_key_by_rowid(src.row_id, &src_key);
-            if (UNLIKELY(s.is<NOT_IMPLEMENTED_ERROR>())) {
-                LOG(INFO) << "primary key index of old version does not "
-                             "support reading key by rowid";
-                break;
-            }
-            if (UNLIKELY(!s)) {
-                LOG(WARNING) << "failed to get src key: |" << src.rowset_id << "|" << src.segment_id
-                             << "|" << src.row_id << " status: " << s;
-                DCHECK(false);
-                return s;
-            }
-
-            s = dst_segments[dst.segment_id]->read_key_by_rowid(dst.row_id, &dst_key);
-            if (UNLIKELY(!s)) {
-                LOG(WARNING) << "failed to get dst key: |" << dst.rowset_id << "|" << dst.segment_id
-                             << "|" << dst.row_id << " status: " << s;
-                DCHECK(false);
-                return s;
-            }
-
-            VLOG_DEBUG << "check_rowid_conversion, src: |" << src.rowset_id << "|" << src.segment_id
-                       << "|" << src.row_id << "|" << src_key << " dst: |" << dst.rowset_id << "|"
-                       << dst.segment_id << "|" << dst.row_id << "|" << dst_key;
-            if (UNLIKELY(src_key.compare(dst_key) != 0)) {
-                LOG(WARNING) << "failed to check key, src key: |" << src.rowset_id << "|"
-                             << src.segment_id << "|" << src.row_id << "|" << src_key
-                             << " dst key: |" << dst.rowset_id << "|" << dst.segment_id << "|"
-                             << dst.row_id << "|" << dst_key;
-                DCHECK(false);
-                return Status::InternalError("failed to check rowid conversion");
-            }
-        }
-    }
-    return Status::OK();
 }
 
 bool Tablet::check_all_rowset_segment() {
