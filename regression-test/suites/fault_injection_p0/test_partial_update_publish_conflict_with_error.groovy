@@ -45,7 +45,9 @@ suite("test_partial_update_publish_conflict_with_error", "nonConcurrent") {
         v2 varchar(20),
         v3 varchar(20),
         v4 varchar(20),
-        v5 varchar(20))
+        v5 varchar(20),
+        v6 bigint not null auto_increment(100)
+        )
         UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES(
             "replication_num" = "1",
