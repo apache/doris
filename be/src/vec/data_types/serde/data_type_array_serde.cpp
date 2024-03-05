@@ -19,6 +19,7 @@
 
 #include <arrow/array/builder_nested.h>
 
+#include "common/exception.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -231,6 +232,10 @@ void DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson
     // Use allocator instead of stack memory, since rapidjson hold the reference of String value
     // otherwise causes stack use after free
     auto& column_array = static_cast<const ColumnArray&>(column);
+    if (row_num > column_array.size()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "row num {} out of range {}!",
+                               row_num, column_array.size());
+    }
     void* mem = allocator.Malloc(sizeof(vectorized::Field));
     vectorized::Field* array = new (mem) vectorized::Field(column_array[row_num]);
 

@@ -1099,7 +1099,7 @@ bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBu
                 subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
                 subcolumn->data.get_least_common_type_serde(),
                 subcolumn->data.get_least_common_type(), root, doc_structure->GetAllocator(), row);
-        if (succ && subcolumn->path.empty()) {
+        if (succ && subcolumn->path.empty() && !root.IsObject()) {
             // root was modified, only handle root node
             break;
         }
@@ -1167,7 +1167,7 @@ void ColumnObject::merge_sparse_to_root_column() {
                                                  subcolumn->data.get_least_common_type_serde(),
                                                  subcolumn->data.get_least_common_type(), root,
                                                  doc_structure->GetAllocator(), i);
-            if (succ && subcolumn->path.empty()) {
+            if (succ && subcolumn->path.empty() && !root.IsObject()) {
                 // root was modified, only handle root node
                 break;
             }
