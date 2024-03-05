@@ -96,94 +96,96 @@ suite("test_grouping_sets_combination") {
     """
 
     sql """insert into agg_test_table_t(`k1`,`k2`,`k3`) values('20231026221524','PA','adigu1bububud');"""
-    qt_select1 """
-        select sum(distinct a) col1 from mal_test1 group by grouping sets ((b),(pk),()) order by col1;
-     """
 
-    qt_select2 """
+    sql "sync"
+
+    qt_sum_distinct """
+        select sum(distinct a) col1 from mal_test1 group by grouping sets ((b),(pk),()) order by col1;
+    """
+    qt_count_distinct """
         select count(distinct a) col1 from mal_test1 group by grouping sets ((b),(pk),()) order by col1;
      """
 
-    qt_select3 """
+    qt_count_distinct_multi """
           select count(distinct a) col1,count(distinct b) col2 from mal_test1 
           group by grouping sets ((b),(pk),()) order by col1, col2;
      """
 
-    qt_select4 """
+    qt_group_concat_distinct """
           select pk, group_concat(distinct cast(a as varchar(10))) col1 from mal_test1 
           group by grouping sets ((b),(pk),()) order by 1,2;
     """
 
-    qt_select5 """
+    qt_agg_subquery_expression """
         select sum(a+(select sum(a) from mal_test1)) col1 from mal_test1 group by grouping sets ((b),(pk),()) order by col1;
     """
 
-    qt_select6 """
+    qt_agg_subquery_expression_distinct """
         select sum(distinct a+(select sum(a) from mal_test1)) col1 from mal_test1 group by grouping sets ((b),(pk),()) order by col1;
     """
 
-    qt_select7 """
+    qt_expression_after_agg_func1 """
         select a,sum(b)+1 from mal_test1 group by grouping sets((a)) order by 1,2;
     """
 
-    qt_select8 """
+    qt_expression_before_agg_func1 """
         select a,sum(b+1) from mal_test1  group by grouping sets((a)) order by 1,2;
     """
-    qt_select9 """
+    qt_expression_before_agg_func2 """
         select a,sum(abs(b)) from mal_test1 group by grouping sets((a)) order by 1,2;
     """
 
-    qt_select10 """
+    qt_expression_after_agg_func2 """
         select a, abs(sum(b)) from mal_test1 group by grouping sets((a))order by 1,2;
     """
 
-    qt_select11 """
+    qt_agg_func_window_func_rank """
        select sum(rank() over (partition by a order by pk)) from mal_test1 group by grouping sets((a)) order by 1;
     """
 
-    qt_select12 """
+    qt_agg_func_window_func_sum """
         select sum(sum(a) over (partition by a order by pk)) from mal_test1 group by grouping sets((a)) order by 1;
     """
 
-    qt_select13 """
+    qt_window_func_expression_subquery """
         select sum(age + (select sum(age) from test_sql)) over() from test_sql group by grouping sets ((dt,age)) order by 1;
     """
-    qt_select14 """
+    qt_window_func_subquery """
         Select sum( (select sum(age) from test_sql)) over() from test_sql group by grouping sets ((city)) order by 1;
     """
-    qt_select15 """
+    qt_agg_func_distinct_case_when """
          select count(distinct case when t.k2='PA' and loan_date=to_date(substr(t.k1,1,8)) then t.k2 end )
          from (select substr(k1,1,8) loan_date,k3,k2,k1 from agg_test_table_t) t group by grouping sets((substr(t.k1,1,8)))
          order by 1;
     """
 
-    qt_select16 """
+    qt_expression_after_agg_func_multi_grouping_sets1 """
         select a,sum(b)+1 col1 from mal_test1 group by grouping sets((a),(b),(a,b)) order by a,col1;
     """
 
-    qt_select17 """
+    qt_expression_before_agg_func_multi_grouping_sets1 """
         select a,sum(b+1) from mal_test1  group by grouping sets((a),(b),()) order by 1,2;
     """
-    qt_select18 """
+    qt_expression_before_agg_func_multi_grouping_sets2 """
         select a,sum(abs(b)) from mal_test1 group by grouping sets((a),(b),(),(a,b)) order by 1,2;
     """
 
-    qt_select19 """
+    qt_expression_after_agg_func_multi_grouping_sets2 """
         select a, abs(sum(b)) from mal_test1 group by grouping sets((a),(b),(),(a,b))order by 1,2;
     """
 
-    qt_select20 """
+    qt_agg_func_window_func_rank_multi_grouping_sets """
        select sum(rank() over (partition by a order by pk)) from mal_test1 group by grouping sets((a),(b),(a,b)) order by 1;
     """
 
-    qt_select21 """
+    qt_agg_func_window_func_sum_multi_grouping_sets """
         select sum(sum(a) over (partition by a order by pk)) from mal_test1 group by grouping sets((a),(b),()) order by 1;
     """
 
-    qt_select22 """
+    qt_window_func_expression_subquery_multi_grouping_sets """
         select sum(age + (select sum(age) from test_sql)) over() from test_sql group by grouping sets ((dt,age),(dt),()) order by 1;
     """
-    qt_select23 """
+    qt_window_func_subquery_multi_grouping_sets """
         Select sum((select sum(age) from test_sql)) over() from test_sql group by grouping sets ((city),(age),()) order by 1;
     """
 }
