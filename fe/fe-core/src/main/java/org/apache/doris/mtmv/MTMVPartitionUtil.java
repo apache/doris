@@ -115,17 +115,21 @@ public class MTMVPartitionUtil {
     /**
      * getPartitionDescsByRelatedTable when create MTMV
      *
-     * @param relatedTable
      * @param tableProperties
-     * @param relatedCol
+     * @param mvPartitionInfo
      * @return
      * @throws AnalysisException
      */
-    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMVRelatedTableIf relatedTable,
-            Map<String, String> tableProperties, String relatedCol) throws AnalysisException {
-        HashMap<String, String> partitionProperties = Maps.newHashMap();
+    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(
+            Map<String, String> tableProperties, MTMVPartitionInfo mvPartitionInfo) throws AnalysisException {
         List<AllPartitionDesc> res = Lists.newArrayList();
-        Set<PartitionKeyDesc> relatedPartitionDescs = getRelatedPartitionDescs(relatedTable, relatedCol);
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return res;
+        }
+        MTMVRelatedTableIf relatedTable = MTMVUtil.getRelatedTable(mvPartitionInfo.getRelatedTableInfo());
+        HashMap<String, String> partitionProperties = Maps.newHashMap();
+        Set<PartitionKeyDesc> relatedPartitionDescs = getRelatedPartitionDescs(mvPartitionInfo, relatedTable,
+                mvPartitionInfo.getRelatedCol());
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
                     generatePartitionName(partitionKeyDesc),
@@ -137,13 +141,16 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    private static Set<PartitionKeyDesc> getRelatedPartitionDescs(MTMVRelatedTableIf relatedTable, String relatedCol)
+    private static Set<PartitionKeyDesc> getRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
+            MTMVRelatedTableIf relatedTable, String relatedCol)
             throws AnalysisException {
         int pos = getPos(relatedTable, relatedCol);
         Set<PartitionKeyDesc> res = Sets.newHashSet();
         for (Entry<Long, PartitionItem> entry : relatedTable.getAndCopyPartitionItems().entrySet()) {
             PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(pos);
-            res.add(partitionKeyDesc);
+            // TODO: 2024/3/5 othe type
+            PartitionKeyDesc rollUpDesc = MTMVExprUtil.rollUpRange(mvPartitionInfo, partitionKeyDesc);
+            res.add(rollUpDesc);
         }
         return res;
     }
