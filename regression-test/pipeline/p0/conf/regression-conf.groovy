@@ -17,7 +17,7 @@
 
 /* ******* Do not commit this file unless you know what you are doing ******* */
 
-// **Note**: default db will be create if not exist
+// **Note**: default db will be created if not exist
 defaultDb = "regression_test"
 
 jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
