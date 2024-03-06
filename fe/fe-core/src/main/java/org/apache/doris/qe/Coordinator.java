@@ -124,6 +124,7 @@ import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TConfiguration;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
@@ -243,6 +244,8 @@ public class Coordinator implements CoordInterface {
 
     private boolean fasterFloatConvert = false;
 
+    private int maxMsgSizeOfResultReceiver = TConfiguration.DEFAULT_MAX_MESSAGE_SIZE;
+
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -315,7 +318,7 @@ public class Coordinator implements CoordInterface {
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.executionProfile = new ExecutionProfile(queryId, fragments.size());
-
+        this.maxMsgSizeOfResultReceiver = context.getSessionVariable().getMaxMsgSizeOfResultReceiver();
     }
 
     // Used for broker load task/export task/update coordinator
@@ -567,7 +570,7 @@ public class Coordinator implements CoordInterface {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline,
-                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+                    this.maxMsgSizeOfResultReceiver);
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
