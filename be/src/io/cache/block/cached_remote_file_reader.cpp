@@ -92,6 +92,7 @@ std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
 Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, size_t* bytes_read,
                                                 const IOContext* io_ctx) {
     size_t bytes_req = result.size;
+    bytes_req = std::min(bytes_req, size() - offset);
     ReadStatistics stats;
     auto [align_left, align_size] = _align_size(offset, bytes_req);
     CacheContext cache_context(io_ctx);
