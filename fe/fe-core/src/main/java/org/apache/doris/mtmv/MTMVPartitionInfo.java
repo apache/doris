@@ -18,11 +18,14 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.gson.annotations.SerializedName;
+
+import java.util.List;
 
 /**
  * MTMVPartitionInfo
@@ -117,7 +120,15 @@ public class MTMVPartitionInfo {
         if (partitionType == MTMVPartitionType.SELF_MANAGE) {
             throw new AnalysisException("partitionType is: " + partitionType);
         }
-        return MTMVPartitionUtil.getPos(getRelatedTable(), relatedCol);
+        List<Column> partitionColumns = getRelatedTable().getPartitionColumns();
+        for (int i = 0; i < partitionColumns.size(); i++) {
+            if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
+                return i;
+            }
+        }
+        throw new AnalysisException(
+                String.format("getRelatedColPos error, relatedCol: %s, partitionColumns: %s", relatedCol,
+                        partitionColumns));
     }
 
     @Override

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -29,8 +28,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -128,13 +127,8 @@ public class MTMVPartitionUtil {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return res;
         }
-        MTMVRelatedTableIf relatedTable = MTMVUtil.getRelatedTable(mvPartitionInfo.getRelatedTableInfo());
         HashMap<String, String> partitionProperties = Maps.newHashMap();
-        Set<PartitionKeyDesc> relatedPartitionDescs = getRelatedPartitionDescs(mvPartitionInfo, relatedTable,
-                mvPartitionInfo.getRelatedCol());
-        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
-            relatedPartitionDescs = rollUp(relatedPartitionDescs, mvPartitionInfo, relatedTable);
-        }
+        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mvPartitionInfo).keySet();
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
                     generatePartitionName(partitionKeyDesc),
@@ -146,79 +140,26 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    public static Set<PartitionKeyDesc> rollUp(Set<PartitionKeyDesc> relatedPartitionDescs,
-            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf relatedTable) throws AnalysisException {
-        if (relatedTable.getPartitionType() == PartitionType.RANGE) {
-            return rollUpRange(relatedPartitionDescs, mvPartitionInfo, relatedTable);
-        } else {
-            return rollUpList(relatedPartitionDescs, mvPartitionInfo, relatedTable);
-        }
-    }
-
-    public static Set<PartitionKeyDesc> rollUpList(Set<PartitionKeyDesc> relatedPartitionDescs,
-            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf relatedTable) throws AnalysisException {
-        Map<String, Set<String>> rollUpIdentitys = Maps.newHashMap();
-        for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
-            String rollUpIdentity = MTMVExprUtil.getRollUpIdentity(mvPartitionInfo, partitionKeyDesc, relatedTable);
-            if (rollUpIdentitys.containsKey(rollUpIdentity)) {
-                rollUpIdentitys.get(rollUpIdentity).addAll(getInValues(partitionKeyDesc));
-            } else {
-                rollUpIdentitys.put(rollUpIdentity, getInValues(partitionKeyDesc));
-            }
-        }
-        Set<PartitionKeyDesc> result = Sets.newHashSet();
-        for (Set<String> set : rollUpIdentitys.values()) {
-            List<List<PartitionValue>> inValues = Lists.newArrayList();
-            for (String value : set) {
-                inValues.add(Lists.newArrayList(new PartitionValue(value)));
-            }
-            result.add(PartitionKeyDesc.createIn(inValues));
-        }
-        return result;
-    }
-
-    private static Set<String> getInValues(PartitionKeyDesc partitionKeyDesc) {
-        List<List<PartitionValue>> inValues = partitionKeyDesc.getInValues();
-        Set<String> res = Sets.newHashSet();
-        for (List<PartitionValue> list : inValues) {
-            res.add(list.get(0).getStringValue());
-        }
-        return res;
-    }
-
-    public static Set<PartitionKeyDesc> rollUpRange(Set<PartitionKeyDesc> relatedPartitionDescs,
-            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf relatedTable) throws AnalysisException {
-        Set<PartitionKeyDesc> result = Sets.newHashSet();
-        for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
-            PartitionKeyDesc rollUpDesc = MTMVExprUtil
-                    .generateRollUpPartitionKeyDesc(mvPartitionInfo, partitionKeyDesc, relatedTable);
-            result.add(rollUpDesc);
-        }
-        return result;
-    }
-
-    private static Set<PartitionKeyDesc> getRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
-            MTMVRelatedTableIf relatedTable, String relatedCol)
+    public static Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo)
             throws AnalysisException {
-        int pos = getPos(relatedTable, relatedCol);
-        Set<PartitionKeyDesc> res = Sets.newHashSet();
-        for (Entry<Long, PartitionItem> entry : relatedTable.getAndCopyPartitionItems().entrySet()) {
-            PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(pos);
-            res.add(partitionKeyDesc);
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return Maps.newHashMap();
         }
-        return res;
-    }
-
-    public static int getPos(MTMVRelatedTableIf relatedTable, String relatedCol) throws AnalysisException {
-        List<Column> partitionColumns = relatedTable.getPartitionColumns();
-        for (int i = 0; i < partitionColumns.size(); i++) {
-            if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
-                return i;
+        Map<PartitionKeyDesc, Set<Long>> res = new HashMap<>();
+        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems();
+        int relatedColPos = mvPartitionInfo.getRelatedColPos();
+        for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
+            PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
+            if (res.containsKey(partitionKeyDesc)) {
+                res.get(partitionKeyDesc).add(entry.getKey());
+            } else {
+                res.put(partitionKeyDesc, Sets.newHashSet(entry.getKey()));
             }
         }
-        throw new AnalysisException(
-                String.format("getRelatedColPos error, relatedCol: %s, partitionColumns: %s", relatedCol,
-                        partitionColumns));
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
+            res = MTMVExprUtil.rollUp(res, mvPartitionInfo);
+        }
+        return res;
     }
 
     public static List<String> getPartitionNamesByIds(MTMV mtmv, Collection<Long> ids) throws AnalysisException {
@@ -548,5 +489,15 @@ public class MTMVPartitionUtil {
             refreshPartitionSnapshot.getTables().put(table.getId(), ((MTMVRelatedTableIf) table).getTableSnapshot());
         }
         return refreshPartitionSnapshot;
+    }
+
+    public static Type getPartitionColumnType(MTMVRelatedTableIf relatedTable, String col) throws AnalysisException {
+        List<Column> partitionColumns = relatedTable.getPartitionColumns();
+        for (Column column : partitionColumns) {
+            if (column.getName().equals(col)) {
+                return column.getType();
+            }
+        }
+        throw new AnalysisException("can not getPartitionColumnType by:" + col);
     }
 }

@@ -30,6 +30,7 @@ import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -50,7 +51,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -322,21 +322,8 @@ public class MTMV extends OlapTable {
      * @throws AnalysisException
      */
     public Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs() throws AnalysisException {
-        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return Maps.newHashMap();
-        }
-        Map<PartitionKeyDesc, Set<Long>> res = new HashMap<>();
-        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems();
-        int relatedColPos = mvPartitionInfo.getRelatedColPos();
-        for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
-            PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
-            if (res.containsKey(partitionKeyDesc)) {
-                res.get(partitionKeyDesc).add(entry.getKey());
-            } else {
-                res.put(partitionKeyDesc, Sets.newHashSet(entry.getKey()));
-            }
-        }
-        return res;
+        // TODO: 2024/3/6 remove
+        return MTMVPartitionUtil.generateRelatedPartitionDescs(mvPartitionInfo);
     }
 
     /**
