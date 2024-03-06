@@ -3041,7 +3041,7 @@ public class StmtExecutor {
         NativeInsertStmt insertStmt = (NativeInsertStmt) parsedStmt;
         analyze(context.getSessionVariable().toThrift());
         HttpStreamParams httpStreamParams = new HttpStreamParams();
-        httpStreamParams.setTxn_id(insertStmt.getTransactionId());
+        httpStreamParams.setTxnId(insertStmt.getTransactionId());
         httpStreamParams.setDb(insertStmt.getDbObj());
         httpStreamParams.setTable(insertStmt.getTargetTable());
         httpStreamParams.setLabel(insertStmt.getLabel());

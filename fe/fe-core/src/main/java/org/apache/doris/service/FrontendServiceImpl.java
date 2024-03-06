@@ -2067,7 +2067,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setParams(httpStreamParams.getParams());
             result.getParams().setDbName(httpStreamParams.getDb().getFullName());
             result.getParams().setTableName(httpStreamParams.getTable().getName());
-            result.getParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxn_id()));
+            result.getParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
             result.getParams().setImportLabel(httpStreamParams.getLabel());
             result.setDbId(httpStreamParams.getDb().getId());
             result.setTableId(httpStreamParams.getTable().getId());
