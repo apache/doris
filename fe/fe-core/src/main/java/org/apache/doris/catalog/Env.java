@@ -241,6 +241,7 @@ import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.FollowerColumnSender;
 import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
@@ -521,6 +522,8 @@ public class Env {
     private StatisticsAutoCollector statisticsAutoCollector;
 
     private StatisticsJobAppender statisticsJobAppender;
+
+    private FollowerColumnSender followerColumnSender;
 
     private HiveTransactionMgr hiveTransactionMgr;
 
@@ -1746,6 +1749,11 @@ public class Env {
 
         if (analysisManager != null) {
             analysisManager.getStatisticsCache().preHeat();
+        }
+
+        if (followerColumnSender == null) {
+            followerColumnSender = new FollowerColumnSender();
+            followerColumnSender.start();
         }
     }
 

@@ -132,6 +132,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         }
     }
 
+    // TODO: Need refactor, hard to understand now.
     protected boolean needAnalyzeColumn(TableIf table, String column) {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
@@ -151,11 +152,17 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             if (lastAnalyzeUpdateRows == 0 && currentUpdatedRows > 0) {
                 return true;
             }
+            if (lastAnalyzeUpdateRows > currentUpdatedRows) {
+                // Shouldn't happen. Just in case.
+                return true;
+            }
             OlapTable olapTable = (OlapTable) table;
+            long currentRowCount = olapTable.getRowCount();
+            long lastAnalyzeRowCount = columnStatsMeta.rowCount;
             if (tableStatsStatus.newPartitionLoaded.get() && olapTable.isPartitionColumn(column)) {
                 return true;
             }
-            if (columnStatsMeta.rowCount == 0 && olapTable.getRowCount() > 0) {
+            if (lastAnalyzeRowCount == 0 && currentRowCount > 0) {
                 return true;
             }
             if (currentUpdatedRows == lastAnalyzeUpdateRows) {
@@ -163,7 +170,17 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             }
             double healthValue = ((double) (currentUpdatedRows - lastAnalyzeUpdateRows)
                     / (double) currentUpdatedRows) * 100.0;
-            LOG.info("Column " + column + " health value is " + healthValue);
+            LOG.info("Column " + column + " update rows health value is " + healthValue);
+            if (healthValue < StatisticsUtil.getTableStatsHealthThreshold()) {
+                return true;
+            }
+            if (currentRowCount == 0 && lastAnalyzeRowCount != 0) {
+                return true;
+            }
+            if (currentRowCount == 0 && lastAnalyzeRowCount == 0) {
+                return false;
+            }
+            healthValue = ((double) (currentRowCount - lastAnalyzeRowCount) / (double) currentRowCount) * 100.0;
             return healthValue < StatisticsUtil.getTableStatsHealthThreshold();
         } else {
             if (!(table instanceof HMSExternalTable)) {
