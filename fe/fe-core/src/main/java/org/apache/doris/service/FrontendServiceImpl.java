@@ -3280,7 +3280,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
             errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to createPartition: {}", NOT_MASTER_ERR_MSG);
+            LOG.warn("failed to createPartition: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -3288,6 +3288,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db == null) {
             errorStatus.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3296,6 +3297,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3303,12 +3305,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             errorStatus.setErrorMsgs(
                     Lists.newArrayList(String.format("dbId=%d tableId=%d is not olap table", dbId, tableId)));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
         if (request.partitionValues == null) {
             errorStatus.setErrorMsgs(Lists.newArrayList("partitionValues should not null."));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3321,6 +3325,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         Lists.newArrayList(
                                 "Only support single partition of RANGE, partitionValues size should equal 1."));
                 result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
                 return result;
             }
             partitionValues.add(request.partitionValues.get(i));
@@ -3332,6 +3337,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (AnalysisException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3345,6 +3351,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn(errorMessage);
             errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3357,6 +3364,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 errorStatus.setErrorMsgs(
                         Lists.newArrayList(String.format("create partition failed. error:%s", e.getMessage())));
                 result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
                 return result;
             }
         }
