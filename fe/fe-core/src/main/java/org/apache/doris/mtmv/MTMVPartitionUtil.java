@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -28,6 +29,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -130,6 +132,9 @@ public class MTMVPartitionUtil {
         HashMap<String, String> partitionProperties = Maps.newHashMap();
         Set<PartitionKeyDesc> relatedPartitionDescs = getRelatedPartitionDescs(mvPartitionInfo, relatedTable,
                 mvPartitionInfo.getRelatedCol());
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
+            relatedPartitionDescs = rollUp(relatedPartitionDescs, mvPartitionInfo, relatedTable);
+        }
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
                     generatePartitionName(partitionKeyDesc),
@@ -141,6 +146,57 @@ public class MTMVPartitionUtil {
         return res;
     }
 
+    public static Set<PartitionKeyDesc> rollUp(Set<PartitionKeyDesc> relatedPartitionDescs,
+            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf relatedTable) throws AnalysisException {
+        if (relatedTable.getPartitionType() == PartitionType.RANGE) {
+            return rollUpRange(relatedPartitionDescs, mvPartitionInfo, relatedTable);
+        } else {
+            return rollUpList(relatedPartitionDescs, mvPartitionInfo, relatedTable);
+        }
+    }
+
+    public static Set<PartitionKeyDesc> rollUpList(Set<PartitionKeyDesc> relatedPartitionDescs,
+            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf relatedTable) throws AnalysisException {
+        Map<String, Set<String>> rollUpIdentitys = Maps.newHashMap();
+        for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
+            String rollUpIdentity = MTMVExprUtil.getRollUpIdentity(mvPartitionInfo, partitionKeyDesc, relatedTable);
+            if (rollUpIdentitys.containsKey(rollUpIdentity)) {
+                rollUpIdentitys.get(rollUpIdentity).addAll(getInValues(partitionKeyDesc));
+            } else {
+                rollUpIdentitys.put(rollUpIdentity, getInValues(partitionKeyDesc));
+            }
+        }
+        Set<PartitionKeyDesc> result = Sets.newHashSet();
+        for (Set<String> set : rollUpIdentitys.values()) {
+            List<List<PartitionValue>> inValues = Lists.newArrayList();
+            for (String value : set) {
+                inValues.add(Lists.newArrayList(new PartitionValue(value)));
+            }
+            result.add(PartitionKeyDesc.createIn(inValues));
+        }
+        return result;
+    }
+
+    private static Set<String> getInValues(PartitionKeyDesc partitionKeyDesc) {
+        List<List<PartitionValue>> inValues = partitionKeyDesc.getInValues();
+        Set<String> res = Sets.newHashSet();
+        for (List<PartitionValue> list : inValues) {
+            res.add(list.get(0).getStringValue());
+        }
+        return res;
+    }
+
+    public static Set<PartitionKeyDesc> rollUpRange(Set<PartitionKeyDesc> relatedPartitionDescs,
+            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf relatedTable) throws AnalysisException {
+        Set<PartitionKeyDesc> result = Sets.newHashSet();
+        for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
+            PartitionKeyDesc rollUpDesc = MTMVExprUtil
+                    .generateRollUpPartitionKeyDesc(mvPartitionInfo, partitionKeyDesc, relatedTable);
+            result.add(rollUpDesc);
+        }
+        return result;
+    }
+
     private static Set<PartitionKeyDesc> getRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
             MTMVRelatedTableIf relatedTable, String relatedCol)
             throws AnalysisException {
@@ -148,9 +204,7 @@ public class MTMVPartitionUtil {
         Set<PartitionKeyDesc> res = Sets.newHashSet();
         for (Entry<Long, PartitionItem> entry : relatedTable.getAndCopyPartitionItems().entrySet()) {
             PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(pos);
-            // TODO: 2024/3/5 othe type
-            PartitionKeyDesc rollUpDesc = MTMVExprUtil.rollUpRange(mvPartitionInfo, partitionKeyDesc);
-            res.add(rollUpDesc);
+            res.add(partitionKeyDesc);
         }
         return res;
     }

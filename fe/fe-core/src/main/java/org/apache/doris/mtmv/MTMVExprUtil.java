@@ -19,41 +19,43 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
-import static org.apache.doris.analysis.PartitionExprUtil.DATETIME_FORMATTER;
-import static org.apache.doris.analysis.PartitionExprUtil.DATE_FORMATTER;
-
 import java.util.Collections;
 import java.util.List;
 
 public class MTMVExprUtil {
-
-    public static PartitionKeyDesc rollUpRange(MTMVPartitionInfo mvPartitionInfo, PartitionKeyDesc partitionKeyDesc,
-            MTMVRelatedTableIf relatedTable)
-            throws AnalysisException {
-        if (mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
-            throw new AnalysisException("mv partition type is not EXPR.");
+    public static String getRollUpIdentity(MTMVPartitionInfo mvPartitionInfo,
+            PartitionKeyDesc partitionKeyDesc, MTMVRelatedTableIf relatedTable) throws AnalysisException {
+        Expr expr = mvPartitionInfo.getExpr();
+        if (!(expr instanceof FunctionCallExpr)) {
+            throw new AnalysisException("now mtmv partition only support FunctionCallExpr");
         }
-        return generateRollUpPartitionKeyDesc(mvPartitionInfo, partitionKeyDesc, relatedTable);
+        FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+        String fnName = functionCallExpr.getFnName().getFunction().toLowerCase();
+        if ("date_trunc".equals(fnName)) {
+            return getRollUpIdentityByDateTrunc(partitionKeyDesc, functionCallExpr,
+                    getPartitionColumnType(relatedTable, mvPartitionInfo.getRelatedCol()));
+        }
+        throw new AnalysisException("now support function name: " + fnName);
     }
 
     public static PartitionKeyDesc generateRollUpPartitionKeyDesc(MTMVPartitionInfo mvPartitionInfo,
             PartitionKeyDesc partitionKeyDesc, MTMVRelatedTableIf relatedTable) throws AnalysisException {
         Expr expr = mvPartitionInfo.getExpr();
         if (!(expr instanceof FunctionCallExpr)) {
-            throw new AnalysisException("now range partition only support FunctionCallExpr");
+            throw new AnalysisException("now mtmv partition only support FunctionCallExpr");
         }
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
         String fnName = functionCallExpr.getFnName().getFunction().toLowerCase();
@@ -98,21 +100,43 @@ public class MTMVExprUtil {
         return createPartitionKeyDescWithRange(beginTime, endTime, partitionColumnType);
     }
 
+    private static String getRollUpIdentityByDateTrunc(PartitionKeyDesc partitionKeyDesc,
+            FunctionCallExpr functionCallExpr, Type partitionColumnType)
+            throws AnalysisException {
+        List<Expr> paramsExprs = functionCallExpr.getParams().exprs();
+        // TODO: 2024/3/5 check it in createMTMVInfo
+        // TODO: 2024/3/5 check is date type
+        if (paramsExprs.size() != 2) {
+            throw new AnalysisException("date_trunc params exprs size should be 2.");
+        }
+        Expr param = paramsExprs.get(1);
+        if (!(param instanceof StringLiteral)) {
+            throw new AnalysisException("date_trunc param of time unit is not string literal.");
+        }
+        // check timeunit
+        String timeUnit = param.getStringValue().toLowerCase();
+        // mtmv only support one partition column
+        String firstValue = partitionKeyDesc.getInValues().get(0).get(0).getStringValue();
+        DateTimeLiteral firstTime = dateTrunc(firstValue, timeUnit);
+        // checkOtherValue();
+        return firstTime.toString();
+    }
+
     public static PartitionKeyDesc createPartitionKeyDescWithRange(DateTimeLiteral beginTime,
             DateTimeLiteral endTime, Type partitionColumnType) throws AnalysisException {
         String beginTimeStr;
         String endTimeStr;
         // maybe need check the range in FE also, like getAddPartitionClause.
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
-            beginTimeStr = String.format(DATE_FORMATTER, beginTime.getYear(), beginTime.getMonth(),
+            beginTimeStr = String.format(PartitionExprUtil.DATE_FORMATTER, beginTime.getYear(), beginTime.getMonth(),
                     beginTime.getDay());
-            endTimeStr = String.format(DATE_FORMATTER, endTime.getYear(), endTime.getMonth(),
+            endTimeStr = String.format(PartitionExprUtil.DATE_FORMATTER, endTime.getYear(), endTime.getMonth(),
                     endTime.getDay());
         } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()) {
-            beginTimeStr = String.format(DATETIME_FORMATTER,
+            beginTimeStr = String.format(PartitionExprUtil.DATETIME_FORMATTER,
                     beginTime.getYear(), beginTime.getMonth(), beginTime.getDay(),
                     beginTime.getHour(), beginTime.getMinute(), beginTime.getSecond());
-            endTimeStr = String.format(DATETIME_FORMATTER,
+            endTimeStr = String.format(PartitionExprUtil.DATETIME_FORMATTER,
                     endTime.getYear(), endTime.getMonth(), endTime.getDay(),
                     endTime.getHour(), endTime.getMinute(), endTime.getSecond());
         } else {
