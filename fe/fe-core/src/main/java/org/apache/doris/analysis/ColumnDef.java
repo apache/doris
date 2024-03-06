@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -176,6 +177,7 @@ public class ColumnDef {
     private boolean isAllowNull;
     private boolean isAutoInc;
     private long autoIncInitValue;
+    private KeysType keysType;
     private DefaultValue defaultValue;
     private String comment;
     private boolean visible;
@@ -278,6 +280,10 @@ public class ColumnDef {
         this.isKey = isKey;
     }
 
+    public void setKeysType(KeysType keysType) {
+        this.keysType = keysType;
+    }
+
     public TypeDef getTypeDef() {
         return typeDef;
     }
@@ -314,14 +320,16 @@ public class ColumnDef {
         }
 
         // disable Bitmap Hll type in keys, values without aggregate function.
-        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
-            if (isKey) {
-                throw new AnalysisException("Key column can not set complex type:" + name);
+        if (keysType == null || keysType == KeysType.AGG_KEYS) {
+            if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+                if (isKey) {
+                    throw new AnalysisException("Key column can not set complex type:" + name);
+                }
+                if (aggregateType == null) {
+                    throw new AnalysisException("complex type have to use aggregate function: " + name);
+                }
+                isAllowNull = false;
             }
-            if (aggregateType == null) {
-                throw new AnalysisException("complex type have to use aggregate function: " + name);
-            }
-            isAllowNull = false;
         }
 
         // A column is a key column if and only if isKey is true.

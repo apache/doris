@@ -926,7 +926,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (newColumn.getAggregationType() != AggregateType.NONE) {
+            if (newColumn.getAggregationType() != null) {
                 throw new DdlException(
                         "Can not assign aggregation method" + " on column in Unique data model table: " + newColName);
             }
@@ -938,7 +938,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } else {
-            if (newColumn.getAggregationType() != AggregateType.NONE) {
+            if (newColumn.getAggregationType() != null) {
                 throw new DdlException(
                         "Can not assign aggregation method" + " on column in Duplicate data model table: "
                                 + newColName);
