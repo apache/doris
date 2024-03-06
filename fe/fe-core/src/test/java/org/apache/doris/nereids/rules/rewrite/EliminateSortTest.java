@@ -50,7 +50,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
     }
 
     @Test
-    void testSortRemoveUnderTableSink() {
+    void testEliminateSortUnderTableSink() {
         // topN under table sink should not be removed
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalPlan plan = new LogicalPlanBuilder(scan)
@@ -78,11 +78,15 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
     }
 
     @Test
-    void test() {
+    void testEliminateSortInUnion() {
         PlanChecker.from(connectContext)
-                .analyze("select * from student order by id")
+                .analyze("SELECT * FROM (SELECT * FROM student UNION SELECT * FROM student ORDER BY id) u  LIMIT 1")
                 .rewrite()
-                .matches(logicalSort());
+                .nonMatch(logicalSort());
+    }
+
+    @Test
+    void testEliminateSortInSubquery() {
         PlanChecker.from(connectContext)
                 .analyze("select count(*) from (select * from student order by id) t")
                 .rewrite()
