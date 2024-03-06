@@ -226,6 +226,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadMultiTablePutResult;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
+import org.apache.doris.thrift.TSyncQueryColumns;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableMetadataNameIds;
 import org.apache.doris.thrift.TTableQueryStats;
@@ -4023,6 +4024,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;
+    }
+
+    @Override
+    public TStatus syncQueryColumns(TSyncQueryColumns request) throws TException {
+        Env.getCurrentEnv().getAnalysisManager().mergeFollowerQueryColumns(request.highPriorityColumns,
+                request.midPriorityColumns);
+        return new TStatus(TStatusCode.OK);
     }
 
 }
