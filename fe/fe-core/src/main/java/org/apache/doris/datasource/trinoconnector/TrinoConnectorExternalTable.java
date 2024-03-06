@@ -148,7 +148,11 @@ public class TrinoConnectorExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
-        TTrinoConnectorTable tTrinoConnectorTable = new TTrinoConnectorTable(dbName, name, new HashMap<>());
+        TTrinoConnectorTable tTrinoConnectorTable = new TTrinoConnectorTable();
+        tTrinoConnectorTable.setDbName(dbName);
+        tTrinoConnectorTable.setTableName(name);
+        tTrinoConnectorTable.setProperties(new HashMap<>());
+
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(),
                 TTableType.TRINO_CONNECTOR_TABLE, schema.size(), 0, getName(), dbName);
         tTableDescriptor.setTrinoConnectorTable(tTrinoConnectorTable);
