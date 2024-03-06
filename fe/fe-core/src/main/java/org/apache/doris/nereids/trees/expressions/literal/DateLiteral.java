@@ -163,11 +163,10 @@ public class DateLiteral extends Literal {
         StringBuilder sb = new StringBuilder();
 
         int i = 0;
+        // date and time contains 6 number part at most, so we just need normal 6 number part
+        int partNumber = 0;
 
         // handle two digit year
-        if (!isPunctuation(s.charAt(2)) && !isPunctuation(s.charAt(4))) {
-            throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
-        }
         if (isPunctuation(s.charAt(2))) {
             String yy = s.substring(0, 2);
             int year = Integer.parseInt(yy);
@@ -178,11 +177,10 @@ public class DateLiteral extends Literal {
             }
             sb.append(yy);
             i = 2;
+            partNumber += 1;
         }
 
         // normalize leading 0 for date and time
-        // date and time contains 6 number part at most, so we just need normal 6 number part
-        int partNumber = 0;
         while (i < s.length() && partNumber < 6) {
             char c = s.charAt(i);
             if (Character.isDigit(c)) {
@@ -193,38 +191,36 @@ public class DateLiteral extends Literal {
                 }
                 int len = j - i;
                 if (len == 4 || len == 2) {
-                    for (int k = i; k < j; k++) {
-                        sb.append(s.charAt(k));
-                    }
+                    sb.append(s, i, j);
                 } else if (len == 1) {
-                    sb.append('0').append(c);
+                    if (partNumber == 0) {
+                        sb.append("000").append(c);
+                    } else {
+                        sb.append('0').append(c);
+                    }
                 } else {
                     throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
                 }
                 i = j;
                 partNumber += 1;
             } else if (isPunctuation(c) || c == ' ' || c == 'T') {
-                sb.append(c);
                 i += 1;
+                if (partNumber < 3 && isPunctuation(c)) {
+                    sb.append('-');
+                } else if (partNumber == 3) {
+                    while (i < s.length() && (isPunctuation(s.charAt(i)) || s.charAt(i) == ' ' || s.charAt(i) == 'T')) {
+                        i += 1;
+                    }
+                    sb.append(' ');
+                } else if (partNumber > 3 && isPunctuation(c)) {
+                    sb.append(':');
+                } else {
+                    throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
+                }
             } else {
                 break;
             }
         }
-
-        // replace punctuation with '-'
-        replacePunctuation(s, sb, '-', 4);
-        replacePunctuation(s, sb, '-', 7);
-        // Replace punctuation with ' '
-        if (sb.length() > 10 && sb.charAt(10) != ' ') {
-            if (sb.charAt(10) == 'T') {
-                sb.setCharAt(10, ' ');
-            } else {
-                replacePunctuation(s, sb, ' ', 10);
-            }
-        }
-        // replace punctuation with ':'
-        replacePunctuation(s, sb, ':', 13);
-        replacePunctuation(s, sb, ':', 16);
 
         // add missing Minute Second in Time part
         if (sb.length() == 13) {
