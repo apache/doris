@@ -274,6 +274,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return rewriteResults;
     }
 
+    /**
+     * Check the column used by query is in materialized view output or not
+     */
     protected boolean checkColumnUsedValid(StructInfo queryInfo, StructInfo mvInfo,
             SlotMapping queryToViewSlotMapping) {
         Set<ExprId> queryUsedSlotSetViewBased = ExpressionUtils.shuttleExpressionWithLineage(

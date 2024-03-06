@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -64,7 +66,7 @@ public class MaterializationContext {
     // if rewrite by mv fail, record the reason, if success the failReason should be empty.
     // The key is the query belonged group expression objectId, the value is the fail reason
     private final Map<ObjectId, Pair<String, String>> failReason = new HashMap<>();
-    private final boolean enableRecordFailureDetail;
+    private boolean enableRecordFailureDetail = false;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -74,9 +76,9 @@ public class MaterializationContext {
         this.mvScanPlan = mvScanPlan;
         this.baseTables = baseTables;
         this.baseViews = baseViews;
-
-        this.enableRecordFailureDetail = cascadesContext.getConnectContext()
-                .getSessionVariable().isMaterializedViewRewriteEnableRecordFailureDetail();
+        StatementBase parsedStatement = cascadesContext.getStatementContext().getParsedStatement();
+        this.enableRecordFailureDetail = parsedStatement.isExplain()
+                && ExplainLevel.MEMO_PLAN == parsedStatement.getExplainOptions().getExplainLevel();
         MTMVCache mtmvCache = null;
         try {
             mtmvCache = mtmv.getOrGenerateCache();
