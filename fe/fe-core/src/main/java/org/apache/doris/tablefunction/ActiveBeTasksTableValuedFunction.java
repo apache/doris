@@ -23,65 +23,50 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
-import org.apache.doris.thrift.TQueriesMetadataParams;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
 
-public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunction {
-    public static final String NAME = "active_queries";
+public class ActiveBeTasksTableValuedFunction extends MetadataTableValuedFunction {
+
+    public static final String NAME = "active_be_tasks";
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
+            new Column("BeId", PrimitiveType.BIGINT),
+            new Column("FeHost", ScalarType.createStringType()),
             new Column("QueryId", ScalarType.createStringType()),
-            new Column("StartTime", ScalarType.createStringType()),
-            new Column("QueryTimeMs", PrimitiveType.BIGINT),
-            new Column("WorkloadGroupId", PrimitiveType.BIGINT),
-            new Column("Database", ScalarType.createStringType()),
-            new Column("FrontendInstance", ScalarType.createStringType()),
-            new Column("Sql", ScalarType.createStringType()));
+            new Column("TaskTimeMs", PrimitiveType.BIGINT),
+            new Column("TaskCpuTimeMs", PrimitiveType.BIGINT),
+            new Column("ScanRows", PrimitiveType.BIGINT),
+            new Column("ScanBytes", PrimitiveType.BIGINT),
+            new Column("BePeakMemoryBytes", PrimitiveType.BIGINT),
+            new Column("CurrentUsedMemoryBytes", PrimitiveType.BIGINT),
+            new Column("ShuffleSendBytes", PrimitiveType.BIGINT),
+            new Column("ShuffleSendRows", PrimitiveType.BIGINT));
 
-    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
-
-    static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
-        for (int i = 0; i < SCHEMA.size(); i++) {
-            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
-        }
-        COLUMN_TO_INDEX = builder.build();
-    }
-
-    public static Integer getColumnIndexFromColumnName(String columnName) {
-        return COLUMN_TO_INDEX.get(columnName.toLowerCase());
-    }
-
-    public ActiveQueriesTableValuedFunction(Map<String, String> params) throws AnalysisException {
+    public ActiveBeTasksTableValuedFunction(Map<String, String> params) throws AnalysisException {
         if (params.size() != 0) {
-            throw new AnalysisException("ActiveQueries table-valued-function does not support any params");
+            throw new AnalysisException("ActiveBeTasks table-valued-function does not support any params");
         }
     }
 
     @Override
     public TMetadataType getMetadataType() {
-        return TMetadataType.QUERIES;
+        return TMetadataType.ACTIVE_BE_TASKS;
     }
 
     @Override
     public TMetaScanRange getMetaScanRange() {
         TMetaScanRange metaScanRange = new TMetaScanRange();
-        metaScanRange.setMetadataType(TMetadataType.QUERIES);
-        TQueriesMetadataParams queriesMetadataParams = new TQueriesMetadataParams();
-        queriesMetadataParams.setClusterName("");
-        queriesMetadataParams.setRelayToOtherFe(true);
-        metaScanRange.setQueriesParams(queriesMetadataParams);
+        metaScanRange.setMetadataType(TMetadataType.ACTIVE_BE_TASKS);
         return metaScanRange;
     }
 
     @Override
     public String getTableName() {
-        return "ActiveQueriesTableValuedFunction";
+        return "ActiveBeTasksTableValuedFunction";
     }
 
     @Override
