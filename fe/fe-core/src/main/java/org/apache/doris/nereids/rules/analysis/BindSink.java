@@ -377,13 +377,13 @@ public class BindSink implements AnalysisRuleFactory {
         List<Long> partitionIds = sink.getPartitions().isEmpty()
                 ? ImmutableList.of()
                 : sink.getPartitions().stream().map(pn -> {
-            Partition partition = table.getPartition(pn);
-            if (partition == null) {
-                throw new AnalysisException(String.format("partition %s is not found in table %s",
-                        pn, table.getName()));
-            }
-            return partition.getId();
-        }).collect(Collectors.toList());
+                    Partition partition = table.getPartition(pn);
+                    if (partition == null) {
+                        throw new AnalysisException(String.format("partition %s is not found in table %s",
+                                pn, table.getName()));
+                    }
+                    return partition.getId();
+                }).collect(Collectors.toList());
 
         LogicalHiveTableSink<?> boundSink = new LogicalHiveTableSink<>(
                 database,

@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -43,14 +43,11 @@ import java.util.Optional;
 /**
  * Represent an hive table sink plan node that has not been bound.
  */
-public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
+public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSink<CHILD_TYPE>
         implements Unbound, Sink, BlockFuncDepsPropagation {
-
     private final List<String> nameParts;
-    private final List<String> colNames;
     private final List<String> hints;
     private final List<String> partitions;
-    private final DMLCommandType dmlCommandType;
 
     public UnboundHiveTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
                                 List<String> partitions, CHILD_TYPE child) {
@@ -67,12 +64,11 @@ public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
                                 Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties,
                                 CHILD_TYPE child) {
-        super(PlanType.LOGICAL_UNBOUND_HIVE_TABLE_SINK, ImmutableList.of(), groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_UNBOUND_HIVE_TABLE_SINK, ImmutableList.of(), groupExpression,
+                logicalProperties, colNames, dmlCommandType, child);
         this.nameParts = Utils.copyRequiredList(nameParts);
-        this.colNames = Utils.copyRequiredList(colNames);
         this.hints = Utils.copyRequiredList(hints);
         this.partitions = Utils.copyRequiredList(partitions);
-        this.dmlCommandType = dmlCommandType;
     }
 
     public List<String> getColNames() {
@@ -89,10 +85,6 @@ public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
 
     public List<String> getHints() {
         return hints;
-    }
-
-    public DMLCommandType getDMLCommandType() {
-        return dmlCommandType;
     }
 
     @Override
