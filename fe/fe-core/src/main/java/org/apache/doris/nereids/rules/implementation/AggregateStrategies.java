@@ -1337,8 +1337,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                             + aggregateFunction);
                             AggregateFunction nonDistinct = aggregateFunction
                                     .withDistinctAndChildren(false, ImmutableList.copyOf(aggChild));
-                            return new AggregateExpression(nonDistinct,
-                                    bufferToResultParam, aggregateFunction.child(0));
+                            return new AggregateExpression(nonDistinct, bufferToResultParam, aggregateFunction);
                         } else {
                             Alias alias = nonDistinctAggFunctionToAliasPhase2.get(expr);
                             return new AggregateExpression(aggregateFunction,

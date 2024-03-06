@@ -57,6 +57,8 @@ suite("group_concat") {
                     properties('replication_num'='1')
                     """
 
+        sql "insert into test_group_concat_distinct_tbl1 values(1), (2), (3), (4), (5)"
+
 
         sql "drop table if exists test_group_concat_distinct_tbl2"
         sql """create table test_group_concat_distinct_tbl2(
@@ -65,6 +67,7 @@ suite("group_concat") {
                     ) distributed by hash(tbl2_id1)
                     properties('replication_num'='1')
                     """
+        sql "insert into test_group_concat_distinct_tbl2 values(1, 11), (2, 22), (3, 33), (4, 44)"
 
 
         sql "drop table if exists test_group_concat_distinct_tbl3"
@@ -74,8 +77,11 @@ suite("group_concat") {
                     ) distributed by hash(tbl3_id2)
                     properties('replication_num'='1')
                     """
+        sql "insert into test_group_concat_distinct_tbl3 values(22, 'a'), (33, 'b'), (44, 'c')"
 
-        sql """
+        sql "sync"
+
+        order_qt_group_by_distinct """
             SELECT
                  tbl1.tbl1_id1,
                  group_concat(DISTINCT tbl3.tbl3_name, ',') AS `names`
