@@ -266,7 +266,7 @@ int main(int argc, char** argv) {
                 bool exists = false;
                 std::filesystem::path root_dir(FLAGS_directory);
                 doris::Status status = fs->list(root_dir, true, &files, &exists);
-                if (!status.ok) {
+                if (!status.ok()) {
                     std::cerr << "can't search from directory's all files,err : " << status
                               << std::endl;
                     return -1;

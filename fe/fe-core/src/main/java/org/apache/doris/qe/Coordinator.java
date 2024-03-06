@@ -270,6 +270,10 @@ public class Coordinator implements CoordInterface {
         this.tWorkloadGroups = tWorkloadGroups;
     }
 
+    public List<TPipelineWorkloadGroup> gettWorkloadGroups() {
+        return tWorkloadGroups;
+    }
+
     private List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
 
     private final ExecutionProfile executionProfile;
@@ -662,7 +666,8 @@ public class Coordinator implements CoordInterface {
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
-                    addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
+                    addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline,
+                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
 
             if (!context.isReturnResultFromLocal()) {
                 Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));

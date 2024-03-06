@@ -508,6 +508,12 @@ ALI_SDK_NAME="1.36.1586.tar.gz"
 ALI_SDK_SOURCE="aliyun-openapi-cpp-sdk-1.36.1586"
 ALI_SDK_MD5SUM="14623ee8e87c89615477d9bf8cb30bea"
 
+# base64
+BASE64_DOWNLOAD="https://github.com/aklomp/base64/archive/refs/tags/v0.5.2.tar.gz"
+BASE64_NAME="v0.5.2.tar.gz"
+BASE64_SOURCE="base64-0.5.2"
+BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -583,6 +589,7 @@ export TP_ARCHIVES=(
     'JSONCPP'
     'LIBUUID'
     'ALI_SDK'
+    'BASE64'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
