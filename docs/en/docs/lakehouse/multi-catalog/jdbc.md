@@ -889,6 +889,7 @@ When mapping DB2, Doris's Database corresponds to a Schema under the specified D
 | LONG VARGRAPHIC  | STRING       |       |
 | TIME             | STRING       |       |
 | CLOB             | STRING       |       |
+| XML              | STRING       |       |
 | OTHER            | UNSUPPORTED  |       |
 
 ## JDBC Drivers
