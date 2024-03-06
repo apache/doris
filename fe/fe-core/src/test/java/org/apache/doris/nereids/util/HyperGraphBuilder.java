@@ -430,7 +430,11 @@ public class HyperGraphBuilder {
         for (int i = 0; i < rowCount; i++) {
             List<String> tuple = new ArrayList<>();
             for (Slot key : keySet) {
-                tuple.add(String.valueOf(res.get(key).get(i)));
+                if (res.get(key) == null || res.get(key).isEmpty()) {
+                    System.out.println("List is null or empty for plan: " + plan.treeString());
+                } else {
+                    tuple.add(String.valueOf(res.get(key).get(i)));
+                }
             }
             tuples.add(tuple);
         }
