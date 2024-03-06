@@ -48,11 +48,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
-import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -3691,58 +3689,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return new TStatus(TStatusCode.INVALID_ARGUMENT);
             }
             CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
-
-            // update rowCountfor AnalysisManager
-            Map<Long, Long> updatedRows = new HashMap<>();
-            for (TableStatsPB tableStats : commitTxnResponse.getTableStatsList()) {
-                LOG.info("Update RowCount for AnalysisManager. transactionId:{}, table_id:{}, updated_row_count:{}",
-                         request.getTxnId(), tableStats.getTableId(), tableStats.getUpdatedRowCount());
-                updatedRows.put(tableStats.getTableId(), tableStats.getUpdatedRowCount());
-            }
-            Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updatedRows);
-            // notify partition first load
-            int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
-            // a map to record <tableId, [partitionIds]>
-            Map<Long, List<Long>> tablePartitionMap = Maps.newHashMap();
-            // a list to record tableIds which have new partitions
-            List<Long> newPartitionTableIds = Lists.newArrayList();
-            for (int idx = 0; idx < totalPartitionNum; ++idx) {
-                long version = commitTxnResponse.getVersions(idx);
-                if (version == 2) {
-                    long tableId = commitTxnResponse.getTableIds(idx);
-                    tablePartitionMap.computeIfAbsent(tableId, k -> Lists.newArrayList());
-                    tablePartitionMap.get(tableId).add(commitTxnResponse.getPartitionIds(idx));
-                    // 1. inform AnalysisManager
-                    newPartitionTableIds.add(tableId);
-                    // 2. update CloudPartition
-                    Env env = Env.getCurrentEnv();
-                    OlapTable olapTable = (OlapTable) env.getInternalCatalog().getDb(request.getDbId())
-                            .flatMap(db -> db.getTable(tableId)).filter(t -> t.getType() == TableType.OLAP)
-                            .orElse(null);
-                    if (olapTable == null) {
-                        continue;
-                    }
-                    CloudPartition partition = (CloudPartition) olapTable.getPartition(
-                            commitTxnResponse.getPartitionIds(idx));
-                    if (partition == null) {
-                        continue;
-                    }
-                    partition.setCachedVisibleVersion(2);
-                }
-            }
-            Env.getCurrentEnv().getAnalysisManager().setNewPartitionLoaded(newPartitionTableIds);
-            // tablePartitionMap to string
-            StringBuilder sb = new StringBuilder();
-            for (Map.Entry<Long, List<Long>> entry : tablePartitionMap.entrySet()) {
-                sb.append(entry.getKey()).append(":[");
-                for (Long partitionId : entry.getValue()) {
-                    sb.append(partitionId).append(",");
-                }
-                sb.append("];");
-            }
-            if (sb.length() > 0) {
-                LOG.info("notify partition first load. {}", sb);
-            }
+            Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse);
         } catch (InvalidProtocolBufferException e) {
             // Handle the exception, log it, or take appropriate action
             e.printStackTrace();

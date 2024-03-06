@@ -297,10 +297,6 @@ public class CloudPartition extends Partition {
         return;
     }
 
-    @Override
-    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
-    }
-
     // Determine whether data this partition has, according to the cached visible version.
     public boolean hasDataCached() {
         // In order to determine whether a partition is empty, a get_version RPC is issued to

@@ -22,7 +22,7 @@ import java.text.SimpleDateFormat
 suite("test_analyze_triggered_by_update_row_count_streamload") {
 
 
-    String db = "test_analyze_triggered_by_update_row_count"
+    String db = "test_analyze_triggered_by_update_row_count_streamload"
 
     sql """
         DROP DATABASE IF EXISTS `${db}`
