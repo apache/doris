@@ -305,7 +305,7 @@ public class GsonUtils {
             .registerDefaultSubtype(Replica.class)
             .registerSubtype(Replica.class, Replica.class.getSimpleName())
             .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName());
-    
+
     private static RuntimeTypeAdapterFactory<Tablet> tabletTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(Tablet.class, "clazz")
             .registerDefaultSubtype(Tablet.class)
