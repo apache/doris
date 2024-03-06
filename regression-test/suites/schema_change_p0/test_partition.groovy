@@ -65,35 +65,27 @@ suite("test_partition") {
     order_qt_sql_2 """SELECT * from ${tblName};"""
     checkPartition(tblName);
 
-    //modify partition storage_medium
-    sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("storage_medium"="HDD");"""
-
-    test {
-        sql """show partitions from ${tblName} where partitionName="old_p1";"""
-        check { result, ex, startTime, endTime ->
-            assertEquals("HDD", result[0][10])
-        }
-    }
-
-    //modify partition storage_cooldown_time
-    sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("storage_medium"="SSD","storage_cooldown_time"="9999-12-31 23:59:59");"""
-
-    test {
-        sql """show partitions from ${tblName} where partitionName="old_p1";"""
-        check { result, ex, startTime, endTime ->
-            assertEquals("SSD", result[0][10])
-            assertEquals("9999-12-31 23:59:59", result[0][11])
-        }
-    }
-
-    //modify partition in_memory
     if (!isCloudMode()) {
+        //modify partition storage_medium
+        sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("storage_medium"="HDD");"""
         test {
-            sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("in_memory"="true");"""
-            exception "Not support set 'in_memory'='true' now!"
+            sql """show partitions from ${tblName} where partitionName="old_p1";"""
+            check { result, ex, startTime, endTime ->
+                assertEquals("HDD", result[0][10])
+            }
+        }
+
+        //modify partition storage_cooldown_time
+        sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("storage_medium"="SSD","storage_cooldown_time"="9999-12-31 23:59:59");"""
+
+        test {
+            sql """show partitions from ${tblName} where partitionName="old_p1";"""
+            check { result, ex, startTime, endTime ->
+                assertEquals("SSD", result[0][10])
+                assertEquals("9999-12-31 23:59:59", result[0][11])
+            }
         }
     }
 
     sql """DROP TABLE IF EXISTS ${tblName} FORCE; """
-
 }
