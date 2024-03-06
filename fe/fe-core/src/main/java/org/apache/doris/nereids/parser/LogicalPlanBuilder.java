@@ -505,16 +505,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         ImmutableList.Builder<String> tableName = ImmutableList.builder();
         if (null != ctx.tableName) {
             List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
-            if (nameParts.size() < 3) {
-                // if no catalog is used in table name
-                tableName.add(Env.getCurrentEnv().getCurrentCatalog().getName());
-            }
             tableName.addAll(nameParts);
         } else if (null != ctx.tableId) {
             // process group commit insert table command send by be
             TableName name = Env.getCurrentEnv().getCurrentCatalog()
                     .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
-            tableName.add(name.getCtl());
             tableName.add(name.getDb());
             tableName.add(name.getTbl());
         } else {
