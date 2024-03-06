@@ -404,6 +404,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("refresh", new Integer(SqlParserSymbols.KW_REFRESH));
         keywordMap.put("regexp", new Integer(SqlParserSymbols.KW_REGEXP));
         keywordMap.put("release", new Integer(SqlParserSymbols.KW_RELEASE));
+        keywordMap.put("remove", new Integer(SqlParserSymbols.KW_REMOVE));
         keywordMap.put("rename", new Integer(SqlParserSymbols.KW_RENAME));
         keywordMap.put("repair", new Integer(SqlParserSymbols.KW_REPAIR));
         keywordMap.put("repeatable", new Integer(SqlParserSymbols.KW_REPEATABLE));

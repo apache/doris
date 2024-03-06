@@ -556,6 +556,7 @@ terminal String
     KW_REFRESH,
     KW_REGEXP,
     KW_RELEASE,
+    KW_REMOVE,
     KW_RENAME,
     KW_REPAIR,
     KW_REPEATABLE,
@@ -702,7 +703,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt, unset_var_stmt,
     create_job_stmt, pause_job_stmt, resume_job_stmt,stop_job_stmt, cancel_job_task_stmt,
-    use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
+    use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, remove_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
     import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt;
@@ -1136,6 +1137,8 @@ stmt ::=
     | drop_stmt:stmt
     {: RESULT = stmt; :}
     | recover_stmt:stmt
+    {: RESULT = stmt; :}
+    | remove_stmt:stmt
     {: RESULT = stmt; :}
     | use_stmt:use
     {: RESULT = use; :}
@@ -3123,6 +3126,22 @@ recover_stmt ::=
     | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_alias:alias KW_FROM table_name:dbTblName
     {:
         RESULT = new RecoverPartitionStmt(dbTblName, partitionName, partitionId, alias);
+    :}
+    ;
+
+// Remove(Drop Catalog Recycle Bin) statement
+remove_stmt ::=
+    KW_REMOVE KW_DATABASE ident:dbName opt_id:dbId
+    {:
+        RESULT = new RemoveDbStmt(dbName, dbId);
+    :}
+    | KW_REMOVE KW_TABLE table_name:dbTblName opt_id:tableId
+    {:
+        RESULT = new RemoveTableStmt(dbTblName, tableId);
+    :}
+    | KW_REMOVE KW_PARTITION ident:partitionName opt_id:partitionId KW_FROM table_name:dbTblName
+    {:
+        RESULT = new RemovePartitionStmt(dbTblName, partitionName, partitionId);
     :}
     ;
 
@@ -7952,6 +7971,8 @@ keyword ::=
     | KW_RANDOM:id
     {: RESULT = id; :}
     | KW_RECOVER:id
+    {: RESULT = id; :}
+    | KW_REMOVE:id
     {: RESULT = id; :}
     | KW_REFRESH:id
     {: RESULT = id; :}

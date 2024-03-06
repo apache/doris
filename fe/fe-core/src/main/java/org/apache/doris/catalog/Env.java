@@ -68,6 +68,9 @@ import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.RemoveDbStmt;
+import org.apache.doris.analysis.RemovePartitionStmt;
+import org.apache.doris.analysis.RemoveTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -3001,6 +3004,18 @@ public class Env {
 
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverPartition(recoverStmt);
+    }
+
+    public void removeDatabase(RemoveDbStmt removeStmt) throws DdlException {
+        getInternalCatalog().removeDatabase(removeStmt);
+    }
+
+    public void removeTable(RemoveTableStmt removeStmt) throws DdlException {
+        getInternalCatalog().removeTable(removeStmt);
+    }
+
+    public void removePartition(RemovePartitionStmt removeStmt) throws DdlException {
+        getInternalCatalog().removePartition(removeStmt);
     }
 
     public void replayEraseDatabase(long dbId) throws DdlException {
