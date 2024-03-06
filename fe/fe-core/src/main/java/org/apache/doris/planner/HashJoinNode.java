@@ -199,12 +199,6 @@ public class HashJoinNode extends JoinNodeBase {
         for (Expr eqJoinPredicate : eqJoinConjuncts) {
             Preconditions.checkArgument(eqJoinPredicate instanceof BinaryPredicate);
             BinaryPredicate eqJoin = (BinaryPredicate) eqJoinPredicate;
-            if (eqJoin.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
-                Preconditions.checkArgument(eqJoin.getChildren().size() == 2);
-                if (!eqJoin.getChild(0).isNullable() || !eqJoin.getChild(1).isNullable()) {
-                    eqJoin.setOp(BinaryPredicate.Operator.EQ);
-                }
-            }
             this.eqJoinConjuncts.add(eqJoin);
         }
         this.distrMode = DistributionMode.NONE;
