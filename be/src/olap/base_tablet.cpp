@@ -1374,4 +1374,59 @@ Status BaseTablet::check_rowid_conversion(
     return Status::OK();
 }
 
+// The caller should hold _rowset_update_lock and _meta_lock lock.
+Status BaseTablet::update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
+                                                     const RowsetSharedPtr& rowset) {
+    DBUG_EXECUTE_IF("Tablet.update_delete_bitmap_without_lock.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.1))) {
+            LOG_WARNING("Tablet.update_delete_bitmap_without_lock.random_failed");
+            return Status::InternalError(
+                    "debug tablet update delete bitmap without lock random failed");
+        }
+    });
+    int64_t cur_version = rowset->end_version();
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    RETURN_IF_ERROR(std::dynamic_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
+
+    // If this rowset does not have a segment, there is no need for an update.
+    if (segments.empty()) {
+        LOG(INFO) << "[Schema Change or Clone] skip to construct delete bitmap tablet: "
+                  << self->tablet_id() << " cur max_version: " << cur_version;
+        return Status::OK();
+    }
+    RowsetIdUnorderedSet cur_rowset_ids;
+    RETURN_IF_ERROR(self->get_all_rs_id_unlocked(cur_version - 1, &cur_rowset_ids));
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(self->tablet_id());
+    RETURN_IF_ERROR(self->calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
+
+    std::vector<RowsetSharedPtr> specified_rowsets = self->get_rowset_by_ids(&cur_rowset_ids);
+    OlapStopWatch watch;
+    auto token = self->calc_delete_bitmap_executor()->create_token();
+    RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
+                                       cur_version - 1, token.get()));
+    RETURN_IF_ERROR(token->wait());
+    size_t total_rows = std::accumulate(
+            segments.begin(), segments.end(), 0,
+            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
+    LOG(INFO) << "[Schema Change or Clone] construct delete bitmap tablet: " << self->tablet_id()
+              << ", rowset_ids: " << cur_rowset_ids.size() << ", cur max_version: " << cur_version
+              << ", transaction_id: " << -1 << ", cost: " << watch.get_elapse_time_us()
+              << "(us), total rows: " << total_rows;
+    if (config::enable_merge_on_write_correctness_check) {
+        // check if all the rowset has ROWSET_SENTINEL_MARK
+        auto st = self->check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
+                                                        cur_rowset_ids, &specified_rowsets);
+        if (!st.ok()) {
+            LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
+        }
+        self->_remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
+    }
+    for (auto& iter : delete_bitmap->delete_bitmap) {
+        self->_tablet_meta->delete_bitmap().merge(
+                {std::get<0>(iter.first), std::get<1>(iter.first), cur_version}, iter.second);
+    }
+
+    return Status::OK();
+}
+
 } // namespace doris

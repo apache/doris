@@ -15,25 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.jdbc;
+package org.apache.doris.datasource;
 
-import org.apache.doris.thrift.TOdbcTableType;
-
-public class JdbcExecutorFactory {
-    public static String getExecutorClass(TOdbcTableType type) {
-        switch (type) {
-            case MYSQL:
-                return "org/apache/doris/jdbc/MySQLJdbcExecutor";
-            case ORACLE:
-                return "org/apache/doris/jdbc/OracleJdbcExecutor";
-            case POSTGRESQL:
-                return "org/apache/doris/jdbc/PostgreSQLJdbcExecutor";
-            case SQLSERVER:
-                return "org/apache/doris/jdbc/SQLServerJdbcExecutor";
-            case DB2:
-                return "org/apache/doris/jdbc/DB2JdbcExecutor";
-            default:
-                return "org/apache/doris/jdbc/DefaultJdbcExecutor";
-        }
-    }
+public interface DatabaseMetadata {
+    String getDbName();
 }

@@ -109,6 +109,8 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
                 return createConverter(input -> {
                     if (input instanceof java.sql.Time) {
                         return timeToString((java.sql.Time) input);
+                    } else if (input instanceof byte[]) {
+                        return sqlserverByteArrayToHexString((byte[]) input);
                     } else {
                         return input.toString();
                     }
@@ -116,5 +118,17 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
             default:
                 return null;
         }
+    }
+    
+    private String sqlserverByteArrayToHexString(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder("0x");
+        for (byte b : bytes) {
+            String hex = Integer.toHexString(0xFF & b);
+            if (hex.length() == 1) {
+                hexString.append('0');
+            }
+            hexString.append(hex);
+        }
+        return hexString.toString();
     }
 }
