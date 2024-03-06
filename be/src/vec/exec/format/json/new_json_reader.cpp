@@ -376,7 +376,7 @@ Status NewJsonReader::_open_file_reader(bool need_schema) {
 
     _current_offset = start_offset;
 
-    if (_params.file_type == TFileType::FILE_STREAM) {
+    if (_params.file_type == TFileType::FILE_STREAM || _params.file_type == TFileType::FILE_KAFKA) {
         // Due to http_stream needs to pre read a portion of the data to parse column information, so it is set to true here
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state,
                                                         need_schema));

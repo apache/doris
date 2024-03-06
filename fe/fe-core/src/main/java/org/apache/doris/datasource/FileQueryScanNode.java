@@ -273,7 +273,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
         }
         this.inputSplitsNum = inputSplits.size();
-        if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
+        if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)
+                && !(getLocationType() == TFileType.FILE_KAFKA)) {
             return;
         }
         TFileFormatType fileFormatType = getFileFormatType();
@@ -306,6 +307,31 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
                 scanRangeLocations.add(curLocations);
+                return;
+            } else if (getLocationType() == TFileType.FILE_KAFKA) {
+                params.setFileType(TFileType.FILE_KAFKA);
+                FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
+                KafkaTableValuedFunction tableValuedFunction = (KafkaTableValuedFunction) table.getTvf();
+                params.setCompressType(tableValuedFunction.getTFileCompressType());
+
+                Map<Long, TKafkaTvfTask> kafkaTvfTaskMap = tableValuedFunction.getKafkaTvfTaskMap();
+                for (Entry<Long, TKafkaTvfTask> entry : kafkaTvfTaskMap.entrySet()) {
+                    TScanRangeLocations curLocations = newLocations();
+                    TFileRangeDesc rangeDesc = new TFileRangeDesc();
+                    rangeDesc.setLoadId(ConnectContext.get().queryId());
+                    rangeDesc.setSize(-1);
+                    rangeDesc.setFileSize(-1);
+                    curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+                    curLocations.getScanRange().getExtScanRange().getFileScanRange().setParams(params);
+
+                    TScanRangeLocation location = new TScanRangeLocation();
+                    long backendId = entry.getKey();
+                    Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+                    location.setBackendId(backendId);
+                    location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+                    curLocations.addToLocations(location);
+                    scanRangeLocations.add(curLocations);
+                }
                 return;
             }
         }

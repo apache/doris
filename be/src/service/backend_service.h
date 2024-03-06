@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/BackendService.h>
+#include <gen_cpp/BackendService_types.h>
 
 #include <memory>
 #include <string>
@@ -46,6 +47,7 @@ class TDiskTrashInfo;
 class TCancelPlanFragmentParams;
 class TCheckStorageFormatResult;
 class TRoutineLoadTask;
+class TKafkaTvfTask;
 class TScanBatchResult;
 class TScanCloseParams;
 class TScanCloseResult;
@@ -101,6 +103,8 @@ public:
 
     void submit_routine_load_task(TStatus& t_status,
                                   const std::vector<TRoutineLoadTask>& tasks) override;
+
+    void send_kafka_tvf_task(TStatus& t_status, const TKafkaTvfTask& tasks) override;
 
     // used for external service, open means start the scan procedure
     void open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) override;

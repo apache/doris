@@ -59,6 +59,7 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/txn_manager.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
@@ -561,6 +562,45 @@ void BaseBackendService::submit_routine_load_task(TStatus& t_status,
                          << " task id: " << task.id;
             return st.to_thrift(&t_status);
         }
+    }
+
+    return Status::OK().to_thrift(&t_status);
+}
+
+void BackendService::send_kafka_tvf_task(TStatus& t_status, const TKafkaTvfTask& task) {
+    LOG(INFO) << "get kafka tvf task from fe, query_id:" << UniqueId(task.id);
+
+    // parse paramaters
+    // create the context
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    ctx->load_type = TLoadType::MANUL_LOAD;
+    ctx->load_src_type = task.type;
+    ctx->id = UniqueId(task.id);
+
+    if (task.__isset.max_interval_s) {
+        ctx->max_interval_s = task.max_interval_s;
+    }
+    if (task.__isset.max_batch_rows) {
+        ctx->max_batch_rows = task.max_batch_rows;
+    }
+    if (task.__isset.max_batch_size) {
+        ctx->max_batch_size = task.max_batch_size;
+    }
+
+    // set source related params
+    switch (task.type) {
+    case TLoadSourceType::KAFKA:
+        ctx->kafka_info.reset(new KafkaLoadInfo(task.info));
+        break;
+    default:
+        LOG(WARNING) << "unknown load source type: " << task.type;
+        return Status::InternalError("unknown load source type").to_thrift(&t_status);
+    }
+
+    Status st = _exec_env->routine_load_task_executor()->offer_task(ctx);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to submit kafka tvf task. task id: " << task.id;
+        return st.to_thrift(&t_status);
     }
 
     return Status::OK().to_thrift(&t_status);

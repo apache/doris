@@ -53,6 +53,7 @@ import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
+import org.apache.doris.thrift.TKafkaTvfTask;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPreCacheAsyncRequest;
@@ -388,6 +389,10 @@ public class MockedBackendFactory {
 
         @Override
         public TStatus submitRoutineLoadTask(List<TRoutineLoadTask> tasks) throws TException {
+            return new TStatus(TStatusCode.OK);
+        }
+
+        public TStatus sendKafkaTvfTask(TKafkaTvfTask tasks) throws TException {
             return new TStatus(TStatusCode.OK);
         }
 
