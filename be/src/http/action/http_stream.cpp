@@ -303,6 +303,10 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     set_request_auth(&request, ctx->auth);
     request.__set_loadId(ctx->id.to_thrift());
     request.__set_label(ctx->label);
+    if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
+        bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
+        request.__set_memtable_on_sink_node(value);
+    }
     if (ctx->group_commit) {
         if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
             request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
