@@ -499,6 +499,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
             = "materialized_view_rewrite_enable_contain_external_table";
 
+    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_RECORD_FAILURE_DETAIL
+            = "materialized_view_rewrite_enable_record_failure_detail";
+
+    public static final String MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM
+            = "materialized_view_rewrite_success_candidate_num";
+
     public static final String CREATE_TABLE_PARTITION_MAX_NUM
             = "create_table_partition_max_num";
 
@@ -1588,6 +1594,16 @@ public class SessionVariable implements Serializable, Writable {
                     "whether to use a materialized view that contains the foreign table "
                             + "when using rewriting based on struct info"})
     public boolean materializedViewRewriteEnableContainExternalTable = false;
+
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_RECORD_FAILURE_DETAIL, needForward = true,
+            description = {"基于结构信息的透明改写，是否记录失败详细信息",
+                    "whether to record failure detail info when materialize view rule rewrite fail"})
+    public boolean materializedViewRewriteEnableRecordFailureDetail = false;
+
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
+            description = {"基于结构信息的透明改，允许等价集合的候选最大数量",
+                    "whether to record failure detail info when materialize view rule rewrite fail"})
+    public int materializedViewRewriteSuccessCandidateNum = 3;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
@@ -3433,6 +3449,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isMaterializedViewRewriteEnableContainExternalTable() {
         return materializedViewRewriteEnableContainExternalTable;
+    }
+
+    public boolean isMaterializedViewRewriteEnableRecordFailureDetail() {
+        return materializedViewRewriteEnableRecordFailureDetail;
+    }
+
+    public int getMaterializedViewRewriteSuccessCandidateNum() {
+        return materializedViewRewriteSuccessCandidateNum;
     }
 
     public int getCreateTablePartitionMaxNum() {

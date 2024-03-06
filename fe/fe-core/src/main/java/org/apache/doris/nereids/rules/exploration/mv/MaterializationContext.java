@@ -64,6 +64,7 @@ public class MaterializationContext {
     // if rewrite by mv fail, record the reason, if success the failReason should be empty.
     // The key is the query belonged group expression objectId, the value is the fail reason
     private final Map<ObjectId, Pair<String, String>> failReason = new HashMap<>();
+    private final boolean enableRecordFailureDetail;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -74,6 +75,8 @@ public class MaterializationContext {
         this.baseTables = baseTables;
         this.baseViews = baseViews;
 
+        this.enableRecordFailureDetail = cascadesContext.getConnectContext()
+                .getSessionVariable().isMaterializedViewRewriteEnableRecordFailureDetail();
         MTMVCache mtmvCache = null;
         try {
             mtmvCache = mtmv.getOrGenerateCache();
@@ -132,6 +135,10 @@ public class MaterializationContext {
 
     public Map<ObjectId, Pair<String, String>> getFailReason() {
         return failReason;
+    }
+
+    public boolean isEnableRecordFailureDetail() {
+        return enableRecordFailureDetail;
     }
 
     public void setSuccess(boolean success) {

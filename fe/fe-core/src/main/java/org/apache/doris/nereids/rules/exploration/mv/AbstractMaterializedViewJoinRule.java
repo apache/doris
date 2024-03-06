@@ -54,11 +54,12 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
         if (expressionsRewritten.isEmpty()) {
             materializationContext.recordFailReason(queryStructInfo,
                     Pair.of("Rewrite expressions by view in join fail",
-                            String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
-                                            + "targetToSourceMapping = %s",
-                                    queryStructInfo.getExpressions(),
-                                    materializationContext.getMvExprToMvScanExprMapping(),
-                                    targetToSourceMapping)));
+                            materializationContext.isEnableRecordFailureDetail()
+                                    ? String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
+                                                    + "targetToSourceMapping = %s",
+                                            queryStructInfo.getExpressions(),
+                                            materializationContext.getMvExprToMvScanExprMapping(),
+                                            targetToSourceMapping) : ""));
             return null;
         }
         return new LogicalProject<>(
