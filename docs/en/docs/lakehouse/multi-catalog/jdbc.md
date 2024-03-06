@@ -194,11 +194,11 @@ JDBC catalog has the following three stages for mapping rules for external table
 
 * Doris 2.1.0 and later versions:
 
-  In order to avoid confusion with the `lower_case_table_names` parameter of FE conf, this configuration name is changed to `lower_case_meta_names`, which is valid for all databases. During query, all library names, table names and column names will be converted into real names, and then Check it out. If you upgrade from an old version to 2.0.4, you need `Refresh <catalog_name>` to take effect.
+  In order to avoid confusion with the `lower_case_table_names` parameter of FE conf, this configuration name is changed to `lower_case_meta_names`, which is valid for all databases. During query, all library names, table names and column names will be converted into real names, and then Check it out. If you upgrade from an old version to 2.1.0, you need `Refresh <catalog_name>` to take effect.
 
   For specific rules, please refer to the introduction of `lower_case_meta_names` at the beginning of this section.
 
-  Users who have previously set the JDBC catalog `lower_case_table_names` parameter will automatically have `lower_case_table_names` converted to `lower_case_meta_names` when upgrading to 2.0.4.
+  Users who have previously set the JDBC catalog `lower_case_table_names` parameter will automatically have `lower_case_table_names` converted to `lower_case_meta_names` when upgrading to 2.1.0.
 
 ### Specify synchronization database:
 
@@ -594,23 +594,24 @@ As for data mapping from SQLServer to Doris, one Database in Doris corresponds t
 
 #### Type Mapping
 
-| SQLServer Type                         | Doris Type    | Comment                                                                  |
-|----------------------------------------|---------------|--------------------------------------------------------------------------|
-| bit                                    | BOOLEAN       |                                                                          |
-| tinyint                                | SMALLINT      | SQLServer's tinyint is an unsigned number, so it maps to Doris' SMALLINT |
-| smallint                               | SMALLINT      |                                                                          |
-| int                                    | INT           |                                                                          |
-| bigint                                 | BIGINT        |                                                                          |
-| real                                   | FLOAT         |                                                                          |
-| float                                  | DOUBLE        |                                                                          |
-| money                                  | DECIMAL(19,4) |                                                                          |
-| smallmoney                             | DECIMAL(10,4) |                                                                          |
-| decimal/numeric                        | DECIMAL       |                                                                          |
-| date                                   | DATE          |                                                                          |
-| datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                                          |
-| char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                                          |
-| time/datetimeoffset                    | STRING        |                                                                          |
-| Other                                  | UNSUPPORTED   |                                                                          |
+| SQLServer Type                         | Doris Type    | Comment                                                                          |
+|----------------------------------------|---------------|----------------------------------------------------------------------------------|
+| bit                                    | BOOLEAN       |                                                                                  |
+| tinyint                                | SMALLINT      | SQLServer's tinyint is an unsigned number, so it maps to Doris' SMALLINT         |
+| smallint                               | SMALLINT      |                                                                                  |
+| int                                    | INT           |                                                                                  |
+| bigint                                 | BIGINT        |                                                                                  |
+| real                                   | FLOAT         |                                                                                  |
+| float                                  | DOUBLE        |                                                                                  |
+| money                                  | DECIMAL(19,4) |                                                                                  |
+| smallmoney                             | DECIMAL(10,4) |                                                                                  |
+| decimal/numeric                        | DECIMAL       |                                                                                  |
+| date                                   | DATE          |                                                                                  |
+| datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                                                  |
+| char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                                                  |
+| time/datetimeoffset                    | STRING        |                                                                                  |
+| timestamp                              | STRING        | Read the hexadecimal display of binary data, which has no practical significance.|
+| Other                                  | UNSUPPORTED   |                                                                                  |
 
 ### Doris
 
