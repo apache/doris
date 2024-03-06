@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
@@ -62,10 +63,16 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
                     .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
 
             PartitionInfo partitionInfo = table.getPartitionInfo();
-            List<Slot> partitionSlots = partitionInfo.getPartitionColumns()
-                    .stream()
-                    .map(column -> scanOutput.get(column.getName().toLowerCase()))
-                    .collect(Collectors.toList());
+            List<Slot> partitionSlots = new ArrayList<>();
+            for (Column column : partitionInfo.getPartitionColumns()) {
+                Slot slot = scanOutput.get(column.getName().toLowerCase());
+                if (slot == null) {
+                    return filter;
+                } else {
+                    partitionSlots.add(slot);
+                }
+            }
+
             List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
 
             Map<Long, PartitionItem> idToPartitions;
