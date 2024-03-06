@@ -19,22 +19,10 @@ import java.util.Date
 import java.util.stream.Collectors
 
 suite("test_analyze_partition_first_load") {
-    String db = "regression_test_statistics"
     String tbl = "partition_first_load_test"
-    sql """
-        DROP DATABASE IF EXISTS `${db}`
-    """
 
     sql """
-        CREATE DATABASE `${db}`
-    """
-
-    sql """
-        USE `${db}`
-    """
-
-    sql """
-        DROP TABLE IF EXISTS partition_test
+        DROP TABLE IF EXISTS `$tbl`
     """
 
     // Test partititon load data for the first time.
