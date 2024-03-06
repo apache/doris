@@ -159,6 +159,8 @@ public class Replica implements Writable {
      */
     private long preWatermarkTxnId = -1;
     private long postWatermarkTxnId = -1;
+    private long segmentCount = 0L;
+    private long rowsetCount = 0L;
 
     private long userDropTime = -1;
 
@@ -239,6 +241,14 @@ public class Replica implements Writable {
 
     public long getRowCount() {
         return rowCount;
+    }
+
+    public long getSegmentCount() {
+        return segmentCount;
+    }
+
+    public long getRowsetCount() {
+        return rowsetCount;
     }
 
     public long getLastFailedVersion() {
@@ -332,6 +342,13 @@ public class Replica implements Writable {
         this.remoteDataSize = remoteDataSize;
         this.rowCount = rowNum;
         this.versionCount = versionCount;
+    }
+
+    public synchronized void updateCloudStat(long dataSize, long rowsetNum, long segmentNum, long rowNum) {
+        this.dataSize = dataSize;
+        this.rowsetCount = rowsetNum;
+        this.segmentCount = segmentNum;
+        this.rowCount = rowNum;
     }
 
     public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRemoteDataSize,
