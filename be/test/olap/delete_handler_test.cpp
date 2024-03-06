@@ -910,7 +910,6 @@ protected:
     void TearDown() {
         // Remove all dir.
         tablet.reset();
-        _delete_handler.finalize();
         static_cast<void>(k_engine->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
@@ -970,7 +969,6 @@ TEST_F(TestDeleteHandler, ValueWithQuote) {
 
     auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
-    _delete_handler.finalize();
 }
 
 TEST_F(TestDeleteHandler, ValueWithoutQuote) {
@@ -983,7 +981,6 @@ TEST_F(TestDeleteHandler, ValueWithoutQuote) {
 
     auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
-    _delete_handler.finalize();
 }
 
 TEST_F(TestDeleteHandler, InitSuccess) {
@@ -1057,7 +1054,6 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     // Get delete conditions which version <= 5
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
-    _delete_handler.finalize();
 }
 
 // 测试一个过滤条件包含的子条件之间是and关系,
@@ -1089,8 +1085,6 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-
-    _delete_handler.finalize();
 }
 
 // 测试多个过滤条件之间是or关系，
@@ -1150,8 +1144,6 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-
-    _delete_handler.finalize();
 }
 
 // 测试在过滤时，版本号小于数据版本的过滤条件将不起作用
@@ -1196,8 +1188,6 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-
-    _delete_handler.finalize();
 }
 
 } // namespace doris

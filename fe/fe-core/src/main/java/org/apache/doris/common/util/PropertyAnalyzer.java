@@ -214,6 +214,10 @@ public class PropertyAnalyzer {
             this.value = value;
         }
 
+        public String key() {
+            return this.key;
+        }
+
         public static RewriteProperty put(String key, String value) {
             return new RewriteProperty(RewriteType.PUT, key, value);
         }
@@ -1362,8 +1366,12 @@ public class PropertyAnalyzer {
         return properties;
     }
 
-    private void rewriteForceProperties(Map<String, String> properties) {
+    public void rewriteForceProperties(Map<String, String> properties) {
         forceProperties.forEach(property -> property.rewrite(properties));
+    }
+
+    public ImmutableList<RewriteProperty> getForceProperties() {
+        return forceProperties;
     }
 
     private static Map<String, String> rewriteReplicaAllocationProperties(
@@ -1439,7 +1447,7 @@ public class PropertyAnalyzer {
     // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
         if (Config.isCloudMode()) {
-            // FIXME: MOW is not supported in cloud mode yet.
+            // the default value of enable_unique_key_merge_on_write is false for cloud mode yet.
             return properties;
         }
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {

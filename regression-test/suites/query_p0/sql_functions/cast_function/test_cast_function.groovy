@@ -22,6 +22,8 @@ suite("test_cast_function") {
     qt_sql """ select cast ("0.0000031417" as datetime) """
     qt_sql """ select cast (NULL AS CHAR(1)); """
     qt_sql """ select cast ('20190101' AS CHAR(2)); """
+    qt_sql """ select cast(cast(10000.00001 as double) as string); """
+    qt_sql """ select cast('123.123' as float); """
 
     def tableName = "test_cast_function_nullable"
     sql "DROP TABLE IF EXISTS ${tableName}"

@@ -132,6 +132,7 @@ PipelineFragmentContext::PipelineFragmentContext(
           _report_status_cb(std::move(report_status_cb)),
           _create_time(MonotonicNanos()) {
     _fragment_watcher.start();
+    _start_time = VecDateTimeValue::local_time();
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
@@ -144,6 +145,16 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     } else {
         _call_back(_runtime_state.get(), &st);
     }
+}
+
+bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
+    if (_timeout <= 0) {
+        return false;
+    }
+    if (now.second_diff(_start_time) > _timeout) {
+        return true;
+    }
+    return false;
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
@@ -214,6 +225,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
+        _timeout = request.query_options.execution_timeout;
+    }
     const auto& local_params = request.local_params[idx];
     _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
     _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
@@ -230,9 +244,18 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state = RuntimeState::create_unique(
             local_params.fragment_instance_id, request.query_id, request.fragment_id,
             request.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
-    if (idx == 0 && local_params.__isset.runtime_filter_params) {
-        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                local_params.runtime_filter_params);
+    if (idx == 0) {
+        if (local_params.__isset.runtime_filter_params) {
+            if (local_params.__isset.runtime_filter_params) {
+                _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                        local_params.runtime_filter_params);
+            }
+        }
+        if (local_params.__isset.topn_filter_source_node_ids) {
+            _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
+        } else {
+            _query_ctx->init_runtime_predicates({0});
+        }
     }
 
     _runtime_state->set_task_execution_context(shared_from_this());
@@ -888,7 +911,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
     _runtime_state->runtime_profile()->total_time_counter()->update(
             _fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
-    if (_is_report_success) {
+    if (_runtime_state->enable_profile()) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile
         // Before add this operation, the print out like that:

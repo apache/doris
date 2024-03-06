@@ -26,6 +26,7 @@
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
+#include "util/defer_op.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -161,6 +162,13 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
 
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
+    Defer set_eos {[&]() {
+        //have executing const expr, queue have no data anymore, and child could be closed
+        *eos = (_child_size == 0 && !local_state._need_read_for_const_expr) ||
+               (_child_size > 0 && local_state._shared_state->data_queue.is_all_finish() &&
+                !_has_data(state));
+    }};
+
     SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
@@ -168,7 +176,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         }
         local_state._need_read_for_const_expr = has_more_const(state);
     } else if (_child_size != 0) {
-        std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
+        std::unique_ptr<vectorized::Block> output_block;
         int child_idx = 0;
         RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
                                                                                    &child_idx));
@@ -180,11 +188,6 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
     }
     local_state.reached_limit(block, eos);
-    //have executing const expr, queue have no data anymore, and child could be closed
-    *eos = (_child_size == 0 && !local_state._need_read_for_const_expr) ||
-           (_child_size > 0 && local_state._shared_state->data_queue.is_all_finish() &&
-            !_has_data(state));
-
     return Status::OK();
 }
 

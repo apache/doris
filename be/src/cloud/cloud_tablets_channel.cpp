@@ -235,7 +235,16 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         }
     }
 
-    // TODO(plat1ko): 6. set txn related delete bitmap if necessary
+    // 6. set txn related delete bitmap if necessary
+    for (auto it = writers_to_commit.begin(); it != writers_to_commit.end();) {
+        auto st = (*it)->set_txn_related_delete_bitmap();
+        if (!st.ok()) {
+            _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
+            _close_status = std::move(st);
+            return _close_status;
+        }
+        it++;
+    }
 
     tablet_vec->Reserve(writers_to_commit.size());
     for (auto* writer : writers_to_commit) {

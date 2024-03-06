@@ -62,6 +62,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
@@ -140,6 +141,19 @@ public class Alter {
         alterClauses.addAll(stmt.getOps());
         AlterOperations currentAlterOps = new AlterOperations();
         currentAlterOps.checkConflict(alterClauses);
+
+        for (AlterClause clause : alterClauses) {
+            Map<String, String> properties = null;
+            try {
+                properties = clause.getProperties();
+            } catch (Exception e) {
+                continue;
+            }
+
+            if (properties != null && !properties.isEmpty()) {
+                checkNoForceProperty(properties);
+            }
+        }
 
         if (olapTable instanceof MTMV) {
             currentAlterOps.checkMTMVAllow(alterClauses);
@@ -726,6 +740,7 @@ public class Alter {
                                          Map<String, String> properties,
                                          boolean isTempPartition)
             throws DdlException, AnalysisException {
+        checkNoForceProperty(properties);
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
         List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();
         olapTable.checkNormalStateForAlter();
@@ -804,6 +819,15 @@ public class Alter {
         // log here
         BatchModifyPartitionsInfo info = new BatchModifyPartitionsInfo(modifyPartitionInfos);
         Env.getCurrentEnv().getEditLog().logBatchModifyPartition(info);
+    }
+
+    public void checkNoForceProperty(Map<String, String> properties) throws DdlException {
+        for (RewriteProperty property : PropertyAnalyzer.getInstance().getForceProperties()) {
+            if (properties.containsKey(property.key())) {
+                throw new DdlException("Cann't modify property '" + property.key() + "'"
+                        + (Config.isCloudMode() ? " in cloud mode" : "") + ".");
+            }
+        }
     }
 
     public void replayModifyPartition(ModifyPartitionInfo info) throws MetaNotFoundException {

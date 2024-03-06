@@ -204,6 +204,10 @@ DECLARE_Int32(tablet_publish_txn_max_thread);
 DECLARE_Int32(publish_version_task_timeout_s);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
+// the count of thread to calc delete bitmap worker, only used for cloud
+DECLARE_Int32(calc_delete_bitmap_worker_count);
+// the count of thread to calc tablet delete bitmap task, only used for cloud
+DECLARE_Int32(calc_tablet_delete_bitmap_task_max_thread);
 // the count of thread to clear transaction task
 DECLARE_Int32(clear_transaction_task_worker_count);
 // the count of thread to delete
@@ -1256,6 +1260,9 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
+
+// write as inverted index tmp directory
+DECLARE_String(tmp_file_dir);
 
 #ifdef BE_TEST
 // test s3
