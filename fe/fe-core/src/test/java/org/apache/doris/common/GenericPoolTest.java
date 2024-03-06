@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
 import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
+import org.apache.doris.thrift.TKafkaTvfTask;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPreCacheAsyncRequest;
 import org.apache.doris.thrift.TPreCacheAsyncResponse;
@@ -203,6 +204,10 @@ public class GenericPoolTest {
         @Override
         public TStatus submitRoutineLoadTask(List<TRoutineLoadTask> tasks) throws TException {
             // TODO Auto-generated method stub
+            return null;
+        }
+
+        public TStatus sendKafkaTvfTask(TKafkaTvfTask tasks) throws TException {
             return null;
         }
 

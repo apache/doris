@@ -70,6 +70,15 @@ struct TRoutineLoadTask {
     17: optional bool memtable_on_sink_node;
 }
 
+struct TKafkaTvfTask {
+    1: required Types.TLoadSourceType type
+    2: required Types.TUniqueId id 
+    3: required TKafkaLoadInfo info
+    4: optional i64 max_interval_s
+    5: optional i64 max_batch_rows
+    6: optional i64 max_batch_size
+}
+
 struct TKafkaMetaProxyRequest {
     1: optional TKafkaLoadInfo kafka_info
 }
@@ -352,6 +361,8 @@ service BackendService {
     list<TDiskTrashInfo> get_disk_trash_used_capacity();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
+
+    Status.TStatus send_kafka_tvf_task(1:TKafkaTvfTask task);
 
     // doris will build  a scan context for this session, context_id returned if success
     DorisExternalService.TScanOpenResult open_scanner(1: DorisExternalService.TScanOpenParams params);

@@ -291,7 +291,7 @@ Status CsvReader::init_reader(bool is_load) {
         _skip_lines = 1;
     }
 
-    if (_params.file_type == TFileType::FILE_STREAM) {
+    if (_params.file_type == TFileType::FILE_STREAM || _params.file_type == TFileType::FILE_KAFKA) {
         RETURN_IF_ERROR(
                 FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, false));
     } else {
@@ -859,7 +859,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
     io::FileReaderOptions reader_options =
             FileFactory::get_reader_options(_state, _file_description);
-    if (_params.file_type == TFileType::FILE_STREAM) {
+    if (_params.file_type == TFileType::FILE_STREAM || _params.file_type == TFileType::FILE_KAFKA) {
         // Due to http_stream needs to pre read a portion of the data to parse column information, so it is set to true here
         RETURN_IF_ERROR(
                 FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state, true));
@@ -869,7 +869,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
                                                         &_file_reader));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
-        _params.file_type != TFileType::FILE_BROKER) {
+        _params.file_type != TFileType::FILE_KAFKA && _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("get parsed schema failed, empty csv file: " + _range.path);
     }
 

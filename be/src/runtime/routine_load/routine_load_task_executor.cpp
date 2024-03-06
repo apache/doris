@@ -248,6 +248,10 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         return Status::InternalError("unknown load source type");
     }
 
+    return offer_task(ctx);
+}
+
+Status RoutineLoadTaskExecutor::offer_task(std::shared_ptr<StreamLoadContext> ctx) {
     VLOG_CRITICAL << "receive a new routine load task: " << ctx->brief();
     // register the task
     _task_map[ctx->id] = ctx;
@@ -326,7 +330,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     // must put pipe before executing plan fragment
     HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx), "failed to add pipe");
 
-    if (!ctx->is_multi_table) {
+    if (!ctx->is_multi_table && ctx->load_type == TLoadType::ROUTINE_LOAD) {
         // only for normal load, single-stream-multi-table load will be planned during consuming
 #ifndef BE_TEST
         // execute plan fragment, async
