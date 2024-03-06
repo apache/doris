@@ -5317,6 +5317,7 @@ public class Env {
                     throw new MetaNotFoundException("replica does not exist on backend, beId=" + backendId);
                 }
                 if (status == ReplicaStatus.BAD || status == ReplicaStatus.OK) {
+                    replica.setUserDrop(false);
                     if (replica.setBad(status == ReplicaStatus.BAD)) {
                         if (!isReplay) {
                             SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(backendId, tabletId,
@@ -5326,6 +5327,10 @@ public class Env {
                         LOG.info("set replica {} of tablet {} on backend {} as {}. is replay: {}", replica.getId(),
                                 tabletId, backendId, status, isReplay);
                     }
+                } else if (status == ReplicaStatus.DROP) {
+                    replica.setUserDrop(true);
+                    LOG.info("set replica {} of tablet {} on backend {} as {}.", replica.getId(),
+                            tabletId, backendId, status);
                 }
             } finally {
                 table.writeUnlock();
