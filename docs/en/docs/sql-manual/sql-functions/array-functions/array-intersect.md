@@ -75,7 +75,7 @@ mysql> select k1,k2,k3,array_intersect(k2,k3) from array_type_table_varchar;
 |    1 | ['hello', 'world', 'c++']  | ['I', 'am', 'c++']               | ['c++']                     |
 |    2 | ['a1', 'equals', 'b1']     | ['a2', 'equals', 'b2']           | ['equals']                  |
 |    3 | ['hasnull', NULL, 'value'] | ['nohasnull', 'nonull', 'value'] | [NULL, 'value']             |
-|    3 | ['hasnull', NULL, 'value'] | ['hasnull', NULL, 'value']       | ['hasnull', 'value']        |
+|    3 | ['hasnull', NULL, 'value'] | ['hasnull', NULL, 'value']       | ['hasnull', NULL, 'value']  |
 +------+----------------------------+----------------------------------+-----------------------------+
 
 mysql> select k1,k2,k3,array_intersect(k2,k3) from array_type_table_decimal;
