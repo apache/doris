@@ -2590,6 +2590,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
 
+    @ConfField
+    public static int cloud_txn_tablet_batch_size = 50;
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

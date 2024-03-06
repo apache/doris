@@ -508,7 +508,9 @@ message TabletMetaCloudPB {
     optional int64 time_series_compaction_goal_size_mbytes = 32 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 33 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 34 [default = 3600];
-    optional int64 time_series_compaction_empty_rowsets_threshold = 35 [default = 5];
+    optional int64 group_commit_interval_ms = 35 [default = 10000];
+    optional int64 group_commit_data_bytes = 36 [default = 134217728];
+    optional int64 time_series_compaction_empty_rowsets_threshold = 37 [default = 5];
 
     // Use for selectdb-cloud
     optional string table_name = 101;

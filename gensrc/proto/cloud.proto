@@ -432,6 +432,8 @@ message TabletMetaInfoPB { // For update tablet meta
     optional bool is_in_memory = 2; // deprecated
     optional bool is_persistent = 3; // deprecated
     optional int64 ttl_seconds = 4;
+    optional int64 group_commit_interval_ms = 5;
+    optional int64 group_commit_data_bytes = 6;
 }
 
 message TabletCompactionJobPB {
