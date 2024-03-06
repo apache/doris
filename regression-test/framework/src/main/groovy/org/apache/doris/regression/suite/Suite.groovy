@@ -551,7 +551,6 @@ class Suite implements GroovyInterceptable {
         try {
             userFunction()
         } catch (Exception e) {
-            sql """ DROP TABLE IF EXISTS ${tableName} """
             if (e.getMessage()!= errorMessage) {
                 throw e
             }
