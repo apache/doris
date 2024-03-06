@@ -409,7 +409,7 @@ CALL EXECUTE_STMT(jdbc_catalog", "create table dbl1.tbl2 (k1 int)");
         "user"="root",
         "password"="123456",
         "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-        "driver_url" = "mysql-connector-java-5.1.47.jar",
+        "driver_url" = "mysql-connector-java-5.1.49.jar",
         "driver_class" = "com.mysql.jdbc.Driver"
     )
     ```
@@ -627,7 +627,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
-    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_url" = "mysql-connector-java-5.1.49.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 ```
@@ -900,12 +900,12 @@ CREATE CATALOG `jdbc_db2` PROPERTIES (
 
 |    Source    |                        JDBC Driver Version                        |
 |:------------:|:-----------------------------------------------------------------:|
-|  MySQL 5.x   |                  mysql-connector-java-5.1.47.jar                  |
+|  MySQL 5.x   |                  mysql-connector-java-5.1.49.jar                  |
 |  MySQL 8.x   |                  mysql-connector-java-8.0.25.jar                  |
 |  PostgreSQL  |                       postgresql-42.5.1.jar                       |
 |    Oracle    |                            ojdbc8.jar                             |
 |  SQLServer   |                    mssql-jdbc-11.2.3.jre8.jar                     |
-|    Doris     | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+|    Doris     | mysql-connector-java-5.1.49.jar / mysql-connector-java-8.0.25.jar |
 |  Clickhouse  |                   clickhouse-jdbc-0.4.2-all.jar                   |
 |   SAP HAHA   |                             ngdbc.jar                             |
 | Trino/Presto |            trino-jdbc-389.jar / presto-jdbc-0.280.jar             |
