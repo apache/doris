@@ -445,6 +445,16 @@ Set table properties. The following attributes are currently supported:
 
     `"time_series_compaction_time_threshold_seconds" = "3600"`
 
+* `time_series_compaction_level_threshold`
+
+    When time series compaction policy is applied, This parameter defaults to 1.  When set to 2, it is used to control the re-merging of segments that have been 
+    
+    merged once, ensuring that the segment size reaches the time_series_compaction_goal_size_mbytes, which can achieve the effect of reducing the number of 
+    
+    segments.
+
+    `"time_series_compaction_level_threshold" = "2"`
+
 
 * Dynamic partition related
 
