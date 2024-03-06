@@ -64,6 +64,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
+import org.apache.doris.thrift.TQueryColumn;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -1188,6 +1189,20 @@ public class AnalysisManager implements Writable {
                                 + optionalColumn.get().getName());
                     }
                 }
+            }
+        }
+    }
+
+    public void mergeFollowerQueryColumns(Collection<TQueryColumn> highColumns,
+            Collection<TQueryColumn> midColumns) {
+        for (TQueryColumn c : highColumns) {
+            if (!highPriorityColumns.offer(new HighPriorityColumn(c.catalogId, c.dbId, c.tblId, c.colName))) {
+                break;
+            }
+        }
+        for (TQueryColumn c : midColumns) {
+            if (!midPriorityColumns.offer(new HighPriorityColumn(c.catalogId, c.dbId, c.tblId, c.colName))) {
+                break;
             }
         }
     }
