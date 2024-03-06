@@ -60,6 +60,7 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
         HadoopUGI.tryKrbLogin(this.getName(), AuthenticationConfig.getKerberosConfig(hiveConf,
                 AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
                 AuthenticationConfig.HADOOP_KERBEROS_KEYTAB));
+        initS3Param(hiveConf);
         HMSCachedClient cachedClient = HiveMetadataOps.createCachedClient(hiveConf, 1, null);
         String location = cachedClient.getCatalogLocation("hive");
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, location);
