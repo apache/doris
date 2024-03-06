@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "olap/rowset/rowset_writer.h"
+#include "runtime/query_context.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/network_util.h"
@@ -304,7 +305,7 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     return Status::OK();
 }
 
-Status LoadStreamStub::close_wait(int64_t timeout_ms) {
+Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
         while (true) {
         };
@@ -319,11 +320,20 @@ Status LoadStreamStub::close_wait(int64_t timeout_ms) {
     DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
     std::unique_lock<bthread::Mutex> lock(_close_mutex);
     if (!_is_closed.load()) {
-        int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-        if (ret != 0) {
-            return Status::InternalError(
-                    "stream close_wait timeout, error={}, load_id={}, dst_id={}, stream_id={}", ret,
-                    print_id(_load_id), _dst_id, _stream_id);
+        auto timeout_sec = timeout_ms / 1000;
+        while (!state->get_query_ctx()->is_cancelled() && timeout_sec > 0) {
+            //the query maybe cancel, so need check after wait 1s
+            timeout_sec = timeout_sec - 1;
+            int ret = _close_cv.wait_for(lock, 1000000);
+            if (ret == 0) {
+                break;
+            }
+            if (timeout_sec <= 0) {
+                return Status::InternalError(
+                        "stream close_wait timeout, timeout_ms={}, load_id={}, dst_id={}, "
+                        "stream_id={}",
+                        timeout_ms, print_id(_load_id), _dst_id, _stream_id);
+            }
         }
     }
     RETURN_IF_ERROR(_check_cancel());

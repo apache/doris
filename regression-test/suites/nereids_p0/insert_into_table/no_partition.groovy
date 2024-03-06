@@ -26,6 +26,7 @@ suite('nereids_insert_no_partition') {
     sql 'set enable_nereids_dml=true'
     sql 'set enable_strict_consistency_dml=true'
 
+    sql 'set experimental_enable_nereids_dml_with_pipeline=false'
     explain {
         // TODO: test turn off pipeline when dml, remove it if pipeline sink is ok
         sql '''

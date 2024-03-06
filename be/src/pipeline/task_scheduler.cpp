@@ -237,8 +237,13 @@ void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status
     // for pending finish now. So that could call close directly.
     Status status = task->close(exec_status);
     if (!status.ok() && state != PipelineTaskState::CANCELED) {
-        task->query_context()->cancel(true, status.to_string(),
-                                      Status::Cancelled(status.to_string()));
+        if (task->is_pipelineX()) { //should call fragment context cancel, in it will call query context cancel
+            task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                                             std::string(status.msg()));
+        } else {
+            task->query_context()->cancel(true, status.to_string(),
+                                          Status::Cancelled(status.to_string()));
+        }
         state = PipelineTaskState::CANCELED;
     }
     task->set_state(state);
