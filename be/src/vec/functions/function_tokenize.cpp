@@ -20,7 +20,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <regex>
+#include <boost/regex.hpp>
 #include <utility>
 
 #include "CLucene/StdHeader.h"
@@ -36,16 +36,18 @@
 namespace doris::vectorized {
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
-    std::regex pattern(
+    boost::regex pattern(
             R"delimiter((?:'([^']*)'|"([^"]*)"|([^,]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^,]*)))delimiter");
-    std::smatch matches;
+    boost::smatch matches;
 
     std::string::const_iterator searchStart(str.cbegin());
-    while (std::regex_search(searchStart, str.cend(), matches, pattern)) {
-        std::string key =
-                matches[1].length() ? matches[1] : (matches[2].length() ? matches[2] : matches[3]);
-        std::string value =
-                matches[4].length() ? matches[4] : (matches[5].length() ? matches[5] : matches[6]);
+    while (boost::regex_search(searchStart, str.cend(), matches, pattern)) {
+        std::string key = matches[1].length()
+                                  ? matches[1].str()
+                                  : (matches[2].length() ? matches[2].str() : matches[3].str());
+        std::string value = matches[4].length()
+                                    ? matches[4].str()
+                                    : (matches[5].length() ? matches[5].str() : matches[6].str());
 
         result[key] = value;
 
@@ -140,8 +142,16 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
             inverted_index_ctx.char_filter_map =
                     get_parser_char_filter_map_from_properties(properties);
-            auto analyzer =
-                    doris::segment_v2::InvertedIndexReader::create_analyzer(&inverted_index_ctx);
+
+            std::unique_ptr<lucene::analysis::Analyzer> analyzer;
+            try {
+                analyzer = doris::segment_v2::InvertedIndexReader::create_analyzer(
+                        &inverted_index_ctx);
+            } catch (CLuceneError& e) {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                        "inverted index create analyzer failed: {}", e.what());
+            }
+
             inverted_index_ctx.analyzer = analyzer.get();
             _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,
                          dest_nested_null_map);

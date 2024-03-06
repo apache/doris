@@ -291,11 +291,6 @@ void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {
     for (size_t i = 0; i < array_size; ++i) get_data().update_hash_with_value(offset + i, hash);
 }
 
-void ColumnArray::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                           const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
 // for every array row calculate xxHash
 void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                            const uint8_t* __restrict null_data) const {
@@ -481,11 +476,13 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
 
     const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
 
-    if (start + length > src_concrete.get_offsets().size())
-        LOG(FATAL) << "Parameter out of bound in ColumnArray::insert_range_from method. [start("
-                   << std::to_string(start) << ") + length(" << std::to_string(length)
-                   << ") > offsets.size(" << std::to_string(src_concrete.get_offsets().size())
-                   << ")]";
+    if (start + length > src_concrete.get_offsets().size()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameter out of bound in ColumnArray::insert_range_from method. "
+                               "[start({}) + length({}) > offsets.size({})]",
+                               std::to_string(start), std::to_string(length),
+                               std::to_string(src_concrete.get_offsets().size()));
+    }
 
     size_t nested_offset = src_concrete.offset_at(start);
     size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;
@@ -854,37 +851,6 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
     if (typeid_cast<const ColumnNullable*>(data.get()))
         return replicate_nullable(replicate_offsets);
     return replicate_generic(replicate_offsets);
-}
-
-void ColumnArray::replicate(const uint32_t* indices, size_t target_size, IColumn& column) const {
-    if (target_size == 0) {
-        return;
-    }
-
-    auto& dst_col = assert_cast<ColumnArray&>(column);
-    auto& dst_data_col = dst_col.get_data();
-    auto& dst_offsets = dst_col.get_offsets();
-    dst_offsets.reserve(target_size);
-
-    PODArray<uint32> data_indices_to_replicate;
-
-    for (size_t i = 0; i < target_size; ++i) {
-        const auto index = indices[i];
-        const auto start = offset_at(index);
-        const auto length = size_at(index);
-        dst_offsets.push_back(dst_offsets.back() + length);
-        if (UNLIKELY(length == 0)) {
-            continue;
-        }
-
-        data_indices_to_replicate.reserve(data_indices_to_replicate.size() + length);
-        for (size_t j = start; j != start + length; ++j) {
-            data_indices_to_replicate.push_back(j);
-        }
-    }
-
-    get_data().replicate(data_indices_to_replicate.data(), data_indices_to_replicate.size(),
-                         dst_data_col);
 }
 
 template <typename T>

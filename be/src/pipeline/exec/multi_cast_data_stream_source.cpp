@@ -38,7 +38,7 @@ OperatorPtr MultiCastDataStreamerSourceOperatorBuilder::build_operator() {
             this, _consumer_id, _multi_cast_data_streamer, _t_data_stream_sink);
 }
 
-const RowDescriptor& MultiCastDataStreamerSourceOperatorBuilder::row_desc() {
+const RowDescriptor& MultiCastDataStreamerSourceOperatorBuilder::row_desc() const {
     return _multi_cast_data_streamer->row_desc();
 }
 
@@ -140,8 +140,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
-    _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(
-            p._consumer_id, static_cast<MultiCastSourceDependency*>(_dependency));
+    _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(p._consumer_id, _dependency);
     _output_expr_contexts.resize(p._output_expr_contexts.size());
     for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
         RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
@@ -153,18 +152,16 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
 }
 
 Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
-                                                       vectorized::Block* block,
-                                                       SourceState& source_state) {
+                                                       vectorized::Block* block, bool* eos) {
     //auto& local_state = get_local_state(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    bool eos = false;
     vectorized::Block tmp_block;
     vectorized::Block* output_block = block;
     if (!local_state._output_expr_contexts.empty()) {
         output_block = &tmp_block;
     }
-    local_state._shared_state->multi_cast_data_streamer.pull(_consumer_id, output_block, &eos);
+    local_state._shared_state->multi_cast_data_streamer.pull(_consumer_id, output_block, eos);
 
     if (!local_state._conjuncts.empty()) {
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
@@ -177,9 +174,6 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
         vectorized::materialize_block_inplace(*block);
     }
     COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
-    if (eos) {
-        source_state = SourceState::FINISHED;
-    }
     return Status::OK();
 }
 

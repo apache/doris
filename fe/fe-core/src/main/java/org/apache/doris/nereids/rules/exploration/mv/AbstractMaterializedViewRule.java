@@ -25,7 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
-import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
@@ -186,11 +187,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                         Pair.of("Predicate compensate fail",
                                 String.format("query predicates = %s,\n query equivalenceClass = %s, \n"
-                                                + "view predicates = %s,\n query equivalenceClass = %s\n",
+                                                + "view predicates = %s,\n query equivalenceClass = %s\n"
+                                                + "comparisonResult = %s ",
                                         queryStructInfo.getPredicates(),
                                         queryStructInfo.getEquivalenceClass(),
                                         viewStructInfo.getPredicates(),
-                                        viewStructInfo.getEquivalenceClass())));
+                                        viewStructInfo.getEquivalenceClass(),
+                                        comparisonResult)));
                 continue;
             }
             Plan rewrittenPlan;
@@ -308,13 +311,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         // check mv related table partition is valid or not
         MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
-        BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTable();
+        BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
         if (relatedPartitionTable == null) {
             return ImmutableSet.of();
         }
         // get mv valid partitions
-        Set<Long> mvDataValidPartitionIdSet = MTMVUtil.getMTMVCanRewritePartitions(mtmv,
-                        cascadesContext.getConnectContext()).stream()
+        Set<Long> mvDataValidPartitionIdSet = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
+                cascadesContext.getConnectContext(), System.currentTimeMillis()).stream()
                 .map(Partition::getId)
                 .collect(Collectors.toSet());
         Set<Long> queryUsedPartitionIdSet = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan
@@ -439,6 +442,25 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             viewStructInfo = viewStructInfo.withPredicates(
                     viewStructInfo.getPredicates().merge(viewPulledUpExpressions));
         }
+        // if the join type in query and mv plan is different, we should check query is have the
+        // filters which rejects null
+        Set<Set<Slot>> requireNoNullableViewSlot = comparisonResult.getViewNoNullableSlot();
+        // check query is use the null reject slot which view comparison need
+        if (!requireNoNullableViewSlot.isEmpty()) {
+            SlotMapping queryToViewMapping = viewToQuerySlotMapping.inverse();
+            // try to use
+            boolean valid = containsNullRejectSlot(requireNoNullableViewSlot,
+                    queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, cascadesContext);
+            if (!valid) {
+                queryStructInfo = queryStructInfo.withPredicates(
+                        queryStructInfo.getPredicates().merge(comparisonResult.getQueryAllPulledUpExpressions()));
+                valid = containsNullRejectSlot(requireNoNullableViewSlot,
+                        queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, cascadesContext);
+            }
+            if (!valid) {
+                return SplitPredicate.INVALID_INSTANCE;
+            }
+        }
         // viewEquivalenceClass to query based
         // equal predicate compensate
         final Set<Expression> equalCompensateConjunctions = Predicates.compensateEquivalence(
@@ -451,7 +473,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 queryStructInfo,
                 viewStructInfo,
                 viewToQuerySlotMapping,
-                comparisonResult);
+                comparisonResult,
+                cascadesContext);
         // residual compensate
         final Set<Expression> residualCompensatePredicates = Predicates.compensateResidualPredicate(
                 queryStructInfo,
@@ -462,35 +485,42 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 || residualCompensatePredicates == null) {
             return SplitPredicate.INVALID_INSTANCE;
         }
-        // if the join type in query and mv plan is different, we should check query is have the
-        // filters which rejects null
-        Set<Set<Slot>> requireNoNullableViewSlot = comparisonResult.getViewNoNullableSlot();
-        // check query is use the null reject slot which view comparison need
-        if (!requireNoNullableViewSlot.isEmpty()) {
-            Set<Expression> queryPulledUpPredicates = queryStructInfo.getPredicates().getPulledUpPredicates();
-            Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates,
-                    cascadesContext);
-            if (nullRejectPredicates.isEmpty() || queryPulledUpPredicates.containsAll(nullRejectPredicates)) {
-                // query has not null reject predicates, so return
-                return SplitPredicate.INVALID_INSTANCE;
-            }
-            SlotMapping queryToViewMapping = viewToQuerySlotMapping.inverse();
-            Set<Expression> queryUsedNeedRejectNullSlotsViewBased = nullRejectPredicates.stream()
-                    .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
-                    .filter(Objects::nonNull)
-                    .map(expr -> ExpressionUtils.replace((Expression) expr, queryToViewMapping.toSlotReferenceMap()))
-                    .collect(Collectors.toSet());
-            if (requireNoNullableViewSlot.stream().anyMatch(
-                    set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty())) {
-                return SplitPredicate.INVALID_INSTANCE;
-            }
-        }
         return SplitPredicate.of(equalCompensateConjunctions.isEmpty() ? BooleanLiteral.TRUE
                         : ExpressionUtils.and(equalCompensateConjunctions),
                 rangeCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
                         : ExpressionUtils.and(rangeCompensatePredicates),
                 residualCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
                         : ExpressionUtils.and(residualCompensatePredicates));
+    }
+
+    /**
+     * Check the queryPredicates contains the required nullable slot
+     */
+    private boolean containsNullRejectSlot(Set<Set<Slot>> requireNoNullableViewSlot,
+            Set<Expression> queryPredicates,
+            SlotMapping queryToViewMapping,
+            CascadesContext cascadesContext) {
+        Set<Expression> queryPulledUpPredicates = queryPredicates.stream()
+                .flatMap(expr -> ExpressionUtils.extractConjunction(expr).stream())
+                .map(expr -> {
+                    // NOTICE inferNotNull generate Not with isGeneratedIsNotNull = false,
+                    //  so, we need set this flag to false before comparison.
+                    if (expr instanceof Not) {
+                        return ((Not) expr).withGeneratedIsNotNull(false);
+                    }
+                    return expr;
+                })
+                .collect(Collectors.toSet());
+        Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates, cascadesContext);
+        Set<Expression> queryUsedNeedRejectNullSlotsViewBased = nullRejectPredicates.stream()
+                .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
+                .filter(Objects::nonNull)
+                .map(expr -> ExpressionUtils.replace((Expression) expr, queryToViewMapping.toSlotReferenceMap()))
+                .collect(Collectors.toSet());
+        // query pulledUp predicates should have null reject predicates and contains any require noNullable slot
+        return !queryPulledUpPredicates.containsAll(nullRejectPredicates)
+                && requireNoNullableViewSlot.stream().noneMatch(
+                        set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty());
     }
 
     /**

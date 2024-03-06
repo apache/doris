@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -41,7 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -56,7 +57,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -67,8 +67,7 @@ import javax.annotation.Nullable;
  * modify, if wanting to modify, should copy and then modify
  */
 public class StructInfo {
-    public static final JoinPatternChecker JOIN_PATTERN_CHECKER = new JoinPatternChecker();
-    public static final AggregatePatternChecker AGGREGATE_PATTERN_CHECKER = new AggregatePatternChecker();
+    public static final PlanPatternChecker PLAN_PATTERN_CHECKER = new PlanPatternChecker();
     // struct info splitter
     public static final PlanSplitter PLAN_SPLITTER = new PlanSplitter();
     private static final RelationCollector RELATION_COLLECTOR = new RelationCollector();
@@ -171,12 +170,33 @@ public class StructInfo {
         // Collect relations from hyper graph which in the bottom plan
         hyperGraph.getNodes().forEach(node -> {
             // plan relation collector and set to map
+            StructInfoNode structInfoNode = (StructInfoNode) node;
+            // plan relation collector and set to map
             Plan nodePlan = node.getPlan();
             List<CatalogRelation> nodeRelations = new ArrayList<>();
             nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
             relationBuilder.addAll(nodeRelations);
             // every node should only have one relation, this is for LogicalCompatibilityContext
-            relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
+            if (!nodeRelations.isEmpty()) {
+                relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
+            }
+            // record expressions in node
+            if (structInfoNode.getExpressions() != null) {
+                structInfoNode.getExpressions().forEach(expression -> {
+                    ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                            new ExpressionLineageReplacer.ExpressionReplaceContext(
+                                    Lists.newArrayList(expression),
+                                    ImmutableSet.of(),
+                                    ImmutableSet.of());
+                    structInfoNode.getPlan().accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+                    // Replace expressions by expression map
+                    List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+                    shuttledHashConjunctsToConjunctsMap.put(replacedExpressions.get(0), expression);
+                    // Record this, will be used in top level expression shuttle later, see the method
+                    // ExpressionLineageReplacer#visitGroupPlan
+                    namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
+                });
+            }
         });
         // Collect expression from where in hyper graph
         hyperGraph.getFilterEdges().forEach(filterEdge -> {
@@ -225,7 +245,7 @@ public class StructInfo {
         // if single table without join, the bottom is
         originalPlan.accept(PLAN_SPLITTER, planSplitContext);
 
-        List<HyperGraph> structInfos = HyperGraph.toStructInfo(planSplitContext.getBottomPlan());
+        List<HyperGraph> structInfos = HyperGraph.builderForMv(planSplitContext.getBottomPlan()).buildAll();
         return structInfos.stream()
                 .map(hyperGraph -> StructInfo.of(originalPlan, planSplitContext.getTopPlan(),
                         planSplitContext.getBottomPlan(), hyperGraph))
@@ -427,52 +447,110 @@ public class StructInfo {
     }
 
     /**
-     * JoinPatternChecker
+     * The context for plan check context, make sure that the plan in query and mv is valid or not
      */
-    public static class JoinPatternChecker extends DefaultPlanVisitor<Boolean, Set<JoinType>> {
-        @Override
-        public Boolean visit(Plan plan, Set<JoinType> requiredJoinType) {
-            super.visit(plan, requiredJoinType);
-            if (!(plan instanceof Filter)
-                    && !(plan instanceof Project)
-                    && !(plan instanceof CatalogRelation)
-                    && !(plan instanceof Join)) {
-                return false;
-            }
-            if (plan instanceof Join) {
-                Join join = (Join) plan;
-                if (!requiredJoinType.contains(join.getJoinType())) {
-                    return false;
-                }
-                if (!join.getOtherJoinConjuncts().isEmpty()) {
-                    return false;
-                }
-            }
-            return true;
+    public static class PlanCheckContext {
+        // the aggregate above join
+        private boolean containsTopAggregate = false;
+        private int topAggregateNum = 0;
+        private boolean alreadyMeetJoin = false;
+        private final Set<JoinType> supportJoinTypes;
+
+        public PlanCheckContext(Set<JoinType> supportJoinTypes) {
+            this.supportJoinTypes = supportJoinTypes;
+        }
+
+        public boolean isContainsTopAggregate() {
+            return containsTopAggregate;
+        }
+
+        public void setContainsTopAggregate(boolean containsTopAggregate) {
+            this.containsTopAggregate = containsTopAggregate;
+        }
+
+        public boolean isAlreadyMeetJoin() {
+            return alreadyMeetJoin;
+        }
+
+        public void setAlreadyMeetJoin(boolean alreadyMeetJoin) {
+            this.alreadyMeetJoin = alreadyMeetJoin;
+        }
+
+        public Set<JoinType> getSupportJoinTypes() {
+            return supportJoinTypes;
+        }
+
+        public int getTopAggregateNum() {
+            return topAggregateNum;
+        }
+
+        public void plusTopAggregateNum() {
+            this.topAggregateNum += 1;
+        }
+
+        public static PlanCheckContext of(Set<JoinType> supportJoinTypes) {
+            return new PlanCheckContext(supportJoinTypes);
         }
     }
 
     /**
-     * AggregatePatternChecker
+     * PlanPatternChecker, this is used to check the plan pattern is valid or not
      */
-    public static class AggregatePatternChecker extends DefaultPlanVisitor<Boolean, Void> {
+    public static class PlanPatternChecker extends DefaultPlanVisitor<Boolean, PlanCheckContext> {
         @Override
-        public Boolean visit(Plan plan, Void context) {
-            if (plan instanceof LogicalAggregate) {
-                LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) plan;
-                Optional<LogicalRepeat<?>> sourceRepeat = aggregate.getSourceRepeat();
-                if (sourceRepeat.isPresent()) {
+        public Boolean visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+                PlanCheckContext checkContext) {
+            checkContext.setAlreadyMeetJoin(true);
+            if (!checkContext.getSupportJoinTypes().contains(join.getJoinType())) {
+                return false;
+            }
+            if (!join.getOtherJoinConjuncts().isEmpty()) {
+                return false;
+            }
+            return visit(join, checkContext);
+        }
+
+        @Override
+        public Boolean visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
+                PlanCheckContext checkContext) {
+            if (!checkContext.isAlreadyMeetJoin()) {
+                checkContext.setContainsTopAggregate(true);
+                checkContext.plusTopAggregateNum();
+            }
+            if (aggregate.getSourceRepeat().isPresent()) {
+                return false;
+            }
+            return visit(aggregate, checkContext);
+        }
+
+        @Override
+        public Boolean visitGroupPlan(GroupPlan groupPlan, PlanCheckContext checkContext) {
+            return groupPlan.getGroup().getLogicalExpressions().stream()
+                    .anyMatch(logicalExpression -> logicalExpression.getPlan().accept(this, checkContext));
+        }
+
+        @Override
+        public Boolean visit(Plan plan, PlanCheckContext checkContext) {
+            if (plan instanceof Filter
+                    || plan instanceof Project
+                    || plan instanceof CatalogRelation
+                    || plan instanceof Join
+                    || plan instanceof LogicalSort
+                    || plan instanceof LogicalAggregate
+                    || plan instanceof GroupPlan) {
+                return doVisit(plan, checkContext);
+            }
+            return false;
+        }
+
+        private Boolean doVisit(Plan plan, PlanCheckContext checkContext) {
+            for (Plan child : plan.children()) {
+                boolean valid = child.accept(this, checkContext);
+                if (!valid) {
                     return false;
                 }
-                super.visit(aggregate, context);
-                return true;
             }
-            if (plan instanceof LogicalProject || plan instanceof LogicalFilter) {
-                super.visit(plan, context);
-                return true;
-            }
-            super.visit(plan, context);
-            return false;
+            return true;
         }
     }
 }

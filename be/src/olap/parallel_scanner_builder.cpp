@@ -40,6 +40,7 @@ template <typename ParentType>
 Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
         std::list<VScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
+
     for (auto&& [tablet, version] : _tablets) {
         DCHECK(_all_rowsets.contains(tablet->tablet_id()));
         auto& rowsets = _all_rowsets[tablet->tablet_id()];
@@ -170,7 +171,7 @@ Status ParallelScannerBuilder<ParentType>::_load() {
         auto& rowsets = _all_rowsets[tablet_id];
         {
             std::shared_lock read_lock(tablet->get_header_lock());
-            RETURN_IF_ERROR(tablet->capture_consistent_rowsets({0, version}, &rowsets));
+            RETURN_IF_ERROR(tablet->capture_consistent_rowsets_unlocked({0, version}, &rowsets));
         }
 
         for (auto& rowset : rowsets) {

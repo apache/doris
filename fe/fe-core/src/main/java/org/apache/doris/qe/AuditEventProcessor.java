@@ -88,7 +88,9 @@ public class AuditEventProcessor {
                 if (auditPlugins == null || System.currentTimeMillis() - lastUpdateTime > UPDATE_PLUGIN_INTERVAL_MS) {
                     auditPlugins = pluginMgr.getActivePluginList(PluginType.AUDIT);
                     lastUpdateTime = System.currentTimeMillis();
-                    LOG.debug("update audit plugins. num: {}", auditPlugins.size());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("update audit plugins. num: {}", auditPlugins.size());
+                    }
                 }
 
                 try {
@@ -97,7 +99,9 @@ public class AuditEventProcessor {
                         continue;
                     }
                 } catch (InterruptedException e) {
-                    LOG.debug("encounter exception when getting audit event from queue, ignore", e);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("encounter exception when getting audit event from queue, ignore", e);
+                    }
                     continue;
                 }
 
@@ -108,7 +112,9 @@ public class AuditEventProcessor {
                         }
                     }
                 } catch (Exception e) {
-                    LOG.debug("encounter exception when processing audit event.", e);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("encounter exception when processing audit event.", e);
+                    }
                 }
             }
         }

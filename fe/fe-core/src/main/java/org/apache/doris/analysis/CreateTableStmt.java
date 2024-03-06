@@ -39,8 +39,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -98,7 +97,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("broker");
     }
 
-    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
+    // if auto bucket enable, rewrite distribution bucket num &&
     // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
     private static Map<String, String> maybeRewriteByAutoBucket(DistributionDesc distributionDesc,
             Map<String, String> properties) throws AnalysisException {
@@ -255,6 +254,10 @@ public class CreateTableStmt extends DdlStmt {
         return engineName;
     }
 
+    public String getCatalogName() {
+        return tableName.getCtl();
+    }
+
     public String getDbName() {
         return tableName.getDb();
     }
@@ -284,8 +287,6 @@ public class CreateTableStmt extends DdlStmt {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {

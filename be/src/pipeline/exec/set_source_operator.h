@@ -53,22 +53,14 @@ public:
     Status open(RuntimeState* /*state*/) override { return Status::OK(); }
 };
 
-class SetSourceDependency final : public Dependency {
-public:
-    using SharedState = SetSharedState;
-    SetSourceDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SetSourceDependency", query_ctx) {}
-    ~SetSourceDependency() override = default;
-};
-
 template <bool is_intersect>
 class SetSourceOperatorX;
 
 template <bool is_intersect>
-class SetSourceLocalState final : public PipelineXLocalState<SetSourceDependency> {
+class SetSourceLocalState final : public PipelineXLocalState<SetSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SetSourceLocalState);
-    using Base = PipelineXLocalState<SetSourceDependency>;
+    using Base = PipelineXLocalState<SetSharedState>;
     using Parent = SetSourceOperatorX<is_intersect>;
     SetSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
     Status init(RuntimeState* state, LocalStateInfo& infos) override;
@@ -93,13 +85,15 @@ public:
 
     SetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs)
-            : Base(pool, tnode, operator_id, descs) {};
+            : Base(pool, tnode, operator_id, descs),
+              _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
+                                      ? tnode.intersect_node.result_expr_lists.size()
+                                      : tnode.except_node.result_expr_lists.size()) {};
     ~SetSourceOperatorX() override = default;
 
     [[nodiscard]] bool is_source() const override { return true; }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
 private:
     friend class SetSourceLocalState<is_intersect>;
@@ -110,10 +104,11 @@ private:
     template <typename HashTableContext>
     Status _get_data_in_hashtable(SetSourceLocalState<is_intersect>& local_state,
                                   HashTableContext& hash_table_ctx, vectorized::Block* output_block,
-                                  const int batch_size, SourceState& source_state);
+                                  const int batch_size, bool* eos);
 
     void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
                              vectorized::RowRefListWithFlags& value, int& block_size);
+    const int _child_quantity;
 };
 
 } // namespace pipeline

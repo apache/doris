@@ -34,7 +34,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 public class PartitionExprUtil {
@@ -160,8 +159,7 @@ public class PartitionExprUtil {
                 partitionName += getFormatPartitionValue(filterStr);
                 if (hasStringType) {
                     if (partitionName.length() > 50) {
-                        partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
-                                + "_" + System.currentTimeMillis();
+                        throw new AnalysisException("Partition name's length is over limit of 50. abort to create.");
                     }
                 }
             } else {

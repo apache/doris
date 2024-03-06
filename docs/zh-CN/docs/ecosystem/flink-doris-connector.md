@@ -39,14 +39,14 @@ under the License.
 
 ## 版本兼容
 
-| Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
-| --------- | ----- | ------ | ---- | ----- |
-| 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.1     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.1     | 1.15  | 1.0+   | 8    | -         |
-| 1.3.0     | 1.16  | 1.0+   | 8    | -         |
-| 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
-| 1.5.0 | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
+| Connector Version | Flink Version       | Doris Version | Java Version | Scala Version |
+|-------------------|---------------------| ------ | ---- | ----- |
+| 1.0.3             | 1.11,1.12,1.13,1.14 | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.1             | 1.14                | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1             | 1.15                | 1.0+   | 8    | -         |
+| 1.3.0             | 1.16                | 1.0+   | 8    | -         |
+| 1.4.0             | 1.15,1.16,1.17      | 1.0+   | 8   |- |
+| 1.5.2             | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
 
 ## 使用
 
@@ -59,7 +59,7 @@ under the License.
 <dependency>
   <groupId>org.apache.doris</groupId>
   <artifactId>flink-doris-connector-1.16</artifactId>
-  <version>1.4.0</version>
+  <version>1.5.2</version>
 </dependency>  
 ```
 
@@ -314,14 +314,14 @@ ON a.city = c.city
 ### 通用配置项
 
 | Key                              | Default Value | Required | Comment                                                      |
-| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| -------------------------------- |---------------| -------- | ------------------------------------------------------------ |
 | fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔              |
 | benodes                          | --            | N        | Doris BE http 地址， 支持多个地址，使用逗号分隔，参考[#187](https://github.com/apache/doris-flink-connector/pull/187) |
 | jdbc-url                         | --            | N        | jdbc连接信息，如: jdbc:mysql://127.0.0.1:9030                |
 | table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                                       |
 | username                         | --            | Y        | 访问 Doris 的用户名                                          |
 | password                         | --            | Y        | 访问 Doris 的密码                                            |
-| auto-redirect                    | false         | N        | 是否重定向StreamLoad请求。开启后StreamLoad将通过FE写入，不再显示获取BE信息，同时也可通过开启该参数写入SelectDB Cloud |
+| auto-redirect                    | true          | N        | 是否重定向StreamLoad请求。开启后StreamLoad将通过FE写入，不再显示获取BE信息 |
 | doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                                  |
 | doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                              |
 | doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                              |
@@ -779,8 +779,12 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 
 14. **使用doris.filter.query出现org.apache.flink.table.api.SqlParserException: SQL parse failed. Encountered "xx" at line x, column xx**
 
-出现这个问题主要是条件varchar/string类型，需要加引号导致的，正确写法是 xxx = ''xxx'',这样Flink SQL 解析器会将两个连续的单引号解释为一个单引号字符,而不是字符串的结束，并将拼接后的字符串作为属性的值。
+出现这个问题主要是条件varchar/string类型，需要加引号导致的，正确写法是 xxx = ''xxx'',这样Flink SQL 解析器会将两个连续的单引号解释为一个单引号字符,而不是字符串的结束，并将拼接后的字符串作为属性的值。比如说：`t1 >= '2024-01-01'`，可以写成`'doris.filter.query' = 't1 >=''2024-01-01'''`。
 
 15. **如果出现Failed to connect to backend: http://host:webserver_port, 并且Be还是活着的**
 
-可能是因为你配置的be的ip，外部的Flink集群无法访问。这主要是因为当连接fe时，会通过fe解析出be的地址。例如，当你添加的be 地址为`127.0.0.1`,那么flink通过fe获取的be地址就为`127.0.0.1:webserver_port`, 此时Flink就会去访问这个地址。当出现这个问题时，可以通过在with属性中增加实际对应的be外部ip地`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`,整库同步则可增加`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。
+可能是因为你配置的be的ip，外部的Flink集群无法访问。这主要是因为当连接fe时，会通过fe解析出be的地址。例如，当你添加的be 地址为`127.0.0.1`，那么Flink通过fe获取的be地址就为`127.0.0.1:webserver_port`， 此时Flink就会去访问这个地址。当出现这个问题时，可以通过在with属性中增加实际对应的be外部ip地`'benodes' = "be_ip:webserver_port, be_ip:webserver_port..."`，整库同步则可增加`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。
+
+16. **如果使用整库同步 MySQL 数据到 Doris，出现 timestamp 类型与源数据相差多个小时**
+
+整库同步默认timezone="UTC+8"，如果你同步的数据不是该时区，可以尝试如下设置相对应的时区，例如：`--mysql-conf debezium.date.format.timestamp.zone="UTC+3"来解决。`

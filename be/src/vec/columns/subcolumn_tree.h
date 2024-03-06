@@ -55,7 +55,8 @@ public:
 
         bool is_nested() const { return kind == NESTED; }
         bool is_scalar() const { return kind == SCALAR; }
-        bool is_scalar_without_children() const { return kind == SCALAR && children.empty(); }
+
+        bool is_leaf_node() const { return kind == SCALAR && children.empty(); }
 
         // Only modify data and kind
         void modify(std::shared_ptr<Node>&& other) {

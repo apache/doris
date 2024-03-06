@@ -221,7 +221,7 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>1.0.3</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>1.0.4</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
@@ -239,7 +239,7 @@ under the License.
         <commons-pool.version>1.5.1</commons-pool.version>
         <commons-text.version>1.10.0</commons-text.version>
         <commons-validator.version>1.7</commons-validator.version>
-        <gson.version>2.8.9</gson.version>
+        <gson.version>2.10.1</gson.version>
         <guava.version>32.1.2-jre</guava.version>
         <jackson.version>2.15.2</jackson.version>
         <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
@@ -302,12 +302,12 @@ under the License.
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>1.1.0</iceberg.version>
+        <iceberg.version>1.4.3</iceberg.version>
         <maxcompute.version>0.45.2-public</maxcompute.version>
         <avro.version>1.11.3</avro.version>
-        <arrow.version>14.0.2</arrow.version>
+        <arrow.version>15.0.0</arrow.version>
         <!-- hudi -->
-        <hudi.version>0.13.1</hudi.version>
+        <hudi.version>0.14.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
 
@@ -321,8 +321,8 @@ under the License.
         <hamcrest.version>2.1</hamcrest.version>
         <httpclient.version>4.5.13</httpclient.version>
         <httpcore.version>4.4.15</httpcore.version>
-        <aws-java-sdk.version>1.12.625</aws-java-sdk.version>
-        <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
+        <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
+        <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <dlf-metastore-client-hive.version>0.2.14</dlf-metastore-client-hive.version>
         <hadoop.version>3.3.6</hadoop.version>
         <joda.version>2.8.1</joda.version>
@@ -401,11 +401,6 @@ under the License.
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
                 <version>${nimbusds.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-bundle</artifactId>
-                <version>${aws-java-sdk.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.orc</groupId>
@@ -843,6 +838,27 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
+                <artifactId>netty-transport-sctp</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-sctp</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-classes-kqueue</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-epoll</artifactId>
+                <classifier>linux-x86_64</classifier>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
                 <artifactId>netty-transport-rxtx</artifactId>
                 <version>${netty-all.version}</version>
             </dependency>
@@ -908,12 +924,33 @@ under the License.
                         <artifactId>logback-classic</artifactId>
                     </exclusion>
                     <exclusion>
-                        <artifactId>elasticsearch-rest-high-level-client</artifactId>
-                        <groupId>org.elasticsearch.client</groupId>
-                    </exclusion>
-                    <exclusion>
                         <groupId>org.apache.hive</groupId>
                         <artifactId>hive-storage-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.elasticsearch.client</groupId>
+                        <artifactId>elasticsearch-rest-high-level-client</artifactId>
+                    </exclusion>
+                    <!--ranger audit only depends on aws logs, which is provided alone-->
+                    <exclusion>
+                        <groupId>com.amazonaws</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.solr</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.elasticsearch.client</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.elasticsearch.plugin</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.elasticsearch</groupId>
+                        <artifactId>*</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1263,6 +1300,11 @@ under the License.
                 <version>${iceberg.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-aws-bundle</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.aliyun.odps</groupId>
                 <artifactId>odps-sdk-core</artifactId>
                 <version>${maxcompute.version}</version>
@@ -1414,6 +1456,12 @@ under the License.
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-dynamodb</artifactId>
+                <version>${aws-java-sdk.version}</version>
+            </dependency>
+            <!--only for apache ranger audit-->
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-logs</artifactId>
                 <version>${aws-java-sdk.version}</version>
             </dependency>
             <dependency>

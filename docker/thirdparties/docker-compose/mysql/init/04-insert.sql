@@ -1151,7 +1151,7 @@ VALUES ('2023-06-17 10:00:00', '2023-06-17 10:00:01.1', '2023-06-17 10:00:02.22'
 
 SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES',''));
 INSERT INTO doris_test.dt_null
-VALUES ('2023-06-17 10:00:00'),('0000-00-00 00:00:00');
+VALUES ('2023-06-17 10:00:00'),('0000-00-00 00:00:00'),('0000-01-01 00:00:00');
 
 
 insert into doris_test.test_key_word values (1, 1), (2, 2);
@@ -1159,4 +1159,8 @@ insert into doris_test.test_key_word values (1, 1), (2, 2);
 SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE',''));
 SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE',''));
 
-insert into doris_test.test_zd (id,d_z) VALUES (1,'0000-00-00'),(2,'2022-01-01');
+insert into doris_test.test_zd (id,d_z) VALUES (1,'0000-00-00'),(2,'2022-01-01'),(3,'0000-01-01');
+
+insert into Doris.DORIS values ('DORIS');
+insert into Doris.Doris values ('Doris');
+insert into Doris.doris values ('doris');

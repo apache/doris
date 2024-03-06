@@ -164,7 +164,8 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     opt.messages_in_batch = config::load_stream_messages_in_batch;
     opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, self);
     brpc::Controller cntl;
-    if (int ret = StreamCreate(&_stream_id, cntl, &opt)) {
+    if (int ret = brpc::StreamCreate(&_stream_id, cntl, &opt)) {
+        delete opt.handler;
         return Status::Error<true>(ret, "Failed to create stream");
     }
     cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
@@ -192,6 +193,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
                                               resp.enable_unique_key_merge_on_write());
     }
     if (cntl.Failed()) {
+        brpc::StreamClose(_stream_id);
         return Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
                                      cntl.ErrorText());
     }
@@ -316,13 +318,6 @@ Status LoadStreamStub::close_wait(int64_t timeout_ms) {
     if (_is_closed.load()) {
         return _check_cancel();
     }
-    // if there are other sinks remaining, let the last sink handle close wait
-    if (_use_cnt > 0) {
-        return Status::OK();
-    }
-    if (timeout_ms <= 0) {
-        timeout_ms = config::close_load_stream_timeout_ms;
-    }
     DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
     std::unique_lock<bthread::Mutex> lock(_close_mutex);
     if (!_is_closed.load()) {
@@ -397,7 +392,9 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
                 int64_t delay_ms = dp->param<int64>("delay_ms", 1000);
                 bthread_usleep(delay_ms * 1000);
             });
-            ret = brpc::StreamWrite(_stream_id, buf);
+            brpc::StreamWriteOptions options;
+            options.write_in_background = config::enable_brpc_stream_write_background;
+            ret = brpc::StreamWrite(_stream_id, buf, &options);
         }
         DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.stream_write_failed", { ret = EPIPE; });
         switch (ret) {

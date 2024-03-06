@@ -30,7 +30,7 @@ suite("query14") {
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
-    sql 'set dump_nereids_memo=true'
+    sql 'set dump_nereids_memo=false'
     def ds = """with  cross_items as
  (select i_item_sk ss_item_sk
  from item,

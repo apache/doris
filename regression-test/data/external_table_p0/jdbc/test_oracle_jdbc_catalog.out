@@ -184,7 +184,7 @@ INT_VALUE1	INT	Yes	false	\N	NONE
 INT_VALUE2	BIGINT	Yes	false	\N	NONE
 N1	TEXT	Yes	false	\N	NONE
 N2	LARGEINT	Yes	false	\N	NONE
-N3	DECIMAL	Yes	false	\N	NONE
+N3	DECIMAL(9, 2)	Yes	false	\N	NONE
 N4	LARGEINT	Yes	false	\N	NONE
 N5	LARGEINT	Yes	false	\N	NONE
 N6	DECIMAL(5, 2)	Yes	false	\N	NONE
@@ -257,4 +257,21 @@ information_schema
 
 -- !query_ad2 --
 1	alice
+
+-- !query_lower_desc --
+doris_1	TEXT	Yes	true	\N	
+doris_2	TEXT	Yes	true	\N	
+doris_3	TEXT	Yes	true	\N	
+
+-- !query_lower_all --
+DORIS	Doris	doris
+
+-- !query_lower_1 --
+DORIS
+
+-- !query_lower_2 --
+Doris
+
+-- !query_lower_3 --
+doris
 

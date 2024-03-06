@@ -78,12 +78,6 @@ ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
     return ColumnConst::create(data, replicated_size);
 }
 
-void ColumnConst::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
-    if (s == 0) return;
-    auto& res = reinterpret_cast<ColumnConst&>(column);
-    res.s = target_size;
-}
-
 ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     if (limit == 0) {
         limit = s;
@@ -97,22 +91,6 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     }
 
     return ColumnConst::create(data, limit);
-}
-
-void ColumnConst::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                           const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    DCHECK(hashes.size() == size());
-    auto real_data = data->get_data_at(0);
-    if (real_data.data == nullptr) {
-        for (auto& hash : hashes) {
-            hash.update(0);
-        }
-    } else {
-        for (auto& hash : hashes) {
-            hash.update(real_data.data, real_data.size);
-        }
-    }
 }
 
 void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,

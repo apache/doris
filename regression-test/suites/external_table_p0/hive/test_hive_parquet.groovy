@@ -154,6 +154,21 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
         """
     }
 
+    def q22 = {
+        qt_q22_max """
+        select max(decimal_col1), max(decimal_col2), max(decimal_col3), max(decimal_col4), max(decimal_col5) from fixed_length_byte_array_decimal_table;
+        """
+        qt_q22_min """
+        select min(decimal_col1), min(decimal_col2), min(decimal_col3), min(decimal_col4), min(decimal_col5) from fixed_length_byte_array_decimal_table;
+        """
+        qt_q22_sum """
+        select sum(decimal_col1), sum(decimal_col2), sum(decimal_col3), sum(decimal_col4), sum(decimal_col5) from fixed_length_byte_array_decimal_table;
+        """
+        qt_q22_avg """
+        select avg(decimal_col1), avg(decimal_col2), avg(decimal_col3), avg(decimal_col4), avg(decimal_col5) from fixed_length_byte_array_decimal_table;
+        """
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
@@ -191,6 +206,7 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
             q19()
             q20()
             q21()
+            q22()
 
             sql """explain physical plan select l_partkey from partition_table
                 where (nation != 'cn' or city !='beijing') and (l_quantity > 28 or l_extendedprice > 30000)

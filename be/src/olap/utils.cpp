@@ -19,6 +19,7 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
+#include <stdarg.h>
 #include <time.h>
 #include <unistd.h>
 #include <zconf.h>
@@ -33,21 +34,13 @@
 #include <string>
 #include <vector>
 
-#include "util/sse_util.hpp"
-
-#ifdef DORIS_WITH_LZO
-#include <lzo/lzo1c.h>
-#include <lzo/lzo1x.h>
-#endif
-
-#include <stdarg.h>
-
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
+#include "util/sse_util.hpp"
 #include "util/string_parser.hpp"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"

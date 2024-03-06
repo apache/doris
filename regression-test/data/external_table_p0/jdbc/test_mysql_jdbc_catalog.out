@@ -220,19 +220,18 @@ triggers
 user_privileges
 views
 
--- !auto_default_t --
-0
-
 -- !dt --
 2023-06-17T10:00	2023-06-17T10:00:01.100	2023-06-17T10:00:02.220	2023-06-17T10:00:03.333	2023-06-17T10:00:04.444400	2023-06-17T10:00:05.555550	2023-06-17T10:00:06.666666
 
 -- !dt_null --
 \N
+0000-01-01T00:00
 2023-06-17T10:00
 
 -- !test_dz --
 1	\N
 2	2022-01-01
+3	0000-01-01
 
 -- !test_filter_not --
 张三1	11	12345678	123	321312	1999-02-13T00:00	中国	男	0
@@ -277,6 +276,9 @@ doris_test
 information_schema
 
 -- !specified_database_3 --
+DORIS
+Doris
+doris
 information_schema
 init_db
 mysql
@@ -315,7 +317,7 @@ binary	TEXT	Yes	false	\N	NONE
 bit	TEXT	Yes	false	\N	NONE
 blob	TEXT	Yes	false	\N	NONE
 boolean	TINYINT	Yes	false	\N	NONE
-char	VARCHAR(65533)	Yes	false	\N	NONE
+char	TEXT	Yes	false	\N	NONE
 date	DATE	Yes	false	\N	NONE
 datetime	DATETIME	Yes	false	\N	NONE
 decimal	DECIMAL(12, 4)	Yes	false	\N	NONE
@@ -339,7 +341,7 @@ timestamp	DATETIME(4)	Yes	false	\N	NONE
 tinyint	TINYINT	Yes	false	\N	NONE
 tinyint_u	SMALLINT	Yes	true	\N	
 varbinary	TEXT	Yes	false	\N	NONE
-varchar	VARCHAR(10)	Yes	false	\N	NONE
+varchar	TEXT	Yes	false	\N	NONE
 year	SMALLINT	Yes	false	\N	NONE
 
 -- !mysql_view --
@@ -368,3 +370,76 @@ year	SMALLINT	Yes	false	\N	NONE
 -- !money_format --
 1
 
+-- !date_add_year --
+2	2022-01-01
+
+-- !date_add_month --
+2	2022-01-01
+
+-- !date_add_week --
+2	2022-01-01
+
+-- !date_add_day --
+2	2022-01-01
+
+-- !date_add_hour --
+2	2022-01-01
+
+-- !date_add_min --
+2	2022-01-01
+
+-- !date_add_sec --
+2	2022-01-01
+
+-- !date_sub_year --
+2	2022-01-01
+
+-- !date_sub_month --
+2	2022-01-01
+
+-- !date_sub_week --
+2	2022-01-01
+
+-- !date_sub_day --
+2	2022-01-01
+
+-- !date_sub_hour --
+2	2022-01-01
+
+-- !date_sub_min --
+2	2022-01-01
+
+-- !date_sub_sec --
+2	2022-01-01
+
+-- !auto_default_t1 --
+0
+
+-- !auto_default_t2 --
+0
+
+-- !sql --
+doris_1
+doris_2
+doris_3
+doris_test
+information_schema
+init_db
+mysql
+performance_schema
+show_test_do_not_modify
+sys
+
+-- !sql --
+doris_1
+doris_2
+doris_3
+
+-- !sql --
+DORIS
+
+-- !sql --
+Doris
+
+-- !sql --
+doris

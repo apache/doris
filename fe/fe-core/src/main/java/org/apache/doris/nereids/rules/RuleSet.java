@@ -64,6 +64,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFi
 import org.apache.doris.nereids.rules.implementation.LogicalFileSinkToPhysicalFileSink;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
+import org.apache.doris.nereids.rules.implementation.LogicalHiveTableSinkToPhysicalHiveTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
 import org.apache.doris.nereids.rules.implementation.LogicalJdbcScanToPhysicalJdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
@@ -93,6 +94,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.PushDownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughGenerate;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughPartitionTopN;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -141,6 +143,7 @@ public class RuleSet {
             new PushDownFilterThroughAggregation(),
             new PushDownFilterThroughRepeat(),
             new PushDownFilterThroughSetOperation(),
+            new PushDownFilterThroughGenerate(),
             new PushDownProjectThroughLimit(),
             new EliminateOuterJoin(),
             new ConvertOuterJoinToAntiJoin(),
@@ -185,6 +188,7 @@ public class RuleSet {
             .add(new LogicalIntersectToPhysicalIntersect())
             .add(new LogicalGenerateToPhysicalGenerate())
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
+            .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())

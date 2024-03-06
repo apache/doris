@@ -118,7 +118,7 @@ ALTER TABLE <db.table_name> SET ("bloom_filter_columns" = "k1,k3");
 
 1. 首先BloomFilter适用于非前缀过滤。
 2. 查询会根据该列高频过滤，而且查询条件大多是 in 和 = 过滤。
-3. 不同于Bitmap, BloomFilter适用于高基数列。比如UserID。因为如果创建在低基数的列上，比如 “性别” 列，则每个Block几乎都会包含所有取值，导致BloomFilter索引失去意义。
+3. BloomFilter适用于高基数列。比如UserID。因为如果创建在低基数的列上，比如 “性别” 列，则每个Block几乎都会包含所有取值，导致BloomFilter索引失去意义。
 
 ## **Doris BloomFilter使用注意事项**
 

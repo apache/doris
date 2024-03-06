@@ -27,19 +27,14 @@ class AsyncResultWriter;
 }
 namespace doris::pipeline {
 
-struct LocalExchangeSinkDependency;
-
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams> scan_ranges;
-    std::vector<DependencySPtr>& upstream_dependencies;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    BasicSharedState* shared_state;
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             le_state_map;
     const int task_idx;
-
-    DependencySPtr dependency;
 };
 
 // This struct is used only for initializing local sink state.
@@ -47,9 +42,8 @@ struct LocalSinkStateInfo {
     const int task_idx;
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
-    std::vector<DependencySPtr>& dependencys;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    BasicSharedState* shared_state;
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             le_state_map;
     const TDataSink& tsink;
 };
@@ -86,7 +80,7 @@ public:
     void clear_origin_block();
 
     [[nodiscard]] bool reached_limit() const;
-    void reached_limit(vectorized::Block* block, SourceState& source_state);
+    void reached_limit(vectorized::Block* block, bool* eos);
     RuntimeProfile* profile() { return _runtime_profile.get(); }
 
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
@@ -103,14 +97,14 @@ public:
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
 
-    virtual Dependency* dependency() { return nullptr; }
+    virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
     //  override in Scan  MultiCastSink
     virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
 
-    std::shared_ptr<QueryStatistics> query_statistics_ptr() { return _query_statistics; }
+    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
 protected:
     friend class OperatorXBase;
@@ -187,11 +181,13 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
-    [[nodiscard]] virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
     [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution() && !is_source()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
+    }
+    [[nodiscard]] virtual bool need_data_from_children(RuntimeState* state) const {
+        return is_source() ? true : _child_x == nullptr || _child_x->need_data_from_children(state);
     }
     [[nodiscard]] virtual bool ignore_data_distribution() const {
         return _child_x ? _child_x->ignore_data_distribution() : _ignore_data_distribution;
@@ -204,6 +200,15 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override {
+        LOG(FATAL) << "should not be called in pipelineX";
+        return Status::OK();
+    }
+
+    [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
+                                           bool* eos) = 0;
 
     [[nodiscard]] bool can_terminate_early() override { return false; }
 
@@ -276,7 +281,7 @@ public:
 
     [[nodiscard]] int64_t limit() const { return _limit; }
 
-    [[nodiscard]] virtual const RowDescriptor& row_desc() override {
+    [[nodiscard]] const RowDescriptor& row_desc() const override {
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
 
@@ -287,8 +292,7 @@ public:
     [[nodiscard]] bool is_source() const override { return false; }
 
     [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
-                                                          vectorized::Block* block,
-                                                          SourceState& source_state);
+                                                          vectorized::Block* block, bool* eos);
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
@@ -339,14 +343,12 @@ public:
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
         return state->get_local_state(operator_id())->template cast<LocalState>();
     }
-
-    DependencySPtr get_dependency(QueryContext* ctx) override;
 };
 
-template <typename DependencyArg = FakeDependency>
+template <typename SharedStateArg = FakeSharedState>
 class PipelineXLocalState : public PipelineXLocalStateBase {
 public:
-    using DependencyType = DependencyArg;
+    using SharedStateType = SharedStateArg;
     PipelineXLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalStateBase(state, parent) {}
     ~PipelineXLocalState() override = default;
@@ -361,15 +363,13 @@ public:
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
-    Dependency* dependency() override { return _dependency; }
-
-    auto dependency_sptr() {
-        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
+    std::vector<Dependency*> dependencies() const override {
+        return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
 protected:
-    DependencyType* _dependency = nullptr;
-    typename DependencyType::SharedState* _shared_state = nullptr;
+    Dependency* _dependency = nullptr;
+    SharedStateArg* _shared_state = nullptr;
 };
 
 class DataSinkOperatorXBase;
@@ -387,7 +387,6 @@ public:
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
-    virtual Status try_close(RuntimeState* state, Status exec_status) = 0;
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
@@ -416,10 +415,12 @@ public:
 
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
-    virtual Dependency* dependency() { return nullptr; }
+    virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
+
+    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
@@ -444,15 +445,14 @@ protected:
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
     DataSinkOperatorXBase(const int operator_id, const int node_id)
-            : OperatorBase(nullptr),
-              _operator_id(operator_id),
-              _node_id(node_id),
-              _dests_id({operator_id}) {}
+            : OperatorBase(nullptr), _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
             : OperatorBase(nullptr),
@@ -481,6 +481,13 @@ public:
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
+    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override {
+        LOG(FATAL) << "should not reach here!";
+        return Status::OK();
+    }
+
+    [[nodiscard]] virtual Status sink(RuntimeState* state, vectorized::Block* block, bool eos) = 0;
+
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
 
@@ -499,7 +506,7 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
+    [[nodiscard]] virtual std::shared_ptr<BasicSharedState> create_shared_state() const = 0;
     [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
@@ -509,10 +516,6 @@ public:
     [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
 
     Status close(RuntimeState* state) override {
-        return Status::InternalError("Should not reach here!");
-    }
-
-    Status try_close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
     }
 
@@ -542,12 +545,12 @@ public:
 
     [[nodiscard]] bool is_source() const override { return false; }
 
-    virtual Status close(RuntimeState* state, Status exec_status) {
-        return state->get_sink_local_state(operator_id())->close(state, exec_status);
-    }
-
-    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
-        return state->get_sink_local_state(operator_id())->try_close(state, exec_status);
+    static Status close(RuntimeState* state, Status exec_status) {
+        auto result = state->get_sink_local_state_result();
+        if (!result) {
+            return result.error();
+        }
+        return result.value()->close(state, exec_status);
     }
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
@@ -600,18 +603,18 @@ public:
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
-    void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) override;
+    std::shared_ptr<BasicSharedState> create_shared_state() const override;
 
     using LocalState = LocalStateType;
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
-        return state->get_sink_local_state(operator_id())->template cast<LocalState>();
+        return state->get_sink_local_state()->template cast<LocalState>();
     }
 };
 
-template <typename DependencyArg = FakeDependency>
+template <typename SharedStateArg = FakeSharedState>
 class PipelineXSinkLocalState : public PipelineXSinkLocalStateBase {
 public:
-    using DependencyType = DependencyArg;
+    using SharedStateType = SharedStateArg;
     PipelineXSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalStateBase(parent, state) {}
     ~PipelineXSinkLocalState() override = default;
@@ -620,23 +623,19 @@ public:
 
     Status open(RuntimeState* state) override { return Status::OK(); }
 
-    Status try_close(RuntimeState* state, Status exec_status) override { return Status::OK(); }
-
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
 
     virtual std::string name_suffix() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
-    Dependency* dependency() override { return _dependency; }
-
-    auto dependency_sptr() {
-        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
+    std::vector<Dependency*> dependencies() const override {
+        return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
 protected:
-    DependencyType* _dependency = nullptr;
-    typename DependencyType::SharedState* _shared_state = nullptr;
+    Dependency* _dependency = nullptr;
+    SharedStateType* _shared_state = nullptr;
 };
 
 /**
@@ -650,11 +649,9 @@ public:
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
     virtual ~StreamingOperatorX() = default;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
-    virtual Status pull(RuntimeState* state, vectorized::Block* block,
-                        SourceState& source_state) = 0;
+    virtual Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) = 0;
 };
 
 /**
@@ -673,21 +670,31 @@ public:
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
     virtual ~StatefulOperatorX() = default;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
-                                   SourceState& source_state) override;
+    using OperatorX<LocalStateType>::get_local_state;
+
+    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) final;
 
     [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* block,
-                                      SourceState& source_state) const = 0;
+                                      bool* eos) const = 0;
     [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
-                                      SourceState source_state) const = 0;
+                                      bool eos) const = 0;
+
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const = 0;
+
+    bool need_data_from_children(RuntimeState* state) const override {
+        if (need_more_input_data(state)) {
+            return OperatorX<LocalStateType>::_child_x->need_data_from_children(state);
+        } else {
+            return false;
+        }
+    }
 };
 
 template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
-class AsyncWriterSink : public PipelineXSinkLocalState<FakeDependency> {
+class AsyncWriterSink : public PipelineXSinkLocalState<FakeSharedState> {
 public:
-    using Base = PipelineXSinkLocalState<FakeDependency>;
+    using Base = PipelineXSinkLocalState<FakeSharedState>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _async_writer_dependency(nullptr) {
         _finish_dependency = std::make_shared<FinishDependency>(
@@ -699,12 +706,12 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state);
+    Status sink(RuntimeState* state, vectorized::Block* block, bool eos);
 
-    Dependency* dependency() override { return _async_writer_dependency.get(); }
+    std::vector<Dependency*> dependencies() const override {
+        return {_async_writer_dependency.get()};
+    }
     Status close(RuntimeState* state, Status exec_status) override;
-
-    Status try_close(RuntimeState* state, Status exec_status) override;
 
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 

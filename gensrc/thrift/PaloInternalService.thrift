@@ -270,6 +270,10 @@ struct TQueryOptions {
 
   97: optional i64 parallel_scan_min_rows_per_scanner = 0;
 
+  98: optional bool skip_bad_tablet = false;
+  // Increase concurrency of scanners adaptively, the maxinum times to scale up
+  99: optional double scanner_scale_up_ratio = 0;
+
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
@@ -400,6 +404,13 @@ struct TGlobalDict {
   2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
 }
 
+struct TPipelineWorkloadGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
+}
+
 // ExecPlanFragment
 struct TExecPlanFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
@@ -482,6 +493,8 @@ struct TExecPlanFragmentParams {
   28: optional i32 num_local_sink
 
   29: optional i64 content_length
+
+  30: optional list<TPipelineWorkloadGroup> workload_groups
 
   // For cloud
   1000: optional bool is_mow_table;
@@ -668,13 +681,7 @@ struct TPipelineInstanceParams {
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
-}
-
-struct TPipelineWorkloadGroup {
-  1: optional i64 id
-  2: optional string name
-  3: optional map<string, string> properties
-  4: optional i64 version
+  8: optional list<i32> topn_filter_source_node_ids
 }
 
 // ExecPlanFragment

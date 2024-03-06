@@ -18,12 +18,14 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCopyTabletStmt;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
@@ -34,6 +36,8 @@ import org.apache.doris.analysis.ShowBrokerStmt;
 import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
+import org.apache.doris.analysis.ShowCharsetStmt;
+import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
@@ -121,7 +125,6 @@ import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionUtil;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -140,11 +143,12 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
@@ -181,8 +185,10 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
@@ -192,10 +198,14 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStatsUtil;
@@ -208,12 +218,17 @@ import org.apache.doris.task.AgentClient;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.SnapshotTask;
+import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TShowProcessListRequest;
+import org.apache.doris.thrift.TShowProcessListResult;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUnit;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -333,6 +348,8 @@ public class ShowExecutor {
             handleShowData();
         } else if (stmt instanceof ShowQueryStatsStmt) {
             handleShowQueryStats();
+        } else if (stmt instanceof ShowCharsetStmt) {
+            handleShowCharset();
         } else if (stmt instanceof ShowCollationStmt) {
             handleShowCollation();
         } else if (stmt instanceof ShowPartitionsStmt) {
@@ -437,6 +454,8 @@ public class ShowExecutor {
             handleShowAnalyzeTaskStatus();
         } else if (stmt instanceof ShowConvertLSCStmt) {
             handleShowConvertLSC();
+        } else if (stmt instanceof ShowClusterStmt) {
+            handleShowCluster();
         } else {
             handleEmtpy();
         }
@@ -454,13 +473,53 @@ public class ShowExecutor {
     // Handle show processlist
     private void handleShowProcesslist() {
         ShowProcesslistStmt showStmt = (ShowProcesslistStmt) stmt;
-        List<List<String>> rowSet = Lists.newArrayList();
+        boolean isShowFullSql = showStmt.isFull();
+        boolean isShowAllFe = showStmt.isShowAllFe();
 
+        List<List<String>> rowSet = Lists.newArrayList();
         List<ConnectContext.ThreadInfo> threadInfos = ctx.getConnectScheduler()
-                .listConnection(ctx.getQualifiedUser(), showStmt.isFull());
+                .listConnection(ctx.getQualifiedUser(), isShowFullSql);
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, false));
+            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, isShowAllFe));
+        }
+
+        if (isShowAllFe) {
+            try {
+                TShowProcessListRequest request = new TShowProcessListRequest();
+                request.setShowFullSql(isShowFullSql);
+                List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(),
+                        false);
+                FrontendService.Client client = null;
+                for (Pair<String, Integer> fe : frontends) {
+                    TNetworkAddress thriftAddress = new TNetworkAddress(fe.key(), fe.value());
+                    try {
+                        client = ClientPool.frontendPool.borrowObject(thriftAddress, 3000);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to get frontend {} client. exception: {}", fe.key(), e);
+                        continue;
+                    }
+
+                    boolean isReturnToPool = false;
+                    try {
+                        TShowProcessListResult result = client.showProcessList(request);
+                        if (result.process_list != null && result.process_list.size() > 0) {
+                            rowSet.addAll(result.process_list);
+                        }
+                        isReturnToPool = true;
+                    } catch (Exception e) {
+                        LOG.warn("Failed to request processlist to fe: {} . exception: {}", fe.key(), e);
+                    } finally {
+                        if (isReturnToPool) {
+                            ClientPool.frontendPool.returnObject(thriftAddress, client);
+                        } else {
+                            ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                LOG.warn(" fetch process list from other fe failed, ", t);
+            }
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
@@ -684,6 +743,44 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(metaData, finalRows);
     }
 
+    // Show clusters
+    private void handleShowCluster() {
+        final ShowClusterStmt showStmt = (ShowClusterStmt) stmt;
+        final List<List<String>> rows = Lists.newArrayList();
+        List<String> clusterNames = null;
+        clusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+
+        final Set<String> clusterNameSet = Sets.newTreeSet();
+        clusterNameSet.addAll(clusterNames);
+
+        for (String clusterName : clusterNameSet) {
+            ArrayList<String> row = Lists.newArrayList(clusterName);
+            // current_used, users
+            if (!Env.getCurrentEnv().getAuth()
+                    .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), clusterName,
+                    PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                continue;
+            }
+            row.add(clusterName.equals(ctx.getCloudCluster()) ? "TRUE" : "FALSE");
+            List<String> users = Env.getCurrentEnv().getAuth().getCloudClusterUsers(clusterName);
+            // non-root do not display root information
+            if (!Auth.ROOT_USER.equals(ctx.getQualifiedUser())) {
+                users.remove(Auth.ROOT_USER);
+            }
+            // common user, not admin
+            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get().currentUserIdentity,
+                    PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV), Operator.OR))) {
+                users.removeIf(user -> !user.equals(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser())));
+            }
+            String result = Joiner.on(", ").join(users);
+            row.add(result);
+            rows.add(row);
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+
     private void handleShowDbId() {
         ShowDbIdStmt showStmt = (ShowDbIdStmt) stmt;
         long dbId = showStmt.getDbId();
@@ -874,11 +971,7 @@ public class ShowExecutor {
                 // Row_format
                 row.add(null);
                 // Rows
-                // Use estimatedRowCount(), not getRowCount().
-                // because estimatedRowCount() is an async call, it will not block, and it will call getRowCount()
-                // finally. So that for some table(especially external table),
-                // we can get the row count without blocking.
-                row.add(String.valueOf(table.estimatedRowCount()));
+                row.add(String.valueOf(table.getRowCount()));
                 // Avg_row_length
                 row.add(String.valueOf(table.getAvgRowLength()));
                 // Data_length
@@ -990,7 +1083,7 @@ public class ShowExecutor {
             }
 
             if (table instanceof View) {
-                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8", "utf8_general_ci"));
+                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8mb4", "utf8mb4_0900_bin"));
                 resultSet = new ShowResultSet(ShowCreateTableStmt.getViewMetaData(), rows);
             } else {
                 if (showStmt.isView()) {
@@ -1082,7 +1175,8 @@ public class ShowExecutor {
                 for (Index index : indexes) {
                     rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
                             "", String.join(",", index.getColumns()), "", "", "", "",
-                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString(),
+                            String.valueOf(index.getIndexId())));
                 }
             } finally {
                 table.readUnlock();
@@ -1331,7 +1425,9 @@ public class ShowExecutor {
                 throw new AnalysisException("job is not exist.");
             }
         } else {
-            LOG.debug("load_job_id={}", jobId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("load_job_id={}", jobId);
+            }
             jobId = showWarningsStmt.getJobId();
             job = load.getLoadJob(jobId);
             if (job == null) {
@@ -1608,15 +1704,29 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
+    // Show character set.
+    private void handleShowCharset() throws AnalysisException {
+        ShowCharsetStmt showStmt = (ShowCharsetStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        // | utf8mb4 | UTF-8 Unicode | utf8mb4_general_ci | 4|
+        row.add(ctx.getSessionVariable().getCharsetServer());
+        row.add("UTF-8 Unicode");
+        row.add(ctx.getSessionVariable().getCollationConnection());
+        row.add("4");
+        rows.add(row);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
     // Show alter statement.
     private void handleShowCollation() throws AnalysisException {
         ShowCollationStmt showStmt = (ShowCollationStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
-        // | utf8_general_ci | utf8 | 33 | Yes | Yes | 1 |
-        row.add("utf8_general_ci");
-        row.add("utf8");
-        row.add("33");
+        // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
+        row.add(ctx.getSessionVariable().getCollationConnection());
+        row.add(ctx.getSessionVariable().getCharsetServer());
+        row.add("309");
         row.add("Yes");
         row.add("Yes");
         row.add("1");
@@ -1915,10 +2025,16 @@ public class ShowExecutor {
     }
 
     // Handle show resources
-    private void handleShowResources() {
+    private void handleShowResources() throws AnalysisException {
         ShowResourcesStmt showStmt = (ShowResourcesStmt) stmt;
+        PatternMatcher matcher = null;
+        if (showStmt.getPattern() != null) {
+            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
+                    CaseSensibility.RESOURCE.getCaseSensibility());
+        }
+
         List<List<Comparable>> resourcesInfos = Env.getCurrentEnv().getResourceMgr()
-                .getResourcesInfo(showStmt.getNameValue(), showStmt.isAccurateMatch(), showStmt.getTypeSet());
+                .getResourcesInfo(matcher, showStmt.getNameValue(), showStmt.isAccurateMatch(), showStmt.getTypeSet());
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
@@ -1959,10 +2075,14 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void handleShowWorkloadGroups() {
+    private void handleShowWorkloadGroups() throws AnalysisException {
         ShowWorkloadGroupsStmt showStmt = (ShowWorkloadGroupsStmt) stmt;
-        List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo();
-
+        PatternMatcher matcher = null;
+        if (showStmt.getPattern() != null) {
+            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
+                    CaseSensibility.WORKLOAD_GROUP.getCaseSensibility());
+        }
+        List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo(matcher);
         resultSet = new ShowResultSet(showStmt.getMetaData(), workloadGroupsInfos);
     }
 
@@ -2235,10 +2355,13 @@ public class ShowExecutor {
         DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
         TransactionStatus status = showStmt.getStatus();
-        GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
         if (status != TransactionStatus.UNKNOWN) {
             resultSet = new ShowResultSet(showStmt.getMetaData(),
                     transactionMgr.getDbTransInfoByStatus(db.getId(), status));
+        } else if (showStmt.labelMatch() && !showStmt.getLabel().isEmpty()) {
+            resultSet =  new ShowResultSet(showStmt.getMetaData(),
+                transactionMgr.getDbTransInfoByLabelMatch(db.getId(), showStmt.getLabel()));
         } else {
             Long txnId = showStmt.getTxnId();
             String label = showStmt.getLabel();
@@ -2473,12 +2596,10 @@ public class ShowExecutor {
         TableIf tableIf = showTableStatsStmt.getTable();
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
         /*
-           HMSExternalTable table will fetch row count from HMS
-           or estimate with file size and schema if it's not analyzed.
            tableStats == null means it's not analyzed, in this case show the estimated row count.
          */
-        if (tableStats == null && tableIf instanceof HMSExternalTable) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.estimatedRowCount());
+        if (tableStats == null) {
+            resultSet = showTableStatsStmt.constructResultSet(tableIf.getRowCount());
         } else {
             resultSet = showTableStatsStmt.constructResultSet(tableStats);
         }
@@ -2488,43 +2609,80 @@ public class ShowExecutor {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
-        List<Pair<String, ColumnStatistic>> columnStatistics = new ArrayList<>();
+        List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics = new ArrayList<>();
         Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
         boolean showCache = showColumnStatsStmt.isCached();
-
-        for (String colName : columnNames) {
-            // Show column statistics in columnStatisticsCache. For validation.
-            if (showCache) {
-                ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                        tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(colName, columnStatistic));
-            } else if (partitionNames == null) {
-                ColumnStatistic columnStatistic =
-                        StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(colName, columnStatistic));
-            } else {
-                columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                                colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
-                        .stream().map(s -> Pair.of(colName, s))
-                        .collect(Collectors.toList()));
-            }
-
+        boolean isAllColumns = showColumnStatsStmt.isAllColumns();
+        if (isAllColumns && !showCache && partitionNames == null) {
+            getStatsForAllColumns(columnStatistics, tableIf);
+        } else {
+            getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache, tableName, partitionNames);
         }
         resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
+    private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
+                                       TableIf tableIf) throws AnalysisException {
+        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(tableIf.getId());
+        for (ResultRow row : resultRows) {
+            String indexName = "N/A";
+            long indexId = Long.parseLong(row.get(4));
+            if (indexId != -1) {
+                indexName = ((OlapTable) tableIf).getIndexNameById(indexId);
+                if (indexName == null) {
+                    continue;
+                }
+            }
+            columnStatistics.add(Pair.of(Pair.of(row.get(5), indexName), ColumnStatistic.fromResultRow(row)));
+        }
+    }
+
+    private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
+                                             Set<String> columnNames, TableIf tableIf, boolean showCache,
+                                             TableName tableName, PartitionNames partitionNames)
+            throws AnalysisException {
+        for (String colName : columnNames) {
+            // Olap base index use -1 as index id.
+            List<Long> indexIds = Lists.newArrayList();
+            if (tableIf instanceof OlapTable) {
+                indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(colName);
+            } else {
+                indexIds.add(-1L);
+            }
+            for (long indexId : indexIds) {
+                String indexName = "N/A";
+                if (indexId != -1) {
+                    indexName = ((OlapTable) tableIf).getIndexNameById(indexId);
+                    if (indexName == null) {
+                        continue;
+                    }
+                }
+                // Show column statistics in columnStatisticsCache.
+                if (showCache) {
+                    ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                            tableIf.getDatabase().getCatalog().getId(),
+                            tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
+                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                } else if (partitionNames == null) {
+                    ColumnStatistic columnStatistic =
+                            StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
+                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                } else {
+                    String finalIndexName = indexName;
+                    columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
+                            colName, partitionNames.getPartitionNames())
+                            .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
+                            .collect(Collectors.toList()));
+                }
+            }
+        }
+    }
+
     public void handleShowColumnHist() {
+        // TODO: support histogram in the future.
         ShowColumnHistStmt showColumnHistStmt = (ShowColumnHistStmt) stmt;
-        TableIf tableIf = showColumnHistStmt.getTable();
-        Set<String> columnNames = showColumnHistStmt.getColumnNames();
-
-        List<Pair<String, Histogram>> columnStatistics = columnNames.stream()
-                .map(colName -> Pair.of(colName,
-                        StatisticsRepository.queryColumnHistogramByName(tableIf.getId(), colName)))
-                .collect(Collectors.toList());
-
+        List<Pair<String, Histogram>> columnStatistics = Lists.newArrayList();
         resultSet = showColumnHistStmt.constructResultSet(columnStatistics);
     }
 
@@ -2907,12 +3065,19 @@ public class ShowExecutor {
 
     private void handleShowAnalyzeTaskStatus() {
         ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
+        AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(showStmt.getJobId());
+        TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
         List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(showStmt.getJobId());
         List<List<String>> rows = new ArrayList<>();
         for (AnalysisInfo analysisInfo : analysisInfos) {
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.taskId));
             row.add(analysisInfo.colName);
+            if (table instanceof OlapTable && analysisInfo.indexId != -1) {
+                row.add(((OlapTable) table).getIndexNameById(analysisInfo.indexId));
+            } else {
+                row.add("N/A");
+            }
             row.add(analysisInfo.message);
             row.add(TimeUtils.DATETIME_FORMAT.format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
@@ -2963,4 +3128,3 @@ public class ShowExecutor {
     }
 
 }
-

@@ -129,7 +129,6 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         bePort = in.readInt();
         httpPort = in.readInt();
         brpcPort = in.readInt();
-        arrowFlightSqlPort = in.readInt();
     }
 
     @Override

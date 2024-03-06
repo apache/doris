@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -117,9 +118,23 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Map<ExprId, Slot> replaceMap) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, replaceMap);
         List<Expression> hashConjuncts = updateExpressions(join.getHashJoinConjuncts(), replaceMap);
+        List<Expression> markConjuncts;
+        if (hashConjuncts.isEmpty()) {
+            // if hashConjuncts is empty, mark join conjuncts may used to build hash table
+            // so need call updateExpressions for mark join conjuncts before adjust nullable by output slot
+            markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap);
+        } else {
+            markConjuncts = null;
+        }
         join.getOutputSet().forEach(o -> replaceMap.put(o.getExprId(), o));
+        if (markConjuncts == null) {
+            // hashConjuncts is not empty, mark join conjuncts are processed like other join conjuncts
+            Preconditions.checkState(!hashConjuncts.isEmpty(), "hash conjuncts should not be empty");
+            markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap);
+        }
         List<Expression> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap);
-        return join.withJoinConjuncts(hashConjuncts, otherConjuncts).recomputeLogicalProperties();
+        return join.withJoinConjuncts(hashConjuncts, otherConjuncts, markConjuncts,
+                    join.getJoinReorderContext()).recomputeLogicalProperties();
     }
 
     @Override

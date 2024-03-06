@@ -36,7 +36,7 @@ suite("test_sequence_col_default_value") {
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "enable_unique_key_merge_on_write" = "true",
-            "function_column.sequence_col" = 'write_time'
+            "function_column.sequence_col" = 'WRITE_TIME'
         );
     """
 

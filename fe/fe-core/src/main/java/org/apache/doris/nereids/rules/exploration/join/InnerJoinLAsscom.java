@@ -80,10 +80,10 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,
-                            newBottomOtherConjuncts, a, c);
+                            newBottomOtherConjuncts, a, c, null);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(newTopHashConjuncts,
-                            newTopOtherConjuncts, newBottomJoin, b);
+                            newTopOtherConjuncts, newBottomJoin, b, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
@@ -96,6 +96,10 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
      */
     public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin, boolean leftZigZag) {
+        if (topJoin.isLeadingJoin()
+                || bottomJoin.isLeadingJoin()) {
+            return false;
+        }
         if (leftZigZag) {
             double bRows = bottomJoin.right().getGroup().getStatistics().getRowCount();
             double cRows = topJoin.right().getGroup().getStatistics().getRowCount();

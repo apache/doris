@@ -19,11 +19,14 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.Predicate;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -32,6 +35,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -54,13 +58,16 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -90,7 +97,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
-        turnOffForbidUnknownStats(ctx.getSessionVariable());
+        updateSessionVariableForDelete(ctx.getSessionVariable());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);
@@ -173,9 +180,22 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
                         Lists.newArrayList(relation.getPartNames()), predicates, ctx.getState());
     }
 
-    private void turnOffForbidUnknownStats(SessionVariable sessionVariable) {
+    private void updateSessionVariableForDelete(SessionVariable sessionVariable) {
         sessionVariable.setIsSingleSetVar(true);
-        sessionVariable.setForbidUnownColStats(false);
+        try {
+            // turn off forbid unknown col stats
+            VariableMgr.setVar(sessionVariable,
+                    new SetVar(SessionVariable.FORBID_UNKNOWN_COLUMN_STATS, new StringLiteral("false")));
+            // disable eliminate not null rule
+            List<String> disableRules = Lists.newArrayList(
+                    RuleType.ELIMINATE_NOT_NULL.name(), RuleType.INFER_FILTER_NOT_NULL.name());
+            disableRules.addAll(sessionVariable.getDisableNereidsRuleNames());
+            VariableMgr.setVar(sessionVariable,
+                    new SetVar(SessionVariable.DISABLE_NEREIDS_RULES,
+                            new StringLiteral(StringUtils.join(disableRules, ","))));
+        } catch (Exception e) {
+            throw new AnalysisException("set session variable by delete from command failed", e);
+        }
     }
 
     private void checkColumn(Set<String> tableColumns, SlotReference slotReference, OlapTable table) {
@@ -220,6 +240,18 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
                 throw new AnalysisException("delete predicate on value column only supports Unique table with"
                         + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
                         + "] is an unique table without merge-on-write.");
+            }
+        }
+
+        for (String indexName : table.getIndexNameToId().keySet()) {
+            MaterializedIndexMeta meta = table.getIndexMetaByIndexId(table.getIndexIdByName(indexName));
+            Set<String> columns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            meta.getSchema().stream()
+                    .map(col -> org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(col.getName()))
+                    .forEach(name -> columns.add(name));
+            if (!columns.contains(column.getName())) {
+                throw new AnalysisException("Column[" + column.getName() + "] not exist in index " + indexName
+                        + ". maybe you need drop the corresponding materialized-view.");
             }
         }
     }

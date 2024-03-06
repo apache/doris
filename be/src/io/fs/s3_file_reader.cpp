@@ -33,6 +33,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/err_utils.h"
 #include "io/fs/s3_common.h"
+#include "util/bvar_helper.h"
 #include "util/doris_metrics.h"
 #include "util/s3_util.h"
 
@@ -96,8 +97,8 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
     auto outcome = client->GetObject(request);
-    s3_bvar::s3_get_total << 1;
     if (!outcome.IsSuccess()) {
         return s3fs_error(outcome.GetError(),
                           fmt::format("failed to read from {}", _path.native()));

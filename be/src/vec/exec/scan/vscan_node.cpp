@@ -197,7 +197,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
             if (_scanner_ctx) {
                 DCHECK(!_eos && _num_scanners->value() > 0);
                 RETURN_IF_ERROR(_scanner_ctx->init());
-                RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
             }
             if (_shared_scan_opt) {
                 LOG(INFO) << "instance shared scan enabled"
@@ -219,7 +218,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
                               : Status::OK());
         if (_scanner_ctx) {
             RETURN_IF_ERROR(_scanner_ctx->init());
-            RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
         }
     }
 
@@ -246,14 +244,10 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }};
 
     if (state->is_cancelled()) {
-        // ISSUE: https://github.com/apache/doris/issues/16360
-        // _scanner_ctx may be null here, see: `VScanNode::alloc_resource` (_eos == null)
         if (_scanner_ctx) {
-            _scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
-            return _scanner_ctx->status();
-        } else {
-            return Status::Cancelled("query cancelled");
+            _scanner_ctx->stop_scanners(state);
         }
+        return Status::Cancelled("Query cancelled in ScanNode");
     }
 
     if (_eos) {
@@ -261,16 +255,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
-    vectorized::BlockUPtr scan_block = nullptr;
-    RETURN_IF_ERROR(_scanner_ctx->get_block_from_queue(state, &scan_block, eos, _context_queue_id));
-    if (*eos) {
-        DCHECK(scan_block == nullptr);
-        return Status::OK();
-    }
-
-    // get scanner's block memory
-    block->swap(*scan_block);
-    _scanner_ctx->return_free_block(std::move(scan_block));
+    RETURN_IF_ERROR(_scanner_ctx->get_block_from_queue(state, block, eos, _context_queue_id));
 
     reached_limit(block, eos);
     if (*eos) {
@@ -294,16 +279,14 @@ Status VScanNode::_init_profile() {
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
     _memory_usage_counter = ADD_LABEL_COUNTER(_scanner_profile, "MemoryUsage");
-    _queued_blocks_memory_usage =
-            _scanner_profile->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES, "MemoryUsage");
     _free_blocks_memory_usage =
             _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage");
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
+    _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
     // time of transfer thread to wait for block from scan thread
     _scanner_wait_batch_timer = ADD_TIMER(_scanner_profile, "ScannerBatchWaitTime");
     _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
-    _scanner_ctx_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerCtxSchedCount", TUnit::UNIT);
     _scanner_ctx_sched_time = ADD_TIMER(_scanner_profile, "ScannerCtxSchedTime");
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
@@ -326,7 +309,7 @@ void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>
         int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
                 _state, this, _output_tuple_desc, _output_row_descriptor.get(), scanners, limit(),
-                _state->scan_queue_mem_limit(), _col_distribute_ids, max_queue_size);
+                _state->scan_queue_mem_limit(), max_queue_size);
     } else {
         _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
                                                      _output_row_descriptor.get(), scanners,
@@ -489,8 +472,7 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
-            bool _is_runtime_filter_predicate =
-                    _rf_vexpr_set.find(conjunct_expr_root) != _rf_vexpr_set.end();
+            bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -1321,8 +1303,8 @@ Status VScanNode::_prepare_scanners(const int query_parallel_instance_num) {
     std::list<VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     // Init scanner wrapper
-    for (auto it = scanners.begin(); it != scanners.end(); ++it) {
-        _scanners.emplace_back(std::make_shared<ScannerDelegate>(*it));
+    for (auto& scanner : scanners) {
+        _scanners.emplace_back(std::make_shared<ScannerDelegate>(scanner));
     }
     if (scanners.empty()) {
         _eos = true;

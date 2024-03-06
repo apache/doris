@@ -19,13 +19,14 @@
 package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogLog;
-import org.apache.doris.datasource.HMSClientException;
-import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSClientException;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.OriginStatement;
@@ -136,7 +137,9 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      * <code>{@link Config#hms_events_batch_size_per_rpc}</code>
      */
     private List<NotificationEvent> getNextHMSEvents(HMSExternalCatalog hmsExternalCatalog) throws Exception {
-        LOG.debug("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
+        }
         NotificationEventResponse response;
         if (Env.getCurrentEnv().isMaster()) {
             response = getNextEventResponseForMaster(hmsExternalCatalog);
@@ -195,8 +198,10 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             return null;
         }
 
-        LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {}, lastSyncedEventId is {}",
-                hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {}, lastSyncedEventId is {}",
+                    hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
+        }
         if (currentEventId == lastSyncedEventId) {
             LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
             return null;
@@ -246,8 +251,10 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             return null;
         }
 
-        LOG.debug("Catalog [{}] getNextEventResponse, masterLastSyncedEventId is {}, lastSyncedEventId is {}",
-                hmsExternalCatalog.getName(), masterLastSyncedEventId, lastSyncedEventId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Catalog [{}] getNextEventResponse, masterLastSyncedEventId is {}, lastSyncedEventId is {}",
+                    hmsExternalCatalog.getName(), masterLastSyncedEventId, lastSyncedEventId);
+        }
 
         // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
         int maxEventSize = Math.min((int) (masterLastSyncedEventId - lastSyncedEventId),
@@ -258,7 +265,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             // Need a fallback to handle this because this error state can not be recovered until restarting FE
             if (StringUtils.isNotEmpty(e.getMessage())
                     && e.getMessage().contains(HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE)) {
-                refreshCatalogForMaster(hmsExternalCatalog);
+                refreshCatalogForSlave(hmsExternalCatalog);
                 // set masterLastSyncedEventId to lastSyncedEventId after refresh catalog successfully
                 updateLastSyncedEventId(hmsExternalCatalog, masterLastSyncedEventId);
                 LOG.warn("Notification events are missing, maybe an event can not be handled "
@@ -308,9 +315,15 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         // Transfer to master to refresh catalog
         String sql = "REFRESH CATALOG " + hmsExternalCatalog.getName();
         OriginStatement originStmt = new OriginStatement(sql, 0);
-        MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, new ConnectContext(),
-                    RedirectStatus.FORWARD_WITH_SYNC, false);
-        LOG.debug("Transfer to master to refresh catalog, stmt: {}", sql);
+        ConnectContext ctx = new ConnectContext();
+        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.setEnv(Env.getCurrentEnv());
+        MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, ctx,
+                RedirectStatus.FORWARD_WITH_SYNC, false);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Transfer to master to refresh catalog, stmt: {}", sql);
+        }
         masterOpExecutor.execute();
     }
 

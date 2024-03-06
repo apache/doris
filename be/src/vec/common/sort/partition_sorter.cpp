@@ -75,6 +75,14 @@ Status PartitionSorter::prepare_for_read() {
     return Status::OK();
 }
 
+// have done sorter and get topn records, so could reset those state to init
+void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
+    std::priority_queue<MergeSortBlockCursor> empty_queue;
+    std::swap(_block_priority_queue, empty_queue);
+    _state = MergeSorterState::create_unique(_row_desc, _offset, _limit, runtime_state, nullptr);
+    _previous_row->reset();
+}
+
 Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
     if (_state->get_sorted_block().empty()) {
         *eos = true;

@@ -152,7 +152,7 @@ suite("test_single_replica_compaction", "p2") {
             PROPERTIES ( "replication_num" = "3", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false" );
         """
 
-        String[][] tablets = sql """ show tablets from ${tableName}; """
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // wait for update replica infos
         // be.conf: update_replica_infos_interval_seconds
@@ -165,12 +165,12 @@ suite("test_single_replica_compaction", "p2") {
         // The test table only has one bucket with 3 replicas,
         // and `show tablets` will return 3 different replicas with the same tablet.
         // So we can use the same tablet_id to get tablet/trigger compaction with different backends.
-        String tablet_id = tablets[0][0]
-        String[][] tablet_info = sql """ show tablet ${tablet_id}; """
+        String tablet_id = tablets[0].TabletId
+        def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
         logger.info("tablet: " + tablet_info)
-        def table_id = tablet_info[0][5]
-        for (String[] tablet in tablets) {
-            String trigger_backend_id = tablet[2]
+        def table_id = tablet_info[0].TableId
+        for (def tablet in tablets) {
+            String trigger_backend_id = tablet.BackendId
             def tablet_status = getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
             def fetchFromPeerValue = tablet_status."fetch from peer"
 

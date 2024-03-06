@@ -64,6 +64,9 @@ public class PrivInfo implements Writable, GsonPostProcessable {
     @SerializedName(value = "roles")
     private List<String> roles;
 
+    @SerializedName(value = "userId")
+    private String userId;
+
     private PrivInfo() {
 
     }
@@ -148,6 +151,10 @@ public class PrivInfo implements Writable, GsonPostProcessable {
 
     public String getRole() {
         return role;
+    }
+
+    public String getUserId() {
+        return userId;
     }
 
     public PasswordOptions getPasswordOptions() {

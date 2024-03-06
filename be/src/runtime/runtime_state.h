@@ -44,6 +44,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+class IRuntimeFilter;
 
 namespace pipeline {
 class PipelineXLocalStateBase;
@@ -70,20 +71,20 @@ public:
 
     RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                 ExecEnv* exec_env);
+                 ExecEnv* exec_env, QueryContext* ctx);
 
     RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                 ExecEnv* exec_env);
+                 ExecEnv* exec_env, QueryContext* ctx);
 
     // for only use in pipelineX
     RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
                  const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
@@ -97,8 +98,6 @@ public:
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
-
-    void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params) const;
 
     // for ut and non-query.
     void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
@@ -128,7 +127,13 @@ public:
                                                         : _query_options.query_timeout;
     }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
-    int num_scanner_threads() const { return _query_options.num_scanner_threads; }
+    int num_scanner_threads() const {
+        return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
+    }
+    double scanner_scale_up_ratio() const {
+        return _query_options.__isset.scanner_scale_up_ratio ? _query_options.scanner_scale_up_ratio
+                                                             : 0;
+    }
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
@@ -448,7 +453,10 @@ public:
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
 
-    RuntimeFilterMgr* runtime_filter_mgr() {
+    // local runtime filter mgr, the runtime filter do not have remote target or
+    // not need local merge should regist here. the instance exec finish, the local
+    // runtime filter mgr can release the memory of local runtime filter
+    RuntimeFilterMgr* local_runtime_filter_mgr() {
         if (_pipeline_x_runtime_filter_mgr) {
             return _pipeline_x_runtime_filter_mgr;
         } else {
@@ -456,11 +464,11 @@ public:
         }
     }
 
+    RuntimeFilterMgr* global_runtime_filter_mgr();
+
     void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
         _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
     }
-
-    void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
@@ -544,9 +552,9 @@ public:
 
     void emplace_sink_local_state(int id, std::unique_ptr<SinkLocalState> state);
 
-    SinkLocalState* get_sink_local_state(int id);
+    SinkLocalState* get_sink_local_state();
 
-    Result<SinkLocalState*> get_sink_local_state_result(int id);
+    Result<SinkLocalState*> get_sink_local_state_result();
 
     void resize_op_id_to_local_state(int operator_size);
 
@@ -562,6 +570,15 @@ public:
                 << "_task_execution_context_inited == false, the ctx is not inited";
         return _task_execution_context;
     }
+
+    Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
+                                            bool need_local_merge,
+                                            doris::IRuntimeFilter** producer_filter,
+                                            bool build_bf_exactly);
+
+    Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
+                                            bool need_local_merge, int node_id,
+                                            doris::IRuntimeFilter** producer_filter);
 
 private:
     Status create_error_log_file();
@@ -590,9 +607,6 @@ private:
 
     // owned by PipelineXFragmentContext
     RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
-
-    // Protects _data_stream_recvrs_pool
-    std::mutex _data_stream_recvrs_lock;
 
     // Data stream receivers created by a plan fragment are gathered here to make sure
     // they are destroyed before _obj_pool (class members are destroyed in reverse order).

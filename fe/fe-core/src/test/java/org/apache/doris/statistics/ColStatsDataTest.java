@@ -17,7 +17,13 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.statistics.util.StatisticsUtil;
+
 import com.google.common.collect.Lists;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -92,5 +98,70 @@ public class ColStatsDataTest {
         Assertions.assertEquals(null, data.maxLit);
         Assertions.assertEquals(0, data.dataSizeInBytes);
         Assertions.assertEquals(null, data.updateTime);
+    }
+
+    @Test
+    public void testToColumnStatisticUnknown(@Mocked StatisticsUtil mockedClass) {
+        // Test column is null
+        new Expectations() {
+            {
+                mockedClass.findColumn(anyLong, anyLong, anyLong, anyLong, anyString);
+                result = null;
+            }
+        };
+        List<String> values = Lists.newArrayList();
+        values.add("id");
+        values.add("10000");
+        values.add("20000");
+        values.add("30000");
+        values.add("0");
+        values.add("col");
+        values.add(null);
+        values.add("100");
+        values.add("200");
+        values.add("300");
+        values.add("min");
+        values.add("max");
+        values.add("400");
+        values.add("500");
+        ResultRow row = new ResultRow(values);
+        ColStatsData data = new ColStatsData(row);
+        ColumnStatistic columnStatistic = data.toColumnStatistic();
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
+    }
+
+    @Test
+    public void testToColumnStatisticNormal(@Mocked StatisticsUtil mockedClass) {
+        new Expectations() {
+            {
+                mockedClass.findColumn(anyLong, anyLong, anyLong, anyLong, anyString);
+                result = new Column("colName", PrimitiveType.STRING);
+            }
+        };
+        List<String> values = Lists.newArrayList();
+        values.add("id");
+        values.add("10000");
+        values.add("20000");
+        values.add("30000");
+        values.add("0");
+        values.add("col");
+        values.add(null);
+        values.add("100");
+        values.add("200");
+        values.add("300");
+        values.add("null");
+        values.add("null");
+        values.add("400");
+        values.add("500");
+        ResultRow row = new ResultRow(values);
+        ColStatsData data = new ColStatsData(row);
+        ColumnStatistic columnStatistic = data.toColumnStatistic();
+        Assertions.assertEquals(100, columnStatistic.count);
+        Assertions.assertEquals(200, columnStatistic.ndv);
+        Assertions.assertEquals(300, columnStatistic.numNulls);
+        Assertions.assertEquals(Double.NEGATIVE_INFINITY, columnStatistic.minValue);
+        Assertions.assertEquals(Double.POSITIVE_INFINITY, columnStatistic.maxValue);
+        Assertions.assertEquals(400, columnStatistic.dataSize);
+        Assertions.assertEquals("500", columnStatistic.updatedTime);
     }
 }

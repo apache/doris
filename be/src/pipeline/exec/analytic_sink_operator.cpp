@@ -27,15 +27,15 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSinkDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     _shared_state->partition_by_column_idxs.resize(p._partition_by_eq_expr_ctxs.size());
     _shared_state->ordey_by_column_idxs.resize(p._order_by_eq_expr_ctxs.size());
 
-    _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
-    _blocks_memory_usage = _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage");
+    _blocks_memory_usage =
+            _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
 
     size_t agg_size = p._agg_expr_ctxs.size();
@@ -255,11 +255,11 @@ Status AnalyticSinkOperatorX::open(RuntimeState* state) {
 }
 
 Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* input_block,
-                                   SourceState source_state) {
+                                   bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
-    local_state._shared_state->input_eos = source_state == SourceState::FINISHED;
+    local_state._shared_state->input_eos = eos;
     if (local_state._shared_state->input_eos && input_block->rows() == 0) {
         local_state._dependency->set_ready_to_read();
         local_state._dependency->block();

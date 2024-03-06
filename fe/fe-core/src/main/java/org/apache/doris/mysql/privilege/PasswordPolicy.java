@@ -485,4 +485,3 @@ public class PasswordPolicy implements Writable {
         }
     }
 }
-

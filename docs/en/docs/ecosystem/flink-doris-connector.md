@@ -37,14 +37,14 @@ under the License.
 
 ## Version Compatibility
 
-| Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
-| --------- | ----- | ------ | ---- | ----- |
-| 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.1    | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.1    | 1.15  | 1.0+   | 8    | -         |
-| 1.3.0     | 1.16  | 1.0+   | 8    | -         |
-| 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
-| 1.5.0 | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
+| Connector Version | Flink Version       | Doris Version | Java Version | Scala Version |
+|-------------------|---------------------| ------ | ---- | ----- |
+| 1.0.3             | 1.11,1.12,1.13,1.14 | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.1             | 1.14                | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1             | 1.15                | 1.0+   | 8    | -         |
+| 1.3.0             | 1.16                | 1.0+   | 8    | -         |
+| 1.4.0             | 1.15,1.16,1.17      | 1.0+   | 8   |- |
+| 1.5.2             | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
 
 ## USE
 
@@ -311,14 +311,14 @@ ON a.city = c.city
 ### General configuration items
 
 | Key                              | Default Value | Required | Comment                                                      |
-| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| -------------------------------- |---------------| -------- | ------------------------------------------------------------ |
 | fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas |
 | benodes                          | --            | N        | Doris BE http address, multiple addresses are supported, separated by commas. refer to [#187](https://github.com/apache/doris-flink-connector/pull/187) |
 | jdbc-url                         | --            | N        | jdbc connection information, such as: jdbc:mysql://127.0.0.1:9030 |
 | table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                            |
 | username                         | --            | Y        | username to access Doris                                     |
 | password                         | --            | Y        | Password to access Doris                                     |
-| auto-redirect                    | false         | N        | Whether to redirect StreamLoad requests. After being turned on, StreamLoad will be written through FE, and BE information will no longer be displayed. At the same time, it can also be written to SelectDB Cloud by turning on this parameter. |
+| auto-redirect                    | true          | N        | Whether to redirect StreamLoad requests. After being turned on, StreamLoad will be written through FE, and BE information will no longer be displayed. |
 | doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                  |
 | doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris             |
 | doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                   |
@@ -779,8 +779,12 @@ You can search for the log `abort transaction response` in TaskManager and deter
 
 14. **org.apache.flink.table.api.SqlParserException when using doris.filter.query: SQL parsing failed. "xx" encountered at row x, column xx**
 
-This problem is mainly caused by the conditional varchar/string type, which needs to be quoted. The correct way to write it is xxx = ''xxx''. In this way, the Flink SQL parser will interpret two consecutive single quotes as one single quote character instead of The end of the string, and the concatenated string is used as the value of the attribute.
+This problem is mainly caused by the conditional varchar/string type, which needs to be quoted. The correct way to write it is xxx = ''xxx''. In this way, the Flink SQL parser will interpret two consecutive single quotes as one single quote character instead of The end of the string, and the concatenated string is used as the value of the attribute. For example: `t1 >= '2024-01-01'` can be written as `'doris.filter.query' = 't1 >=''2024-01-01'''`.
 
 15. **Failed to connect to backend: http://host:webserver_port, and BE is still alive**
 
 The issue may have occurred due to configuring the IP address of `be`, which is not reachable by the external Flink cluster.This is mainly because when connecting to `fe`, the address of `be` is resolved through fe. For instance, if you add a be address as '127.0.0.1', the be address obtained by the Flink cluster through fe will be '127.0.0.1:webserver_port', and Flink will connect to that address. When this issue arises, you can resolve it by adding the actual corresponding external IP address of the be to the "with" attribute:`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`.For the entire database synchronization, the following properties are available`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`.
+
+16. **When using Flink-connector to synchronize MySQL data to Doris, there is a time difference of several hours between the timestamp.**
+
+Flink  Connector synchronizes the entire database from MySQL with a default timezone of UTC+8. If your data resides in a different timezone, you can adjust it using the following configuration, for example: `--mysql-conf debezium.date.format.timestamp.zone="UTC+3"`.

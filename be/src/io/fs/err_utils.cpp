@@ -115,15 +115,16 @@ Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
     using namespace Aws::Http;
     switch (err.GetResponseCode()) {
     case HttpResponseCode::NOT_FOUND:
-        return Status::Error<NOT_FOUND, false>("{}: {} {}", msg, err.GetExceptionName(),
-                                               err.GetMessage());
+        return Status::Error<NOT_FOUND, false>("{}: {} {} type={}", msg, err.GetExceptionName(),
+                                               err.GetMessage(), err.GetErrorType());
     case HttpResponseCode::FORBIDDEN:
-        return Status::Error<PERMISSION_DENIED, false>("{}: {} {}", msg, err.GetExceptionName(),
-                                                       err.GetMessage());
+        return Status::Error<PERMISSION_DENIED, false>("{}: {} {} type={}", msg,
+                                                       err.GetExceptionName(), err.GetMessage(),
+                                                       err.GetErrorType());
     default:
-        return Status::Error<doris::INTERNAL_ERROR, false>("{}: {} {} code={}", msg,
-                                                           err.GetExceptionName(), err.GetMessage(),
-                                                           err.GetResponseCode());
+        return Status::Error<doris::INTERNAL_ERROR, false>(
+                "{}: {} {} code={} type={}", msg, err.GetExceptionName(), err.GetMessage(),
+                err.GetResponseCode(), err.GetErrorType());
     }
 }
 

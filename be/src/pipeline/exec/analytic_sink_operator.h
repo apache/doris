@@ -45,22 +45,14 @@ public:
     bool can_write() override { return _node->can_write(); }
 };
 
-class AnalyticSinkDependency final : public Dependency {
-public:
-    using SharedState = AnalyticSharedState;
-    AnalyticSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AnalyticSinkDependency", true, query_ctx) {}
-    ~AnalyticSinkDependency() override = default;
-};
-
 class AnalyticSinkOperatorX;
 
-class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSinkDependency> {
+class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
 public:
     AnalyticSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<AnalyticSinkDependency>(parent, state) {}
+            : PipelineXSinkLocalState<AnalyticSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -70,11 +62,11 @@ private:
     bool _refresh_need_more_input() {
         auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
         if (need_more_input) {
-            _shared_state->source_dep->block();
+            _dependency->set_block_to_read();
             _dependency->set_ready();
         } else {
             _dependency->block();
-            _shared_state->source_dep->set_ready();
+            _dependency->set_ready_to_read();
         }
         return need_more_input;
     }
@@ -84,7 +76,6 @@ private:
                                                      bool need_check_first = false);
     bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
@@ -105,8 +96,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};

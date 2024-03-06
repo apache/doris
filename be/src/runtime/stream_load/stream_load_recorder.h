@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdint.h>
-
 #include <atomic>
+#include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -39,7 +39,7 @@ class StreamLoadRecorder {
     ENABLE_FACTORY_CREATOR(StreamLoadRecorder);
 
 public:
-    StreamLoadRecorder(const std::string& root_path);
+    StreamLoadRecorder(std::string root_path);
 
     virtual ~StreamLoadRecorder();
 
@@ -47,12 +47,12 @@ public:
 
     Status put(const std::string& key, const std::string& value);
 
-    Status get_batch(const std::string& start, const int batch_size,
+    Status get_batch(const std::string& start, int batch_size,
                      std::map<std::string, std::string>* stream_load_records);
 
 private:
     std::string _root_path;
-    rocksdb::DBWithTTL* _db = nullptr;
+    std::unique_ptr<rocksdb::DBWithTTL> _db;
     std::vector<rocksdb::ColumnFamilyHandle*> _handles;
 
     std::atomic<int64_t> _last_compaction_time;

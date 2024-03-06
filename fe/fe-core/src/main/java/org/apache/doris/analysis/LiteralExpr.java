@@ -34,8 +34,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
@@ -448,5 +450,32 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple) {
         return true;
+    }
+
+    /** whether is ZERO value **/
+    public boolean isZero() {
+        boolean isZero = false;
+        switch (type.getPrimitiveType()) {
+            case TINYINT:
+            case SMALLINT:
+            case INT:
+            case BIGINT:
+            case LARGEINT:
+                isZero = this.getLongValue() == 0;
+                break;
+            case FLOAT:
+            case DOUBLE:
+                isZero = this.getDoubleValue() == 0.0f;
+                break;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+            case DECIMAL256:
+                isZero = Objects.equals(((DecimalLiteral) this).getValue(), BigDecimal.ZERO);
+                break;
+            default:
+        }
+        return isZero;
     }
 }

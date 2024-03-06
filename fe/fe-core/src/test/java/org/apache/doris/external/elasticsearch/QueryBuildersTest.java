@@ -31,7 +31,8 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
+import org.apache.doris.datasource.es.QueryBuilders;
+import org.apache.doris.datasource.es.QueryBuilders.BuilderOptions;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;

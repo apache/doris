@@ -37,4 +37,3 @@ public abstract class EqualPredicate extends ComparisonPredicate {
         return null;
     }
 }
-

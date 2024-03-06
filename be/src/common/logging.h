@@ -110,6 +110,11 @@ private:
     google::LogMessage _msg;
 };
 
+// Very very important!!!!
+// Never define LOG_DEBUG or LOG_TRACE. because the tagged logging method will
+// always generated string and then check the log level, its performane is bad.
+// glog's original method will first check log level if it is not satisfied,
+// the log message is not generated.
 #define LOG_INFO TaggableLogger(__FILE__, __LINE__, google::GLOG_INFO)
 #define LOG_WARNING TaggableLogger(__FILE__, __LINE__, google::GLOG_WARNING)
 #define LOG_ERROR TaggableLogger(__FILE__, __LINE__, google::GLOG_ERROR)

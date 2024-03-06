@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot;
-import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,13 +31,13 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -145,7 +145,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // collect all trival-agg
         List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
         List<AggregateFunction> aggFuncs = Lists.newArrayList();
-        aggregateOutput.forEach(o -> o.accept(CollectNonWindowedAggFuncs.INSTANCE, aggFuncs));
+        aggregateOutput.forEach(o -> o.accept(PlanUtils.CollectNonWindowedAggFuncs.INSTANCE, aggFuncs));
 
         // split non-distinct agg child as two part
         // TRUE part 1: need push down itself, if it contains subqury or window expression
@@ -220,6 +220,11 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // normalize trival-aggs by bottomProjects
         List<AggregateFunction> normalizedAggFuncs =
                 bottomSlotContext.normalizeToUseSlotRef(aggFuncs);
+        if (normalizedAggFuncs.stream().anyMatch(agg -> !agg.children().isEmpty()
+                && agg.child(0).containsType(AggregateFunction.class))) {
+            throw new AnalysisException(
+                    "aggregate function cannot contain aggregate parameters");
+        }
 
         // build normalized agg output
         NormalizeToSlotContext normalizedAggFuncsToSlotContext =
@@ -285,24 +290,5 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             builder.add(e);
         }
         return builder.build();
-    }
-
-    private static class CollectNonWindowedAggFuncs extends DefaultExpressionVisitor<Void, List<AggregateFunction>> {
-
-        private static final CollectNonWindowedAggFuncs INSTANCE = new CollectNonWindowedAggFuncs();
-
-        @Override
-        public Void visitWindow(WindowExpression windowExpression, List<AggregateFunction> context) {
-            for (Expression child : windowExpression.getExpressionsInWindowSpec()) {
-                child.accept(this, context);
-            }
-            return null;
-        }
-
-        @Override
-        public Void visitAggregateFunction(AggregateFunction aggregateFunction, List<AggregateFunction> context) {
-            context.add(aggregateFunction);
-            return null;
-        }
     }
 }

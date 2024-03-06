@@ -26,7 +26,6 @@
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
-#include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -67,8 +66,8 @@ public:
     ~DeltaWriterV2Map();
 
     // get or create delta writer for the given tablet, memory is managed by DeltaWriterV2Map
-    DeltaWriterV2* get_or_create(int64_t tablet_id,
-                                 std::function<std::unique_ptr<DeltaWriterV2>()> creator);
+    std::shared_ptr<DeltaWriterV2> get_or_create(
+            int64_t tablet_id, std::function<std::unique_ptr<DeltaWriterV2>()> creator);
 
     // close all delta writers in this DeltaWriterV2Map if there is no other users
     Status close(RuntimeProfile* profile = nullptr);
@@ -79,13 +78,9 @@ public:
     size_t size() const { return _map.size(); }
 
 private:
-    using TabletToDeltaWriterV2Map = phmap::parallel_flat_hash_map<
-            int64_t, std::unique_ptr<DeltaWriterV2>, std::hash<int64_t>, std::equal_to<int64_t>,
-            std::allocator<phmap::Pair<const int64_t, std::unique_ptr<DeltaWriterV2>>>, 4,
-            std::mutex>;
-
     UniqueId _load_id;
-    TabletToDeltaWriterV2Map _map;
+    std::mutex _mutex;
+    std::unordered_map<int64_t, std::shared_ptr<DeltaWriterV2>> _map;
     std::atomic<int> _use_cnt;
     DeltaWriterV2Pool* _pool = nullptr;
 };

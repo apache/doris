@@ -58,4 +58,3 @@ public class BitShiftLeft extends ScalarFunction
         return new BitShiftLeft(children.get(0), children.get(1));
     }
 }
-

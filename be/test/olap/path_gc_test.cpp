@@ -45,7 +45,6 @@ TEST(PathGcTest, GcTabletAndRowset) {
     ASSERT_TRUE(st.ok()) << st;
 
     StorageEngine engine({});
-    ExecEnv::GetInstance()->set_storage_engine(&engine);
     DataDir data_dir(engine, dir_path, -1, TStorageMedium::HDD);
     st = data_dir._init_meta();
     ASSERT_TRUE(st.ok()) << st;
@@ -165,7 +164,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
         ASSERT_TRUE(st.ok()) << st;
         auto tablet = engine.tablet_manager()->get_tablet(rs->rowset_meta()->tablet_id());
         ASSERT_TRUE(tablet) << rs->rowset_meta()->tablet_id();
-        auto max_version = tablet->max_version_unlocked().second;
+        auto max_version = tablet->max_version_unlocked();
         rs->rowset_meta()->set_version({max_version + 1, max_version + 1});
         st = tablet->add_inc_rowset(rs);
         ASSERT_TRUE(st.ok()) << st;

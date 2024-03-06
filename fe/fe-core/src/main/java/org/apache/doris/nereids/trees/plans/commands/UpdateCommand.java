@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -92,7 +93,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty()).run(ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
+                executor);
     }
 
     /**
@@ -110,6 +112,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
             if (!column.isVisible() && !column.isSequenceColumn()) {
@@ -117,12 +120,21 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             }
             if (colNameToExpression.containsKey(column.getName())) {
                 Expression expr = colNameToExpression.get(column.getName());
+                // when updating the sequence map column, the real sequence column need to set with the same value.
+                boolean isSequenceMapColumn = targetTable.hasSequenceCol()
+                        && targetTable.getSequenceMapCol() != null
+                        && column.getName().equalsIgnoreCase(targetTable.getSequenceMapCol());
+                if (setExpr == null && isSequenceMapColumn) {
+                    setExpr = expr;
+                }
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
                         : new UnboundAlias(expr));
                 colNameToExpression.remove(column.getName());
             } else {
-                if (column.hasOnUpdateDefaultValue()) {
+                if (column.isSequenceColumn() && setExpr != null) {
+                    selectItems.add(new UnboundAlias(setExpr, column.getName()));
+                } else if (column.hasOnUpdateDefaultValue()) {
                     Expression defualtValueExpression =
                             new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
                                     .toSqlWithoutTbl());
@@ -141,9 +153,9 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         if (cte.isPresent()) {
             logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }
-
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
-                && selectItems.size() < targetTable.getColumns().size();
+                && selectItems.size() < targetTable.getColumns().size()
+                && !targetTable.hasVariantColumns();
 
         // make UnboundTableSink
         return new UnboundTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),

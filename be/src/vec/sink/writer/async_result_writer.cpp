@@ -17,6 +17,7 @@
 
 #include "async_result_writer.h"
 
+#include "common/status.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -45,7 +46,6 @@ void AsyncResultWriter::set_dependency(pipeline::AsyncWriterDependency* dep,
 
 Status AsyncResultWriter::sink(Block* block, bool eos) {
     auto rows = block->rows();
-    auto status = Status::OK();
     std::unique_ptr<Block> add_block;
     if (rows) {
         add_block = _get_free_block(block, rows);
@@ -58,7 +58,6 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
         return _writer_status;
     }
 
-    _eos = eos;
     if (_dependency && _is_finished()) {
         _dependency->set_ready();
     }
@@ -67,12 +66,14 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
         if (_dependency && !_data_queue_is_available() && !_is_finished()) {
             _dependency->block();
         }
-    } else if (_eos && _data_queue.empty()) {
-        status = Status::EndOfFile("Run out of sink data");
     }
+    // in 'process block' we check _eos first and _data_queue second so here
+    // in the lock. must modify the _eos after change _data_queue to make sure
+    // not lead the logic error in multi thread
+    _eos = eos;
 
     _cv.notify_one();
-    return status;
+    return Status::OK();
 }
 
 std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
@@ -86,9 +87,34 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
     return block;
 }
 
-void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
-    static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, profile]() { this->process_block(state, profile); }));
+Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
+    // Should set to false here, to
+    _writer_thread_closed = false;
+    // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
+    // not deconstructed before the thread exit.
+    auto task_ctx = state->get_task_execution_context();
+    if (state->get_query_ctx() && state->get_query_ctx()->get_non_pipe_exec_thread_pool()) {
+        ThreadPool* pool_ptr = state->get_query_ctx()->get_non_pipe_exec_thread_pool();
+        RETURN_IF_ERROR(pool_ptr->submit_func([this, state, profile, task_ctx]() {
+            auto task_lock = task_ctx.lock();
+            if (task_lock == nullptr) {
+                _writer_thread_closed = true;
+                return;
+            }
+            this->process_block(state, profile);
+        }));
+    } else {
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+                [this, state, profile, task_ctx]() {
+                    auto task_lock = task_ctx.lock();
+                    if (task_lock == nullptr) {
+                        _writer_thread_closed = true;
+                        return;
+                    }
+                    this->process_block(state, profile);
+                }));
+    }
+    return Status::OK();
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
@@ -101,7 +127,8 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             if (!_eos && _data_queue.empty() && _writer_status.ok()) {
                 std::unique_lock l(_m);
                 while (!_eos && _data_queue.empty() && _writer_status.ok()) {
-                    _cv.wait(l);
+                    // Add 1s to check to avoid lost signal
+                    _cv.wait_for(l, std::chrono::seconds(1));
                 }
             }
 
@@ -131,16 +158,17 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     // There is a unique ptr err_msg in Status, if it is modified, the unique ptr
     // maybe released. And it will core because use after free.
     std::lock_guard l(_m);
+    // eos only means the last block is input to the queue and there is no more block to be added,
+    // it is not sure that the block is written to stream.
     if (_writer_status.ok() && _eos) {
         _writer_status = finish(state);
     }
 
+    Status close_st = close(_writer_status);
+    // If it is already failed before, then not update the write status so that we could get
+    // the real reason.
     if (_writer_status.ok()) {
-        _writer_status = close(_writer_status);
-    } else {
-        // If it is already failed before, then not update the write status so that we could get
-        // the real reason.
-        static_cast<void>(close(_writer_status));
+        _writer_status = close_st;
     }
     _writer_thread_closed = true;
     if (_finish_dependency) {

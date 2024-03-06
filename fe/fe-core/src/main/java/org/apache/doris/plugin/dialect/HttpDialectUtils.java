@@ -56,7 +56,9 @@ public class HttpDialectUtils {
             }
 
             int responseCode = connection.getResponseCode();
-            LOG.debug("POST Response Code: {}, post data: {}", responseCode, requestStr);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("POST Response Code: {}, post data: {}", responseCode, requestStr);
+            }
 
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 try (InputStreamReader inputStreamReader
@@ -72,7 +74,9 @@ public class HttpDialectUtils {
                     Type type = new TypeToken<ConvertResponse>() {
                     }.getType();
                     ConvertResponse result = new Gson().fromJson(response.toString(), type);
-                    LOG.debug("convert response: {}", result);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("convert response: {}", result);
+                    }
                     if (result.code == 0) {
                         if (!"v1".equals(result.version)) {
                             LOG.warn("failed to convert sql, response version is not v1: {}", result.version);

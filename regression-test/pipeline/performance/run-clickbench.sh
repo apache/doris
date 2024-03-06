@@ -19,7 +19,6 @@
 # Build Step: Command Line
 : <<EOF
 #!/bin/bash
-export DEBUG=true
 
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-clickbench.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
@@ -43,14 +42,14 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 
 if ${DEBUG:-false}; then
-    pull_request_num="28431"
-    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    pr_num_from_trigger="28431"
+    commit_id_from_trigger="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
     target_branch="master"
 fi
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
-if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
-if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
+if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
+if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
 
 # shellcheck source=/dev/null
@@ -269,7 +268,7 @@ exit_flag=0
     cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
     best_hot_run_sum=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' result.csv)
     comment_body_summary="Total hot run time: ${best_hot_run_sum} s"
-    comment_body_detail="ClickBench test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
+    comment_body_detail="ClickBench test result on commit ${commit_id_from_trigger:-}, data reload: ${data_reload:-"false"}
 
 $(sed 's|,|\t|g' result.csv)
 Total cold run time: ${cold_run_sum} s
@@ -277,7 +276,7 @@ Total hot run time: ${best_hot_run_sum} s"
 
     echo "#### 6. comment result on clickbench"
     comment_body_detail=$(echo "${comment_body_detail}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
-    create_an_issue_comment_clickbench "${pull_request_num:-}" "${comment_body_summary}" "${comment_body_detail}"
+    create_an_issue_comment_clickbench "${pr_num_from_trigger:-}" "${comment_body_summary}" "${comment_body_detail}"
     rm -f result.csv
     echo -e "INFO: Restore session variables \n$(cat "${backup_session_variables_file}")"
     mysql -h"${host}" -P"${query_port}" -uroot -e "source ${backup_session_variables_file};"
@@ -290,7 +289,7 @@ if [[ ${exit_flag} != "0" ]]; then
     stop_doris
     print_doris_fe_log
     print_doris_be_log
-    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
+    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
 fi

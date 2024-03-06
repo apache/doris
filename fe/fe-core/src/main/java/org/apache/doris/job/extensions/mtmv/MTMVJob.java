@@ -185,7 +185,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
             LOG.warn("get mtmv failed", e);
             return Lists.newArrayList();
         }
-        return mtmv.getJobInfo().getHistoryTasks();
+        return Lists.newArrayList(mtmv.getJobInfo().getHistoryTasks());
     }
 
     @Override

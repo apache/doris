@@ -19,7 +19,6 @@
 # Build Step: Command Line
 : <<EOF
 #!/bin/bash
-export DEBUG=true
 
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-load.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
@@ -43,14 +42,14 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 
 if ${DEBUG:-false}; then
-    pull_request_num="28431"
-    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    pr_num_from_trigger="28431"
+    commit_id_from_trigger="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
     target_branch="master"
 fi
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
-if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
-if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
+if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
+if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
 
 # shellcheck source=/dev/null
@@ -679,14 +678,14 @@ exit_flag=0
     if [[ ${insert_into_select_speed} -lt ${insert_into_select_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${insert_into_select_speed} is less than the threshold ${insert_into_select_speed_threshold}" && exit 1; fi
 
     echo "#### 4. comment result on tpch"
-    comment_body="Load test result on commit ${commit_id:-} with default session variables"
+    comment_body="Load test result on commit ${commit_id_from_trigger:-} with default session variables"
     if [[ -n ${stream_load_json_time} ]]; then comment_body="${comment_body}\nStream load json:         ${stream_load_json_time} seconds loaded ${stream_load_json_size} Bytes, about ${stream_load_json_speed} MB/s"; fi
     if [[ -n ${stream_load_orc_time} ]]; then comment_body="${comment_body}\nStream load orc:          ${stream_load_orc_time} seconds loaded ${stream_load_orc_size} Bytes, about ${stream_load_orc_speed} MB/s"; fi
     if [[ -n ${stream_load_parquet_time} ]]; then comment_body="${comment_body}\nStream load parquet:      ${stream_load_parquet_time} seconds loaded ${stream_load_parquet_size} Bytes, about ${stream_load_parquet_speed} MB/s"; fi
     if [[ -n ${insert_into_select_time} ]]; then comment_body="${comment_body}\nInsert into select:       ${insert_into_select_time} seconds inserted ${insert_into_select_rows} Rows, about ${insert_into_select_speed}K ops/s"; fi
 
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
-    create_an_issue_comment_load "${pull_request_num:-}" "${comment_body}"
+    create_an_issue_comment_load "${pr_num_from_trigger:-}" "${comment_body}"
 )
 exit_flag="$?"
 
@@ -695,7 +694,7 @@ if [[ ${exit_flag} != "0" ]]; then
     stop_doris
     print_doris_fe_log
     print_doris_be_log
-    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
+    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
 fi

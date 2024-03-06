@@ -67,6 +67,7 @@ public class PlanPostProcessors {
         builder.add(new FragmentProcessor());
         if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
                         .toUpperCase().equals(TRuntimeFilterMode.OFF.name())) {
+            builder.add(new RegisterParent());
             builder.add(new RuntimeFilterGenerator());
             if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
                 builder.add(new RuntimeFilterPruner());

@@ -1,5 +1,7 @@
 # join hint using document
 
+<version since="2.0.4"></version> 
+
 In the database, "Hint" is an instruction that instructs the query optimizer to execute a plan. By embedding hints in SQL statements, you can influence the optimizer's decision to select the desired execution path. Here is a background example using Hint:
 
 Suppose you have a table that contains a large amount of data, and you know that in some specific circumstances, the join order of the tables in a query may affect query performance. Leading Hint allows you to specify the order of table joins that you want the optimizer to follow.

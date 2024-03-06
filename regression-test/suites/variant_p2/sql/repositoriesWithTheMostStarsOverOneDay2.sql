@@ -10,11 +10,11 @@ FROM
     FROM
     (
         SELECT
-            cast(repo:name as string) as repo_name,
+            cast(repo["name"] as string) as repo_name,
             count() AS stars
         FROM github_events
         WHERE type = 'WatchEvent'
-        GROUP BY cast(repo:name as string)
+        GROUP BY cast(repo["name"] as string)
     ) t1
 ) t2
 WHERE rank = 1

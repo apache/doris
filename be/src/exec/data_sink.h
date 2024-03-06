@@ -40,6 +40,7 @@ class TDataSink;
 class TExpr;
 class TPipelineFragmentParams;
 class TOlapTableSink;
+class QueryStatistics;
 
 namespace vectorized {
 class Block;
@@ -48,7 +49,7 @@ class Block;
 // Superclass of all data sinks.
 class DataSink {
 public:
-    DataSink(const RowDescriptor& desc) : _row_desc(desc) {}
+    DataSink(const RowDescriptor& desc);
     virtual ~DataSink() {}
 
     virtual Status init(const TDataSink& thrift_sink);
@@ -68,10 +69,6 @@ public:
     // Send a Block into this sink, not blocked thredd API only use in pipeline exec engine
     virtual Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) {
         return send(state, block, eos);
-    }
-
-    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
-        return Status::OK();
     }
 
     [[nodiscard]] virtual bool is_pending_finish() const { return false; }
@@ -107,8 +104,7 @@ public:
 
     virtual bool can_write() { return true; }
 
-private:
-    static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
+    std::shared_ptr<QueryStatistics> get_query_statistics_ptr();
 
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
@@ -128,6 +124,8 @@ protected:
         _output_rows_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
         _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     }
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

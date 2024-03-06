@@ -51,9 +51,10 @@ under the License.
     
     - MacOS: 
 
-        1. `brew tap-new $USER/local-tap`
-        2. `brew extract --version='0.16.0' thrift $USER/local-tap`
-        3. `brew install thrift@0.16.0`
+        1. `brew tap homebrew/core --force`
+        2. `brew tap-new $USER/local-tap`
+        3. `brew extract --version='0.16.0' thrift $USER/local-tap`
+        4. `brew install thrift@0.16.0`
 
         If there is an error related to downloading, you can modify the following files:
 

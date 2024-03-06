@@ -18,8 +18,8 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <iosfwd>
 #include <vector>
 
@@ -63,6 +63,8 @@ public:
 
     /// GetNext() for the constant expression case.
     Status get_next_const(RuntimeState* state, Block* block);
+
+    bool resource_allocated() const { return _resource_allocated; }
 
 private:
     /// Const exprs materialized by this node. These exprs don't refer to any children.

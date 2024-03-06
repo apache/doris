@@ -143,8 +143,6 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     load_with_injection("LocalFileSystem.create_file_impl.open_file_failed", "")
     // LoadStreamWriter append_data meet null file writer error
     load_with_injection("LoadStreamWriter.append_data.null_file_writer", "")
-    // LoadStreamWriter append_data meet bytes_appended and real file size not match error
-    load_with_injection("FileWriter.bytes_appended.zero_bytes_appended", "")
     // LoadStreamWriter close_segment meet not inited error
     load_with_injection("LoadStreamWriter.close_segment.uninited_writer", "")
     // LoadStreamWriter close_segment meet not bad segid error

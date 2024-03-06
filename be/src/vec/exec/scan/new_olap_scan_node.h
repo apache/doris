@@ -129,6 +129,7 @@ private:
     RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;

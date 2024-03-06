@@ -40,10 +40,10 @@ const static std::string HEADER_JSON = "application/json";
 void TabletMigrationAction::_init_migration_action() {
     int32_t max_thread_num = config::max_tablet_migration_threads;
     int32_t min_thread_num = config::min_tablet_migration_threads;
-    static_cast<void>(ThreadPoolBuilder("MigrationTaskThreadPool")
-                              .set_min_threads(min_thread_num)
-                              .set_max_threads(max_thread_num)
-                              .build(&_migration_thread_pool));
+    THROW_IF_ERROR(ThreadPoolBuilder("MigrationTaskThreadPool")
+                           .set_min_threads(min_thread_num)
+                           .set_max_threads(max_thread_num)
+                           .build(&_migration_thread_pool));
 }
 
 void TabletMigrationAction::handle(HttpRequest* req) {
@@ -187,14 +187,14 @@ Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
 Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, int32_t schema_hash,
                                                      string dest_disk, TabletSharedPtr& tablet,
                                                      DataDir** dest_store) {
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id;
         return Status::NotFound("Tablet not found");
     }
 
     // request specify the data dir
-    *dest_store = StorageEngine::instance()->get_store(dest_disk);
+    *dest_store = _engine.get_store(dest_disk);
     if (*dest_store == nullptr) {
         LOG(WARNING) << "data dir not found: " << dest_disk;
         return Status::NotFound("Disk not found");
@@ -223,7 +223,7 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     int64_t tablet_id = tablet->tablet_id();
     int32_t schema_hash = tablet->schema_hash();
     string dest_disk = dest_store->path();
-    EngineStorageMigrationTask engine_task(tablet, dest_store);
+    EngineStorageMigrationTask engine_task(_engine, tablet, dest_store);
     Status res = engine_task.execute();
     if (!res.ok()) {
         LOG(WARNING) << "tablet migrate failed. tablet_id=" << tablet_id

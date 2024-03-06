@@ -46,7 +46,7 @@
 #include <utility>
 #include <vector>
 
-#include "common/config.h"
+#include "cloud/config.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -306,6 +306,8 @@ void VNodeChannel::clear_all_blocks() {
     _cur_mutable_block.reset();
 }
 
+// we don't need to send tablet_writer_cancel rpc request when
+// init failed, so set _is_closed to true.
 // if "_cancelled" is set to true,
 // no need to set _cancel_msg because the error will be
 // returned directly via "TabletSink::prepare()" method.
@@ -322,6 +324,7 @@ Status VNodeChannel::init(RuntimeState* state) {
     const auto* node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
         _cancelled = true;
+        _is_closed = true;
         return Status::InternalError("unknown node id, id={}", _node_id);
     }
     _node_info = *node;
@@ -336,6 +339,7 @@ Status VNodeChannel::init(RuntimeState* state) {
                                                                         _node_info.brpc_port);
     if (_stub == nullptr) {
         _cancelled = true;
+        _is_closed = true;
         return Status::InternalError("Get rpc stub failed, host={}, port={}, info={}",
                                      _node_info.host, _node_info.brpc_port, channel_info());
     }
@@ -417,6 +421,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_backend_id(_node_id);
     request->set_enable_profile(_state->enable_profile());
     request->set_is_incremental(is_incremental);
+    request->set_txn_expiration(_parent->_txn_expiration);
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
     auto open_closure = AutoReleaseClosure<
@@ -441,6 +446,7 @@ void VNodeChannel::open() {
 }
 
 void VNodeChannel::incremental_open() {
+    VLOG_DEBUG << "incremental opening node channel" << _node_id;
     _open_internal(true);
 }
 
@@ -839,8 +845,10 @@ void VNodeChannel::_add_block_failed_callback(bool is_last_rpc) {
     }
 }
 
+// When _cancelled is true, we still need to send a tablet_writer_cancel
+// rpc request to truly release the load channel
 void VNodeChannel::cancel(const std::string& cancel_msg) {
-    if (_is_closed || _cancelled) {
+    if (_is_closed) {
         // skip the channels that have been canceled or close_wait.
         return;
     }
@@ -1132,6 +1140,12 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
             return Status::InternalError("single replica load is disabled on BE.");
         }
     }
+
+    if (config::is_cloud_mode() &&
+        (!table_sink.__isset.txn_timeout_s || table_sink.txn_timeout_s <= 0)) {
+        return Status::InternalError("The txn_timeout_s of TDataSink is invalid");
+    }
+    _txn_expiration = ::time(nullptr) + table_sink.txn_timeout_s;
 
     if (table_sink.__isset.load_channel_timeout_s) {
         _load_channel_timeout_s = table_sink.load_channel_timeout_s;
@@ -1616,9 +1630,7 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     if (_state->query_options().dry_run_query) {
         return status;
     }
-    LOG(INFO) << "temporary log query id: " << print_id(_state->query_id())
-              << ", instance id: " << print_id(_state->fragment_instance_id())
-              << ", block rows: " << input_block.rows();
+
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 

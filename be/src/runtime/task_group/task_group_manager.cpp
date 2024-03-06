@@ -21,9 +21,10 @@
 #include <mutex>
 
 #include "pipeline/task_scheduler.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/task_group/task_group.h"
+#include "util/threadpool.h"
+#include "util/time.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris::taskgroup {
@@ -49,8 +50,9 @@ TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& tas
     return new_task_group;
 }
 
-void TaskGroupManager::get_resource_groups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
-                                           std::vector<TaskGroupPtr>* task_groups) {
+void TaskGroupManager::get_related_taskgroups(
+        const std::function<bool(const TaskGroupPtr& ptr)>& pred,
+        std::vector<TaskGroupPtr>* task_groups) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     for (const auto& [id, task_group] : _task_groups) {
         if (pred(task_group)) {
@@ -67,147 +69,42 @@ TaskGroupPtr TaskGroupManager::get_task_group_by_id(uint64_t tg_id) {
     return nullptr;
 }
 
-bool TaskGroupManager::set_cg_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr) {
-    std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
-    auto tg_sche_it = _tg_sche_map.find(tg_id);
-    if (tg_sche_it != _tg_sche_map.end()) {
-        query_ctx_ptr->set_task_scheduler(tg_sche_it->second.get());
-        auto _tg_scan_sche_it = _tg_scan_sche_map.find(tg_id);
-        if (_tg_scan_sche_it != _tg_scan_sche_map.end()) {
-            query_ctx_ptr->set_scan_task_scheduler(_tg_scan_sche_it->second.get());
-            return true;
-        }
-    }
-    return false;
-}
-
-Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info,
-                                                  ExecEnv* exec_env) {
-    uint64_t tg_id = tg_info->id;
-    std::string tg_name = tg_info->name;
-    int cpu_hard_limit = tg_info->cpu_hard_limit;
-    uint64_t cpu_shares = tg_info->cpu_share;
-    bool enable_cpu_hard_limit = tg_info->enable_cpu_hard_limit;
-
-    std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
-    // step 1: init cgroup cpu controller
-    CgroupCpuCtl* cg_cu_ctl_ptr = nullptr;
-    if (_cgroup_ctl_map.find(tg_id) == _cgroup_ctl_map.end()) {
-        std::unique_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_unique<CgroupV1CpuCtl>(tg_id);
-        Status ret = cgroup_cpu_ctl->init();
-        if (ret.ok()) {
-            cg_cu_ctl_ptr = cgroup_cpu_ctl.get();
-            _cgroup_ctl_map.emplace(tg_id, std::move(cgroup_cpu_ctl));
-        } else {
-            return Status::InternalError<false>("cgroup init failed, gid={}, reason={}", tg_id,
-                                                ret.to_string());
-        }
-    }
-
-    // step 2: init task scheduler
-    if (_tg_sche_map.find(tg_id) == _tg_sche_map.end()) {
-        int32_t executors_size = config::pipeline_executor_size;
-        if (executors_size <= 0) {
-            executors_size = CpuInfo::num_cores();
-        }
-        auto task_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
-
-        auto pipeline_task_scheduler = std::make_unique<pipeline::TaskScheduler>(
-                exec_env, exec_env->get_global_block_scheduler(), std::move(task_queue),
-                "Exec_" + tg_name, cg_cu_ctl_ptr);
-        Status ret = pipeline_task_scheduler->start();
-        if (ret.ok()) {
-            _tg_sche_map.emplace(tg_id, std::move(pipeline_task_scheduler));
-        } else {
-            return Status::InternalError<false>("task scheduler start failed, gid={}", tg_id);
-        }
-    }
-
-    // step 3: init scan scheduler
-    if (_tg_scan_sche_map.find(tg_id) == _tg_scan_sche_map.end()) {
-        auto scan_scheduler =
-                std::make_unique<vectorized::SimplifiedScanScheduler>(tg_name, cg_cu_ctl_ptr);
-        Status ret = scan_scheduler->start();
-        if (ret.ok()) {
-            _tg_scan_sche_map.emplace(tg_id, std::move(scan_scheduler));
-        } else {
-            return Status::InternalError<false>("scan scheduler start failed, gid={}", tg_id);
-        }
-    }
-
-    // step 4 update cgroup cpu if needed
-    if (enable_cpu_hard_limit) {
-        if (cpu_hard_limit > 0) {
-            _cgroup_ctl_map.at(tg_id)->update_cpu_hard_limit(cpu_hard_limit);
-            _cgroup_ctl_map.at(tg_id)->update_cpu_soft_limit(CPU_SOFT_LIMIT_DEFAULT_VALUE);
-        } else {
-            return Status::InternalError<false>("enable cpu hard limit but value is illegal");
-        }
-    } else {
-        if (config::enable_cgroup_cpu_soft_limit) {
-            _cgroup_ctl_map.at(tg_id)->update_cpu_soft_limit(cpu_shares);
-            _cgroup_ctl_map.at(tg_id)->update_cpu_hard_limit(
-                    CPU_HARD_LIMIT_DEFAULT_VALUE); // disable cpu hard limit
-        }
-    }
-    _cgroup_ctl_map.at(tg_id)->get_cgroup_cpu_info(&(tg_info->cgroup_cpu_shares),
-                                                   &(tg_info->cgroup_cpu_hard_limit));
-
-    return Status::OK();
-}
-
 void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
-    // stop task sche may cost some time, so it should not be locked
-    std::set<doris::pipeline::TaskScheduler*> task_sche_to_del;
-    std::set<vectorized::SimplifiedScanScheduler*> scan_task_sche_to_del;
-    std::set<uint64_t> deleted_tg_ids;
-    {
-        std::shared_lock<std::shared_mutex> read_lock(_task_scheduler_lock);
-        for (auto iter = _tg_sche_map.begin(); iter != _tg_sche_map.end(); iter++) {
-            uint64_t tg_id = iter->first;
-            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
-                task_sche_to_del.insert(_tg_sche_map[tg_id].get());
-                deleted_tg_ids.insert(tg_id);
-            }
-        }
-
-        for (auto iter = _tg_scan_sche_map.begin(); iter != _tg_scan_sche_map.end(); iter++) {
-            uint64_t tg_id = iter->first;
-            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
-                scan_task_sche_to_del.insert(_tg_scan_sche_map[tg_id].get());
-            }
-        }
-    }
-    // 1 stop all threads
-    for (auto* ptr1 : task_sche_to_del) {
-        ptr1->stop();
-    }
-    for (auto* ptr2 : scan_task_sche_to_del) {
-        ptr2->stop();
-    }
-    // 2 release resource in memory
-    {
-        std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
-        for (uint64_t tg_id : deleted_tg_ids) {
-            _tg_sche_map.erase(tg_id);
-            _tg_scan_sche_map.erase(tg_id);
-            _cgroup_ctl_map.erase(tg_id);
-        }
-    }
-
+    int64_t begin_time = MonotonicMillis();
+    // 1 get delete group without running queries
+    std::vector<TaskGroupPtr> deleted_task_groups;
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
-        for (auto iter = _task_groups.begin(); iter != _task_groups.end();) {
+        for (auto iter = _task_groups.begin(); iter != _task_groups.end(); iter++) {
             uint64_t tg_id = iter->first;
+            auto task_group_ptr = iter->second;
             if (used_wg_id.find(tg_id) == used_wg_id.end()) {
-                iter = _task_groups.erase(iter);
-            } else {
-                iter++;
+                task_group_ptr->shutdown();
+                // only when no query running in task group, its resource can be released in BE
+                if (task_group_ptr->query_num() == 0) {
+                    LOG(INFO) << "There is no query in wg " << tg_id << ", delete it.";
+                    deleted_task_groups.push_back(task_group_ptr);
+                }
             }
         }
     }
 
-    // 3 clear cgroup dir
+    // 2 stop active thread
+    for (auto& tg : deleted_task_groups) {
+        // There is not lock here, but the tg may be released by another
+        // thread, so that we should use shared ptr here, not use tg_id
+        tg->try_stop_schedulers();
+    }
+
+    // 3 release resource in memory
+    {
+        std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
+        for (auto& tg : deleted_task_groups) {
+            _task_groups.erase(tg->id());
+        }
+    }
+
+    // 4 clear cgroup dir
     // NOTE(wb) currently we use rmdir to delete cgroup path,
     // this action may be failed until task file is cleared which means all thread are stopped.
     // So the first time to rmdir a cgroup path may failed.
@@ -232,15 +129,14 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
             }
         }
     }
-    LOG(INFO) << "finish clear unused cgroup path";
+    int64_t time_cost_ms = MonotonicMillis() - begin_time;
+    LOG(INFO) << "finish clear unused task group, time cost: " << time_cost_ms
+              << "ms, deleted group size:" << deleted_task_groups.size();
 }
 
 void TaskGroupManager::stop() {
-    for (auto& task_sche : _tg_sche_map) {
-        task_sche.second->stop();
-    }
-    for (auto& task_sche : _tg_scan_sche_map) {
-        task_sche.second->stop();
+    for (auto iter = _task_groups.begin(); iter != _task_groups.end(); iter++) {
+        iter->second->try_stop_schedulers();
     }
 }
 

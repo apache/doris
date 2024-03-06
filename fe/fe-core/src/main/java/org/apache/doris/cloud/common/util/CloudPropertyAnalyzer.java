@@ -21,30 +21,33 @@ import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
 
 public class CloudPropertyAnalyzer extends PropertyAnalyzer {
 
     public CloudPropertyAnalyzer() {
-        forceProperties = ImmutableMap.<String, String>builder()
-                .put(PropertyAnalyzer.PROPERTIES_INMEMORY, "true")
-                //.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, null)
-                .put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "")
-                .put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "")
-                .put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, "")
-                .put(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM, "-1")
-                .put(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false")
-                .put(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "true")
-                .put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                        String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum()))
-                .put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+        // Ignore unsupported properties in cloud mode
+        forceProperties = ImmutableList.of(
+                RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_INMEMORY),
+                RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM),
+                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "V2"),
+                RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY),
+                RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME),
+                RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM),
+                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"),
+                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "true"),
+                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                        String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum())),
+                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt()),
+                RewriteProperty.delete("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM),
+                RewriteProperty.delete("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION),
+                RewriteProperty.delete(DynamicPartitionProperty.STORAGE_MEDIUM),
+                RewriteProperty.replace(DynamicPartitionProperty.REPLICATION_NUM,
+                        String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum())),
+                RewriteProperty.replace(DynamicPartitionProperty.REPLICATION_ALLOCATION,
                         ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt())
-                //.put(DynamicPartitionProperty.PROPERTIES_STORAGE_MEDIUM, "")
-                .put(DynamicPartitionProperty.REPLICATION_NUM,
-                        String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum()))
-                .put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
-                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt())
-                .build();
+                );
     }
 
 }

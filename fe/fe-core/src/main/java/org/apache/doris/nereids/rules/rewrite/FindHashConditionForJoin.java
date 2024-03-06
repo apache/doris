@@ -73,9 +73,10 @@ public class FindHashConditionForJoin extends OneRewriteRuleFactory {
             return new LogicalJoin<>(joinType,
                     combinedHashJoinConjuncts,
                     remainedNonHashJoinConjuncts,
+                    join.getMarkJoinConjuncts(),
                     join.getDistributeHint(),
                     join.getMarkJoinSlotReference(),
-                    join.children());
+                    join.children(), join.getJoinReorderContext());
         }).toRule(RuleType.FIND_HASH_CONDITION_FOR_JOIN);
     }
 }

@@ -43,7 +43,7 @@ public:
     void release(Cache::Handle*);
 
 private:
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         TabletSchemaSPtr tablet_schema;
     };
 };

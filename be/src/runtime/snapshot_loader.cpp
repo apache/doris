@@ -26,9 +26,6 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cstring>
@@ -82,20 +79,22 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
     return Status::OK();
 }
 
+bool _end_with(std::string_view str, std::string_view match) {
+    return str.size() >= match.size() &&
+           str.compare(str.size() - match.size(), match.size(), match) == 0;
+}
+
 } // namespace
 
-SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id)
-        : _env(env),
-          _job_id(job_id),
-          _task_id(task_id),
-          _broker_addr(TNetworkAddress()),
-          _prop(std::map<std::string, std::string>()),
-          _remote_fs(nullptr) {}
-
-SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
                                const TNetworkAddress& broker_addr,
                                const std::map<std::string, std::string>& prop)
-        : _env(env), _job_id(job_id), _task_id(task_id), _broker_addr(broker_addr), _prop(prop) {}
+        : _engine(engine),
+          _env(env),
+          _job_id(job_id),
+          _task_id(task_id),
+          _broker_addr(broker_addr),
+          _prop(prop) {}
 
 Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type) {
@@ -109,7 +108,8 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
     } else if (TStorageBackendType::type::HDFS == type) {
         THdfsParams hdfs_params = parse_properties(_prop);
         std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
+        RETURN_IF_ERROR(
+                io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr, &fs));
         _remote_fs = std::move(fs);
     } else if (TStorageBackendType::type::BROKER == type) {
         std::shared_ptr<io::BrokerFileSystem> fs;
@@ -145,9 +145,9 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
     int report_counter = 0;
     int total_num = src_to_dest_path.size();
     int finished_num = 0;
-    for (auto iter = src_to_dest_path.begin(); iter != src_to_dest_path.end(); iter++) {
-        const std::string& src_path = iter->first;
-        const std::string& dest_path = iter->second;
+    for (const auto& iter : src_to_dest_path) {
+        const std::string& src_path = iter.first;
+        const std::string& dest_path = iter.second;
 
         int64_t tablet_id = 0;
         int32_t schema_hash = 0;
@@ -168,11 +168,10 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
         RETURN_IF_ERROR(_get_existing_files_from_local(src_path, &local_files));
 
         // 2.3 iterate local files
-        for (auto it = local_files.begin(); it != local_files.end(); it++) {
+        for (auto& local_file : local_files) {
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
                                           TTaskType::type::UPLOAD));
 
-            const std::string& local_file = *it;
             // calc md5sum of localfile
             std::string md5sum;
             RETURN_IF_ERROR(
@@ -242,9 +241,9 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
     int report_counter = 0;
     int total_num = src_to_dest_path.size();
     int finished_num = 0;
-    for (auto iter = src_to_dest_path.begin(); iter != src_to_dest_path.end(); iter++) {
-        const std::string& remote_path = iter->first;
-        const std::string& local_path = iter->second;
+    for (const auto& iter : src_to_dest_path) {
+        const std::string& remote_path = iter.first;
+        const std::string& local_path = iter.second;
 
         int64_t local_tablet_id = 0;
         int32_t schema_hash = 0;
@@ -272,8 +271,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             return Status::InternalError(ss.str());
         }
 
-        TabletSharedPtr tablet =
-                StorageEngine::instance()->tablet_manager()->get_tablet(local_tablet_id);
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(local_tablet_id);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get local tablet: " << local_tablet_id;
@@ -548,8 +546,7 @@ Status SnapshotLoader::remote_http_download(
         }
 
         auto local_tablet_id = remote_tablet_snapshot.local_tablet_id;
-        TabletSharedPtr tablet =
-                StorageEngine::instance()->tablet_manager()->get_tablet(local_tablet_id);
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(local_tablet_id);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get local tablet: " << local_tablet_id;
@@ -609,8 +606,8 @@ Status SnapshotLoader::remote_http_download(
                                  << ", local_file_size=" << local_file_size;
                     return Status::InternalError("downloaded file size is not equal");
                 }
-                chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
-                return Status::OK();
+                return io::global_local_filesystem()->permission(
+                        local_file_path, io::LocalFileSystem::PERMS_OWNER_RW);
             };
             RETURN_IF_ERROR(HttpClient::execute_with_retry(kDownloadFileMaxRetry, 1, download_cb));
 
@@ -699,7 +696,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         return Status::InternalError(ss.str());
     }
 
-    DataDir* store = StorageEngine::instance()->get_store(store_path);
+    DataDir* store = _engine.get_store(store_path);
     if (store == nullptr) {
         std::stringstream ss;
         ss << "failed to get store by path: " << store_path;
@@ -722,7 +719,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    auto res = SnapshotManager::instance()->convert_rowset_ids(
+    auto res = _engine.snapshot_mgr()->convert_rowset_ids(
             snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
     if (!res.has_value()) [[unlikely]] {
         auto err_msg =
@@ -780,8 +777,8 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     // snapshot loader not need to change tablet uid
     // fixme: there is no header now and can not call load_one_tablet here
     // reload header
-    Status ost = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
-            store, tablet_id, schema_hash, tablet_path, true);
+    Status ost = _engine.tablet_manager()->load_tablet_from_dir(store, tablet_id, schema_hash,
+                                                                tablet_path, true);
     if (!ost.ok()) {
         std::stringstream ss;
         ss << "failed to reload header of tablet: " << tablet_id;
@@ -791,14 +788,6 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
 
     return status;
-}
-
-bool SnapshotLoader::_end_with(const std::string& str, const std::string& match) {
-    if (str.size() >= match.size() &&
-        str.compare(str.size() - match.size(), match.size(), match) == 0) {
-        return true;
-    }
-    return false;
 }
 
 Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::string& src_path,

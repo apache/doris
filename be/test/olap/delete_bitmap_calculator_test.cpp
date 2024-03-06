@@ -45,7 +45,6 @@
 namespace doris {
 using namespace ErrorCode;
 
-static StorageEngine* k_engine = nullptr;
 static std::string kSegmentDir = "./ut_dir/delete_bitmap_calculator_test";
 static RowsetId rowset_id {0};
 
@@ -75,19 +74,12 @@ public:
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(kSegmentDir);
         ASSERT_TRUE(st.ok()) << st;
-        doris::EngineOptions options;
-        k_engine = new StorageEngine(options);
-        ExecEnv::GetInstance()->set_storage_engine(k_engine);
+        ExecEnv::GetInstance()->set_storage_engine(
+                std::make_unique<StorageEngine>(EngineOptions {}));
     }
 
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kSegmentDir).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-            ExecEnv::GetInstance()->set_storage_engine(nullptr);
-        }
     }
 
     TabletSchemaSPtr create_schema(const std::vector<TabletColumn>& columns,
@@ -111,9 +103,7 @@ public:
         io::FileWriterPtr file_writer;
         Status st = fs->create_file(path, &file_writer);
         EXPECT_TRUE(st.ok());
-        DataDir data_dir(*k_engine, kSegmentDir);
-        static_cast<void>(data_dir.init());
-        SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, &data_dir,
+        SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr,
                              INT32_MAX, opts, nullptr);
         st = writer.init();
         EXPECT_TRUE(st.ok());

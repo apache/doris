@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
@@ -30,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * struct literal
@@ -139,11 +141,16 @@ public class StructLiteral extends Literal {
         return visitor.visitStructLiteral(this, context);
     }
 
-    public static StructType computeDataType(List<? extends Expression> fields) {
+    public static StructType constructStructType(List<DataType> fieldTypes) {
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
-        for (int i = 0; i < fields.size(); i++) {
-            structFields.add(new StructField("col" + (i + 1), fields.get(i).getDataType(), true, ""));
+        for (int i = 0; i < fieldTypes.size(); i++) {
+            structFields.add(new StructField("col" + (i + 1), fieldTypes.get(i), true, ""));
         }
         return new StructType(structFields.build());
+    }
+
+    public static StructType computeDataType(List<? extends Expression> fields) {
+        List<DataType> fieldTypes = fields.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList());
+        return constructStructType(fieldTypes);
     }
 }

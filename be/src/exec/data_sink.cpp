@@ -29,7 +29,9 @@
 #include <ostream>
 #include <string>
 
-#include "common/config.h"
+#include "cloud/config.h"
+#include "runtime/query_context.h"
+#include "runtime/query_statistics.h"
 #include "vec/sink/async_writer_sink.h"
 #include "vec/sink/group_commit_block_sink.h"
 #include "vec/sink/multi_cast_data_stream_sink.h"
@@ -43,6 +45,14 @@
 namespace doris {
 class DescriptorTbl;
 class TExpr;
+
+DataSink::DataSink(const RowDescriptor& desc) : _row_desc(desc) {
+    _query_statistics = std::make_shared<QueryStatistics>();
+}
+
+std::shared_ptr<QueryStatistics> DataSink::get_query_statistics_ptr() {
+    return _query_statistics;
+}
 
 Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                   const std::vector<TExpr>& output_exprs,
@@ -141,6 +151,10 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            if (config::is_cloud_mode()) {
+                return Status::InternalError(
+                        "memtable on sink node is not supported in cloud mode");
+            }
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs));
@@ -175,6 +189,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
 
     if (*sink != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
+        if (state->get_query_ctx()) {
+            state->get_query_ctx()->register_query_statistics((*sink)->get_query_statistics_ptr());
+        }
     }
 
     return Status::OK();
@@ -279,6 +296,10 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            if (config::is_cloud_mode()) {
+                return Status::InternalError(
+                        "memtable on sink node is not supported in cloud mode");
+            }
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs));
@@ -318,6 +339,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     if (*sink != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
         RETURN_IF_ERROR((*sink)->prepare(state));
+        if (state->get_query_ctx()) {
+            state->get_query_ctx()->register_query_statistics((*sink)->get_query_statistics_ptr());
+        }
     }
 
     return Status::OK();
@@ -330,23 +354,4 @@ Status DataSink::init(const TDataSink& thrift_sink) {
 Status DataSink::prepare(RuntimeState* state) {
     return Status::OK();
 }
-
-bool DataSink::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
-    OlapTableSchemaParam schema;
-    if (!schema.init(sink.schema).ok()) {
-        return false;
-    }
-    if (schema.is_partial_update()) {
-        return true;
-    }
-    for (const auto& index_schema : schema.indexes()) {
-        for (const auto& index : index_schema->indexes) {
-            if (index->index_type() == INVERTED) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 } // namespace doris

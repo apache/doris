@@ -331,3 +331,15 @@ CREATE TABLE doris_test.test_zd (
 `id` int(10) unsigned NOT NULL,
 `d_z` date NOT NULL
 );
+
+CREATE TABLE Doris.DORIS (
+  id varchar(128)
+);
+
+CREATE TABLE Doris.Doris (
+  id varchar(128)
+);
+
+CREATE TABLE Doris.doris (
+  id varchar(128)
+);

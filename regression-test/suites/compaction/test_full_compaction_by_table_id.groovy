@@ -100,12 +100,12 @@ suite("test_full_compaction_by_table_id") {
         qt_skip_delete """select * from ${tableName} order by user_id, value"""
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
-        String[][] tablets = sql """ show tablets from ${tableName}; """
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // before full compaction, there are 7 rowsets in all tablets.
-        for (int i=0; i<tablets.size(); ++i) {
+        for (def tablet : tablets) {
             int rowsetCount = 0
-            def (code, out, err) = curl("GET", tablets[i][18])
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -116,12 +116,12 @@ suite("test_full_compaction_by_table_id") {
 
         // trigger full compactions for all tablets by table id in ${tableName}
         // TODO: get table id
-        for (int i=0; i<tablets.size(); ++i) {
-            String tablet_id = tablets[i][0]
-            String[][] tablet_info = sql """ show tablet ${tablet_id}; """
+        for (def tablet : tablets) {
+            String tablet_id = tablet.TabletId
+            def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
             logger.info("tablet"+tablet_info)
-            def table_id = tablet_info[0][5]
-            backend_id = tablets[i][2]
+            def table_id = tablet_info[0].TableId
+            backend_id = tablet.BackendId
             def times = 1
             def code, out, err
             do{
@@ -143,12 +143,12 @@ suite("test_full_compaction_by_table_id") {
 
         // wait for full compaction done
         {
-            for (int i=0; i<tablets.size(); ++i) {
+            for (def tablet : tablets) {
                 boolean running = true
                 do {
                     Thread.sleep(1000)
-                    def tablet_id = tablets[i][0]
-                    backend_id = tablets[i][2]
+                    def tablet_id = tablet.TabletId
+                    backend_id = tablet.BackendId
                     def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
@@ -161,9 +161,9 @@ suite("test_full_compaction_by_table_id") {
 
         // after full compaction, there is only 1 rowset.
         
-        for (int i=0; i<tablets.size(); ++i) {
+        for (def tablet : tablets) {
             int rowsetCount = 0
-            def (code, out, err) = curl("GET", tablets[i][18])
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())

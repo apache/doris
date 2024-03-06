@@ -21,9 +21,9 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
@@ -235,7 +235,7 @@ public class HMSAnalysisTaskTest {
                         + "          SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`,"
                         + "          COUNT(1) * 4 AS `data_size`,"
                         + "          NOW() AS `update_time`"
-                        + "  FROM `hms`.`default`.`test`", sql);
+                        + "  FROM `hms`.`default`.`test` ", sql);
             }
         };
 
@@ -252,7 +252,7 @@ public class HMSAnalysisTaskTest {
         analysisInfoBuilder.setUsingSqlForPartitionColumn(true);
         task.info = analysisInfoBuilder.build();
 
-        task.getOrdinaryColumnStats();
+        task.getColumnStats();
     }
 
 
@@ -309,6 +309,6 @@ public class HMSAnalysisTaskTest {
         analysisInfoBuilder.setUsingSqlForPartitionColumn(false);
         task.info = analysisInfoBuilder.build();
 
-        task.getOrdinaryColumnStats();
+        task.getColumnStats();
     }
 }

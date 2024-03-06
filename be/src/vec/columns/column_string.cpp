@@ -99,7 +99,9 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     const ColumnString& src_concrete = assert_cast<const ColumnString&>(src);
 
     if (start + length > src_concrete.offsets.size()) {
-        LOG(FATAL) << "Parameter out of bound in IColumnString::insert_range_from method.";
+        throw doris::Exception(
+                doris::ErrorCode::INTERNAL_ERROR,
+                "Parameter out of bound in IColumnString::insert_range_from method.");
     }
 
     size_t nested_offset = src_concrete.offset_at(start);
@@ -470,34 +472,6 @@ ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
 
     check_chars_length(res_chars.size(), res_offsets.size());
     return res;
-}
-
-void ColumnString::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnString&>(column);
-
-    Chars& res_chars = res.chars;
-    Offsets& res_offsets = res.offsets;
-
-    size_t byte_size = 0;
-    res_offsets.resize(target_size);
-    for (size_t i = 0; i < target_size; ++i) {
-        long row_idx = indexs[i];
-        auto str_size = offsets[row_idx] - offsets[row_idx - 1];
-        res_offsets[i] = res_offsets[i - 1] + str_size;
-        byte_size += str_size;
-    }
-
-    res_chars.resize(byte_size);
-    auto* __restrict dest = res.chars.data();
-    auto* __restrict src = chars.data();
-    for (size_t i = 0; i < target_size; ++i) {
-        long row_idx = indexs[i];
-        auto str_size = offsets[row_idx] - offsets[row_idx - 1];
-        memcpy_small_allow_read_write_overflow15(dest + res_offsets[i - 1],
-                                                 src + offsets[row_idx - 1], str_size);
-    }
-
-    check_chars_length(res_chars.size(), res_offsets.size());
 }
 
 void ColumnString::reserve(size_t n) {

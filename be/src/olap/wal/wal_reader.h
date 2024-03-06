@@ -35,10 +35,8 @@ public:
     Status read_header(std::string& col_ids);
 
 private:
-    Status _deserialize(PBlock& block, std::string& buf);
     Status _check_checksum(const char* binary, size_t size, uint32_t checksum);
 
-private:
     std::string _file_name;
     uint32_t _version = 0;
     size_t _offset;

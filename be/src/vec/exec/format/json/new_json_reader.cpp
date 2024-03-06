@@ -414,12 +414,12 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
         rapidjson::Document jsonpaths_doc;
         if (!jsonpaths_doc.Parse(_jsonpaths.c_str(), _jsonpaths.length()).HasParseError()) {
             if (!jsonpaths_doc.IsArray()) {
-                return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+                return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
             }
             for (int i = 0; i < jsonpaths_doc.Size(); i++) {
                 const rapidjson::Value& path = jsonpaths_doc[i];
                 if (!path.IsString()) {
-                    return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+                    return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
                 }
                 std::vector<JsonPath> parsed_paths;
                 JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
@@ -427,7 +427,7 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
             }
 
         } else {
-            return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+            return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
         }
     }
 
@@ -1199,7 +1199,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json_write_columns(
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
-                    if (st.is<DATA_QUALITY_ERROR>()) {
+                    if (st.is<NOT_FOUND>()) {
                         RETURN_IF_ERROR(_append_error_msg(nullptr, st.to_string(), "", nullptr));
                         ADVANCE_ROW();
                         continue;
@@ -1630,11 +1630,11 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Status st;
         if (i < _parsed_jsonpaths.size()) {
             st = JsonFunctions::extract_from_object(*value, _parsed_jsonpaths[i], &json_value);
-            if (!st.ok() && !st.is<DATA_QUALITY_ERROR>()) {
+            if (!st.ok() && !st.is<NOT_FOUND>()) {
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<DATA_QUALITY_ERROR>()) {
+        if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
             // not match in jsondata, filling with default value
             RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
             if (!(*valid)) {

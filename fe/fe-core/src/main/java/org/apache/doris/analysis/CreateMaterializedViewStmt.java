@@ -186,6 +186,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
         SelectList selectList = selectStmt.getSelectList();
         for (SelectListItem selectListItem : selectList.getItems()) {
+            if (selectListItem.isStar()) {
+                throw new AnalysisException("The materialized view not support select star");
+            }
             checkExprValidInMv(selectListItem.getExpr());
         }
     }
@@ -200,6 +203,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         rewriteToBitmapWithCheck();
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
+        if (isReplay) {
+            analyzer.setReplay();
+        }
         selectStmt.analyze(analyzer);
 
         ExprRewriter rewriter = analyzer.getExprRewriter();
@@ -207,6 +213,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         selectStmt.rewriteExprs(rewriter);
         selectStmt.reset();
         analyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+        if (isReplay) {
+            analyzer.setReplay();
+        }
         selectStmt.analyze(analyzer);
 
         analyzeSelectClause(analyzer);
@@ -232,11 +241,12 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
                     + " limit " + selectStmt.getLimit());
         }
+    }
 
-        // check access
-        if (!isReplay && ConnectContext.get() != null && !Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), dbName,
-                        baseIndexName, PrivPredicate.ALTER)) {
+    @Override
+    public void checkPriv() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, baseIndexName,
+                PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
         }
     }
@@ -259,10 +269,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         for (int i = 0; i < selectList.getItems().size(); i++) {
             SelectListItem selectListItem = selectList.getItems().get(i);
 
-            if (selectListItem.isStar()) {
-                throw new AnalysisException("The materialized view not support select star");
-            }
-
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
                     && !(selectListItemExpr instanceof ArithmeticExpr)) {
@@ -281,6 +287,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // build mv column item
                 mvColumnItemList.add(buildMVColumnItem(analyzer, functionCallExpr));
             } else {
+                if (!isReplay && selectListItemExpr.containsAggregate()) {
+                    throw new AnalysisException(
+                            "The materialized view's expr calculations cannot be included outside aggregate functions"
+                                    + ", expr: " + selectListItemExpr.toSql());
+                }
                 List<SlotRef> slots = new ArrayList<>();
                 selectListItemExpr.collect(SlotRef.class, slots);
                 if (!isReplay && slots.size() == 0) {
@@ -478,11 +489,18 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
+    private Expr getAggfunctionSlot(FunctionCallExpr functionCallExpr) throws AnalysisException {
+        if (functionCallExpr.getFnParams() != null && functionCallExpr.getFnParams().isStar()) {
+            // convert count(*) to count(1)
+            return LiteralExpr.create("1", Type.BIGINT);
+        }
+        return functionCallExpr.getChildren().get(0);
+    }
+
     private MVColumnItem buildMVColumnItem(Analyzer analyzer, FunctionCallExpr functionCallExpr)
             throws AnalysisException {
         String functionName = functionCallExpr.getFnName().getFunction();
-        List<Expr> childs = functionCallExpr.getChildren();
-        Expr defineExpr = childs.get(0);
+        Expr defineExpr = getAggfunctionSlot(functionCallExpr);
         Type baseType = defineExpr.getType();
         AggregateType mvAggregateType = null;
         Type type;

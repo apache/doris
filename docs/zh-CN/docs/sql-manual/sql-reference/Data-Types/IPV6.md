@@ -34,8 +34,7 @@ IPV6
 
 ### description
 
-IPV6
-IPv6类型，以Int128的形式存储在16个字节中，用于表示IPv6地址。
+IPv6类型，以UInt128的形式存储在16个字节中，用于表示IPv6地址。
 取值范围是 ['::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff']。
 
 `超出取值范围或者格式非法的输入将返回NULL`

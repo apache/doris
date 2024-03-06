@@ -70,6 +70,8 @@ struct ResultFileOptions {
 
     bool delete_existing_files = false;
     std::string file_suffix;
+    //Bring BOM when exporting to CSV format
+    bool with_bom = false;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -81,6 +83,7 @@ struct ResultFileOptions {
         delete_existing_files =
                 t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
         file_suffix = t_opt.file_suffix;
+        with_bom = t_opt.with_bom;
 
         is_local_file = true;
         if (t_opt.__isset.broker_addresses) {

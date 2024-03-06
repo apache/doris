@@ -17,12 +17,11 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -59,8 +58,10 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
 
 
     @Override
-    protected void getOrdinaryColumnStats() throws Exception {
-        if (!info.usingSqlForPartitionColumn) {
+    protected void getColumnStats() throws Exception {
+        if (info.usingSqlForPartitionColumn) {
+            super.getColumnStats();
+        } else {
             try {
                 if (isPartitionColumn()) {
                     getPartitionColumnStats();
@@ -72,10 +73,8 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
                         + "fallback to normal collection",
                         isPartitionColumn() ? "partition " : "", col.getName(), e);
                 /* retry using sql way! */
-                super.getOrdinaryColumnStats();
+                super.getColumnStats();
             }
-        } else {
-            super.getOrdinaryColumnStats();
         }
     }
 
@@ -107,10 +106,11 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
                 }
             }
         }
-        // Estimate the row count. This value is inaccurate if the table stats is empty.
-        TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager()
-                .findTableStatsStatus(hmsExternalTable.getId());
-        long count = tableStatsStatus == null ? hmsExternalTable.estimatedRowCount() : tableStatsStatus.rowCount;
+        // getRowCount may return 0 if cache is empty, in this case, call fetchRowCount.
+        long count = hmsExternalTable.getRowCount();
+        if (count == 0) {
+            count = hmsExternalTable.fetchRowCount();
+        }
         dataSize = dataSize * count / partitionNames.size();
         numNulls = numNulls * count / partitionNames.size();
         int ndv = ndvPartValues.size();
@@ -129,9 +129,11 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
 
     // Collect the spark analyzed column stats through HMS metadata.
     private void getHmsColumnStats() throws Exception {
-        TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager()
-                .findTableStatsStatus(hmsExternalTable.getId());
-        long count = tableStatsStatus == null ? hmsExternalTable.estimatedRowCount() : tableStatsStatus.rowCount;
+        // getRowCount may return 0 if cache is empty, in this case, call fetchRowCount.
+        long count = hmsExternalTable.getRowCount();
+        if (count == 0) {
+            count = hmsExternalTable.fetchRowCount();
+        }
 
         Map<String, String> params = buildStatsParams("NULL");
         Map<StatsType, String> statsParams = new HashMap<>();
@@ -141,7 +143,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
         statsParams.put(StatsType.MAX_VALUE, "max");
         statsParams.put(StatsType.AVG_SIZE, "avg_len");
 
-        if (hmsExternalTable.fillColumnStatistics(info.colName, statsParams, params)) {
+        if (!hmsExternalTable.fillColumnStatistics(info.colName, statsParams, params)) {
             throw new AnalysisException("some column stats not available");
         }
 

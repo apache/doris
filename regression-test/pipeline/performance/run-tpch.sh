@@ -19,7 +19,6 @@
 # Build Step: Command Line
 : <<EOF
 #!/bin/bash
-export DEBUG=true
 
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-tpch.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
@@ -43,15 +42,15 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 
 if ${DEBUG:-false}; then
-    pull_request_num="28431"
-    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    pr_num_from_trigger="28431"
+    commit_id_from_trigger="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
     target_branch="master"
     SF="1"
 fi
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
-if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
-if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
+if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
+if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
 
 # shellcheck source=/dev/null
@@ -117,6 +116,7 @@ exit_flag=0
     echo "#### 3. run tpch-sf${SF} query"
     set_session_variable runtime_filter_mode global
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh -s "${SF}" | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
+    echo
     cold_run_time_threshold=${cold_run_time_threshold_master:-120000} # ms
     hot_run_time_threshold=${hot_run_time_threshold_master:-42000}    # ms
     if [[ "${target_branch}" == "branch-2.0" ]]; then
@@ -128,7 +128,7 @@ exit_flag=0
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
     line_begin=$((line_end - 23))
     comment_body_summary="$(sed -n "${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
-    comment_body_detail="Tpch sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
+    comment_body_detail="Tpch sf${SF} test result on commit ${commit_id_from_trigger:-}, data reload: ${data_reload:-"false"}
 
 ------ Round 1 ----------------------------------
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
@@ -147,7 +147,7 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-q
     echo "#### 5. comment result on tpch"
     comment_body_summary="$(echo "${comment_body_summary}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g')" # 将所有的 Tab字符替换为\t 换行符替换为\n
     comment_body_detail="$(echo "${comment_body_detail}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g')"   # 将所有的 Tab字符替换为\t 换行符替换为\n
-    create_an_issue_comment_tpch "${pull_request_num:-}" "${comment_body_summary}" "${comment_body_detail}"
+    create_an_issue_comment_tpch "${pr_num_from_trigger:-}" "${comment_body_summary}" "${comment_body_detail}"
     rm -f result.csv
 )
 exit_flag="$?"
@@ -157,7 +157,7 @@ if [[ ${exit_flag} != "0" ]]; then
     stop_doris
     print_doris_fe_log
     print_doris_be_log
-    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
+    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
 fi

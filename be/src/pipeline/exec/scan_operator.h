@@ -57,53 +57,10 @@ public:
     std::string debug_string() const override;
 };
 
-class ScanDependency final : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    ENABLE_FACTORY_CREATOR(ScanDependency);
-    ScanDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "ScanDependency", query_ctx) {}
-
-    void block() override {
-        if (_scanner_done) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_always_done_lock);
-        if (_scanner_done) {
-            return;
-        }
-        Dependency::block();
-    }
-
-    void set_scanner_done() {
-        if (_scanner_done) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_always_done_lock);
-        if (_scanner_done) {
-            return;
-        }
-        _scanner_done = true;
-        Dependency::set_ready();
-    }
-
-    std::string debug_string(int indentation_level = 0) override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "{}, _scanner_done = {}",
-                       Dependency::debug_string(indentation_level), _scanner_done);
-        return fmt::to_string(debug_string_buffer);
-    }
-
-private:
-    bool _scanner_done {false};
-    std::mutex _always_done_lock;
-};
-
-class ScanLocalStateBase : public PipelineXLocalState<ScanDependency>,
-                           public vectorized::RuntimeFilterConsumer {
+class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<ScanDependency>(state, parent),
+            : PipelineXLocalState<>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
@@ -138,11 +95,11 @@ protected:
     virtual Status _init_profile() = 0;
 
     std::atomic<bool> _opened {false};
-    std::shared_ptr<ScanDependency> _scan_dependency;
+
+    DependencySPtr _scan_dependency = nullptr;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
-    RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
@@ -160,8 +117,8 @@ protected:
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
 
@@ -209,6 +166,8 @@ class ScanLocalState : public ScanLocalStateBase {
     int64_t get_push_down_count() override;
 
     RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
+
+    std::vector<Dependency*> dependencies() const override { return {_scan_dependency.get()}; }
 
 protected:
     template <typename LocalStateType>
@@ -417,11 +376,10 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
     Status open(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
-                                    SourceState& source_state) override {
-        return get_block(state, block, source_state);
+                                    bool* eos) override {
+        return get_block(state, block, eos);
     }
     [[nodiscard]] bool is_source() const override { return true; }
 
@@ -432,9 +390,8 @@ public:
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
     DataDistribution required_data_distribution() const override {
-        if (_col_distribute_ids.empty() || OperatorX<LocalStateType>::ignore_data_distribution()) {
-            // 1. `_col_distribute_ids` is empty means storage distribution is not effective, so we prefer to do local shuffle.
-            // 2. `ignore_data_distribution()` returns true means we ignore the distribution.
+        if (OperatorX<LocalStateType>::ignore_data_distribution()) {
+            // `ignore_data_distribution()` returns true means we ignore the distribution.
             return {ExchangeType::NOOP};
         }
         return {ExchangeType::BUCKET_HASH_SHUFFLE};
@@ -477,7 +434,6 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
-    std::vector<int> _col_distribute_ids;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;

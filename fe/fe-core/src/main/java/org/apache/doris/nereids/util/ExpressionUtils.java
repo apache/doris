@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -51,6 +52,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -58,6 +61,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
@@ -456,6 +460,10 @@ public class ExpressionUtils {
         return children.stream().allMatch(c -> c.getDataType().isNumericType());
     }
 
+    public static boolean matchDateLikeType(List<Expression> children) {
+        return children.stream().allMatch(c -> c.getDataType().isDateLikeType());
+    }
+
     public static boolean hasNullLiteral(List<Expression> children) {
         return children.stream().anyMatch(c -> c instanceof NullLiteral);
     }
@@ -466,6 +474,75 @@ public class ExpressionUtils {
 
     public static boolean isAllNullLiteral(List<Expression> children) {
         return children.stream().allMatch(c -> c instanceof NullLiteral);
+    }
+
+    /**
+     * canInferNotNullForMarkSlot
+     */
+    public static boolean canInferNotNullForMarkSlot(Expression predicate) {
+        /*
+         * assume predicate is from LogicalFilter
+         * the idea is replacing each mark join slot with null and false literal then run FoldConstant rule
+         * if the evaluate result are:
+         * 1. all true
+         * 2. all null and false (in logicalFilter, we discard both null and false values)
+         * the mark slot can be non-nullable boolean
+         * and in semi join, we can safely change the mark conjunct to hash conjunct
+         */
+        ImmutableList<Literal> literals =
+                ImmutableList.of(new NullLiteral(BooleanType.INSTANCE), BooleanLiteral.FALSE);
+        List<MarkJoinSlotReference> markJoinSlotReferenceList =
+                ((Set<MarkJoinSlotReference>) predicate
+                        .collect(MarkJoinSlotReference.class::isInstance)).stream()
+                                .collect(Collectors.toList());
+        int markSlotSize = markJoinSlotReferenceList.size();
+        int maxMarkSlotCount = 4;
+        // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
+        if (markSlotSize > 0 && markSlotSize <= maxMarkSlotCount) {
+            Map<Expression, Expression> replaceMap = Maps.newHashMap();
+            boolean meetTrue = false;
+            boolean meetNullOrFalse = false;
+            /*
+             * markSlotSize = 1 -> loopCount = 2  ---- 0, 1
+             * markSlotSize = 2 -> loopCount = 4  ---- 00, 01, 10, 11
+             * markSlotSize = 3 -> loopCount = 8  ---- 000, 001, 010, 011, 100, 101, 110, 111
+             * markSlotSize = 4 -> loopCount = 16 ---- 0000, 0001, ... 1111
+             */
+            int loopCount = 2 << markSlotSize;
+            for (int i = 0; i < loopCount; ++i) {
+                replaceMap.clear();
+                /*
+                 * replace each mark slot with null or false
+                 * literals.get(0) -> NullLiteral(BooleanType.INSTANCE)
+                 * literals.get(1) -> BooleanLiteral.FALSE
+                 */
+                for (int j = 0; j < markSlotSize; ++j) {
+                    replaceMap.put(markJoinSlotReferenceList.get(j), literals.get((i >> j) & 1));
+                }
+                Expression evalResult = FoldConstantRule.INSTANCE.rewrite(
+                        ExpressionUtils.replace(predicate, replaceMap),
+                        new ExpressionRewriteContext(null));
+
+                if (evalResult.equals(BooleanLiteral.TRUE)) {
+                    if (meetNullOrFalse) {
+                        return false;
+                    } else {
+                        meetTrue = true;
+                    }
+                } else if ((isNullOrFalse(evalResult))) {
+                    if (meetTrue) {
+                        return false;
+                    } else {
+                        meetNullOrFalse = true;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean isNullOrFalse(Expression expression) {
+        return expression.isNullLiteral() || expression.equals(BooleanLiteral.FALSE);
     }
 
     /**
@@ -494,11 +571,8 @@ public class ExpressionUtils {
      */
     public static Set<Expression> inferNotNull(Set<Expression> predicates, CascadesContext cascadesContext) {
         return inferNotNullSlots(predicates, cascadesContext).stream()
-                .map(slot -> {
-                    Not isNotNull = new Not(new IsNull(slot));
-                    isNotNull.isGeneratedIsNotNull = true;
-                    return isNotNull;
-                }).collect(Collectors.toSet());
+                .map(slot -> new Not(new IsNull(slot), false))
+                .collect(Collectors.toSet());
     }
 
     /**
@@ -508,11 +582,8 @@ public class ExpressionUtils {
             CascadesContext cascadesContext) {
         return inferNotNullSlots(predicates, cascadesContext).stream()
                 .filter(slots::contains)
-                .map(slot -> {
-                    Not isNotNull = new Not(new IsNull(slot));
-                    isNotNull.isGeneratedIsNotNull = true;
-                    return isNotNull;
-                }).collect(Collectors.toSet());
+                .map(slot -> new Not(new IsNull(slot), true))
+                .collect(Collectors.toSet());
     }
 
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressions) {
@@ -655,6 +726,25 @@ public class ExpressionUtils {
     }
 
     public static Expression getExpressionCoveredByCast(Expression expression) {
+        while (expression instanceof Cast) {
+            expression = ((Cast) expression).child();
+        }
+        return expression;
+    }
+
+    /**
+     * the expressions can be used as runtime filter targets
+     */
+    public static Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
+        if (expression.getInputSlots().size() == 1) {
+            Slot slot = expression.getInputSlots().iterator().next();
+            if (slot.getDataType() instanceof NumericType) {
+                return expression.getInputSlots().iterator().next();
+            }
+        }
+        // for other datatype, only support cast.
+        // example: T1 join T2 on subStr(T1.a, 1,4) = subStr(T2.a, 1,4)
+        // the cost of subStr is too high, and hence we do not generate RF subStr(T2.a, 1,4)->subStr(T1.a, 1,4)
         while (expression instanceof Cast) {
             expression = ((Cast) expression).child();
         }

@@ -17,20 +17,21 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
@@ -44,8 +45,6 @@ import javax.annotation.Nullable;
  * HyperGraph Node.
  */
 public class StructInfoNode extends AbstractNode {
-
-    private List<HyperGraph> graphs = new ArrayList<>();
     private final List<Set<Expression>> expressions;
     private final Set<CatalogRelation> relationSet;
 
@@ -59,30 +58,51 @@ public class StructInfoNode extends AbstractNode {
         this(index, plan, new ArrayList<>());
     }
 
-    public StructInfoNode(int index, List<HyperGraph> graphs) {
-        this(index, graphs.get(0).getNode(0).getPlan(), new ArrayList<>());
-        this.graphs = graphs;
-    }
-
     private @Nullable List<Set<Expression>> collectExpressions(Plan plan) {
-        if (plan instanceof LeafPlan) {
-            return ImmutableList.of();
-        }
-        List<Set<Expression>> childExpressions = collectExpressions(plan.child(0));
-        if (!isValidNodePlan(plan) || childExpressions == null) {
-            return null;
-        }
-        if (plan instanceof LogicalAggregate) {
-            return ImmutableList.<Set<Expression>>builder()
-                    .add(ImmutableSet.copyOf(plan.getExpressions()))
-                    .add(ImmutableSet.copyOf(((LogicalAggregate<?>) plan).getGroupByExpressions()))
-                    .addAll(childExpressions)
-                    .build();
-        }
-        return ImmutableList.<Set<Expression>>builder()
-                .add(ImmutableSet.copyOf(plan.getExpressions()))
-                .addAll(childExpressions)
-                .build();
+
+        Pair<Boolean, Builder<Set<Expression>>> collector = Pair.of(true, ImmutableList.builder());
+        plan.accept(new DefaultPlanVisitor<Void, Pair<Boolean, ImmutableList.Builder<Set<Expression>>>>() {
+            @Override
+            public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
+                    Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
+                if (!collector.key()) {
+                    return null;
+                }
+                collector.value().add(ImmutableSet.copyOf(aggregate.getExpressions()));
+                collector.value().add(ImmutableSet.copyOf(((LogicalAggregate<?>) plan).getGroupByExpressions()));
+                return super.visit(aggregate, collector);
+            }
+
+            @Override
+            public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter,
+                    Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
+                if (!collector.key()) {
+                    return null;
+                }
+                collector.value().add(ImmutableSet.copyOf(filter.getExpressions()));
+                return super.visit(filter, collector);
+            }
+
+            @Override
+            public Void visitGroupPlan(GroupPlan groupPlan,
+                    Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
+                if (!collector.key()) {
+                    return null;
+                }
+                Plan groupActualPlan = groupPlan.getGroup().getLogicalExpressions().get(0).getPlan();
+                return groupActualPlan.accept(this, collector);
+            }
+
+            @Override
+            public Void visit(Plan plan, Pair<Boolean, ImmutableList.Builder<Set<Expression>>> context) {
+                if (!isValidNodePlan(plan)) {
+                    context.first = false;
+                    return null;
+                }
+                return super.visit(plan, context);
+            }
+        }, collector);
+        return collector.key() ? collector.value().build() : null;
     }
 
     private boolean isValidNodePlan(Plan plan) {
@@ -94,7 +114,7 @@ public class StructInfoNode extends AbstractNode {
      * get all expressions of nodes
      */
     public @Nullable List<Expression> getExpressions() {
-        return expressions.stream()
+        return expressions == null ? null : expressions.stream()
                 .flatMap(Collection::stream)
                 .collect(Collectors.toList());
     }
@@ -112,7 +132,7 @@ public class StructInfoNode extends AbstractNode {
 
     private static Plan extractPlan(Plan plan) {
         if (plan instanceof GroupPlan) {
-            //TODO: Note mv can be in logicalExpression, how can we choose it
+            // TODO: Note mv can be in logicalExpression, how can we choose it
             plan = ((GroupPlan) plan).getGroup().getLogicalExpressions().get(0)
                     .getPlan();
         }
@@ -120,14 +140,6 @@ public class StructInfoNode extends AbstractNode {
                 .map(StructInfoNode::extractPlan)
                 .collect(ImmutableList.toImmutableList());
         return plan.withChildren(children);
-    }
-
-    public boolean needToFlat() {
-        return !graphs.isEmpty();
-    }
-
-    public List<HyperGraph> getGraphs() {
-        return graphs;
     }
 
     @Override

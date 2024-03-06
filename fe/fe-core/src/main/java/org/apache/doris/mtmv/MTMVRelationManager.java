@@ -33,7 +33,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -53,16 +55,26 @@ public class MTMVRelationManager implements MTMVHookService {
     private static final Logger LOG = LogManager.getLogger(MTMVRelationManager.class);
     private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
 
-    public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
+    private Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.getOrDefault(table, ImmutableSet.of());
     }
 
-    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos) {
+    /**
+     * if At least one partition is available, return this mtmv
+     *
+     * @param tableInfos
+     * @param ctx
+     * @return
+     */
+    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx) {
         Set<MTMV> res = Sets.newHashSet();
-        Set<BaseTableInfo> mvInfos = getAvailableMTMVInfos(tableInfos);
+        Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
-                res.add((MTMV) MTMVUtil.getTable(tableInfo));
+                MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
+                if (isMVPartitionValid(mtmv, ctx)) {
+                    res.add(mtmv);
+                }
             } catch (AnalysisException e) {
                 // not throw exception to client, just ignore it
                 LOG.warn("getTable failed: {}", tableInfo.toString(), e);
@@ -71,7 +83,13 @@ public class MTMVRelationManager implements MTMVHookService {
         return res;
     }
 
-    public Set<BaseTableInfo> getAvailableMTMVInfos(List<BaseTableInfo> tableInfos) {
+    @VisibleForTesting
+    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx) {
+        return !CollectionUtils
+                .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, System.currentTimeMillis()));
+    }
+
+    private Set<BaseTableInfo> getMTMVInfos(List<BaseTableInfo> tableInfos) {
         Set<BaseTableInfo> mvInfos = Sets.newHashSet();
         for (BaseTableInfo tableInfo : tableInfos) {
             mvInfos.addAll(getMtmvsByBaseTable(tableInfo));

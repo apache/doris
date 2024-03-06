@@ -35,7 +35,7 @@
 namespace doris {
 class ObjectPool;
 class RuntimeState;
-
+class IRuntimeFilter;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -50,7 +50,8 @@ using JoinOpVariants =
                      std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
 class VJoinNodeBase : public ExecNode {
 public:
@@ -72,6 +73,8 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
     [[nodiscard]] bool can_terminate_early() override { return _short_circuit_for_probe; }
+
+    const std::vector<IRuntimeFilter*>& runtime_filters() const { return _runtime_filters; }
 
 protected:
     // Construct the intermediate blocks to store the results from join operation.
@@ -121,6 +124,9 @@ protected:
 
     // for some join, when build side rows is empty, we could return directly by add some additional null data in probe table.
     bool _empty_right_table_need_probe_dispose = false;
+
+    size_t _mark_column_id;
+
     std::unique_ptr<RowDescriptor> _output_row_desc;
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr
@@ -143,6 +149,9 @@ protected:
     RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
     RuntimeProfile::Counter* _join_filter_timer = nullptr;
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
+
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::vector<IRuntimeFilter*> _runtime_filters;
 };
 
 } // namespace doris::vectorized

@@ -78,7 +78,6 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
                 break;
             case LEFT_OUTER_JOIN:
             case LEFT_ANTI_JOIN:
-            case NULL_AWARE_LEFT_ANTI_JOIN:
                 right = inferNewPredicate(right, expressions);
                 break;
             case RIGHT_OUTER_JOIN:
@@ -128,4 +127,3 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         return PlanUtils.filterOrSelf(predicates, plan);
     }
 }
-

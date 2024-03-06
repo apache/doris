@@ -58,6 +58,8 @@ public:
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
+    bool has_variant_type_in_schema() const;
+
     RowsetId rowset_id() const { return _rowset_id; }
 
     void set_rowset_id(const RowsetId& rowset_id) {
@@ -70,6 +72,10 @@ public:
     int64_t tablet_id() const { return _rowset_meta_pb.tablet_id(); }
 
     void set_tablet_id(int64_t tablet_id) { _rowset_meta_pb.set_tablet_id(tablet_id); }
+
+    int64_t index_id() const { return _rowset_meta_pb.index_id(); }
+
+    void set_index_id(int64_t index_id) { _rowset_meta_pb.set_index_id(index_id); }
 
     TabletUid tablet_uid() const { return _rowset_meta_pb.tablet_uid(); }
 
@@ -197,9 +203,11 @@ public:
 
     void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
 
-    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const;
+    // Convert to RowsetMetaPB, skip_schema is only used by cloud to separate schema from rowset meta.
+    void to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema = false) const;
 
-    RowsetMetaPB get_rowset_pb();
+    // Convert to RowsetMetaPB, skip_schema is only used by cloud to separate schema from rowset meta.
+    RowsetMetaPB get_rowset_pb(bool skip_schema = false) const;
 
     inline DeletePredicatePB* mutable_delete_pred_pb() {
         return _rowset_meta_pb.mutable_delete_predicate();
@@ -302,7 +310,9 @@ public:
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
 
-    const TabletSchemaSPtr& tablet_schema() { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() const { return _schema; }
+
+    void set_txn_expiration(int64_t expiration) { _rowset_meta_pb.set_txn_expiration(expiration); }
 
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;

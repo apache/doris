@@ -166,9 +166,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         }
 
         std::string type_function_name =
-                assert_cast<const DataTypeAggState*>(argument_types[0].get())
-                        ->get_nested_function()
-                        ->get_name();
+                assert_cast<const DataTypeAggState*>(argument_types[0].get())->get_function_name();
         if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
             if (_data_type->is_nullable()) {
                 return Status::InternalError(

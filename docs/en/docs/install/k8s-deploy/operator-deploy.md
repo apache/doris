@@ -45,7 +45,7 @@ Hosted Kubernetes on cloud platform or set-up by yourself are all good choice.
 Complete all the [prerequisites](https://cloud.google.com/kubernetes-engine/docs/deploy-app-cluster#before-you-begin) when [create a GKE cluster](https://cloud.google.com/kubernetes-engine/docs/deploy-app-cluster#create_cluster).  
 
 **Create as Kubernetes recommend**    
-Kubernetes official documents recommends some ways to set up Kubernetes, as [minikube](https://minikube.sigs.k8s.io/docs/start/),[kOps](https://kubernetes.io/zh-cn/docs/setup/production-environment/tools/kops/).
+Kubernetes official documents recommends some ways to set up Kubernetes, as [minikube](https://minikube.sigs.k8s.io/docs/start/),[kOps](https://kops.sigs.k8s.io/).
 
 ### Deploy Doris-Operator on Kubernetes
 **1. Apply the [Custom Resource Definition(CRD)](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions)**  

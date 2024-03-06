@@ -81,6 +81,10 @@ public:
                                                   IColumn::Filter* result_filter,
                                                   bool* can_filter_all);
 
+    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts, Block* block,
+                                                  ColumnUInt8& null_map,
+                                                  IColumn::Filter& result_filter);
+
     static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                     const std::vector<IColumn::Filter*>* filters, Block* block,
                                     IColumn::Filter* result_filter, bool* can_filter_all);

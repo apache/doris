@@ -233,14 +233,15 @@ public:
         _slave_tablet_nodes[tablet_id] = slave_nodes;
     }
 
-    // build a request and build corresponding connect to BE.
-    void open();
-    // for auto partition, we use this to open more tablet.
-    void incremental_open();
-
+    // this function is NON_REENTRANT
     Status init(RuntimeState* state);
-
+    /// these two functions will call open_internal. should keep that clear --- REENTRANT
+    // build corresponding connect to BE. NON-REENTRANT
+    void open();
+    // for auto partition, we use this to open more tablet. KEEP IT REENTRANT
+    void incremental_open();
     // this will block until all request transmission which were opened or incremental opened finished.
+    // this function will called multi times. NON_REENTRANT
     Status open_wait();
 
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
@@ -407,6 +408,7 @@ protected:
     using AddBlockReq = std::pair<std::unique_ptr<vectorized::MutableBlock>,
                                   std::shared_ptr<PTabletWriterAddBlockRequest>>;
     std::queue<AddBlockReq> _pending_blocks;
+    // send block to slave BE rely on this. dont reconstruct it.
     std::shared_ptr<WriteBlockCallback<PTabletWriterAddBlockResult>> _send_block_callback = nullptr;
 
     bool _is_incremental;
@@ -641,6 +643,8 @@ private:
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;
+    // the load txn absolute expiration time.
+    int64_t _txn_expiration = 0;
 
     int32_t _send_batch_parallelism = 1;
     // Save the status of try_close() and close() method

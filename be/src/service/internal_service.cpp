@@ -57,6 +57,7 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "exec/rowid_fetcher.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
@@ -180,23 +181,6 @@ private:
     T* _request = nullptr;
     google::protobuf::Closure* _done = nullptr;
 };
-
-template <typename T>
-concept CanCancel = requires(T* response) { response->mutable_status(); };
-
-template <CanCancel T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
-    brpc::ClosureGuard closure_guard(done);
-    response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-    response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
-                                               pool.get_info());
-}
-
-template <typename T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
-    brpc::ClosureGuard closure_guard(done);
-    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
-}
 
 PInternalService::PInternalService(ExecEnv* exec_env)
         : _exec_env(exec_env),
@@ -764,9 +748,8 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     }
 }
 
-Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
-                                                PTabletKeyLookupResponse* response) {
-    // TODO(yuejing): use PointQueryExecutor lookup_util(_engine); instead
+Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
+                                            PTabletKeyLookupResponse* response) {
     PointQueryExecutor lookup_util;
     RETURN_IF_ERROR(lookup_util.init(request, response));
     RETURN_IF_ERROR(lookup_util.lookup_up());
@@ -777,10 +760,10 @@ Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* r
     return Status::OK();
 }
 
-void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* controller,
-                                             const PTabletKeyLookupRequest* request,
-                                             PTabletKeyLookupResponse* response,
-                                             google::protobuf::Closure* done) {
+void PInternalService::tablet_fetch_data(google::protobuf::RpcController* controller,
+                                         const PTabletKeyLookupRequest* request,
+                                         PTabletKeyLookupResponse* response,
+                                         google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
@@ -1328,19 +1311,14 @@ void PInternalService::_transmit_block(google::protobuf::RpcController* controll
                                        const PTransmitDataParams* request,
                                        PTransmitDataResult* response,
                                        google::protobuf::Closure* done, const Status& extract_st) {
-    std::string query_id;
-    TUniqueId finst_id;
     if (request->has_query_id()) {
-        query_id = print_id(request->query_id());
-        finst_id.__set_hi(request->finst_id().hi());
-        finst_id.__set_lo(request->finst_id().lo());
+        VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
+                 << " query_id=" << print_id(request->query_id()) << " node=" << request->node_id();
     }
-    VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
-             << " query_id=" << query_id << " node=" << request->node_id();
+
     // The response is accessed when done->Run is called in transmit_block(),
     // give response a default value to avoid null pointers in high concurrency.
     Status st;
-    st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
         if (!st.ok() && !st.is<END_OF_FILE>()) {
@@ -1451,7 +1429,6 @@ void PInternalService::hand_shake(google::protobuf::RpcController* controller,
 constexpr char HttpProtocol[] = "http://";
 constexpr char DownloadApiPath[] = "/api/_tablet/_download?token=";
 constexpr char FileParam[] = "&file=";
-constexpr auto Permissions = S_IRUSR | S_IWUSR;
 
 static std::string construct_url(const std::string& host_port, const std::string& token,
                                  const std::string& path) {
@@ -1483,8 +1460,9 @@ static Status download_file_action(std::string& remote_file_url, std::string& lo
                 return Status::InternalError("downloaded file size is not equal");
             }
         }
-        chmod(local_file_path.c_str(), Permissions);
-        return Status::OK();
+
+        return io::global_local_filesystem()->permission(local_file_path,
+                                                         io::LocalFileSystem::PERMS_OWNER_RW);
     };
     return HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
 }
@@ -1741,201 +1719,17 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     }
 }
 
-template <typename Func>
-auto scope_timer_run(Func fn, int64_t* cost) -> decltype(fn()) {
-    MonotonicStopWatch watch;
-    watch.start();
-    auto res = fn();
-    *cost += watch.elapsed_time() / 1000 / 1000;
-    return res;
-}
-
-struct IteratorKey {
-    int64_t tablet_id;
-    RowsetId rowset_id;
-    uint64_t segment_id;
-    int slot_id;
-
-    // unordered map std::equal_to
-    bool operator==(const IteratorKey& rhs) const {
-        return tablet_id == rhs.tablet_id && rowset_id == rhs.rowset_id &&
-               segment_id == rhs.segment_id && slot_id == rhs.slot_id;
-    }
-};
-
-struct HashOfIteratorKey {
-    size_t operator()(const IteratorKey& key) const {
-        size_t seed = 0;
-        seed = HashUtil::hash64(&key.tablet_id, sizeof(key.tablet_id), seed);
-        seed = HashUtil::hash64(&key.rowset_id.hi, sizeof(key.rowset_id.hi), seed);
-        seed = HashUtil::hash64(&key.rowset_id.mi, sizeof(key.rowset_id.mi), seed);
-        seed = HashUtil::hash64(&key.rowset_id.lo, sizeof(key.rowset_id.lo), seed);
-        seed = HashUtil::hash64(&key.segment_id, sizeof(key.segment_id), seed);
-        seed = HashUtil::hash64(&key.slot_id, sizeof(key.slot_id), seed);
-        return seed;
-    }
-};
-
-struct IteratorItem {
-    std::unique_ptr<ColumnIterator> iterator;
-    // for holding the reference of segment to avoid use after release
-    SegmentSharedPtr segment;
-};
-
-Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
-                                        PMultiGetResponse* response) {
-    OlapReaderStatistics stats;
-    vectorized::Block result_block;
-    int64_t acquire_tablet_ms = 0;
-    int64_t acquire_rowsets_ms = 0;
-    int64_t acquire_segments_ms = 0;
-    int64_t lookup_row_data_ms = 0;
-
-    // init desc
-    TupleDescriptor desc(request.desc());
-    std::vector<SlotDescriptor> slots;
-    slots.reserve(request.slots().size());
-    for (const auto& pslot : request.slots()) {
-        slots.push_back(SlotDescriptor(pslot));
-        desc.add_slot(&slots.back());
-    }
-
-    // init read schema
-    TabletSchema full_read_schema;
-    for (const ColumnPB& column_pb : request.column_desc()) {
-        full_read_schema.append_column(TabletColumn(column_pb));
-    }
-
-    std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
-    // read row by row
-    for (size_t i = 0; i < request.row_locs_size(); ++i) {
-        const auto& row_loc = request.row_locs(i);
-        MonotonicStopWatch watch;
-        watch.start();
-        TabletSharedPtr tablet = scope_timer_run(
-                [&]() {
-                    return _engine.tablet_manager()->get_tablet(row_loc.tablet_id(),
-                                                                true /*include deleted*/);
-                },
-                &acquire_tablet_ms);
-        RowsetId rowset_id;
-        rowset_id.init(row_loc.rowset_id());
-        if (!tablet) {
-            continue;
-        }
-        // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
-        BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
-                [&]() { return _engine.get_quering_rowset(rowset_id); }, &acquire_rowsets_ms));
-        if (!rowset) {
-            LOG(INFO) << "no such rowset " << rowset_id;
-            continue;
-        }
-        size_t row_size = 0;
-        Defer _defer([&]() {
-            LOG_EVERY_N(INFO, 100)
-                    << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000
-                    << ", row_size:" << row_size;
-            *response->add_row_locs() = row_loc;
-        });
-        SegmentCacheHandle segment_cache;
-        RETURN_IF_ERROR(scope_timer_run(
-                [&]() {
-                    return SegmentLoader::instance()->load_segments(rowset, &segment_cache, true);
-                },
-                &acquire_segments_ms));
-        // find segment
-        auto it = std::find_if(segment_cache.get_segments().cbegin(),
-                               segment_cache.get_segments().cend(),
-                               [&row_loc](const segment_v2::SegmentSharedPtr& seg) {
-                                   return seg->id() == row_loc.segment_id();
-                               });
-        if (it == segment_cache.get_segments().end()) {
-            continue;
-        }
-        segment_v2::SegmentSharedPtr segment = *it;
-        GlobalRowLoacation row_location(row_loc.tablet_id(), rowset->rowset_id(),
-                                        row_loc.segment_id(), row_loc.ordinal_id());
-        // fetch by row store, more effcient way
-        if (request.fetch_row_store()) {
-            CHECK(tablet->tablet_schema()->store_row_column());
-            RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
-            string* value = response->add_binary_row_data();
-            RETURN_IF_ERROR(scope_timer_run(
-                    [&]() {
-                        return tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value);
-                    },
-                    &lookup_row_data_ms));
-            row_size = value->size();
-            continue;
-        }
-
-        // fetch by column store
-        if (result_block.is_empty_column()) {
-            result_block = vectorized::Block(desc.slots(), request.row_locs().size());
-        }
-        VLOG_DEBUG << "Read row location "
-                   << fmt::format("{}, {}, {}, {}", row_location.tablet_id,
-                                  row_location.row_location.rowset_id.to_string(),
-                                  row_location.row_location.segment_id,
-                                  row_location.row_location.row_id);
-        for (int x = 0; x < desc.slots().size(); ++x) {
-            auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
-            vectorized::MutableColumnPtr column =
-                    result_block.get_by_position(x).column->assume_mutable();
-            IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
-                                      .rowset_id = rowset_id,
-                                      .segment_id = row_loc.segment_id(),
-                                      .slot_id = desc.slots()[x]->id()};
-            IteratorItem& iterator_item = iterator_map[iterator_key];
-            if (iterator_item.segment == nullptr) {
-                // hold the reference
-                iterator_map[iterator_key].segment = segment;
-            }
-            segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
-                                                            row_id, column, stats,
-                                                            iterator_item.iterator));
-        }
-    }
-    // serialize block if not empty
-    if (!result_block.is_empty_column()) {
-        VLOG_DEBUG << "dump block:" << result_block.dump_data(0, 10)
-                   << ", be_exec_version:" << request.be_exec_version();
-        [[maybe_unused]] size_t compressed_size = 0;
-        [[maybe_unused]] size_t uncompressed_size = 0;
-        int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
-        RETURN_IF_ERROR(result_block.serialize(be_exec_version, response->mutable_block(),
-                                               &uncompressed_size, &compressed_size,
-                                               segment_v2::CompressionTypePB::LZ4));
-    }
-
-    LOG(INFO) << "Query stats: "
-              << fmt::format(
-                         "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
-                         "io_latency:{}ns, "
-                         "uncompressed_bytes_read:{},"
-                         "bytes_read:{},"
-                         "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
-                         "lookup_row_data_ms:{}",
-                         stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
-                         stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
-                         acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
-                         lookup_row_data_ms);
-    return Status::OK();
-}
-
-void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* controller,
-                                         const PMultiGetRequest* request,
-                                         PMultiGetResponse* response,
-                                         google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done, this]() {
+void PInternalService::multiget_data(google::protobuf::RpcController* controller,
+                                     const PMultiGetRequest* request, PMultiGetResponse* response,
+                                     google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([request, response, done]() {
         signal::set_signal_task_id(request->query_id());
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
-        Status st = _multi_get(*request, response);
+        Status st = RowIdStorageReader::read_by_rowids(*request, response);
         st.to_protobuf(response->mutable_status());
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
     });

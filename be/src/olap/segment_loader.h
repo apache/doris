@@ -72,7 +72,7 @@ public:
 
     // The cache value of segment lru cache.
     // Holding all opened segments of a rowset.
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         segment_v2::SegmentSharedPtr segment;
     };
 
@@ -133,7 +133,6 @@ public:
 
     void push_segment(Cache* cache, Cache::Handle* handle) {
         segments.push_back(((SegmentCache::CacheValue*)cache->value(handle))->segment);
-        ((SegmentCache::CacheValue*)cache->value(handle))->last_visit_time = UnixMillis();
         cache->release(handle);
     }
 

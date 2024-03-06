@@ -211,7 +211,6 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
-    SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
     ThreadCpuStopWatch cpu_time_stop_watch;
@@ -232,15 +231,30 @@ Status PipelineTask::execute(bool* eos) {
     if (!_opened) {
         {
             SCOPED_RAW_TIMER(&time_spent);
-            auto st = _open();
-            if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
+            // if _open_status is not ok, could know have execute open function,
+            // now execute open again, so need excluding PIP_WAIT_FOR_RF and PIP_WAIT_FOR_SC error out.
+            if (!_open_status.ok() && !_open_status.is<ErrorCode::PIP_WAIT_FOR_RF>() &&
+                !_open_status.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+                return _open_status;
+            }
+            // here execute open and not check dependency(eg: the second start rpc arrival)
+            // so if open have some error, and return error status directly, the query will be cancel.
+            // and then the rpc arrival will not found the query as have been canceled and remove.
+            _open_status = _open();
+            if (_open_status.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
                 return Status::OK();
-            } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+            } else if (_open_status.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
                 return Status::OK();
             }
-            RETURN_IF_ERROR(st);
+            //if status is not ok, and have dependency to push back to queue again.
+            if (!_open_status.ok() && has_dependency()) {
+                set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
+                return Status::OK();
+            }
+            // if not ok and no dependency, return error to cancel.
+            RETURN_IF_ERROR(_open_status);
         }
         if (has_dependency()) {
             set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
@@ -297,21 +311,12 @@ Status PipelineTask::execute(bool* eos) {
             }
         }
     }
-    if (*eos) { // now only join node have add_dependency, and join probe could start when the join sink is eos
+    if (*eos) { // now only join node/set operation node have add_dependency, and join probe could start when the join sink is eos
         _finish_p_dependency();
     }
 
-    return Status::OK();
-}
-
-Status PipelineTask::try_close(Status exec_status) {
-    if (_try_close_flag) {
-        return Status::OK();
-    }
-    _try_close_flag = true;
-    Status status1 = _sink->try_close(_state);
-    Status status2 = _source->try_close(_state);
-    return status1.ok() ? status2 : status1;
+    // If the status is eof(sink node will return eof if downstream fragment finished), then return it.
+    return status;
 }
 
 Status PipelineTask::close(Status exec_status) {
@@ -418,10 +423,6 @@ std::string PipelineTask::debug_string() {
         fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
     }
     return fmt::to_string(debug_string_buffer);
-}
-
-taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
-    return _fragment_context->get_task_group_entity();
 }
 
 } // namespace doris::pipeline

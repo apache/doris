@@ -17,28 +17,34 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.EsExternalDatabase;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.IcebergExternalDatabase;
-import org.apache.doris.catalog.external.JdbcExternalDatabase;
-import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
-import org.apache.doris.catalog.external.PaimonExternalDatabase;
-import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.es.EsExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
+import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -101,9 +107,14 @@ public abstract class ExternalCatalog
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
     protected boolean invalidCacheInInit = true;
+    protected ExternalMetadataOps metadataOps;
 
     private ExternalSchemaCache schemaCache;
     private String comment;
+    // A cached and being converted properties for external catalog.
+    // generated from catalog properties.
+    private byte[] propLock = new byte[0];
+    private Map<String, String> convertedProperties = null;
 
     public ExternalCatalog() {
     }
@@ -124,13 +135,21 @@ public abstract class ExternalCatalog
         return conf;
     }
 
+    /**
+     * set some default properties when creating catalog
+     * @return list of database names in this catalog
+     */
     protected List<String> listDatabaseNames() {
-        throw new UnsupportedOperationException("Unsupported operation: "
-                + "listDatabaseNames from remote client when init catalog with " + logType.name());
+        if (metadataOps == null) {
+            throw new UnsupportedOperationException("Unsupported operation: "
+                    + "listDatabaseNames from remote client when init catalog with " + logType.name());
+        } else {
+            return metadataOps.listDatabaseNames();
+        }
     }
 
     public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
-        // set some default properties when creating catalog
+
     }
 
     /**
@@ -149,7 +168,14 @@ public abstract class ExternalCatalog
     public abstract boolean tableExist(SessionContext ctx, String dbName, String tblName);
 
     /**
+     * init some local objects such as:
+     * hms client, read properties from hive-site.xml, es client
+     */
+    protected abstract void initLocalObjectsImpl();
+
+    /**
      * check if the specified table exist in doris.
+     * Currently only be used for hms event handler.
      *
      * @param dbName
      * @param tblName
@@ -193,10 +219,6 @@ public abstract class ExternalCatalog
     public boolean isInitialized() {
         return this.initialized;
     }
-
-    // init some local objects such as:
-    // hms client, read properties from hive-site.xml, es client
-    protected abstract void initLocalObjectsImpl();
 
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
@@ -298,14 +320,13 @@ public abstract class ExternalCatalog
     public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
+        synchronized (this.propLock) {
+            this.convertedProperties = null;
+        }
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
-    }
-
-    public void updateDbList() {
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
     }
 
     public final List<Column> getSchema(String dbName, String tblName) {
@@ -421,7 +442,17 @@ public abstract class ExternalCatalog
 
     @Override
     public Map<String, String> getProperties() {
-        return PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
+        // convert properties may be a heavy operation, so we cache the result.
+        if (convertedProperties != null) {
+            return convertedProperties;
+        }
+        synchronized (propLock) {
+            if (convertedProperties != null) {
+                return convertedProperties;
+            }
+            convertedProperties = PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
+            return convertedProperties;
+        }
     }
 
     @Override
@@ -552,6 +583,7 @@ public abstract class ExternalCatalog
                 }
             }
         }
+        this.propLock = new byte[0];
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -559,12 +591,84 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabase(String dbName) {
-        throw new NotImplementedException("dropDatabase not implemented");
+    @Override
+    public void createDb(CreateDbStmt stmt) throws DdlException {
+        if (!Config.enable_external_ddl) {
+            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
+        }
+        makeSureInitialized();
+        if (metadataOps == null) {
+            LOG.warn("createDb not implemented");
+            return;
+        }
+        try {
+            metadataOps.createDb(stmt);
+        } catch (Exception e) {
+            LOG.warn("Failed to create a database.", e);
+            throw e;
+        }
     }
 
-    public void createDatabase(long dbId, String dbName) {
-        throw new NotImplementedException("createDatabase not implemented");
+    @Override
+    public void dropDb(DropDbStmt stmt) throws DdlException {
+        if (!Config.enable_external_ddl) {
+            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
+        }
+        makeSureInitialized();
+        if (metadataOps == null) {
+            LOG.warn("dropDb not implemented");
+            return;
+        }
+        try {
+            metadataOps.dropDb(stmt);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop a database.", e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void createTable(CreateTableStmt stmt) throws UserException {
+        if (!Config.enable_external_ddl) {
+            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
+        }
+        makeSureInitialized();
+        if (metadataOps == null) {
+            LOG.warn("createTable not implemented");
+            return;
+        }
+        try {
+            metadataOps.createTable(stmt);
+        } catch (Exception e) {
+            LOG.warn("Failed to create a table.", e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void dropTable(DropTableStmt stmt) throws DdlException {
+        if (!Config.enable_external_ddl) {
+            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
+        }
+        makeSureInitialized();
+        if (metadataOps == null) {
+            LOG.warn("dropTable not implemented");
+            return;
+        }
+        try {
+            metadataOps.dropTable(stmt);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop a table", e);
+            throw e;
+        }
+    }
+
+    public void unregisterDatabase(String dbName) {
+        throw new NotImplementedException("unregisterDatabase not implemented");
+    }
+
+    public void registerDatabase(long dbId, String dbName) {
+        throw new NotImplementedException("registerDatabase not implemented");
     }
 
     public Map<String, Boolean> getIncludeDatabaseMap() {
@@ -590,16 +694,6 @@ public abstract class ExternalCatalog
             }
         }
         return specifiedDatabaseMap;
-    }
-
-    public boolean useSelfSplitter() {
-        Map<String, String> properties = catalogProperty.getProperties();
-        boolean ret = true;
-        if (properties.containsKey(HMSExternalCatalog.ENABLE_SELF_SPLITTER)
-                && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("false")) {
-            ret = false;
-        }
-        return ret;
     }
 
     public String bindBrokerName() {
@@ -634,4 +728,3 @@ public abstract class ExternalCatalog
         return new ConcurrentHashMap<>(idToDb);
     }
 }
-

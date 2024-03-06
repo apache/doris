@@ -37,6 +37,7 @@
 #include <set>
 #include <string>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -65,6 +66,20 @@
 #include "util/time.h"
 
 namespace doris {
+namespace {
+
+void update_rowsets_and_segments_num_metrics() {
+    if (config::is_cloud_mode()) {
+        // TODO(plat1ko): CloudStorageEngine
+    } else {
+        StorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_local();
+        auto* metrics = DorisMetrics::instance();
+        metrics->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
+        metrics->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
+    }
+}
+
+} // namespace
 
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
@@ -339,11 +354,7 @@ void Daemon::calculate_metrics_thread() {
                 DorisMetrics::instance()->system_metrics()->get_network_traffic(
                         &lst_net_send_bytes, &lst_net_receive_bytes);
             }
-
-            DorisMetrics::instance()->all_rowsets_num->set_value(
-                    StorageEngine::instance()->tablet_manager()->get_rowset_nums());
-            DorisMetrics::instance()->all_segments_num->set_value(
-                    StorageEngine::instance()->tablet_manager()->get_segment_nums());
+            update_rowsets_and_segments_num_metrics();
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }

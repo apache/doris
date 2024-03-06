@@ -96,13 +96,13 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                     correlationFilter.map(ExpressionUtils::extractConjunction).orElse(ExpressionUtils.EMPTY_CONDITION),
                     new DistributeHint(DistributeType.NONE),
                     apply.getMarkJoinSlotReference(),
-                    apply.children());
+                    apply.children(), null);
         } else {
             return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     correlationFilter.map(ExpressionUtils::extractConjunction).orElse(ExpressionUtils.EMPTY_CONDITION),
                     new DistributeHint(DistributeType.NONE),
                     apply.getMarkJoinSlotReference(),
-                    apply.children());
+                    apply.children(), null);
         }
     }
 
@@ -123,7 +123,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                 ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE),
                 unapply.getMarkJoinSlotReference(),
-                (LogicalPlan) unapply.left(), newAgg);
+                (LogicalPlan) unapply.left(), newAgg, null);
         return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
                 new IntegerLiteral(0))), newJoin);
     }
@@ -133,6 +133,6 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
         return new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
             ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE), unapply.getMarkJoinSlotReference(),
-                (LogicalPlan) unapply.left(), newLimit);
+                (LogicalPlan) unapply.left(), newLimit, null);
     }
 }

@@ -20,7 +20,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
@@ -260,6 +259,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setFragment(PlanFragment fragment) {
         this.fragment = fragment;
+    }
+
+    public boolean isNullAwareLeftAntiJoin() {
+        return children.stream().anyMatch(PlanNode::isNullAwareLeftAntiJoin);
     }
 
     public PlanFragment getFragment() {
@@ -879,10 +882,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public int getNumInstances() {
         return this.children.get(0).getNumInstances();
-    }
-
-    public boolean shouldColoAgg(AggregateInfo aggregateInfo) {
-        return false;
     }
 
     public void setShouldColoScan() {}

@@ -52,7 +52,7 @@ template class SetSinkOperator<false>;
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
-                                            SourceState source_state) {
+                                            bool eos) {
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
@@ -72,13 +72,12 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
         }
     }
 
-    if (source_state == SourceState::FINISHED ||
-        local_state._mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
+    if (eos || local_state._mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
         build_block = local_state._mutable_block.to_block();
         RETURN_IF_ERROR(_process_build_block(local_state, build_block, state));
         local_state._mutable_block.clear();
 
-        if (source_state == SourceState::FINISHED) {
+        if (eos) {
             if constexpr (is_intersect) {
                 valid_element_in_hash_tbl = 0;
             } else {
@@ -94,7 +93,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
             if (_child_quantity == 1) {
-                local_state._shared_state->source_dep->set_ready();
+                local_state._dependency->set_ready_to_read();
             }
         }
     }
@@ -161,13 +160,13 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSinkDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _build_timer = ADD_TIMER(_profile, "BuildTime");
 
     auto& parent = _parent->cast<Parent>();
-    _dependency->set_cur_child_id(parent._cur_child_id);
+    _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
         RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
@@ -199,10 +198,8 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
     // Create result_expr_ctx_lists_ from thrift exprs.
     if (tnode.node_type == TPlanNodeType::type::INTERSECT_NODE) {
         result_texpr_lists = &(tnode.intersect_node.result_expr_lists);
-        _child_quantity = tnode.intersect_node.result_expr_lists.size();
     } else if (tnode.node_type == TPlanNodeType::type::EXCEPT_NODE) {
         result_texpr_lists = &(tnode.except_node.result_expr_lists);
-        _child_quantity = tnode.except_node.result_expr_lists.size();
     } else {
         return Status::NotSupported("Not Implemented, Check The Operation Node.");
     }

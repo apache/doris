@@ -175,7 +175,7 @@ private:
 };
 
 // TODO Maybe change void* parameter to template parameter better.
-class HybridSetBase : public FilterFuncBase {
+class HybridSetBase : public RuntimeFilterFuncBase {
 public:
     HybridSetBase() = default;
     virtual ~HybridSetBase() = default;
@@ -275,6 +275,8 @@ public:
     void insert(void* data, size_t /*unused*/) override { insert(data); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+        const auto size = column->size();
+
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
@@ -283,14 +285,14 @@ public:
                             .get_data();
 
             const ElementType* data = (ElementType*)col.get_raw_data().data;
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 if (!nullmap[i]) {
                     _set.insert(*(data + i));
                 }
             }
         } else {
             const ElementType* data = (ElementType*)column->get_raw_data().data;
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 _set.insert(*(data + i));
             }
         }
@@ -412,14 +414,14 @@ public:
                     assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
                             .get_data();
 
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < nullable->size(); i++) {
                 if (!nullmap[i]) {
                     _set.insert(col.get_data_at(i).to_string());
                 }
             }
         } else {
             const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < col->size(); i++) {
                 _set.insert(col->get_data_at(i).to_string());
             }
         }
@@ -554,14 +556,14 @@ public:
                     assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
                             .get_data();
 
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < nullable->size(); i++) {
                 if (!nullmap[i]) {
                     _set.insert(col.get_data_at(i));
                 }
             }
         } else {
             const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < col->size(); i++) {
                 _set.insert(col->get_data_at(i));
             }
         }

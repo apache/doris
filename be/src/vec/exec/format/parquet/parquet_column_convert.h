@@ -127,6 +127,30 @@ struct ConvertParams {
     DecimalScaleParams decimal_scale;
     FieldSchema* field_schema = nullptr;
 
+    /**
+     * Some frameworks like paimon maybe writes non-standard parquet files. Timestamp field doesn't have
+     * logicalType or converted_type to indicates its precision. We have to reset the time mask.
+     */
+    void reset_time_scale_if_missing(int scale) {
+        const auto& schema = field_schema->parquet_schema;
+        if (!schema.__isset.logicalType && !schema.__isset.converted_type) {
+            int ts_scale = 9;
+            if (scale <= 3) {
+                ts_scale = 3;
+            } else if (scale <= 6) {
+                ts_scale = 6;
+            }
+            second_mask = common::exp10_i64(ts_scale);
+            scale_to_nano_factor = common::exp10_i64(9 - ts_scale);
+
+            // The missing parque metadata makes it impossible for us to know the time zone information,
+            // so we default to UTC here.
+            if (ctz == nullptr) {
+                ctz = const_cast<cctz::time_zone*>(&utc0);
+            }
+        }
+    }
+
     void init(FieldSchema* field_schema_, cctz::time_zone* ctz_) {
         field_schema = field_schema_;
         if (ctz_ != nullptr) {
@@ -671,8 +695,12 @@ inline Status get_converter(tparquet::Type::type parquet_physical_type, Primitiv
         break;
     case TypeIndex::DateTimeV2:
         if (tparquet::Type::INT96 == parquet_physical_type) {
+            // int96 only stores nanoseconds in standard parquet file
+            convert_params->reset_time_scale_if_missing(9);
             *converter = std::make_unique<Int96toTimestamp>();
         } else if (tparquet::Type::INT64 == parquet_physical_type) {
+            convert_params->reset_time_scale_if_missing(
+                    remove_nullable(dst_data_type)->get_scale());
             *converter = std::make_unique<Int64ToTimestamp>();
         }
         break;

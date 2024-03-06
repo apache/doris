@@ -132,12 +132,6 @@ void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                                const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
-template <typename T>
 void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                              const uint8_t* __restrict null_data) const {
     if (null_data == nullptr) {
@@ -302,10 +296,10 @@ void ColumnDecimal<T>::insert_range_from(const IColumn& src, size_t start, size_
     const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
 
     if (start + length > src_vec.data.size()) {
-        LOG(FATAL) << fmt::format(
-                "Parameters start = {}, length = {} are out of bound in "
-                "ColumnDecimal<T>::insert_range_from method (data.size() = {})",
-                start, length, src_vec.data.size());
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameters start = {}, length = {} are out of bound in "
+                               "ColumnDecimal<T>::insert_range_from method (data.size() = {})",
+                               start, length, src_vec.data.size());
     }
 
     size_t old_size = data.size();
@@ -435,18 +429,6 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
     }
 
     return res;
-}
-
-template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
-                                 IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);
-    typename Self::Container& res_data = res.get_data();
-    res_data.resize(target_size);
-
-    for (size_t i = 0; i < target_size; ++i) {
-        res_data[i] = data[indexs[i]];
-    }
 }
 
 template <typename T>

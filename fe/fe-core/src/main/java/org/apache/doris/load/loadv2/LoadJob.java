@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -52,6 +53,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TEtlState;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -134,7 +136,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected String comment = "";
 
-
+    protected List<TPipelineWorkloadGroup> tWorkloadGroups = null;
 
     public LoadJob(EtlJobType jobType) {
         this.jobType = jobType;
@@ -577,10 +579,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (abortTxn) {
             // abort txn
             try {
-                LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                        .add("transaction_id", transactionId)
-                        .add("msg", "begin to abort txn")
-                        .build());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
+                            .add("transaction_id", transactionId)
+                            .add("msg", "begin to abort txn")
+                            .build());
+                }
                 Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, transactionId, failMsg.getMsg());
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
@@ -755,7 +759,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         LoadJob job = null;
         EtlJobType type = EtlJobType.valueOf(Text.readString(in));
         if (type == EtlJobType.BROKER) {
-            job = new BrokerLoadJob();
+            job = EnvFactory.getInstance().createBrokerLoadJob();
         } else if (type == EtlJobType.SPARK) {
             job = new SparkLoadJob();
         } else if (type == EtlJobType.INSERT || type == EtlJobType.INSERT_JOB) {
@@ -1163,5 +1167,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public LoadStatistic getLoadStatistic() {
         return loadStatistic;
+    }
+
+    public void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+        this.tWorkloadGroups = tWorkloadGroups;
     }
 }

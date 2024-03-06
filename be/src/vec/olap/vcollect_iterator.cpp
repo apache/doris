@@ -305,8 +305,6 @@ Status VCollectIterator::_topn_next(Block* block) {
                 }
             }
 
-            auto col_name = block->get_names()[first_sort_column_idx];
-
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
@@ -417,14 +415,15 @@ Status VCollectIterator::_topn_next(Block* block) {
                 sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
-                auto col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
+                auto* col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
                 Field new_top;
                 col_ptr->get(last_sorted_row, new_top);
 
                 // update orderby_extrems in query global context
-                auto query_ctx = _reader->_reader_context.runtime_state->get_query_ctx();
-                RETURN_IF_ERROR(
-                        query_ctx->get_runtime_predicate().update(new_top, col_name, _is_reverse));
+                auto* query_ctx = _reader->_reader_context.runtime_state->get_query_ctx();
+                for (int id : _reader->_reader_context.topn_filter_source_node_ids) {
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate(id).update(new_top));
+                }
             }
         } // end of while (read_rows < _topn_limit && !eof)
         VLOG_DEBUG << "topn debug rowset " << i << " read_rows=" << read_rows << " eof=" << eof

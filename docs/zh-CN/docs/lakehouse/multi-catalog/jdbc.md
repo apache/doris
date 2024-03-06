@@ -44,14 +44,15 @@ PROPERTIES ("key"="value", ...)
 
 ## 参数说明
 
-| 参数                      | 必须 | 默认值  | 说明                                                                    |
+| 参数                        | 必须 | 默认值  | 说明                                                                    |
 |---------------------------|-----|---------|-----------------------------------------------------------------------|
 | `user`                    | 是   |         | 对应数据库的用户名                                                             |
 | `password`                | 是   |         | 对应数据库的密码                                                              |
 | `jdbc_url`                | 是   |         | JDBC 连接串                                                              |
 | `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                   |
 | `driver_class`            | 是   |         | JDBC Driver Class 名称                                                  |
-| `lower_case_table_names`  | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名以及列名                                         |
+| `lower_case_meta_names`   | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名以及列名                                         |
+| `meta_names_mapping`    | 否   | ""      | 当jdbc外部数据源存在名称相同只有大小写不同的情况，例如 DORIS 和 doris，Doris 由于歧义而在查询 Catalog 时报错，此时需要配置 `meta_names_mapping` 参数来解决冲突。 |
 | `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                   |
 | `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。     |
 | `exclude_database_list`   | 否   | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
@@ -60,29 +61,146 @@ PROPERTIES ("key"="value", ...)
 
 `driver_url` 可以通过以下三种方式指定：
 
-1. 文件名。如 `mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在 FE 和 BE 部署目录的 `jdbc_drivers/` 目录下。系统会自动在这个目录下寻找。该目录的位置，也可以由 fe.conf 和 be.conf 中的 `jdbc_drivers_dir` 配置修改。
+1. 文件名。如 `mysql-connector-java-8.0.25.jar`。需将 Jar 包预先存放在 FE 和 BE 部署目录的 `jdbc_drivers/` 目录下。系统会自动在这个目录下寻找。该目录的位置，也可以由 fe.conf 和 be.conf 中的 `jdbc_drivers_dir` 配置修改。
 
-2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
+2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-8.0.25.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
 
 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 
-### 小写表名同步
+**驱动包安全性**
 
-当 `lower_case_table_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，能够查询非小写的数据库和表以及列
+为了防止在创建 Catalog 时使用了未允许路径的 Driver Jar 包，Doris 会对 Jar 包进行路径管理和校验和检查。
+
+1. 针对上述方式 1，Doris 默认用户配置的 `jdbc_drivers_dir` 和其目录下的所有 Jar 包都是安全的，不会对其进行路径检查。
+
+2. 针对上述方式 2、3 ，Doris 会对 Jar 包的来源进行检查，检查规则如下： 
+   
+   * 通过 FE 配置项 `jdbc_driver_secure_path` 来控制允许的驱动包路径，该配置项可配置多个路径，以分号分隔。当配置了该项时，Doris 会检查 Catalog properties 中 driver_url 的路径是的部分前缀是否在 `jdbc_driver_secure_path` 中，如果不在其中，则会拒绝创建 Catalog。
+   * 此参数默认为 `*` ，表示允许所有路径的 Jar 包。
+   * 如果配置 `jdbc_driver_secure_path` 为空，则不允许所有路径的驱动包，也就意味着只能使用上述方式 1 来指定驱动包。
+
+   > 如配置 `jdbc_driver_secure_path = "file:///path/to/jdbc_drivers;http://path/to/jdbc_drivers"`, 则只允许以 `file:///path/to/jdbc_drivers` 或 `http://path/to/jdbc_drivers` 开头的驱动包路径。
+
+3. 在创建 Catalog 时，可以通过 `checksum` 参数来指定驱动包的校验和，Doris 会在加载驱动包后，对驱动包进行校验，如果校验失败，则会拒绝创建 Catalog。
+
+:::warning
+上述的校验只会在创建 Catalog 时进行，对于已经创建的 Catalog，不会再次进行校验。
+:::
+
+### 小写名称同步
+
+当 `lower_case_meta_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，使查询时能够使用小写去查询外部数据源非小写的数据库和表以及列。
+
+由于 FE 存在 `lower_case_table_names` 的参数，会影响查询时的表名大小写规则，所以规则如下
+
+* 当 FE `lower_case_table_names` config 为 0 时
+
+   lower_case_meta_names = false，大小写和源库一致。
+   lower_case_meta_names = true，小写存储库表列名。
+
+* 当 FE `lower_case_table_names` config 为 1 时
+
+   lower_case_meta_names = false，db 和 column 的大小写和源库一致，但是 table 存储为小写
+   lower_case_meta_names = true，小写存储库表列名。
+
+* 当 FE `lower_case_table_names` config 为 2 时
+
+   lower_case_meta_names = false，大小写和源库一致。
+   lower_case_meta_names = true，小写存储库表列名。
+
+如果创建 Catalog 时的参数配置匹配到了上述规则中的转变小写规则，则 Doris 会将对应的名称转变为小写存储在 Doris 中，查询时需使用 Doris 显示的小写名称去查询。
+
+如果外部数据源存在名称相同只有大小写不同的情况，例如 DORIS 和 doris，Doris 由于歧义而在查询 Catalog 时报错，此时需要配置 `meta_names_mapping` 参数来解决冲突。
+
+`meta_names_mapping` 参数接受一个 Json 格式的字符串，格式如下：
+
+```json
+{
+  "databases": [
+    {
+      "remoteDatabase": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "doris",
+      "mapping": "doris_2"
+    }],
+  "tables": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "doris",
+      "mapping": "doris_2"
+    }],
+  "columns": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "doris",
+      "mapping": "doris_2"
+    }]
+}
+```
+
+在将此配置填写到创建 Catalog 的语句中时，Json 中存在双引号，因此在填写时需要将双引号转义或者直接使用单引号包裹 Json 字符串。
+
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = "{\"databases\":[{\"remoteDatabase\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"doris\",\"mapping\":\"doris_2\"}]}"
+    ...
+);
+```
+
+或者
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = '{"databases":[{"remoteDatabase":"DORIS","mapping":"doris_1"},{"remoteDatabase":"doris","mapping":"doris_2"}]}'
+    ...
+);
+
+```
+
+
 
 **注意：**
 
-1. 在 Doris 2.0.3 之前的版本，仅对 Oracle 数据库有效，在查询时，会将所有的库名和表名转换为大写，再去查询 Oracle，例如：
+JDBC Catalog 对于外部表大小写的映射规则存在如下三个阶段：
+
+* Doris 2.0.3 之前的版本
+
+    此配置名为 `lower_case_table_names`，仅对 Oracle 数据库有效，如在其他数据源设置此参数为 `true` 会影响查询，请勿设置。
+    
+    在查询 Oracle 时，会将所有的库名和表名转换为大写，再去查询 Oracle，例如：
 
     Oracle 在 TEST 空间下有 TEST 表，Doris 创建 Catalog 时设置 `lower_case_table_names` 为 `true`，则 Doris 可以通过 `select * from oracle_catalog.test.test` 查询到 TEST 表，Doris 会自动将 test.test 格式化成 TEST.TEST 下发到 Oracle，需要注意的是这是个默认行为，也意味着不能查询 Oracle 中小写的表名。
 
-    对于其他数据库，仍需要在查询时指定真实的库名和表名。
+* Doris 2.0.3 版本：
 
-2. 在 Doris 2.0.3 及之后的版本，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
+    此配置名为 `lower_case_table_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
 
     但是，如果库名、表名或列名只有大小写不同，例如 `Doris` 和 `doris`，则 Doris 由于歧义而无法查询它们。
 
-3. 当 FE 参数的 `lower_case_table_names` 设置为 `1` 或 `2` 时，JDBC Catalog 的 `lower_case_table_names` 参数必须设置为 `true`。如果 FE 参数的 `lower_case_table_names` 设置为 `0`，则 JDBC Catalog 的参数可以为 `true` 或 `false`，默认为 `false`。这确保了 Doris 在处理内部和外部表配置时的一致性和可预测性。
+    并且当 FE 参数的 `lower_case_table_names` 设置为 `1` 或 `2` 时，JDBC Catalog 的 `lower_case_table_names` 参数必须设置为 `true`。如果 FE 参数的 `lower_case_table_names` 设置为 `0`，则 JDBC Catalog 的参数可以为 `true` 或 `false`，默认为 `false`。
+
+* Doris 2.1.0 以及之后版本：
+
+    为了避免和 FE conf 的 `lower_case_table_names` 参数混淆，此配置名改为 `lower_case_meta_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.1.0 ，需要 `Refresh <catalog_name>` 才能生效。
+
+    具体规则参考本小节开始对于 `lower_case_meta_names` 的介绍。
+
+    此前设置过 JDBC Catalog `lower_case_table_names` 参数的用户会在升级到 2.1.0 时，自动将 `lower_case_table_names` 转换为 `lower_case_meta_names`。
 
 ### 指定同步数据库
 
@@ -158,6 +276,22 @@ set enable_odbc_transcation = true;
 ```
 
 事务保证了JDBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
+
+## JDBC 连接池配置
+
+在 Doris 中，每个 FE 和 BE 节点都会维护一个连接池，这样可以避免频繁地打开和关闭单独的数据源连接。连接池中的每个连接都可以用来与数据源建立连接并执行查询。任务完成后，这些连接会被归还到池中以便重复使用，这不仅提高了性能，还减少了建立连接时的系统开销，并帮助防止达到数据源的连接数上限。
+
+下面列出了一些可用于调整连接池行为的 Catalog 配置属性：
+
+| 参数名称                            | 默认值     | 描述和行为                                                                                               |
+|---------------------------------|---------|-----------------------------------------------------------------------------------------------------|
+| `connection_pool_min_size`      | 1       | 定义连接池的最小连接数，用于初始化连接池并保证在启用保活机制时至少有该数量的连接处于活跃状态。                                                     |
+| `connection_pool_max_size`      | 10      | 定义连接池的最大连接数，每个 Catalog 对应的每个 FE 或 BE 节点最多可持有此数量的连接。                                                 |
+| `connection_pool_max_wait_time` | 5000    | 如果连接池中没有可用连接，定义客户端等待连接的最大毫秒数。                                                                       |
+| `connection_pool_max_life_time` | 1800000 | 设置连接在连接池中保持活跃的最大时长（毫秒）。超时的连接将被回收。同时，此值的一半将作为连接池的最小逐出空闲时间，达到该时间的连接将成为逐出候选对象。执行回收操作的频率将是该最大生命周期的十分之一。 |
+| `connection_pool_keep_alive`    | false   | 仅在 BE 节点上有效，用于决定是否保持达到最小逐出空闲时间但未到最大生命周期的连接活跃。默认关闭，以减少不必要的资源使用。                                      |
+
+为了避免在 BE 上累积过多的未使用的连接池缓存，可以通过设置 BE 的 `jdbc_connection_pool_cache_clear_time_sec` 参数来指定清理缓存的时间间隔。默认值为 28800 秒（8小时），此间隔过后，BE 将强制清理所有超过该时间未使用的连接池缓存。
 
 ## 使用指南
 
@@ -478,8 +612,8 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 | date                                   | DATE          |                                                              |
 | datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                              |
 | char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                              |
-| binary/varbinary                       | STRING        |                                                              |
 | time/datetimeoffset                    | STRING        |                                                              |
+| timestamp                              | STRING        | 读取二进制数据的十六进制显示，无实际意义                            |
 | Other                                  | UNSUPPORTED   |                                                              |
 
 ### Doris
@@ -536,7 +670,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | BITMAP     | BITMAP                 | 查询BITMAP需要设置`return_object_data_as_binary=true`  |
 | Other      | UNSUPPORTED            |                                                      |
 
-### Clickhouse
+### ClickHouse
 
 #### 创建示例
 
@@ -709,28 +843,81 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
  Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#mysql) 与 [Oracle](#oracle)
 :::
 
+### DB2
+
+#### 创建示例
+
+```sql
+CREATE CATALOG `jdbc_db2` PROPERTIES (
+    "user" = "db2inst1",
+    "type" = "jdbc",
+    "password" = "123456",
+    "jdbc_url" = "jdbc:db2://127.0.0.1:50000/doris",
+    "driver_url" = "jcc-11.5.8.0.jar",
+    "driver_class" = "com.ibm.db2.jcc.DB2Driver"
+);
+```
+
+#### 层级映射
+
+映射 DB2 时，Doris 的 Database 对应于 DB2 中指定 DataBase（如示例中 `jdbc_url` 参数中的 "doris"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 DB2 中 Schema 下的 Tables。即映射关系如下：
+
+|  Doris   |   DB2    |
+|:--------:|:--------:|
+| Catalog  | DataBase |
+| Database |  Schema  |
+|  Table   |  Table   |
+
+
+#### 类型映射
+
+| DB2 Type         | Trino Type   | Notes |
+|------------------|--------------|-------|
+| SMALLINT         | SMALLINT     |       |
+| INT              | INT          |       |
+| BIGINT           | BIGINT       |       |
+| DOUBLE           | DOUBLE       |       |
+| DOUBLE PRECISION | DOUBLE       |       |
+| FLOAT            | DOUBLE       |       |
+| REAL             | FLOAT        |       |
+| NUMERIC          | DECIMAL      |       |
+| DECIMAL          | DECIMAL      |       |
+| DECFLOAT         | DECIMAL      |       |
+| DATE             | DATE         |       |
+| TIMESTAMP        | DATETIME     |       |
+| CHAR             | CHAR         |       |
+| CHAR VARYING     | VARCHAR      |       |
+| VARCHAR          | VARCHAR      |       |
+| LONG VARCHAR     | VARCHAR      |       |
+| VARGRAPHIC       | STRING       |       |
+| LONG VARGRAPHIC  | STRING       |       |
+| TIME             | STRING       |       |
+| CLOB             | STRING       |       |
+| OTHER            | UNSUPPORTED  |       |
+
 ## JDBC Driver 列表
 
 推荐使用以下版本的 Driver 连接对应的数据库。其他版本的 Driver 未经测试，可能导致非预期的问题。
 
-|  Source | JDBC Driver Version |
-|:--------:|:--------:|
-| MySQL 5.x  | mysql-connector-java-5.1.47.jar |
-| MySQL 8.x  | mysql-connector-java-8.0.25.jar |
-| PostgreSQL | postgresql-42.5.1.jar |
-| Oracle   | ojdbc8.jar|
-| SQLServer | mssql-jdbc-11.2.3.jre8.jar |
-| Doris | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
-| Clickhouse | clickhouse-jdbc-0.4.2-all.jar  |
-| SAP HAHA | ngdbc.jar |
-| Trino/Presto | trino-jdbc-389.jar / presto-jdbc-0.280.jar |
-| OceanBase | oceanbase-client-2.4.2.jar |
+|    Source    |                        JDBC Driver Version                        |
+|:------------:|:-----------------------------------------------------------------:|
+|  MySQL 5.x   |                  mysql-connector-java-5.1.47.jar                  |
+|  MySQL 8.x   |                  mysql-connector-java-8.0.25.jar                  |
+|  PostgreSQL  |                       postgresql-42.5.1.jar                       |
+|    Oracle    |                            ojdbc8.jar                             |
+|  SQLServer   |                    mssql-jdbc-11.2.3.jre8.jar                     |
+|    Doris     | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+|  Clickhouse  |                   clickhouse-jdbc-0.4.2-all.jar                   |
+|   SAP HAHA   |                             ngdbc.jar                             |
+| Trino/Presto |            trino-jdbc-389.jar / presto-jdbc-0.280.jar             |
+|  OceanBase   |                    oceanbase-client-2.4.2.jar                     |
+|     DB2      |                         jcc-11.5.8.0.jar                          |
 
 ## 常见问题
 
-1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase 是否能够支持更多的数据库
+1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase,DB2 是否能够支持更多的数据库
 
-    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase,DB2. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写 MySQL外表的emoji表情出现乱码
 
@@ -862,3 +1049,6 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
     可以先下载[lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar)包，然后放到DorisFE lib 目录以及BE 的 `lib/lib/java_extensions`目录中（Doris 2.0 之前的版本需放到 BE 的 lib 目录下）。
 
     从 2.0.2 版本起，可以将这个文件放置在 FE 和 BE 的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+
+11. 如果通过 Jdbc catalog 查询 MySQL 的时候，出现长时间卡住没有返回结果，或着卡住很长时间并且 fe.warn.log 中出现出现大量 write lock 日志，可以尝试在 url 添加 socketTimeout ，例如：`jdbc:mysql://host:port/database?socketTimeout=30000` ， 防止 MySQL 在关闭连接后 Jdbc 客户端无限等待。
+

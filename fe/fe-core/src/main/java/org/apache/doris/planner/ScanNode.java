@@ -41,9 +41,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.planner.external.FederationBackendPolicy;
-import org.apache.doris.planner.external.FileScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -454,7 +454,9 @@ public abstract class ScanNode extends PlanNode {
             }
 
         }
-        LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
+        }
         return partitionColumnFilter;
     }
 
@@ -720,19 +722,20 @@ public abstract class ScanNode extends PlanNode {
                 || getShouldColoScan();
     }
 
-    public boolean ignoreStorageDataDistribution(ConnectContext context) {
+    public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
                 && context.getSessionVariable().getEnablePipelineXEngine()
-                && !fragment.isHasNullAwareLeftAntiJoin()
-                && getScanRangeNum() < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+                && !fragment.hasNullAwareLeftAntiJoin()
+                && getScanRangeNum()
+                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numBackends;
     }
 
     public int getScanRangeNum() {
         return Integer.MAX_VALUE;
     }
 
-    public boolean haveLimitAndConjunts() {
-        return hasLimit() && !conjuncts.isEmpty();
+    public boolean shouldUseOneInstance() {
+        return hasLimit() && conjuncts.isEmpty();
     }
 }

@@ -21,6 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.datasource.es.DorisEsException;
+import org.apache.doris.datasource.es.EsRestClient;
+import org.apache.doris.datasource.es.EsUtil;
+import org.apache.doris.datasource.es.MappingPhase;
+import org.apache.doris.datasource.es.SearchContext;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import mockit.Expectations;

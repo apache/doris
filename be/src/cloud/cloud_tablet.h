@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include <atomic>
+#include <memory>
 
 #include "olap/base_tablet.h"
-#include "olap/version_graph.h"
+#include "olap/partial_update_info.h"
 
 namespace doris {
 
@@ -39,6 +39,9 @@ public:
 
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
+
+    Status capture_consistent_rowsets_unlocked(
+            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
 
     size_t tablet_footprint() override {
         return _approximate_data_size.load(std::memory_order_relaxed);
@@ -64,7 +67,7 @@ public:
     // If tablet state is not `TABLET_RUNNING`, sync tablet meta and all visible rowsets.
     // If `query_version` > 0 and local max_version of the tablet >= `query_version`, do nothing.
     // If 'need_download_data_async' is true, it means that we need to download the new version
-    // rowsets datas async.
+    // rowsets datum async.
     Status sync_rowsets(int64_t query_version = -1, bool warmup_delta_data = false);
 
     // Synchronize the tablet meta from meta service.
@@ -74,7 +77,7 @@ public:
     // If 'warmup_delta_data' is true, download the new version rowset data in background.
     // MUST hold EXCLUSIVE `_meta_lock`.
     // If 'need_download_data_async' is true, it means that we need to download the new version
-    // rowsets datas async.
+    // rowsets datum async.
     void add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
                      std::unique_lock<std::shared_mutex>& meta_lock,
                      bool warmup_delta_data = false);
@@ -98,6 +101,97 @@ public:
     int64_t get_cloud_base_compaction_score() const;
     int64_t get_cloud_cumu_compaction_score() const;
 
+    int64_t max_version_unlocked() const override { return _max_version; }
+    int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
+    int64_t cumulative_compaction_cnt() const { return _cumulative_compaction_cnt; }
+    int64_t cumulative_layer_point() const {
+        return _cumulative_point.load(std::memory_order_relaxed);
+    }
+
+    void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
+    void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
+    void set_cumulative_layer_point(int64_t new_point);
+
+    int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
+    void set_last_cumu_compaction_failure_time(int64_t millis) {
+        _last_cumu_compaction_failure_millis = millis;
+    }
+
+    int64_t last_base_compaction_failure_time() { return _last_base_compaction_failure_millis; }
+    void set_last_base_compaction_failure_time(int64_t millis) {
+        _last_base_compaction_failure_millis = millis;
+    }
+
+    int64_t last_full_compaction_failure_time() { return _last_full_compaction_failure_millis; }
+    void set_last_full_compaction_failure_time(int64_t millis) {
+        _last_full_compaction_failure_millis = millis;
+    }
+
+    int64_t last_cumu_compaction_success_time() { return _last_cumu_compaction_success_millis; }
+    void set_last_cumu_compaction_success_time(int64_t millis) {
+        _last_cumu_compaction_success_millis = millis;
+    }
+
+    int64_t last_base_compaction_success_time() { return _last_base_compaction_success_millis; }
+    void set_last_base_compaction_success_time(int64_t millis) {
+        _last_base_compaction_success_millis = millis;
+    }
+
+    int64_t last_full_compaction_success_time() { return _last_full_compaction_success_millis; }
+    void set_last_full_compaction_success_time(int64_t millis) {
+        _last_full_compaction_success_millis = millis;
+    }
+
+    int64_t last_base_compaction_schedule_time() { return _last_base_compaction_schedule_millis; }
+    void set_last_base_compaction_schedule_time(int64_t millis) {
+        _last_base_compaction_schedule_millis = millis;
+    }
+
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
+
+    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
+                          bool include_stale = false) {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [v, rs] : _rs_version_map) {
+            visitor(rs);
+        }
+        if (!include_stale) return;
+        for (auto& [v, rs] : _stale_rs_version_map) {
+            visitor(rs);
+        }
+    }
+
+    inline Version max_version() const {
+        std::shared_lock rdlock(_meta_lock);
+        return _tablet_meta->max_version();
+    }
+
+    int64_t base_size() const { return _base_size; }
+
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
+
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
+
+    std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
+    std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+
+    Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
+            const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
+            int64_t txn_expiration = 0) override;
+
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
+
+    Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
+                              DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
+                              const RowsetIdUnorderedSet& cur_rowset_ids) override;
+
+    Status calc_delete_bitmap_for_compaciton(const std::vector<RowsetSharedPtr>& input_rowsets,
+                                             const RowsetSharedPtr& output_rowset,
+                                             const RowIdConversion& rowid_conversion,
+                                             ReaderType compaction_type, int64_t merged_rows,
+                                             int64_t initiator,
+                                             DeleteBitmapPtr& output_rowset_delete_bitmap);
+
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
@@ -105,8 +199,6 @@ public:
     int64_t last_cumu_no_suitable_version_ms = 0;
 
 private:
-    Versions calc_missed_versions(int64_t spec_version);
-
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
@@ -126,10 +218,30 @@ private:
     // Number of sorted arrays (e.g. for rowset with N segments, if rowset is overlapping, delta is N, otherwise 1) after cumu point
     std::atomic<int64_t> _approximate_cumu_num_deltas {-1};
 
-    [[maybe_unused]] int64_t _base_compaction_cnt = 0;
-    [[maybe_unused]] int64_t _cumulative_compaction_cnt = 0;
+    // timestamp of last cumu compaction failure
+    std::atomic<int64_t> _last_cumu_compaction_failure_millis;
+    // timestamp of last base compaction failure
+    std::atomic<int64_t> _last_base_compaction_failure_millis;
+    // timestamp of last full compaction failure
+    std::atomic<int64_t> _last_full_compaction_failure_millis;
+    // timestamp of last cumu compaction success
+    std::atomic<int64_t> _last_cumu_compaction_success_millis;
+    // timestamp of last base compaction success
+    std::atomic<int64_t> _last_base_compaction_success_millis;
+    // timestamp of last full compaction success
+    std::atomic<int64_t> _last_full_compaction_success_millis;
+    // timestamp of last base compaction schedule time
+    std::atomic<int64_t> _last_base_compaction_schedule_millis;
+
+    int64_t _base_compaction_cnt = 0;
+    int64_t _cumulative_compaction_cnt = 0;
     int64_t _max_version = -1;
     int64_t _base_size = 0;
+
+    std::mutex _base_compaction_lock;
+    std::mutex _cumulative_compaction_lock;
 };
+
+using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
 
 } // namespace doris

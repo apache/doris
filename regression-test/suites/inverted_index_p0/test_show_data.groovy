@@ -36,7 +36,8 @@ suite("test_show_data", "p0") {
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
                         PROPERTIES (
-                            "replication_allocation" = "tag.location.default: 1"
+                            "replication_allocation" = "tag.location.default: 1",
+                            "disable_auto_compaction" = "true"
                         );
                         """
     }
@@ -54,7 +55,8 @@ suite("test_show_data", "p0") {
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
                         PROPERTIES (
-                            "replication_allocation" = "tag.location.default: 1"
+                            "replication_allocation" = "tag.location.default: 1",
+                            "disable_auto_compaction" = "true"
                         );
                         """
     }
@@ -103,7 +105,7 @@ suite("test_show_data", "p0") {
             if (result.size() > 0) {
                 logger.info(table_name + " show data, detail: " + result[0].toString())
                 def size = result[0][2].replace(" KB", "").toDouble()
-                if (size > origin_size) {
+                if (size != origin_size) {
                     return size
                 }
             }
@@ -145,6 +147,7 @@ suite("test_show_data", "p0") {
             useTime = t
             Thread.sleep(delta_time)
         }
+        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout, useTime=${useTime}")
         return "wait_timeout"
     }
@@ -168,6 +171,11 @@ suite("test_show_data", "p0") {
         assertEquals(state, "FINISHED")
         def with_index_size = wait_for_show_data_finish(testTableWithoutIndex, 300000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
+
+        sql """ ALTER TABLE ${testTableWithoutIndex} DROP INDEX idx_request """
+        wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
+        def another_no_index_size = wait_for_show_data_finish(testTableWithoutIndex, 300000, with_index_size)
+        assertEquals(another_no_index_size, no_index_size)
 
         sql "DROP TABLE IF EXISTS ${testTableWithIndex}"
         create_httplogs_table_with_index.call(testTableWithIndex)
@@ -200,7 +208,8 @@ suite("test_show_data_for_bkd", "p0") {
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
                         PROPERTIES (
-                            "replication_allocation" = "tag.location.default: 1"
+                            "replication_allocation" = "tag.location.default: 1",
+                            "disable_auto_compaction" = "true"
                         );
                         """
     }
@@ -218,7 +227,8 @@ suite("test_show_data_for_bkd", "p0") {
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
                         PROPERTIES (
-                            "replication_allocation" = "tag.location.default: 1"
+                            "replication_allocation" = "tag.location.default: 1",
+                            "disable_auto_compaction" = "true"
                         );
                         """
     }
@@ -267,7 +277,7 @@ suite("test_show_data_for_bkd", "p0") {
             if (result.size() > 0) {
                 logger.info(table_name + " show data, detail: " + result[0].toString())
                 def size = result[0][2].replace(" KB", "").toDouble()
-                if (size > origin_size) {
+                if (size != origin_size) {
                     return size
                 }
             }
@@ -309,6 +319,7 @@ suite("test_show_data_for_bkd", "p0") {
             useTime = t
             Thread.sleep(delta_time)
         }
+        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout, useTime=${useTime}")
         return "wait_timeout"
     }
@@ -332,6 +343,11 @@ suite("test_show_data_for_bkd", "p0") {
         assertEquals(state, "FINISHED")
         def with_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 300000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
+
+        sql """ ALTER TABLE ${testTableWithoutBKDIndex} DROP INDEX idx_status """
+        wait_for_latest_op_on_table_finish(testTableWithoutBKDIndex, timeout)
+        def another_no_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 300000, with_index_size)
+        assertEquals(another_no_index_size, no_index_size)
 
         sql "DROP TABLE IF EXISTS ${testTableWithBKDIndex}"
         create_httplogs_table_with_bkd_index.call(testTableWithBKDIndex)

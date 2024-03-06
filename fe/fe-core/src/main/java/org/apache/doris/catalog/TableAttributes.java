@@ -34,20 +34,57 @@ import java.util.Map;
  * TableAttributes contains additional information about all table
  */
 public class TableAttributes implements Writable {
+    public static final long TABLE_INIT_VERSION = 1L;
+
     @SerializedName(value = "constraints")
     private final Map<String, Constraint> constraintsMap = new HashMap<>();
+    @SerializedName(value = "visibleVersion")
+    private long visibleVersion;
+    @SerializedName(value = "visibleVersionTime")
+    private long visibleVersionTime;
 
+    public TableAttributes() {
+        this.visibleVersion = TABLE_INIT_VERSION;
+        this.visibleVersionTime = System.currentTimeMillis();
+    }
+
+    public Map<String, Constraint> getConstraintsMap() {
+        return constraintsMap;
+    }
+
+    public long getVisibleVersion() {
+        return visibleVersion;
+    }
+
+    public long getVisibleVersionTime() {
+        return visibleVersionTime;
+    }
+
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
+        // To be compatible with previous versions
+        if (visibleVersion <= TABLE_INIT_VERSION) {
+            return;
+        }
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = visibleVersionTime;
+    }
+
+    public long getNextVersion() {
+        return visibleVersion + 1;
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public TableAttributes read(DataInput in)  throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), TableAttributes.class);
-    }
-
-    public Map<String, Constraint> getConstraintsMap() {
-        return constraintsMap;
+    public TableAttributes read(DataInput in) throws IOException {
+        TableAttributes tableAttributes = GsonUtils.GSON.fromJson(Text.readString(in), TableAttributes.class);
+        // To be compatible with previous versions
+        if (tableAttributes.getVisibleVersion() < TABLE_INIT_VERSION) {
+            tableAttributes.visibleVersion = TABLE_INIT_VERSION;
+            tableAttributes.visibleVersionTime = System.currentTimeMillis();
+        }
+        return tableAttributes;
     }
 }

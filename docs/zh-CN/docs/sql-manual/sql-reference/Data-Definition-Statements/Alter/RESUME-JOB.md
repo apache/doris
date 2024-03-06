@@ -32,23 +32,23 @@ RESUME JOB
 
 ### Description
 
-用于重启一个 PAUSE 状态的 JOB 作业。重启的作业，将继续按照周期执行。STOP 状态的 JOB 无法被恢复。
+将处于 PAUSED 状态的 JOB 恢复为 RUNNING 状态。RUNNING 状态的 JOB 将会根据既定的调度周期去执行。
 
 ```sql
-RESUME JOB FOR job_name;
+RESUME JOB where jobName = jobName;
 ```
 
 ### Example
 
-1. 重启名称为 test1 的 JOB。
+1. 恢复运行名称为 example 的 JOB。
 
    ```sql
-   RESUME JOB FOR test1;
+   RESUME JOB where jobName= 'example';
    ```
 
 ### Keywords
 
-       RESUME, JOB
+        RESUME, JOB
 
 ### Best Practice
 

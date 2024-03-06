@@ -56,10 +56,14 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
         out->mutable_delete_predicate()->CopyFrom(in.delete_predicate());
     }
     out->set_empty(in.empty());
-    out->mutable_load_id()->CopyFrom(in.load_id());
+    if (in.has_load_id()) {
+        out->mutable_load_id()->CopyFrom(in.load_id());
+    }
     out->set_delete_flag(in.delete_flag());
     out->set_creation_time(in.creation_time());
-    out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
+    if (in.has_tablet_uid()) {
+        out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
+    }
     out->set_num_segments(in.num_segments());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
@@ -77,6 +81,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
+    out->set_has_variant_type_in_schema(in.has_has_variant_type_in_schema());
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -100,10 +105,14 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
         out->mutable_delete_predicate()->Swap(in.mutable_delete_predicate());
     }
     out->set_empty(in.empty());
-    out->mutable_load_id()->CopyFrom(in.load_id());
+    if (in.has_load_id()) {
+        out->mutable_load_id()->CopyFrom(in.load_id());
+    }
     out->set_delete_flag(in.delete_flag());
     out->set_creation_time(in.creation_time());
-    out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
+    if (in.has_tablet_uid()) {
+        out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
+    }
     out->set_num_segments(in.num_segments());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
@@ -122,6 +131,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
+    out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
 }
 
 RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
@@ -160,7 +170,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     out->mutable_load_id()->CopyFrom(in.load_id());
     out->set_delete_flag(in.delete_flag());
     out->set_creation_time(in.creation_time());
-    out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
+    if (in.has_tablet_uid()) {
+        out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
+    }
     out->set_num_segments(in.num_segments());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
@@ -204,7 +216,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     out->mutable_load_id()->CopyFrom(in.load_id());
     out->set_delete_flag(in.delete_flag());
     out->set_creation_time(in.creation_time());
-    out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
+    if (in.has_tablet_uid()) {
+        out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
+    }
     out->set_num_segments(in.num_segments());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());

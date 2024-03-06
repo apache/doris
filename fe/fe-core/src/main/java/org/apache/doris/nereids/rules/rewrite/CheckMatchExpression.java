@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -47,7 +48,10 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
         for (Expression expr : expressions) {
             if (expr instanceof Match) {
                 Match matchExpression = (Match) expr;
-                if (!(matchExpression.left() instanceof SlotReference)
+                boolean isSlotReference = matchExpression.left() instanceof SlotReference;
+                boolean isCastChildWithSlotReference = (matchExpression.left() instanceof Cast
+                            && matchExpression.left().child(0) instanceof SlotReference);
+                if (!(isSlotReference || isCastChildWithSlotReference)
                         || !(matchExpression.right() instanceof Literal)) {
                     throw new AnalysisException(String.format("Only support match left operand is SlotRef,"
                             + " right operand is Literal. But meet expression %s", matchExpression));

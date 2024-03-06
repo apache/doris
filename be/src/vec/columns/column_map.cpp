@@ -271,11 +271,6 @@ void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
-void ColumnMap::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                         const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
 void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                          const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
@@ -380,9 +375,11 @@ void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t lengt
     const ColumnMap& src_concrete = assert_cast<const ColumnMap&>(src);
 
     if (start + length > src_concrete.size()) {
-        LOG(FATAL) << "Parameter out of bound in ColumnMap::insert_range_from method. [start("
-                   << std::to_string(start) << ") + length(" << std::to_string(length)
-                   << ") > offsets.size(" << std::to_string(src_concrete.size()) << ")]";
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameter out of bound in ColumnMap::insert_range_from method. "
+                               "[start({}) + length({}) > offsets.size({})]",
+                               std::to_string(start), std::to_string(length),
+                               std::to_string(src_concrete.size()));
     }
 
     size_t nested_offset = src_concrete.offset_at(start);
@@ -456,26 +453,6 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
                                  assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
                                  assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
     return res;
-}
-
-void ColumnMap::replicate(const uint32_t* indices, size_t target_size, IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnMap&>(column);
-
-    auto keys_array =
-            ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable());
-
-    auto result_array = ColumnArray::create(res.keys_column->assume_mutable(),
-                                            res.offsets_column->assume_mutable());
-    keys_array->replicate(indices, target_size, result_array->assume_mutable_ref());
-
-    result_array = ColumnArray::create(res.values_column->assume_mutable(),
-                                       res.offsets_column->clone_empty());
-
-    auto values_array =
-            ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable());
-
-    /// FIXME: To reuse the replicate of ColumnArray, the offsets column was replicated twice
-    values_array->replicate(indices, target_size, result_array->assume_mutable_ref());
 }
 
 MutableColumnPtr ColumnMap::get_shrinked_column() {

@@ -73,6 +73,10 @@ suite("load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+    }
+
+    Thread.sleep(70000) // wait for row count report of the tables just loaded
+    tables.forEach { tableName, columns ->
         sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
 

@@ -49,7 +49,7 @@ import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -168,6 +168,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
+    public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -196,18 +197,65 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
 
-    // Use forceProperties to rewrite olap's property.
-    // For a key-value pair in forceProperties,
-    // if the value is null, then delete this property from properties and skip check this property,
-    // otherwise rewrite this property into properties and check property using the force value.
-    //
-    // In most cases, specified a none-null force value is better then specified a null force value.
-    protected ImmutableMap<String, String> forceProperties;
+    public enum RewriteType {
+        PUT,      // always put property
+        REPLACE,  // replace if exists property
+        DELETE,   // delete property
+    }
+
+    public static class RewriteProperty {
+        RewriteType rewriteType;
+        String key;
+        String value;
+
+        private RewriteProperty(RewriteType rewriteType, String key, String value) {
+            this.rewriteType = rewriteType;
+            this.key = key;
+            this.value = value;
+        }
+
+        public String key() {
+            return this.key;
+        }
+
+        public static RewriteProperty put(String key, String value) {
+            return new RewriteProperty(RewriteType.PUT, key, value);
+        }
+
+        public static RewriteProperty replace(String key, String value) {
+            return new RewriteProperty(RewriteType.REPLACE, key, value);
+        }
+
+        public static RewriteProperty  delete(String key) {
+            return new RewriteProperty(RewriteType.DELETE, key, null);
+        }
+
+        public void rewrite(Map<String, String> properties) {
+            switch (rewriteType) {
+                case PUT:
+                    properties.put(key, value);
+                    break;
+                case REPLACE:
+                    if (properties.containsKey(key)) {
+                        properties.put(key, value);
+                    }
+                    break;
+                case DELETE:
+                    properties.remove(key);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+    }
+
+    protected ImmutableList<RewriteProperty> forceProperties;
 
     public PropertyAnalyzer() {
-        forceProperties = ImmutableMap.<String, String>builder()
-                .put(PROPERTIES_FILE_CACHE_TTL_SECONDS, "0")
-                .build();
+        forceProperties = ImmutableList.of(
+                RewriteProperty.replace(PROPERTIES_FILE_CACHE_TTL_SECONDS, "0")
+                );
     }
 
     private static class SingletonHolder {
@@ -567,8 +615,8 @@ public class PropertyAnalyzer {
                             found = true;
                             break;
                         } else {
-                            throw new AnalysisException("Bloom filter index only used in columns of"
-                                    + " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
+                            throw new AnalysisException("Bloom filter index should only be used in columns"
+                                    + " of UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
                                     + " invalid column: " + bfColumn);
                         }
                     }
@@ -1318,14 +1366,12 @@ public class PropertyAnalyzer {
         return properties;
     }
 
-    private void rewriteForceProperties(Map<String, String> properties) {
-        forceProperties.forEach((property, value) -> {
-            if (value == null) {
-                properties.remove(property);
-            } else {
-                properties.put(property, value);
-            }
-        });
+    public void rewriteForceProperties(Map<String, String> properties) {
+        forceProperties.forEach(property -> property.rewrite(properties));
+    }
+
+    public ImmutableList<RewriteProperty> getForceProperties() {
+        return forceProperties;
     }
 
     private static Map<String, String> rewriteReplicaAllocationProperties(
@@ -1400,6 +1446,10 @@ public class PropertyAnalyzer {
     // due to backward compatibility, we just explicitly set the value of this property to `true` if
     // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
+        if (Config.isCloudMode()) {
+            // the default value of enable_unique_key_merge_on_write is false for cloud mode yet.
+            return properties;
+        }
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         }

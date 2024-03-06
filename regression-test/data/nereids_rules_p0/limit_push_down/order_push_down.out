@@ -119,7 +119,11 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalOlapScan[t1]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[GLOBAL]
+------------------hashAgg[LOCAL]
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 
 -- !limit_distinct --
@@ -129,7 +133,11 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalOlapScan[t1]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[GLOBAL]
+------------------hashAgg[LOCAL]
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 
 -- !limit_distinct --

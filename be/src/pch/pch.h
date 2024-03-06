@@ -255,10 +255,6 @@
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
 
-// lzo headers
-#include <lzo/lzo1x.h>
-#include <lzo/lzoconf.h>
-
 // mysql headers
 #include <mysql/mysql.h>
 

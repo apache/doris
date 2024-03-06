@@ -738,42 +738,6 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
     EXPECT_EQ(1 << 19, policy->_level_size((1 << 20) - 100));
 }
 
-TEST_F(TestSizeBasedCumulativeCompactionPolicy, _pick_missing_version_cumulative_compaction) {
-    std::vector<RowsetMetaSharedPtr> rs_metas;
-    init_rs_meta_missing_version(&rs_metas);
-
-    for (auto& rowset : rs_metas) {
-        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
-    }
-
-    TabletSharedPtr _tablet(
-            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
-    static_cast<void>(_tablet->init());
-    ;
-
-    // has miss version
-    std::vector<RowsetSharedPtr> rowsets;
-    rowsets.push_back(_tablet->get_rowset_by_version({0, 0}));
-    rowsets.push_back(_tablet->get_rowset_by_version({1, 1}));
-    rowsets.push_back(_tablet->get_rowset_by_version({2, 2}));
-    rowsets.push_back(_tablet->get_rowset_by_version({4, 4}));
-    CumulativeCompaction compaction(_tablet);
-    static_cast<void>(compaction.find_longest_consecutive_version(&rowsets, nullptr));
-    EXPECT_EQ(3, rowsets.size());
-    EXPECT_EQ(2, rowsets[2]->end_version());
-
-    // no miss version
-    std::vector<RowsetSharedPtr> rowsets2;
-    rowsets2.push_back(_tablet->get_rowset_by_version({0, 0}));
-    static_cast<void>(compaction.find_longest_consecutive_version(&rowsets2, nullptr));
-    EXPECT_EQ(1, rowsets2.size());
-    EXPECT_EQ(0, rowsets[0]->end_version());
-
-    // no version
-    std::vector<RowsetSharedPtr> rowsets3;
-    static_cast<void>(compaction.find_longest_consecutive_version(&rowsets3, nullptr));
-    EXPECT_EQ(0, rowsets3.size());
-}
 } // namespace doris
 
 // @brief Test Stub

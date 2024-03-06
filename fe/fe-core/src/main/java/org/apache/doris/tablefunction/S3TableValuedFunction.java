@@ -117,12 +117,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         if (Strings.isNullOrEmpty(props.get(S3Properties.REGION))) {
             throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.REGION));
         }
-        if (Strings.isNullOrEmpty(props.get(S3Properties.ACCESS_KEY))) {
-            throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ACCESS_KEY));
-        }
-        if (Strings.isNullOrEmpty(props.get(S3Properties.SECRET_KEY))) {
-            throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.SECRET_KEY));
-        }
+        // do not check ak and sk, because we can read them from system environment.
     }
 
     private String getEndpointAndSetVirtualBucket(S3URI s3uri, Map<String, String> props)
@@ -183,4 +178,3 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         return "S3TableValuedFunction";
     }
 }
-

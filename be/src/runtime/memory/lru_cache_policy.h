@@ -25,14 +25,6 @@
 
 namespace doris {
 
-// Base of the lru cache value.
-struct LRUCacheValueBase {
-    // Save the last visit time of this cache entry.
-    // Use atomic because it may be modified by multi threads.
-    std::atomic<int64_t> last_visit_time = 0;
-    size_t size = 0;
-};
-
 // Base of lru cache, allow prune stale entry and prune all entry.
 class LRUCachePolicy : public CachePolicy {
 public:
@@ -84,6 +76,8 @@ public:
 
     // Try to prune the cache if expired.
     void prune_stale() override {
+        COUNTER_SET(_freed_entrys_counter, (int64_t)0);
+        COUNTER_SET(_freed_memory_counter, (int64_t)0);
         if (_stale_sweep_time_s <= 0 && _cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
@@ -91,43 +85,55 @@ public:
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
             const int64_t curtime = UnixMillis();
-            int64_t byte_size = 0L;
-            auto pred = [this, curtime, &byte_size](const void* value) -> bool {
-                auto* cache_value = (LRUCacheValueBase*)value;
-                if ((cache_value->last_visit_time + _stale_sweep_time_s * 1000) < curtime) {
-                    byte_size += cache_value->size;
-                    return true;
-                }
-                return false;
+            auto pred = [this, curtime](const LRUHandle* handle) -> bool {
+                return static_cast<bool>((handle->last_visit_time + _stale_sweep_time_s * 1000) <
+                                         curtime);
             };
 
+            LOG(INFO) << fmt::format("[MemoryGC] {} prune stale start, consumption {}",
+                                     type_string(_type), _cache->mem_consumption());
             // Prune cache in lazy mode to save cpu and minimize the time holding write lock
-            COUNTER_SET(_freed_entrys_counter, _cache->prune_if(pred, true));
-            COUNTER_SET(_freed_memory_counter, byte_size);
+            PrunedInfo pruned_info = _cache->prune_if(pred, true);
+            COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
+            COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
             COUNTER_UPDATE(_prune_stale_number_counter, 1);
-            LOG(INFO) << fmt::format("{} prune stale {} entries, {} bytes, {} times prune",
-                                     type_string(_type), _freed_entrys_counter->value(),
-                                     _freed_memory_counter->value(),
-                                     _prune_stale_number_counter->value());
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] {} prune stale {} entries, {} bytes, {} times prune",
+                    type_string(_type), _freed_entrys_counter->value(),
+                    _freed_memory_counter->value(), _prune_stale_number_counter->value());
+        } else {
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] {} not need prune stale, consumption {} less than "
+                    "CACHE_MIN_FREE_SIZE {}",
+                    type_string(_type), _cache->mem_consumption(), CACHE_MIN_FREE_SIZE);
         }
     }
 
-    void prune_all(bool clear) override {
+    void prune_all(bool force) override {
+        COUNTER_SET(_freed_entrys_counter, (int64_t)0);
+        COUNTER_SET(_freed_memory_counter, (int64_t)0);
         if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
-        if ((clear && _cache->mem_consumption() != 0) ||
+        if ((force && _cache->mem_consumption() != 0) ||
             _cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
-            auto size = _cache->mem_consumption();
-            COUNTER_SET(_freed_entrys_counter, _cache->prune());
-            COUNTER_SET(_freed_memory_counter, size);
+            LOG(INFO) << fmt::format("[MemoryGC] {} prune all start, consumption {}",
+                                     type_string(_type), _cache->mem_consumption());
+            PrunedInfo pruned_info = _cache->prune();
+            COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
+            COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
             COUNTER_UPDATE(_prune_all_number_counter, 1);
             LOG(INFO) << fmt::format(
-                    "{} prune all {} entries, {} bytes, {} times prune, is clear: {}",
+                    "[MemoryGC] {} prune all {} entries, {} bytes, {} times prune, is force: {}",
                     type_string(_type), _freed_entrys_counter->value(),
-                    _freed_memory_counter->value(), _prune_stale_number_counter->value(), clear);
+                    _freed_memory_counter->value(), _prune_all_number_counter->value(), force);
+        } else {
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] {} not need prune all, force is {}, consumption {}, "
+                    "CACHE_MIN_FREE_SIZE {}",
+                    type_string(_type), force, _cache->mem_consumption(), CACHE_MIN_FREE_SIZE);
         }
     }
 

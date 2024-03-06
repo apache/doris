@@ -86,9 +86,8 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
             .add(WorkloadActionType.CANCEL_QUERY).build();
 
     public static final ImmutableSet<WorkloadMetricType> BE_METRIC_SET
-            = new ImmutableSet.Builder<WorkloadMetricType>().add(WorkloadMetricType.SCAN_ROWS)
-            .add(WorkloadMetricType.SCAN_BYTES).add(WorkloadMetricType.QUERY_TIME)
-            .build();
+            = new ImmutableSet.Builder<WorkloadMetricType>().add(WorkloadMetricType.BE_SCAN_ROWS)
+            .add(WorkloadMetricType.BE_SCAN_BYTES).add(WorkloadMetricType.QUERY_TIME).build();
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -122,15 +121,12 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                         }
 
                         String username = cctx.getQualifiedUser();
-                        long queryTime = System.currentTimeMillis() - cctx.getStartTime();
-
                         WorkloadQueryInfo policyQueryInfo = new WorkloadQueryInfo();
                         policyQueryInfo.queryId = cctx.queryId() == null ? null : DebugUtil.printId(cctx.queryId());
                         policyQueryInfo.tUniqueId = cctx.queryId();
                         policyQueryInfo.context = cctx;
                         policyQueryInfo.metricMap = new HashMap<>();
                         policyQueryInfo.metricMap.put(WorkloadMetricType.USERNAME, username);
-                        policyQueryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, String.valueOf(queryTime));
 
                         queryInfoList.add(policyQueryInfo);
                     }
@@ -174,19 +170,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         List<WorkloadActionMeta> originActions = createStmt.getActions();
         List<WorkloadAction> policyActionList = new ArrayList<>();
         for (WorkloadActionMeta workloadActionMeta : originActions) {
-            WorkloadActionType actionName = workloadActionMeta.action;
-            String actionArgs = workloadActionMeta.actionArgs;
-
-            // we need convert wgName to wgId, because wgName may change
-            if (WorkloadActionType.MOVE_QUERY_TO_GROUP.equals(actionName)) {
-                Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroupIdByName(actionArgs);
-                if (wgId == null) {
-                    throw new UserException(
-                            "can not find workload group " + actionArgs + " when set workload sched policy");
-                }
-                workloadActionMeta.actionArgs = wgId.toString();
-            }
-
+            // todo(wb) support move action
             WorkloadAction ret = WorkloadAction.createWorkloadAction(workloadActionMeta);
             policyActionList.add(ret);
         }

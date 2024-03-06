@@ -1,6 +1,6 @@
 -- TABLES: lineitem
-
-SELECT SUM(CAST(var["L_EXTENDEDPRICE"] AS DOUBLE) * CAST(var["L_DISCOUNT"] AS DOUBLE)) AS REVENUE
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
+SUM(CAST(var["L_EXTENDEDPRICE"] AS DOUBLE) * CAST(var["L_DISCOUNT"] AS DOUBLE)) AS REVENUE
 FROM
   lineitem
 WHERE

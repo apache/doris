@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.CosProperties;
+import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 
 import org.apache.logging.log4j.LogManager;
@@ -41,6 +42,7 @@ public class PaimonFileExternalCatalog extends PaimonExternalCatalog {
     protected void initLocalObjectsImpl() {
         catalogType = PAIMON_FILESYSTEM;
         catalog = createCatalog();
+        super.initLocalObjectsImpl();
     }
 
     @Override
@@ -68,6 +70,15 @@ public class PaimonFileExternalCatalog extends PaimonExternalCatalog {
                     properties.get(CosProperties.SECRET_KEY));
             options.put(PaimonProperties.WAREHOUSE,
                     options.get(PaimonProperties.WAREHOUSE).replace("cosn://", "s3://"));
+        } else if (properties.containsKey(ObsProperties.ENDPOINT)) {
+            options.put(PaimonProperties.PAIMON_S3_ENDPOINT,
+                    properties.get(ObsProperties.ENDPOINT));
+            options.put(PaimonProperties.PAIMON_S3_ACCESS_KEY,
+                    properties.get(ObsProperties.ACCESS_KEY));
+            options.put(PaimonProperties.PAIMON_S3_SECRET_KEY,
+                    properties.get(ObsProperties.SECRET_KEY));
+            options.put(PaimonProperties.WAREHOUSE,
+                    options.get(PaimonProperties.WAREHOUSE).replace("obs://", "s3://"));
         }
 
         if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {

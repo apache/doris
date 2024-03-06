@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.math3.util.Precision;
@@ -134,6 +136,8 @@ class FilterEstimationTest {
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
+                .setMaxValue(0)
+                .setMinValue(0)
                 .setIsUnknown(false);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
@@ -1101,4 +1105,38 @@ class FilterEstimationTest {
         Assertions.assertEquals(result.getRowCount(), 10.0, 0.01);
     }
 
+    @Test
+    public void testNullSafeEqual() {
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder()
+                .setNdv(2)
+                .setAvgSizeByte(4)
+                .setNumNulls(8)
+                .setMaxValue(2)
+                .setMinValue(1)
+                .setCount(10);
+        ColumnStatistic aStats = columnStatisticBuilder.build();
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+
+        columnStatisticBuilder.setNdv(2)
+                .setAvgSizeByte(4)
+                .setNumNulls(7)
+                .setMaxValue(2)
+                .setMinValue(1)
+                .setCount(10);
+        ColumnStatistic bStats = columnStatisticBuilder.build();
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(100);
+        statsBuilder.putColumnStatistics(a, aStats);
+        statsBuilder.putColumnStatistics(b, bStats);
+
+        NullSafeEqual nse = new NullSafeEqual(a, b);
+        FilterEstimation estimator = new FilterEstimation();
+        Statistics resultNse = estimator.estimate(nse, statsBuilder.build());
+
+        EqualTo eq = new EqualTo(a, b);
+        Statistics resultEq = estimator.estimate(eq, statsBuilder.build());
+        Assertions.assertEquals(7, resultNse.getRowCount() - resultEq.getRowCount());
+    }
 }

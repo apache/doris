@@ -111,12 +111,6 @@ void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 template <typename T>
-void ColumnVector<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                               const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
-template <typename T>
 void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
                                                const uint8_t* __restrict null_data) const {
     auto s = size();
@@ -354,10 +348,10 @@ template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
     if (start + length > src_vec.data.size()) {
-        LOG(FATAL) << fmt::format(
-                "Parameters start = {}, length = {}, are out of bound in "
-                "ColumnVector<T>::insert_range_from method (data.size() = {}).",
-                start, length, src_vec.data.size());
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameters start = {}, length = {}, are out of bound in "
+                               "ColumnVector<T>::insert_range_from method (data.size() = {}).",
+                               start, length, src_vec.data.size());
     }
 
     size_t old_size = data.size();
@@ -374,7 +368,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
 
     auto copy = [](const T* __restrict src, T* __restrict dest, const uint32_t* __restrict begin,
                    const uint32_t* __restrict end) {
-        for (auto it = begin; it != end; ++it) {
+        for (const auto* it = begin; it != end; ++it) {
             *dest = src[*it];
             ++dest;
         }
@@ -542,22 +536,6 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnVector<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
-                                IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnVector<T>&>(column);
-    typename Self::Container& res_data = res.get_data();
-    DCHECK(res_data.empty());
-    res_data.resize(target_size);
-    auto* __restrict left = res_data.data();
-    auto* __restrict right = data.data();
-    auto* __restrict idxs = indexs;
-
-    for (size_t i = 0; i < target_size; ++i) {
-        left[i] = right[idxs[i]];
-    }
-}
-
-template <typename T>
 ColumnPtr ColumnVector<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
 }
@@ -577,7 +555,7 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class ColumnVector<UInt8>;
 template class ColumnVector<UInt16>;
-template class ColumnVector<UInt32>;
+template class ColumnVector<UInt32>; // IPv4
 template class ColumnVector<UInt64>;
 template class ColumnVector<UInt128>;
 template class ColumnVector<Int8>;
@@ -587,4 +565,5 @@ template class ColumnVector<Int64>;
 template class ColumnVector<Int128>;
 template class ColumnVector<Float32>;
 template class ColumnVector<Float64>;
+template class ColumnVector<IPv6>; // IPv6
 } // namespace doris::vectorized

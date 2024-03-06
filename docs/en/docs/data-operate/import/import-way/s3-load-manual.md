@@ -95,7 +95,7 @@ example:
 
 <version since="1.2">
 
-2. Support using temporary security credentials to access object stores that support the S3 protocol:
+2. Support using temporary security credentials to access object storage that support the S3 protocol:
 
 ```
   WITH S3

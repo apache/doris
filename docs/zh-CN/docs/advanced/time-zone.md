@@ -50,9 +50,9 @@ Doris 内部存在以下两个时区相关参数：
 时区数据包含时区名、对应时间偏移量、夏令时变化情况等。在 BE 所在机器上，其数据来源依次为：
 
 1. `TZDIR` 命令返回的目录，如不支持该命令，则为 `/usr/share/zoneinfo` 目录
-2. doris BE 部署目录下生成的 `zoneinfo` 目录。来自 doris repository 下的 `resource/zoneinfo.tar.gz`
+2. Doris BE 部署目录下生成的 `zoneinfo` 目录。产生自 Doris Repository 下的 `resource/zoneinfo.tar.gz`
 
-按顺序查找以上数据源，如果找到则使用当前项。两项均未找到，则 doris BE 将启动失败，请重新正确构建 BE 或获取发行版。
+按顺序查找以上数据源，如果找到则使用当前项。如果 BE 配置项 `use_doris_tzfile` 为 true，则跳过对第一项的查找。如均未找到，则 Doris BE 将启动失败，请重新正确构建 BE 或获取发行版。
 
 ## 时区的影响
 

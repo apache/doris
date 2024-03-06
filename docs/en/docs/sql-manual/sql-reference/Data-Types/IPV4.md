@@ -34,7 +34,6 @@ IPV4
 
 ### description
 
-IPV4
 IPv4 type, stored in the form of UInt32 in 4 bytes, used to represent IPv4 addresses.
 The range of values is ['0.0.0.0', '255.255.255.255'].
 

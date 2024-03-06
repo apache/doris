@@ -35,6 +35,8 @@ struct FileWriterOptions {
     bool is_cold_data = false;
     bool sync_file_data = true;        // Whether flush data into storage system
     int64_t file_cache_expiration = 0; // Absolute time
+    // Whether to create empty file if no content
+    bool create_empty_file = true;
 };
 
 class FileWriter {
@@ -45,6 +47,9 @@ public:
     virtual ~FileWriter() = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileWriter);
+
+    // Open the file for writing.
+    virtual Status open() { return Status::OK(); }
 
     // Normal close. Wait for all data to persist before returning.
     virtual Status close() = 0;
@@ -59,10 +64,7 @@ public:
 
     const Path& path() const { return _path; }
 
-    size_t bytes_appended() const {
-        DBUG_EXECUTE_IF("FileWriter.bytes_appended.zero_bytes_appended", { return 0; });
-        return _bytes_appended;
-    }
+    size_t bytes_appended() const { return _bytes_appended; }
 
     std::shared_ptr<FileSystem> fs() const { return _fs; }
 
@@ -74,6 +76,7 @@ protected:
     std::shared_ptr<FileSystem> _fs;
     bool _closed = false;
     bool _opened = false;
+    bool _create_empty_file = true;
 };
 
 using FileWriterPtr = std::unique_ptr<FileWriter>;

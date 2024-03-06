@@ -640,6 +640,26 @@ suite("nereids_win_fn") {
     qt_sql_rank_pb_ob_notnull '''
 		select kstr, kint, rank() over(partition by kstr order by kint) as wf from fn_test_not_nullable order by kstr, kint'''
 
+    qt_sql_percent_rank_pb '''
+		select kstr, percent_rank() over(partition by kstr) as wf from fn_test order by kstr'''
+    qt_sql_percent_rank_pb_ob '''
+		select kstr, kint, percent_rank() over(partition by kstr order by kint) as wf from fn_test order by kstr, kint'''
+    
+    qt_sql_percent_rank_pb_notnull '''
+		select kstr, percent_rank() over(partition by kstr) as wf from fn_test_not_nullable  order by kstr'''
+    qt_sql_percent_rank_pb_ob_notnull '''
+		select kstr, kint, percent_rank() over(partition by kstr order by kint) as wf from fn_test_not_nullable order by kstr, kint'''
+
+    qt_sql_cume_dist_pb '''
+		select kstr, cume_dist() over(partition by kstr) as wf from fn_test order by kstr'''
+    qt_sql_cume_dist_pb_ob '''
+		select kstr, kint, cume_dist() over(partition by kstr order by kint) as wf from fn_test order by kstr, kint'''
+    
+    qt_sql_cume_dist_pb_notnull '''
+		select kstr, cume_dist() over(partition by kstr) as wf from fn_test_not_nullable  order by kstr'''
+    qt_sql_cume_dist_pb_ob_notnull '''
+		select kstr, kint, cume_dist() over(partition by kstr order by kint) as wf from fn_test_not_nullable order by kstr, kint'''
+
     // qt_sql_row_number '''
     // 	select row_number() over() as wf from fn_test'''
 //    qt_sql_row_number_ob '''

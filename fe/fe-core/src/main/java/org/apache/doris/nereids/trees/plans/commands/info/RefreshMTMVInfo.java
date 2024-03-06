@@ -24,7 +24,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
@@ -67,7 +67,7 @@ public class RefreshMTMVInfo {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
             MTMV mtmv = (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
             if (!CollectionUtils.isEmpty(partitions)) {
-                MTMVUtil.getPartitionsIdsByNames(mtmv, partitions);
+                MTMVPartitionUtil.getPartitionsIdsByNames(mtmv, partitions);
             }
         } catch (org.apache.doris.common.AnalysisException | MetaNotFoundException | DdlException e) {
             throw new AnalysisException(e.getMessage());

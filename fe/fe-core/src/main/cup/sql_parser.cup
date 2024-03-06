@@ -49,6 +49,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
+import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -57,6 +58,7 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import java.util.stream.Collectors;
 
 import java_cup.runtime.Symbol;
 
@@ -276,7 +278,6 @@ terminal String
     KW_BINLOG,
     KW_BITMAP,
     KW_BITMAP_UNION,
-    KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
     KW_BRIEF,
@@ -484,6 +485,7 @@ terminal String
     KW_MATCH_PHRASE,
     KW_MATCH_PHRASE_PREFIX,
     KW_MATCH_REGEXP,
+    KW_MATCH_PHRASE_EDGE,
     KW_MATCH_ELEMENT_EQ,
     KW_MATCH_ELEMENT_LT,
     KW_MATCH_ELEMENT_GT,
@@ -495,6 +497,7 @@ terminal String
     KW_NEGATIVE,
     KW_NEVER,
     KW_NEXT,
+    KW_NGRAM_BF,
     KW_NO,
     KW_NOT,
     KW_NULL,
@@ -697,7 +700,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt, unset_var_stmt,
     create_job_stmt, pause_job_stmt, resume_job_stmt,stop_job_stmt, cancel_job_task_stmt,
-    use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
+    use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
     import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt;
@@ -834,6 +837,7 @@ nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
 nonterminal String opt_job_starts;
 nonterminal String opt_job_ends;
+nonterminal String job_at_time;
 nonterminal ColocateGroupName colocate_group_name;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
@@ -914,7 +918,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local, opt_is_auto_inc;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -971,6 +975,7 @@ nonterminal StorageBackend storage_backend;
 
 nonterminal ArrayList<LockTable> opt_lock_tables_list;
 nonterminal LockTable lock_table;
+nonterminal Long opt_auto_inc_init_value;
 
 // workload policy/group
 nonterminal String policy_condition_op, policy_condition_value;
@@ -989,7 +994,7 @@ precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
-precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
+precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH_PHRASE_EDGE, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -1130,6 +1135,8 @@ stmt ::=
     | recover_stmt:stmt
     {: RESULT = stmt; :}
     | use_stmt:use
+    {: RESULT = use; :}
+    | use_cloud_cluster_stmt:use
     {: RESULT = use; :}
     | set_stmt:set
     {: RESULT = set; :}
@@ -1401,7 +1408,12 @@ alter_stmt ::=
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
-        RESULT = new AlterColumnStatsStmt(tbl, columnName, map, partitionNames);
+        RESULT = new AlterColumnStatsStmt(tbl, null, columnName, map, partitionNames);
+    :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_INDEX ident:idx KW_MODIFY KW_COLUMN ident:columnName
+      KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
+    {:
+        RESULT = new AlterColumnStatsStmt(tbl, idx, columnName, map, partitionNames);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -2596,7 +2608,7 @@ create_job_stmt ::=
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.STREAMING,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}   */ 
-    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE job_at_time:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.ONE_TIME,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
@@ -2610,8 +2622,22 @@ create_job_stmt ::=
      {: 
         RESULT = startTime;    
      :}
+     |KW_STARTS KW_CURRENT_TIMESTAMP
+     {: 
+        RESULT = CreateJobStmt.CURRENT_TIMESTAMP_STRING;
+     :}   
      ;
- 
+     
+ job_at_time ::= 
+     | KW_AT STRING_LITERAL:atTime 
+     {: 
+        RESULT = atTime;    
+     :}
+     |KW_AT KW_CURRENT_TIMESTAMP
+     {: 
+        RESULT = CreateJobStmt.CURRENT_TIMESTAMP_STRING;
+     :}   
+     ;
  opt_job_ends ::= 
      {:
          RESULT = null;
@@ -2853,11 +2879,19 @@ grant_stmt ::=
     :}
     | KW_GRANT privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_TO user_identity:userId
     {:
-        RESULT = new GrantStmt(userId, null, resourcePattern, privs);
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.GENERAL);
     :}
     | KW_GRANT privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
     {:
-        RESULT = new GrantStmt(null, role, resourcePattern, privs);
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.GENERAL);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
     | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO user_identity:userId
     {:
@@ -2891,11 +2925,11 @@ tbl_pattern ::=
 resource_pattern ::=
     ident_or_star:resourceName
     {:
-        RESULT = new ResourcePattern(resourceName);
+        RESULT = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
     :}
     | STRING_LITERAL:resourceName
     {:
-        RESULT = new ResourcePattern(resourceName);
+        RESULT = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
     :}
     ;
 
@@ -2933,11 +2967,19 @@ revoke_stmt ::=
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM user_identity:userId
     {:
-        RESULT = new RevokeStmt(userId, null, resourcePattern, privs);
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.GENERAL);
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
-        RESULT = new RevokeStmt(null, role, resourcePattern, privs);
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.GENERAL);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM user_identity:userId
     {:
@@ -3489,7 +3531,7 @@ key_value_map ::=
 
 opt_properties ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | properties:properties
     {:
@@ -3628,7 +3670,7 @@ opt_actions ::=
 
 opt_ext_properties ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | KW_BROKER properties:properties
     {:
@@ -3703,28 +3745,34 @@ opt_is_key ::=
     ;
 
 column_definition ::=
-    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, isAutoInc, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName KW_AGG_STATE IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
-        columnDef.setGenericAggregationName(fnName);
-        columnDef.setGenericAggregationArguments(list);
+        for (TypeDef def : list) {
+            def.analyze(null);
+        }
+        ColumnDef columnDef = new ColumnDef(columnName, new TypeDef(Expr.createAggStateType(fnName,
+            list.stream().map(TypeDef::getType).collect(Collectors.toList()), 
+            list.stream().map(TypeDef::getNullable).collect(Collectors.toList()))), false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, isAutoInc, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName KW_AGG_STATE opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
-        columnDef.setGenericAggregationName(aggType);
-        columnDef.setGenericAggregationArguments(list);
+        for (TypeDef def : list) {
+            def.analyze(null);
+        }
+        ColumnDef columnDef = new ColumnDef(columnName, new TypeDef(Expr.createAggStateType(aggType.name().toLowerCase(),
+            list.stream().map(TypeDef::getType).collect(Collectors.toList()), 
+            list.stream().map(TypeDef::getNullable).collect(Collectors.toList()))), isKey, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
         RESULT = columnDef;
     :}
     ;
@@ -3757,15 +3805,23 @@ opt_is_allow_null ::=
     :}
     ;
 
-opt_is_auto_inc ::=
+opt_auto_inc_init_value ::=
     {:
-        RESULT = false;
+        RESULT = Long.valueOf(-1);
     :}
     | KW_AUTO_INCREMENT
     {:
-        RESULT = true;
+        RESULT = Long.valueOf(1);
+    :}
+    | KW_AUTO_INCREMENT LPAREN INTEGER_LITERAL:auto_inc_initial_value RPAREN
+    {:
+        if (auto_inc_initial_value.longValue() < 0) {
+            throw new AnalysisException("AUTO_INCREMENT start value can not be negative.");
+        }
+        RESULT = auto_inc_initial_value.longValue();
     :}
     ;
+
 opt_comment ::=
     /* empty */
     {:
@@ -3783,7 +3839,7 @@ opt_index_type ::=
     :}
     | KW_USING KW_BITMAP
     {:
-        RESULT = IndexDef.IndexType.BITMAP;
+        RESULT = IndexDef.IndexType.INVERTED;
     :}
     | KW_USING KW_NGRAM_BF
     {:
@@ -4014,9 +4070,9 @@ show_param ::=
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where, null);
     :}
-    | KW_SCHEMAS KW_FROM ident:catalogName
+    | KW_SCHEMAS KW_FROM ident:catalogName opt_wild_where
     {:
-        RESULT = new ShowDbStmt(null, null, catalogName);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
     :}
     /* Catalog */
     | KW_CATALOGS opt_wild_where
@@ -4172,11 +4228,11 @@ show_param ::=
     :}
     | KW_RESOURCES opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
+        RESULT = new ShowResourcesStmt(parser.wild, parser.where, orderByClause, limitClause);
     :}
-    | KW_WORKLOAD KW_GROUPS
+    | KW_WORKLOAD KW_GROUPS opt_wild_where
     {:
-        RESULT = new ShowWorkloadGroupsStmt();
+        RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
     :}
     | KW_WORKLOAD KW_SCHEDULE KW_POLICY
     {:
@@ -4345,6 +4401,11 @@ show_param ::=
     | KW_BUILD KW_INDEX opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
+    :}
+    /* Cloud Cluster */
+    | KW_CLUSTERS
+    {:
+        RESULT = new ShowClusterStmt();
     :}
     | KW_CONVERT_LSC opt_db:db
     {:
@@ -4880,6 +4941,22 @@ insert_overwrite_stmt ::=
     KW_INSERT KW_OVERWRITE KW_TABLE insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
        RESULT = new InsertOverwriteTableStmt(target, label, cols, source, hints);
+    :}
+    ;
+
+// Change cloud cluster
+use_cloud_cluster_stmt ::=
+    KW_USE AT ident:cluster
+    {:
+        RESULT = new UseCloudClusterStmt(cluster);
+    :}
+    | KW_USE ident:db AT ident:cluster
+    {:
+        RESULT = new UseCloudClusterStmt(cluster, db);
+    :}
+    | KW_USE ident:ctl DOT ident:db AT ident:cluster
+    {:
+        RESULT = new UseCloudClusterStmt(cluster, db, ctl);
     :}
     ;
 
@@ -6444,8 +6521,6 @@ type ::=
   {: RESULT = Type.BITMAP; :}
   | KW_QUANTILE_STATE
   {: RESULT = Type.QUANTILE_STATE; :}
-  | KW_AGG_STATE
-  {: RESULT = Type.AGG_STATE; :}
   | KW_STRING
   {: RESULT = ScalarType.createStringType(); :}
   | KW_JSON
@@ -7207,6 +7282,8 @@ match_predicate ::=
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_PREFIX, e1, e2); :}
   | expr:e1 KW_MATCH_REGEXP expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_REGEXP, e1, e2); :}
+  | expr:e1 KW_MATCH_PHRASE_EDGE expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_EDGE, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_EQ expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_EQ, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_LT expr:e2
@@ -8056,6 +8133,8 @@ keyword ::=
     | KW_CRON:id
     {: RESULT = id; :}
     | KW_UNSET:id
+    {: RESULT = id; :}
+    | KW_BELONG:id
     {: RESULT = id; :}
     ;
 

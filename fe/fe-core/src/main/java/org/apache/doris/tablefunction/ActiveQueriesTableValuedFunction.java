@@ -35,17 +35,10 @@ public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunctio
     public static final String NAME = "active_queries";
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("BeHost", ScalarType.createStringType()),
-            new Column("BePort", PrimitiveType.BIGINT),
             new Column("QueryId", ScalarType.createStringType()),
             new Column("StartTime", ScalarType.createStringType()),
             new Column("QueryTimeMs", PrimitiveType.BIGINT),
             new Column("WorkloadGroupId", PrimitiveType.BIGINT),
-            new Column("QueryCpuTimeMs", PrimitiveType.BIGINT),
-            new Column("ScanRows", PrimitiveType.BIGINT),
-            new Column("ScanBytes", PrimitiveType.BIGINT),
-            new Column("BePeakMemoryBytes", PrimitiveType.BIGINT),
-            new Column("CurrentUsedMemoryBytes", PrimitiveType.BIGINT),
             new Column("Database", ScalarType.createStringType()),
             new Column("FrontendInstance", ScalarType.createStringType()),
             new Column("Sql", ScalarType.createStringType()));
@@ -66,7 +59,7 @@ public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunctio
 
     public ActiveQueriesTableValuedFunction(Map<String, String> params) throws AnalysisException {
         if (params.size() != 0) {
-            throw new AnalysisException("Queries table-valued-function does not support any params");
+            throw new AnalysisException("ActiveQueries table-valued-function does not support any params");
         }
     }
 
@@ -88,7 +81,7 @@ public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunctio
 
     @Override
     public String getTableName() {
-        return "QueriesTableValuedFunction";
+        return "ActiveQueriesTableValuedFunction";
     }
 
     @Override

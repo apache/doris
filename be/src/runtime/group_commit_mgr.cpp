@@ -25,6 +25,7 @@
 #include "client_cache.h"
 #include "common/compiler_util.h"
 #include "common/config.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/debug_points.h"
@@ -48,14 +49,15 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start);
         if (duration.count() > LoadBlockQueue::MEM_BACK_PRESSURE_WAIT_TIMEOUT) {
-            return Status::TimedOut(
+            return Status::TimedOut<false>(
                     "Wal memory back pressure wait too much time! Load block queue txn id: {}, "
-                    "label: {}, instance id: {}",
-                    txn_id, label, load_instance_id.to_string());
+                    "label: {}, instance id: {}, consumed memory: {}",
+                    txn_id, label, load_instance_id.to_string(),
+                    _all_block_queues_bytes->load(std::memory_order_relaxed));
         }
     }
     if (UNLIKELY(runtime_state->is_cancelled())) {
-        return Status::Cancelled(runtime_state->cancel_reason());
+        return Status::Cancelled<false>(runtime_state->cancel_reason());
     }
     RETURN_IF_ERROR(status);
     if (block->rows() > 0) {
@@ -63,8 +65,6 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
             _block_queue.push_back(block);
             _data_bytes += block->bytes();
             _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
-        } else {
-            LOG(INFO) << "skip adding block to queue on txn " << txn_id;
         }
         if (write_wal || config::group_commit_wait_replay_wal_finish) {
             auto st = _v_wal_writer->write_wal(block.get());
@@ -78,6 +78,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         VLOG_DEBUG << "group commit meets commit condition for data size, label=" << label
                    << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
         _need_commit = true;
+        data_size_condition = true;
     }
     _get_cond.notify_all();
     return Status::OK();
@@ -126,7 +127,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         _get_cond.wait_for(l, std::chrono::milliseconds(left_milliseconds));
     }
     if (runtime_state->is_cancelled()) {
-        auto st = Status::Cancelled(runtime_state->cancel_reason());
+        auto st = Status::Cancelled<false>(runtime_state->cancel_reason());
         _cancel_without_lock(st);
         return st;
     }
@@ -157,8 +158,8 @@ void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
 Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
     std::unique_lock l(mutex);
     if (_need_commit) {
-        return Status::InternalError("block queue is set need commit, id=" +
-                                     load_instance_id.to_string());
+        return Status::InternalError<false>("block queue is set need commit, id=" +
+                                            load_instance_id.to_string());
     }
     _load_ids.emplace(load_id);
     return Status::OK();
@@ -191,55 +192,44 @@ Status GroupCommitTable::get_first_block_load_queue(
         std::unique_lock l(_lock);
         for (int i = 0; i < 3; i++) {
             bool is_schema_version_match = true;
-            for (auto it = _load_block_queues.begin(); it != _load_block_queues.end(); ++it) {
-                if (!it->second->need_commit()) {
-                    if (base_schema_version == it->second->schema_version) {
-                        if (it->second->add_load_id(load_id).ok()) {
-                            load_block_queue = it->second;
+            for (const auto& [_, inner_block_queue] : _load_block_queues) {
+                if (!inner_block_queue->need_commit()) {
+                    if (base_schema_version == inner_block_queue->schema_version) {
+                        if (inner_block_queue->add_load_id(load_id).ok()) {
+                            load_block_queue = inner_block_queue;
                             return Status::OK();
                         }
-                    } else if (base_schema_version < it->second->schema_version) {
+                    } else if (base_schema_version < inner_block_queue->schema_version) {
                         is_schema_version_match = false;
                     }
                 }
             }
             if (!is_schema_version_match) {
-                return Status::DataQualityError("schema version not match");
+                return Status::DataQualityError<false>(
+                        "schema version not match, maybe a schema change is in process. Please "
+                        "retry this load manually.");
             }
-            if (!_need_plan_fragment) {
-                _need_plan_fragment = true;
+            if (!_is_creating_plan_fragment) {
+                _is_creating_plan_fragment = true;
                 RETURN_IF_ERROR(_thread_pool->submit_func([&] {
-                    [[maybe_unused]] auto st =
-                            _create_group_commit_load(load_block_queue, be_exe_version);
+                    auto st = _create_group_commit_load(be_exe_version);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+                        std::unique_lock l(_lock);
+                        _is_creating_plan_fragment = false;
+                        _cv.notify_all();
+                    }
                 }));
             }
             _cv.wait_for(l, std::chrono::seconds(4));
-            if (load_block_queue != nullptr) {
-                if (load_block_queue->schema_version == base_schema_version) {
-                    if (load_block_queue->add_load_id(load_id).ok()) {
-                        return Status::OK();
-                    }
-                } else if (base_schema_version < load_block_queue->schema_version) {
-                    return Status::DataQualityError("schema version not match");
-                }
-                load_block_queue.reset();
-            }
         }
     }
-    return Status::InternalError("can not get a block queue for table_id: " +
-                                 std::to_string(_table_id));
+    return Status::InternalError<false>("can not get a block queue for table_id: " +
+                                        std::to_string(_table_id));
 }
 
-Status GroupCommitTable::_create_group_commit_load(
-        std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version) {
+Status GroupCommitTable::_create_group_commit_load(int be_exe_version) {
     Status st = Status::OK();
-    std::unique_ptr<int, std::function<void(int*)>> finish_plan_func((int*)0x01, [&](int*) {
-        if (!st.ok()) {
-            std::unique_lock l(_lock);
-            _need_plan_fragment = false;
-            _cv.notify_all();
-        }
-    });
     TStreamLoadPutRequest request;
     UniqueId load_id = UniqueId::gen_uid();
     TUniqueId tload_id;
@@ -271,12 +261,15 @@ Status GroupCommitTable::_create_group_commit_load(
                 client->streamLoadPut(result, request);
             },
             10000L);
-    RETURN_IF_ERROR(st);
-    st = Status::create(result.status);
+    if (!st.ok()) {
+        LOG(WARNING) << "create group commit load rpc error, st=" << st.to_string();
+        return st;
+    }
+    st = Status::create<false>(result.status);
     if (!st.ok()) {
         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+        return st;
     }
-    RETURN_IF_ERROR(st);
     auto schema_version = result.base_schema_version;
     auto is_pipeline = result.__isset.pipeline_params;
     auto& params = result.params;
@@ -298,23 +291,24 @@ Status GroupCommitTable::_create_group_commit_load(
                << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
                << ", is_pipeline=" << is_pipeline;
     {
-        load_block_queue = std::make_shared<LoadBlockQueue>(
+        auto load_block_queue = std::make_shared<LoadBlockQueue>(
                 instance_id, label, txn_id, schema_version, _all_block_queues_bytes,
                 result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
                 result.group_commit_data_bytes);
         std::unique_lock l(_lock);
-        _load_block_queues.emplace(instance_id, load_block_queue);
-        _need_plan_fragment = false;
         //create wal
         if (!is_pipeline) {
             RETURN_IF_ERROR(load_block_queue->create_wal(
                     _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                    params.desc_tbl.slotDescriptors, be_exe_version));
+                    params.fragment.output_sink.olap_table_sink.schema.slot_descs, be_exe_version));
         } else {
             RETURN_IF_ERROR(load_block_queue->create_wal(
                     _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                    pipeline_params.desc_tbl.slotDescriptors, be_exe_version));
+                    pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
+                    be_exe_version));
         }
+        _load_block_queues.emplace(instance_id, load_block_queue);
+        _is_creating_plan_fragment = false;
         _cv.notify_all();
     }
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,
@@ -366,7 +360,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                     client->loadTxnRollback(result, request);
                 },
                 10000L);
-        result_status = Status::create(result.status);
+        result_status = Status::create<false>(result.status);
     }
     std::shared_ptr<LoadBlockQueue> load_block_queue;
     {
@@ -391,13 +385,14 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     // status: exec_plan_fragment result
     // st: commit txn rpc status
     // result_status: commit txn result
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
+                    { st = Status::InternalError(""); });
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         if (!config::group_commit_wait_replay_wal_finish) {
-            auto delete_st = _exec_env->wal_mgr()->delete_wal(
-                    table_id, txn_id, load_block_queue->block_queue_pre_allocated());
+            auto delete_st = _exec_env->wal_mgr()->delete_wal(table_id, txn_id);
             if (!delete_st.ok()) {
-                LOG(WARNING) << "fail to delete wal " << txn_id;
+                LOG(WARNING) << "fail to delete wal " << txn_id << ", st=" << delete_st.to_string();
             }
         }
     } else {
@@ -410,7 +405,11 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
        << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
        << ", exec_plan_fragment status=" << status.to_string()
        << ", commit/abort txn rpc status=" << st.to_string()
-       << ", commit/abort txn status=" << result_status.to_string();
+       << ", commit/abort txn status=" << result_status.to_string()
+       << ", this group commit includes " << load_block_queue->group_commit_load_count << " loads"
+       << ", flush because meet "
+       << (load_block_queue->data_size_condition ? "data size " : "time ") << "condition"
+       << ", wal space info:" << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
     if (state) {
         if (!state->get_error_log_file_path().empty()) {
             ss << ", error_url=" << state->get_error_log_file_path();
@@ -418,6 +417,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         ss << ", rows=" << state->num_rows_load_success();
     }
     LOG(INFO) << ss.str();
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
+        std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
+        LOG(INFO) << "debug promise set: " << msg;
+        ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
+                Status ::InternalError(msg));
+    };);
     return st;
 }
 
@@ -521,22 +526,22 @@ Status LoadBlockQueue::close_wal() {
     return Status::OK();
 }
 
-bool LoadBlockQueue::has_enough_wal_disk_space(size_t pre_allocated) {
+bool LoadBlockQueue::has_enough_wal_disk_space(size_t estimated_wal_bytes) {
     DBUG_EXECUTE_IF("LoadBlockQueue.has_enough_wal_disk_space.low_space", { return false; });
     auto* wal_mgr = ExecEnv::GetInstance()->wal_mgr();
     size_t available_bytes = 0;
     {
         Status st = wal_mgr->get_wal_dir_available_size(_wal_base_path, &available_bytes);
         if (!st.ok()) {
-            LOG(WARNING) << "get wal disk available size filed!";
+            LOG(WARNING) << "get wal dir available size failed, st=" << st.to_string();
         }
     }
-    if (pre_allocated < available_bytes) {
-        Status st = wal_mgr->update_wal_dir_pre_allocated(_wal_base_path, pre_allocated, 0);
+    if (estimated_wal_bytes < available_bytes) {
+        Status st =
+                wal_mgr->update_wal_dir_estimated_wal_bytes(_wal_base_path, estimated_wal_bytes, 0);
         if (!st.ok()) {
-            LOG(WARNING) << "update wal dir pre_allocated failed, reason: " << st.to_string();
+            LOG(WARNING) << "update wal dir estimated_wal_bytes failed, reason: " << st.to_string();
         }
-        _block_queue_pre_allocated.fetch_add(pre_allocated);
         return true;
     } else {
         return false;

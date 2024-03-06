@@ -52,7 +52,7 @@ public class RuntimeFilterPrunerForExternalTable extends PlanPostProcessor {
                 for (int i = 0; i < rf.getTargetScans().size(); i++) {
                     PhysicalRelation scan = rf.getTargetScans().get(i);
                     if (canPrune(scan, joinAncestors)) {
-                        rfCtx.removeFilter(rf.getTargetSlots().get(i).getExprId(), (PhysicalHashJoin) join);
+                        rfCtx.removeFilters(rf.getTargetSlots().get(i).getExprId(), (PhysicalHashJoin) join);
                     }
                 }
             }

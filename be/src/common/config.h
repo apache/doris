@@ -204,6 +204,10 @@ DECLARE_Int32(tablet_publish_txn_max_thread);
 DECLARE_Int32(publish_version_task_timeout_s);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
+// the count of thread to calc delete bitmap worker, only used for cloud
+DECLARE_Int32(calc_delete_bitmap_worker_count);
+// the count of thread to calc tablet delete bitmap task, only used for cloud
+DECLARE_Int32(calc_tablet_delete_bitmap_task_max_thread);
 // the count of thread to clear transaction task
 DECLARE_Int32(clear_transaction_task_worker_count);
 // the count of thread to delete
@@ -247,6 +251,7 @@ DECLARE_mInt32(download_low_speed_time);
 // log dir
 DECLARE_String(sys_log_dir);
 DECLARE_String(user_function_dir);
+DECLARE_String(pipeline_tracing_log_dir);
 // INFO, WARNING, ERROR, FATAL
 DECLARE_String(sys_log_level);
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -265,11 +270,6 @@ DECLARE_String(log_buffer_level);
 // number of threads available to serve backend execution requests
 DECLARE_Int32(be_service_threads);
 
-// Controls the number of threads to run work per core.  It's common to pick 2x
-// or 3x the number of cores.  This keeps the cores busy without causing excessive
-// thrashing.
-DECLARE_Int32(num_threads_per_core);
-DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
 DECLARE_mInt32(pipeline_status_report_interval);
@@ -302,6 +302,7 @@ DECLARE_mInt32(doris_scanner_queue_size);
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
+DECLARE_mInt32(min_bytes_in_scanner_queue);
 // number of max scan keys
 DECLARE_mInt32(doris_max_scan_key_num);
 // the max number of push down values of a single column.
@@ -316,13 +317,15 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the prune stale interval of all cache
-DECLARE_mInt32(cache_prune_stale_interval);
+// all cache prune interval, used by GC and periodic thread.
+DECLARE_mInt32(cache_prune_interval_sec);
+DECLARE_mInt32(cache_periodic_prune_stale_sweep_sec);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
 DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
+DECLARE_mInt32(quering_rowsets_evict_interval);
 DECLARE_String(storage_root_path);
 DECLARE_mString(broken_storage_path);
 
@@ -638,7 +641,7 @@ DECLARE_Int32(memory_max_alignment);
 
 // memtable insert memory tracker will multiply input block size with this ratio
 DECLARE_mDouble(memtable_insert_memory_ratio);
-// max write buffer size before flush, default 100MB
+// max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
@@ -819,8 +822,8 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 DECLARE_Bool(share_delta_writers);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
-// timeout for load stream close wait in ms
-DECLARE_Int64(close_load_stream_timeout_ms);
+// enable write background when using brpc stream
+DECLARE_mBool(enable_brpc_stream_write_background);
 
 // brpc streaming max_buf_size in bytes
 DECLARE_Int64(load_stream_max_buf_size);
@@ -856,6 +859,9 @@ DECLARE_mInt32(segment_compression_threshold_kb);
 
 // The connection timeout when connecting to external table such as odbc table.
 DECLARE_mInt32(external_table_connect_timeout_sec);
+
+// Time to clean up useless JDBC connection pool cache
+DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
@@ -940,7 +946,7 @@ DECLARE_mInt64(small_column_size_buffer);
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-DECLARE_mInt32(bloom_filter_predicate_check_row_num);
+DECLARE_mInt32(rf_predicate_check_row_num);
 
 // cooldown task configs
 DECLARE_Int32(cooldown_thread_num);
@@ -1178,6 +1184,7 @@ DECLARE_Int16(bitmap_serialize_version);
 DECLARE_String(group_commit_wal_path);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
+DECLARE_Int32(group_commit_replay_wal_retry_interval_max_seconds);
 DECLARE_mInt32(group_commit_relay_wal_threads);
 // This config can be set to limit thread number in group commit request fragment thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
@@ -1215,6 +1222,7 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
+DECLARE_Bool(use_doris_tzfile);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
@@ -1242,8 +1250,19 @@ DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 DECLARE_mInt32(report_query_statistics_interval_ms);
 DECLARE_mInt32(query_statistics_reserve_timeout_ms);
 
+// consider two high usage disk at the same available level if they do not exceed this diff.
+DECLARE_mDouble(high_disk_avail_level_diff_usages);
+
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
+
+DECLARE_mBool(check_segment_when_build_rowset_meta);
+
+// max s3 client retry times
+DECLARE_mInt32(max_s3_client_retry);
+
+// write as inverted index tmp directory
+DECLARE_String(tmp_file_dir);
 
 #ifdef BE_TEST
 // test s3
@@ -1353,9 +1372,7 @@ std::mutex* get_mutable_string_config_lock();
 
 std::vector<std::vector<std::string>> get_config_info();
 
-Status set_fuzzy_config(const std::string& field, const std::string& value);
-
-void set_fuzzy_configs();
+Status set_fuzzy_configs();
 
 void update_config(const std::string& field, const std::string& value);
 

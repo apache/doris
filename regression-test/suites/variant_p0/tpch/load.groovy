@@ -25,7 +25,7 @@
 
 // Note: To filter out tables from sql files, use the following one-liner comamnd
 // sed -nr 's/.*tables: (.*)$/\1/gp' /path/to/*.sql | sed -nr 's/,/\n/gp' | sort | uniq
-suite("load_tpch") {
+suite("load") {
     def tables = ["customer",
                   "lineitem",
                   "nation",
@@ -77,8 +77,11 @@ suite("load_tpch") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
-        // sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
+    // Thread.sleep(70000) // wait for row count report of the tables just loaded
+    // tables.forEach { tableName ->
+    //     sql """ ANALYZE TABLE $tableName WITH SYNC """
+    // }
 
     // def table = "revenue1"
     // sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text

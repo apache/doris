@@ -40,7 +40,7 @@ Takes a string containing an IPv4 address in the format A.B.C.D (dot-separated n
 
 ### notice
 
-`will return 0 if the input parameter is invalid ipv4 value`
+`will return 0 if the input parameter is invalid ipv4 value or NULL`
 
 ### example
 ```
@@ -62,6 +62,14 @@ mysql> select str, ipv4_string_to_num_or_default(str) from ipv4_str;
 | invalid         | 0                                  | 
 +-----------------+------------------------------------+ 
 4 rows in set (0.01 sec)
+
+mysql> select addr_src, ipv4_string_to_num_or_default(addr_src) from ipv4_string_test where addr_src is null;
++----------+-----------------------------------------+
+| addr_src | ipv4_string_to_num_or_default(addr_src) |
++----------+-----------------------------------------+
+| NULL     |                                       0 |
++----------+-----------------------------------------+
+1 row in set (0.09 sec)
 ```
 
 ### keywords

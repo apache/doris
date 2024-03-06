@@ -586,6 +586,11 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
     }
 }
 
+ColumnObject::ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column)
+        : is_nullable(is_nullable_) {
+    add_sub_column({}, std::move(column), type);
+}
+
 ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
         : is_nullable(is_nullable_),
           subcolumns(std::move(subcolumns_)),
@@ -960,8 +965,15 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 }
 
 void find_and_set_leave_value(const IColumn* column, const PathInData& path,
-                              const DataTypeSerDeSPtr& type, rapidjson::Value& root,
-                              rapidjson::Document::AllocatorType& allocator, int row) {
+                              const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
+                              rapidjson::Value& root, rapidjson::Document::AllocatorType& allocator,
+                              int row) {
+    // sanitize type and column
+    if (column->get_name() != type->create_column()->get_name()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "failed to set value for path {}, expected type {}, but got {} at row {}",
+                        path.get_path(), type->get_name(), column->get_name(), row);
+    }
     const auto* nullable = assert_cast<const ColumnNullable*>(column);
     if (nullable->is_null_at(row)) {
         return;
@@ -975,7 +987,7 @@ void find_and_set_leave_value(const IColumn* column, const PathInData& path,
         LOG(FATAL) << "could not find path " << path.get_path()
                    << ", root: " << std::string(buffer.GetString(), buffer.GetSize());
     }
-    type->write_one_cell_to_json(*column, *target, allocator, row);
+    type_serde->write_one_cell_to_json(*column, *target, allocator, row);
 }
 
 // compact null values
@@ -1083,7 +1095,8 @@ bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBu
 #endif
     for (const auto& subcolumn : subcolumns) {
         find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
-                                 subcolumn->data.get_least_common_type_serde(), root,
+                                 subcolumn->data.get_least_common_type_serde(),
+                                 subcolumn->data.get_least_common_type(), root,
                                  doc_structure->GetAllocator(), row);
     }
     compact_null_values(root, doc_structure->GetAllocator());
@@ -1146,7 +1159,8 @@ void ColumnObject::merge_sparse_to_root_column() {
                 continue;
             }
             find_and_set_leave_value(column, subcolumn->path,
-                                     subcolumn->data.get_least_common_type_serde(), root,
+                                     subcolumn->data.get_least_common_type_serde(),
+                                     subcolumn->data.get_least_common_type(), root,
                                      doc_structure->GetAllocator(), i);
         }
 
@@ -1260,18 +1274,6 @@ void ColumnObject::strip_outer_array() {
         num_rows = base_column->size();
     }
     std::swap(subcolumns, new_subcolumns);
-}
-
-void ColumnObject::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-    if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    auto& var = assert_cast<ColumnObject&>(column);
-    for (auto& entry : subcolumns) {
-        auto replica = entry->data.get_finalized_column().clone_empty();
-        entry->data.get_finalized_column().replicate(indexs, target_size, *replica);
-        var.add_sub_column(entry->path, std::move(replica), entry->data.get_least_common_type());
-    }
 }
 
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {

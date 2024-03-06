@@ -129,6 +129,12 @@ Status StorageEngine::start_bg_threads() {
             &_unused_rowset_monitor_thread));
     LOG(INFO) << "unused rowset monitor thread started";
 
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "evict_querying_rowset_thread",
+            [this]() { this->_evict_quring_rowset_thread_callback(); },
+            &_evict_quering_rowset_thread));
+    LOG(INFO) << "evict quering thread started";
+
     // start thread for monitoring the snapshot and trash folder
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "garbage_sweeper_thread",
@@ -267,7 +273,7 @@ Status StorageEngine::start_bg_threads() {
 }
 
 void StorageEngine::_cache_clean_callback() {
-    int32_t interval = config::cache_prune_stale_interval;
+    int32_t interval = config::cache_periodic_prune_stale_sweep_sec;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         if (interval <= 0) {
             LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
@@ -278,7 +284,6 @@ void StorageEngine::_cache_clean_callback() {
         CacheManager::instance()->for_each_cache_prune_stale();
 
         // Dynamically modify the config to clear the cache, each time the disable cache will only be cleared once.
-        // TODO, Support page cache and other caches.
         if (config::disable_segment_cache) {
             if (!_clear_segment_cache) {
                 CacheManager::instance()->clear_once(CachePolicy::CacheType::SEGMENT_CACHE);
@@ -287,6 +292,16 @@ void StorageEngine::_cache_clean_callback() {
         } else {
             _clear_segment_cache = false;
         }
+        if (config::disable_storage_page_cache) {
+            if (!_clear_page_cache) {
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::DATA_PAGE_CACHE);
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::INDEXPAGE_CACHE);
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE);
+                _clear_page_cache = true;
+            }
+        } else {
+            _clear_page_cache = false;
+        }
     }
 }
 
@@ -294,7 +309,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     uint32_t max_interval = config::max_garbage_sweep_interval;
     uint32_t min_interval = config::min_garbage_sweep_interval;
 
-    if (!(max_interval >= min_interval && min_interval > 0)) {
+    if (max_interval < min_interval || min_interval <= 0) {
         LOG(WARNING) << "garbage sweep interval config is illegal: [max=" << max_interval
                      << " min=" << min_interval << "].";
         min_interval = 1;
@@ -742,7 +757,7 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
                 "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
 
-    auto compaction = std::make_shared<SingleReplicaCompaction>(tablet, compaction_type);
+    auto compaction = std::make_shared<SingleReplicaCompaction>(*this, tablet, compaction_type);
     auto st = compaction->prepare_compact();
 
     auto clean_single_replica_compaction = [tablet, this]() {
@@ -947,7 +962,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
                 tablet->tablet_id(), compaction_type);
     }
-    std::shared_ptr<Compaction> compaction;
+    std::shared_ptr<CompactionMixin> compaction;
     int64_t permits = 0;
     Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
                                                                  compaction, permits);
@@ -1038,8 +1053,9 @@ Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker
 Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                                  SegCompactionCandidatesSharedPtr segments) {
     uint64_t submission_time = GetCurrentTimeMicros();
-    return _seg_compaction_thread_pool->submit_func(std::bind<void>(
-            &StorageEngine::_handle_seg_compaction, this, worker, segments, submission_time));
+    return _seg_compaction_thread_pool->submit_func([this, worker, segments, submission_time] {
+        static_cast<void>(_handle_seg_compaction(worker, segments, submission_time));
+    });
 }
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
@@ -1051,7 +1067,7 @@ Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& re
     }
 
     IndexBuilderSharedPtr index_builder = std::make_shared<IndexBuilder>(
-            tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
+            *this, tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
     RETURN_IF_ERROR(_handle_index_change(index_builder));
     return Status::OK();
 }
@@ -1360,27 +1376,37 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_compact) {
             LOG(INFO) << "submit cold data compaction. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(
-                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                        auto compaction = std::make_shared<ColdDataCompaction>(t);
+            static_cast<void>(_cold_data_compaction_thread_pool->submit_func(
+                    [&, t = std::move(tablet), this]() {
+                        auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
                         {
                             std::lock_guard lock(tablet_submitted_mtx);
                             tablet_submitted.insert(t->tablet_id());
                         }
+                        Defer defer {[&] {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.erase(t->tablet_id());
+                        }};
                         std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
                                                               std::try_to_lock);
                         if (!cold_compaction_lock.owns_lock()) {
                             LOG(WARNING) << "try cold_compaction_lock failed, tablet_id="
                                          << t->tablet_id();
+                            return;
                         }
-                        auto st = compaction->compact();
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.erase(t->tablet_id());
-                        }
+
+                        auto st = compaction->prepare_compact();
                         if (!st.ok()) {
-                            LOG(WARNING) << "failed to do cold data compaction. tablet_id="
+                            LOG(WARNING) << "failed to prepare cold data compaction. tablet_id="
                                          << t->tablet_id() << " err=" << st;
+                            return;
+                        }
+
+                        st = compaction->execute_compact();
+                        if (!st.ok()) {
+                            LOG(WARNING) << "failed to execute cold data compaction. tablet_id="
+                                         << t->tablet_id() << " err=" << st;
+                            return;
                         }
                     }));
         }
@@ -1502,7 +1528,7 @@ void StorageEngine::_process_async_publish() {
             }
 
             auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    tablet, partition_id, transaction_id, version);
+                    *this, tablet, partition_id, transaction_id, version);
             static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
                     [=]() { async_publish_task->handle(); }));
             tablet_iter->second.erase(task_iter);

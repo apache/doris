@@ -54,6 +54,8 @@ thirdparty/installed*
 thirdparty/doris-thirdparty*.tar.xz
 
 docker/thirdparties/docker-compose/mysql/data
+docker/thirdparties/docker-compose/hive/scripts/tpch1.db/
+docker/thirdparties/docker-compose/hive/scripts/paimon1
 
 fe_plugins/output
 fe_plugins/**/.factorypath
@@ -79,6 +81,7 @@ samples/doris-demo/remote-udf-cpp-demo/function_server_demo
 
 # FE
 fe/mocked/
+fe/gen/
 fe/fe-core/gen/
 fe/fe-core/src/main/resources/static/
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens

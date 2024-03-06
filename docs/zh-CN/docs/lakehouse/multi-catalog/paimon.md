@@ -75,14 +75,6 @@ CREATE CATALOG `paimon_kerberos` PROPERTIES (
 
 #### MINIO
 
-> 注意：
->
-> 用户需要手动下载[paimon-s3-0.6.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.6.0-incubating/paimon-s3-0.6.0-incubating.jar)
-
-> 放在 `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` 目录下并重启be。
->
-> 从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
-
 ```sql
 CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
@@ -93,15 +85,19 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 );
 ```
 
+#### OBS
+
+```sql
+CREATE CATALOG `paimon_obs` PROPERTIES (
+    "type" = "paimon",
+    "warehouse" = "obs://bucket_name/paimon",
+    "obs.endpoint"="obs.cn-north-4.myhuaweicloud.com",
+    "obs.access_key"="ak",
+    "obs.secret_key"="sk"
+);
+```
+
 #### COS
-
-> 注意：
->
-> 用户需要手动下载[paimon-s3-0.6.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.6.0-incubating/paimon-s3-0.6.0-incubating.jar)
-
-> 放在 `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` 目录下并重启be。
->
-> 从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
 
 ```sql
 CREATE CATALOG `paimon_s3` PROPERTIES (
@@ -114,11 +110,6 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 ```
 
 #### OSS
-
->注意：
->
-> 用户需要手动下载[paimon-oss-0.6.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.6.0-incubating/paimon-oss-0.6.0-incubating.jar)
-> 放在 `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` 目录下并重启be
 
 ```sql
 CREATE CATALOG `paimon_oss` PROPERTIES (
@@ -165,7 +156,6 @@ CREATE CATALOG `paimon_kerberos` PROPERTIES (
 );
 ```
 
-
 ## 列类型映射
 
 | Paimon Data Type                      | Doris Data Type           | Comment   |
@@ -196,4 +186,12 @@ CREATE CATALOG `paimon_kerberos` PROPERTIES (
 2. Unknown type value: UNSUPPORTED
 
     这是 Doris 2.0.2 版本和 Paimon 0.5 版本的一个兼容性问题，需要升级到 2.0.3 或更高版本解决，或自行 [patch](https://github.com/apache/doris/pull/24985)
+
+3. 访问对象存储（OSS、S3 等）报错文件系统不支持
+
+    在 2.0.5（含）之前的版本，用户需手动下载以下 jar 包并放置在 `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` 目录下，重启 BE。
+
+    - 访问 OSS：[paimon-oss-0.6.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.6.0-incubating/paimon-oss-0.6.0-incubating.jar)
+    - 访问其他对象存储：[paimon-s3-0.6.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.6.0-incubating/paimon-s3-0.6.0-incubating.jar)
+
 

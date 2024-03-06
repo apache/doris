@@ -23,7 +23,7 @@ public:
     WalInfo(int64_t wal_id, std::string wal_path, int64_t retry_num, int64_t start_time_ms);
     ~WalInfo() = default;
     int64_t get_wal_id();
-    int64_t get_retry_num();
+    int32_t get_retry_num();
     int64_t get_start_time_ms();
     std::string get_wal_path();
     void add_retry_num();
@@ -31,7 +31,7 @@ public:
 private:
     int64_t _wal_id;
     std::string _wal_path;
-    int64_t _retry_num;
+    int32_t _retry_num;
     int64_t _start_time_ms;
 };
 

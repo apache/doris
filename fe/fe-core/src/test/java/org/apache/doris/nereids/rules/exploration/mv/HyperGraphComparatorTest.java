@@ -55,8 +55,8 @@ class HyperGraphComparatorTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
-        HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
+        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
@@ -86,8 +86,8 @@ class HyperGraphComparatorTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
-        HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
+        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
@@ -118,8 +118,8 @@ class HyperGraphComparatorTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
-        HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
+        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
@@ -153,8 +153,8 @@ class HyperGraphComparatorTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
-        HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
+        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());

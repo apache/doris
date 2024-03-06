@@ -26,6 +26,10 @@ under the License.
 
 ## VARIANT
 
+<version since="2.1.0">
+
+</version>
+
 ### Description
 
 VARIANT Type
@@ -151,7 +155,7 @@ DISTRIBUTED BY HASH(id) BUCKETS 10
 properties("replication_num" = "1");
 ```
 
-::: tip
+:::tip
 
 1. Creating an index on VARIANT columns, such as when there are numerous sub-columns in payload, might lead to an excessive number of index columns, impacting write performance.
 2. The tokenization properties for the same VARIANT column are uniform. If you have varied tokenization requirements, consider creating multiple VARIANT columns and specifying index properties separately for each.
@@ -260,7 +264,7 @@ DESCRIBE ${table_name} PARTITION ($partition_name);
 
 **Querying**
 
-::: warning
+:::tip
 
 When utilizing filtering and aggregation functionalities to query sub-columns, additional casting operations need to be performed on sub-columns (because the storage types are not necessarily fixed and require a unified SQL type).
 For instance, `SELECT * FROM tbl where CAST(var['titile'] as text) MATCH "hello world"`

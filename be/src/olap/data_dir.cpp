@@ -138,7 +138,6 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
 
 DataDir::~DataDir() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_data_dir_metric_entity);
-    delete _id_generator;
     delete _meta;
 }
 
@@ -493,8 +492,8 @@ Status DataDir::load() {
     }
     if (rowset_partition_id_eq_0_num > config::ignore_invalid_partition_id_rowset_num) {
         LOG(FATAL) << fmt::format(
-                "roswet partition id eq 0 bigger than config {}, be exit, plz check be.INFO",
-                config::ignore_invalid_partition_id_rowset_num);
+                "roswet partition id eq 0 is {} bigger than config {}, be exit, plz check be.INFO",
+                rowset_partition_id_eq_0_num, config::ignore_invalid_partition_id_rowset_num);
         exit(-1);
     }
 
@@ -670,7 +669,14 @@ void DataDir::_perform_path_gc_by_tablet(std::vector<std::string>& tablet_paths)
             std::swap(*forward, *backward);
             continue;
         }
-        if (auto tablet = _engine.tablet_manager()->get_tablet(tablet_id); !tablet) {
+        auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+        if (!tablet || tablet->data_dir() != this) {
+            if (tablet) {
+                LOG(INFO) << "The tablet in path " << path
+                          << " is not same with the running one: " << tablet->data_dir()->_path
+                          << "/" << tablet->tablet_path()
+                          << ", might be the old tablet after migration, try to move it to trash";
+            }
             _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
                                                                     path);
             --backward;
@@ -706,7 +712,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         bool is_valid = doris::TabletManager::get_tablet_id_and_schema_hash_from_path(
                 path, &tablet_id, &schema_hash);
         if (!is_valid || tablet_id < 1 || schema_hash < 1) [[unlikely]] {
-            LOG(WARNING) << "unknown path:" << path;
+            LOG(WARNING) << "[path gc] unknown path:" << path;
             continue;
         }
 
@@ -717,11 +723,17 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
             continue;
         }
 
+        if (tablet->data_dir() != this) {
+            // Current running tablet is not in same data_dir, maybe it's a tablet after migration,
+            // will be reclaimed in the next time `_perform_path_gc_by_tablet`
+            continue;
+        }
+
         bool exists;
         std::vector<io::FileInfo> files;
         auto st = io::global_local_filesystem()->list(path, true, &files, &exists);
         if (!st.ok()) [[unlikely]] {
-            LOG(WARNING) << "fail to list tablet path " << path << " : " << st;
+            LOG(WARNING) << "[path gc] fail to list tablet path " << path << " : " << st;
             continue;
         }
 
@@ -750,10 +762,10 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         auto reclaim_rowset_file = [](const std::string& path) {
             auto st = io::global_local_filesystem()->delete_file(path);
             if (!st.ok()) [[unlikely]] {
-                LOG(WARNING) << "failed to delete garbage rowset file: " << st;
+                LOG(WARNING) << "[path gc] failed to delete garbage rowset file: " << st;
                 return;
             }
-            LOG(INFO) << "delete garbage path: " << path; // Audit log
+            LOG(INFO) << "[path gc] delete garbage path: " << path; // Audit log
         };
 
         auto should_reclaim = [&, this](const RowsetId& rowset_id) {
@@ -764,7 +776,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         };
 
         // rowset_id -> is_garbage
-        std::unordered_map<RowsetId, bool, HashOfRowsetId> checked_rowsets;
+        std::unordered_map<RowsetId, bool> checked_rowsets;
         for (auto&& [rowset_id, filename] : rowsets_not_pending) {
             if (auto it = checked_rowsets.find(rowset_id); it != checked_rowsets.end()) {
                 if (it->second) { // Is checked garbage rowset

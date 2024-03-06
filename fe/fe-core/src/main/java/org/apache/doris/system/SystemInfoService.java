@@ -23,10 +23,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.proto.Cloud.ClusterPB;
-import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -36,11 +32,9 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TStatusCode;
@@ -69,9 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 public class SystemInfoService {
@@ -86,23 +78,10 @@ public class SystemInfoService {
     public static final String NOT_USING_VALID_CLUSTER_MSG = "Not using valid cloud clusters, "
             + "please use a cluster before issuing any queries";
 
-    private volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
-    private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
-    // TODO(gavin): use {clusterId -> List<BackendId>} instead to reduce risk of inconsistency
-    // use exclusive lock to make sure only one thread can change clusterIdToBackend and clusterNameToId
-    private ReentrantLock lock = new ReentrantLock();
-
-    // for show cluster and cache user owned cluster
-    // mysqlUserName -> List of ClusterPB
-    private Map<String, List<ClusterPB>> mysqlUserNameToClusterPB = ImmutableMap.of();
-    // clusterId -> List<Backend>
-    private Map<String, List<Backend>> clusterIdToBackend = new ConcurrentHashMap<>();
-    // clusterName -> clusterId
-    private Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
+    protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
+    protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
 
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
-
-    private InstanceInfoPB.Status instanceStatus;
 
     public static class HostInfo implements Comparable<HostInfo> {
         public String host;
@@ -183,114 +162,6 @@ public class SystemInfoService {
         }
     };
 
-    public boolean availableBackendsExists() {
-        if (FeConstants.runningUnitTest) {
-            return true;
-        }
-        if (null == clusterNameToId || clusterNameToId.isEmpty()) {
-            return false;
-        }
-        return clusterIdToBackend != null && !clusterIdToBackend.isEmpty()
-               && clusterIdToBackend.values().stream().anyMatch(list -> list != null && !list.isEmpty());
-    }
-
-    public boolean containClusterName(String clusterName) {
-        return clusterNameToId.containsKey(clusterName);
-    }
-
-    public List<Backend> getBackendsByClusterName(final String clusterName) {
-        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-        if (clusterId.isEmpty()) {
-            return new ArrayList<>();
-        }
-        return clusterIdToBackend.get(clusterId);
-    }
-
-    public List<Backend> getBackendsByClusterId(final String clusterId) {
-        return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>());
-    }
-
-    public List<String> getCloudClusterIds() {
-        return new ArrayList<>(clusterIdToBackend.keySet());
-    }
-
-    public String getCloudStatusByName(final String clusterName) {
-        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-        if (Strings.isNullOrEmpty(clusterId)) {
-            // for rename cluster or dropped cluster
-            LOG.warn("cant find clusterId by clusterName {}", clusterName);
-            return "";
-        }
-        return getCloudStatusById(clusterId);
-    }
-
-    public String getCloudStatusById(final String clusterId) {
-        return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>())
-            .stream().map(Backend::getCloudClusterStatus).findFirst().orElse("");
-    }
-
-    public void updateClusterNameToId(final String newName,
-            final String originalName, final String clusterId) {
-        lock.lock();
-        clusterNameToId.remove(originalName);
-        clusterNameToId.put(newName, clusterId);
-        lock.unlock();
-    }
-
-    public String getClusterNameByClusterId(final String clusterId) {
-        String clusterName = "";
-        for (Map.Entry<String, String> entry : clusterNameToId.entrySet()) {
-            if (entry.getValue().equals(clusterId)) {
-                clusterName = entry.getKey();
-                break;
-            }
-        }
-        return clusterName;
-    }
-
-    public void dropCluster(final String clusterId, final String clusterName) {
-        lock.lock();
-        clusterNameToId.remove(clusterName, clusterId);
-        clusterIdToBackend.remove(clusterId);
-        lock.unlock();
-    }
-
-    public List<String> getCloudClusterNames() {
-        return new ArrayList<>(clusterNameToId.keySet());
-    }
-
-    // Return the ref of concurrentMap clusterIdToBackend
-    // It should be thread-safe to iterate.
-    // reference: https://stackoverflow.com/questions/3768554/is-iterating-concurrenthashmap-values-thread-safe
-    public Map<String, List<Backend>> getCloudClusterIdToBackend() {
-        return clusterIdToBackend;
-    }
-
-    public String getCloudClusterIdByName(String clusterName) {
-        return clusterNameToId.get(clusterName);
-    }
-
-    public ImmutableMap<Long, Backend> getCloudIdToBackend(String clusterName) {
-        String clusterId = clusterNameToId.get(clusterName);
-        if (Strings.isNullOrEmpty(clusterId)) {
-            LOG.warn("cant find clusterId, this cluster may be has been dropped, clusterName={}", clusterName);
-            return ImmutableMap.of();
-        }
-        List<Backend> backends = clusterIdToBackend.get(clusterId);
-        Map<Long, Backend> idToBackend = Maps.newHashMap();
-        for (Backend be : backends) {
-            idToBackend.put(be.getId(), be);
-        }
-        return ImmutableMap.copyOf(idToBackend);
-    }
-
-    // Return the ref of concurrentMap clusterNameToId
-    // It should be thread-safe to iterate.
-    // reference: https://stackoverflow.com/questions/3768554/is-iterating-concurrenthashmap-values-thread-safe
-    public Map<String, String> getCloudClusterNameToId() {
-        return clusterNameToId;
-    }
-
     public static TPaloNodesInfo createAliveNodesInfo() {
         TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
@@ -299,23 +170,6 @@ public class SystemInfoService {
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
         return nodesInfo;
-    }
-
-    public Map<String, List<ClusterPB>> getMysqlUserNameToClusterPb() {
-        return mysqlUserNameToClusterPB;
-    }
-
-    public void updateMysqlUserNameToClusterPb(Map<String, List<ClusterPB>> m) {
-        mysqlUserNameToClusterPB = m;
-    }
-
-    public List<Pair<String, Integer>> getCurrentObFrontends() {
-        List<Frontend> frontends = Env.getCurrentEnv().getFrontends(FrontendNodeType.OBSERVER);
-        List<Pair<String, Integer>> frontendsPair = new ArrayList<>();
-        for (Frontend frontend : frontends) {
-            frontendsPair.add(Pair.of(frontend.getHost(), frontend.getEditLogPort()));
-        }
-        return frontendsPair;
     }
 
     // for deploy manager
@@ -565,6 +419,19 @@ public class SystemInfoService {
         return idToBackendRef.values().stream().filter(backend -> backend.isComputeNode()).collect(Collectors.toList());
     }
 
+    // return num of backends that from different hosts
+    public int getBackendNumFromDiffHosts(boolean aliveOnly) {
+        Set<String> hosts = Sets.newHashSet();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        for (Backend backend : idToBackend.values()) {
+            if (aliveOnly && !backend.isAlive()) {
+                continue;
+            }
+            hosts.add(backend.getHost());
+        }
+        return hosts.size();
+    }
+
     class BeIdComparator implements Comparator<Backend> {
         public int compare(Backend a, Backend b) {
             return (int) (a.getId() - b.getId());
@@ -621,7 +488,7 @@ public class SystemInfoService {
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
-    public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
+    public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
             TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
@@ -656,6 +523,7 @@ public class SystemInfoService {
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 // first time empty, retry with different storage medium
                 // if only for check, no need to retry different storage medium to get backend
+                TStorageMedium originalStorageMedium = storageMedium;
                 if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
                     storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
                     builder.setStorageMedium(storageMedium);
@@ -670,10 +538,10 @@ public class SystemInfoService {
                 }
                 // after retry different storage medium, it's still empty
                 if (beIds.isEmpty()) {
-                    LOG.error("failed backend(s) for policy:" + policy);
+                    LOG.error("failed backend(s) for policy: {} real medium {}", policy, originalStorageMedium);
                     String errorReplication = "replication tag: " + entry.getKey()
                             + ", replication num: " + entry.getValue()
-                            + ", storage medium: " + storageMedium;
+                            + ", storage medium: " + originalStorageMedium;
                     failedEntries.add(errorReplication);
                 } else {
                     chosenBackendIds.put(entry.getKey(), beIds);
@@ -690,7 +558,7 @@ public class SystemInfoService {
         }
 
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
-        return chosenBackendIds;
+        return Pair.of(chosenBackendIds, storageMedium);
     }
 
     /**
@@ -705,7 +573,9 @@ public class SystemInfoService {
         Preconditions.checkArgument(number >= -1);
         List<Backend> candidates = policy.getCandidateBackends(idToBackendRef.values());
         if (candidates.size() < number || candidates.isEmpty()) {
-            LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            }
             return Lists.newArrayList();
         }
 
@@ -740,7 +610,9 @@ public class SystemInfoService {
         }
 
         if (candidates.size() < number) {
-            LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            }
             return Lists.newArrayList();
         }
 
@@ -804,8 +676,10 @@ public class SystemInfoService {
                 return;
             }
             atomicLong.set(newReportVersion);
-            LOG.debug("update backend {} report version: {}, db: {}, table: {}",
-                    backendId, newReportVersion, dbId, tableId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("update backend {} report version: {}, db: {}, table: {}",
+                        backendId, newReportVersion, dbId, tableId);
+            }
         }
     }
 
@@ -889,7 +763,9 @@ public class SystemInfoService {
     }
 
     public void replayDropBackend(Backend backend) {
-        LOG.debug("replayDropBackend: {}", backend);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replayDropBackend: {}", backend);
+        }
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.remove(backend.getId());
@@ -977,7 +853,9 @@ public class SystemInfoService {
      * return Status.OK if not reach the limit
      */
     public Status checkExceedDiskCapacityLimit(Multimap<Long, Long> bePathsMap, boolean floodStage) {
-        LOG.debug("pathBeMap: {}", bePathsMap);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("pathBeMap: {}", bePathsMap);
+        }
         ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDiskInfoRef;
         for (Long beId : bePathsMap.keySet()) {
             for (Long pathHash : bePathsMap.get(beId)) {
@@ -1004,7 +882,9 @@ public class SystemInfoService {
         }
         ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
         pathHashToDiskInfoRef = newPathInfos;
-        LOG.debug("update path infos: {}", newPathInfos);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("update path infos: {}", newPathInfos);
+        }
     }
 
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
@@ -1081,7 +961,9 @@ public class SystemInfoService {
         memBe.setQueryDisabled(backend.isQueryDisabled());
         memBe.setLoadDisabled(backend.isLoadDisabled());
         memBe.setHost(backend.getHost());
-        LOG.debug("replay modify backend: {}", backend);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replay modify backend: {}", backend);
+        }
     }
 
     // Check if there is enough suitable BE for replica allocation
@@ -1127,32 +1009,5 @@ public class SystemInfoService {
 
     public long aliveBECount() {
         return idToBackendRef.values().stream().filter(Backend::isAlive).count();
-    }
-
-    public Cloud.GetInstanceResponse getCloudInstance() {
-        Cloud.GetInstanceRequest.Builder builder =
-                Cloud.GetInstanceRequest.newBuilder();
-        builder.setCloudUniqueId(Config.cloud_unique_id);
-        final Cloud.GetInstanceRequest pRequest = builder.build();
-        Cloud.GetInstanceResponse response;
-        try {
-            response = MetaServiceProxy.getInstance().getInstance(pRequest);
-            return response;
-        } catch (RpcException e) {
-            LOG.warn("rpcToGetInstance exception: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    public InstanceInfoPB.Status getInstanceStatus() {
-        return this.instanceStatus;
-    }
-
-    public void setInstanceStatus(InstanceInfoPB.Status instanceStatus) {
-        LOG.debug("fe set instance status {}", instanceStatus);
-        if (this.instanceStatus != instanceStatus) {
-            LOG.info("fe change instance status from {} to {}", this.instanceStatus, instanceStatus);
-        }
-        this.instanceStatus = instanceStatus;
     }
 }

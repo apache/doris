@@ -742,7 +742,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
                     const auto result_size = column->assume_mutable()->filter(filter);
                     if (result_size != count) {
                         throw Exception(ErrorCode::INTERNAL_ERROR,
-                                        "result_size not euqal with filter_size, result_size={}, "
+                                        "result_size not equal with filter_size, result_size={}, "
                                         "filter_size={}",
                                         result_size, count);
                     }

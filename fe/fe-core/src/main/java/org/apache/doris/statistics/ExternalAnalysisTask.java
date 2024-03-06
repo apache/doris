@@ -19,9 +19,9 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -59,7 +59,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         if (isTableLevelTask) {
             getTableStats();
         } else {
-            getOrdinaryColumnStats();
+            getColumnStats();
         }
     }
 
@@ -83,8 +83,8 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         job.rowCountDone(this);
     }
 
-    // Get ordinary column stats
-    protected void getOrdinaryColumnStats() throws Exception {
+    // Get column stats
+    protected void getColumnStats() throws Exception {
         StringBuilder sb = new StringBuilder();
         Map<String, String> params = buildStatsParams("NULL");
         params.put("min", getMinFunction());
@@ -95,11 +95,15 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         StringSubstitutor stringSubstitutor;
         if (tableSample == null) {
             // Do full analyze
-            LOG.debug("Will do full collection for column {}", col.getName());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Will do full collection for column {}", col.getName());
+            }
             sb.append(COLLECT_COL_STATISTICS);
         } else {
             // Do sample analyze
-            LOG.debug("Will do sample collection for column {}", col.getName());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Will do sample collection for column {}", col.getName());
+            }
             boolean limitFlag = false;
             boolean bucketFlag = false;
             // If sample size is too large, use limit to control the sample size.
@@ -164,6 +168,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         commonParams.put("sampleHints", getSampleHint());
         commonParams.put("limit", "");
         commonParams.put("scaleFactor", "1");
+        commonParams.put("index", "");
         if (col != null) {
             commonParams.put("type", col.getType().toString());
         }
@@ -223,16 +228,6 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
             }
         }
         return Pair.of(Math.max(((double) total) / cumulate, 1), cumulate);
-    }
-
-    @Override
-    protected void afterExecution() {
-        // Table level task doesn't need to sync any value to sync stats, it stores the value in metadata.
-        // Partition only task doesn't need to refresh cached.
-        if (isTableLevelTask || isPartitionOnly) {
-            return;
-        }
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 
     /**

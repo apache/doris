@@ -255,7 +255,7 @@ Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
     // Step 1 Create current ExecNode according to current thrift plan node.
     ExecNode* cur_exec_node = nullptr;
     RETURN_IF_ERROR(create_node(state, pool, cur_plan_node, descs, &cur_exec_node));
-    if (cur_exec_node != nullptr) {
+    if (cur_exec_node != nullptr && state->get_query_ctx()) {
         state->get_query_ctx()->register_query_statistics(cur_exec_node->get_query_statistics());
     }
 

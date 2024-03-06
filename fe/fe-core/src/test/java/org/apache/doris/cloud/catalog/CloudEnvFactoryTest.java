@@ -23,6 +23,7 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -43,10 +44,11 @@ public class CloudEnvFactoryTest {
         Assert.assertTrue(envFactory.createTablet() instanceof CloudTablet);
         Assert.assertTrue(envFactory.createReplica() instanceof CloudReplica);
 
-        Map<String, String> properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(
-                "catalog_not_exist", "db_not_exist", null);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "100");
+        PropertyAnalyzer.getInstance().rewriteOlapProperties(
+                "catalog_not_exist", "db_not_exist", properties);
         Assert.assertEquals("1", properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
     }
 
 }
-

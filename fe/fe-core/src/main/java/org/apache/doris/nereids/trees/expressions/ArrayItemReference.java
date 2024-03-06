@@ -142,11 +142,21 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
          * @param nullable true if nullable
          */
         public ArrayItemSlot(ExprId exprId, String name, DataType dataType, boolean nullable) {
-            super(exprId, name, dataType, nullable, ImmutableList.of(), null, Optional.empty());
+            super(exprId, name, dataType, nullable, ImmutableList.of(), null, null, Optional.empty(), null);
         }
 
         @Override
         public ArrayItemSlot withExprId(ExprId exprId) {
+            return new ArrayItemSlot(exprId, name, dataType, nullable);
+        }
+
+        @Override
+        public ArrayItemSlot withName(String name) {
+            return new ArrayItemSlot(exprId, name, dataType, nullable);
+        }
+
+        @Override
+        public SlotReference withNullable(boolean newNullable) {
             return new ArrayItemSlot(exprId, name, dataType, nullable);
         }
 

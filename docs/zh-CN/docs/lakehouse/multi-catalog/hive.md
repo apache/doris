@@ -379,11 +379,15 @@ Doris 基于 Iceberg `FileIO` 接口实现了 Broker 查询 HMS Catalog Iceberg 
 "io-impl" = "org.apache.doris.datasource.iceberg.broker.IcebergBrokerIO"
 ```
 
-## 使用 Ranger 进行权限校验
+## 集成 Apache Ranger
 
 Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以及全方位数据安全访问管理的安全框架。
 
-目前doris支持ranger的库、表、列权限，不支持加密、行权限等。
+Doris 支持为指定的 External Hive Catalog 使用 Apache Ranger 进行鉴权。
+
+目前支持 Ranger 的库、表、列的鉴权，暂不支持加密、行权限、Data Mask 等功能。
+
+如需使用 Apache Ranger 为整个 Doris 集群服务进行鉴权，请参阅 [使用 Apache Ranger 鉴权](../../admin-manual/privilege-ldap/ranger.md)
 
 ### 环境配置
 
@@ -391,23 +395,14 @@ Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以�
 
 1. 创建 Catalog 时增加：
 
-```sql
-"access_controller.properties.ranger.service.name" = "hive",
-"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
-```
+	```sql
+	"access_controller.properties.ranger.service.name" = "hive",
+	"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+	```
 
->注意:
->
->"access_controller.properties.ranger.service.name"指的是service的类型，例如hive，hdfs等
-> 如果`ranger-hive-security.xml`配置如下，"access_controller.properties.ranger.service.name"应设置为`hive`而不是`testhive`
->
-
-```sql
-<property>
-   <name>ranger.plugin.hive.service.name</name>
-   <value>testhive</value>
-</property>
-```
+	>注意:
+	>
+	> `access_controller.properties.ranger.service.name` 指的是 service 的类型，例如 `hive`，`hdfs` 等。并不是配置文件中 `ranger.plugin.hive.service.name` 的值。
 
 2. 配置所有 FE 环境：
 
@@ -482,6 +477,7 @@ Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以�
 
 4.在doris创建同名角色role1，并将role1分配给user1，user1将同时拥有db1.table1.col1和col2的查询权限
 
+5. Admin 和 Root 用户的权限不受Apache Ranger 的权限控制
 
 ## 使用 Kerberos 进行认证
 

@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.iceberg.broker;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.io.FileIO;

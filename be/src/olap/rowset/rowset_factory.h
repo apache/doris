@@ -18,18 +18,18 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_FACTORY_H
 #define DORIS_BE_SRC_OLAP_ROWSET_FACTORY_H
 
-#include <memory>
 #include <string>
 
 #include "common/status.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/tablet_schema.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 
 class RowsetWriter;
 struct RowsetWriterContext;
+class StorageEngine;
+class CloudStorageEngine;
 
 class RowsetFactory {
 public:
@@ -41,10 +41,12 @@ public:
                                 const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset);
 
     // create and init rowset writer.
-    // return OK and set `*output` to inited rowset writer.
-    // return others if failed
-    static Status create_rowset_writer(const RowsetWriterContext& context, bool is_vertical,
-                                       std::unique_ptr<RowsetWriter>* output);
+    static Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(
+            StorageEngine& engine, const RowsetWriterContext& context, bool is_vertical);
+
+    // create and init cloud rowset writer.
+    static Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(
+            CloudStorageEngine& engine, const RowsetWriterContext& context, bool is_vertical);
 };
 
 } // namespace doris

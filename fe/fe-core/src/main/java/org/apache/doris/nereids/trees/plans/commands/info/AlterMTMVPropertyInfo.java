@@ -20,8 +20,11 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 import java.util.Objects;
@@ -71,6 +74,16 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
                 }
             } else if (PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES.equals(key)) {
                 // nothing
+            } else if (PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP.equals(key)) {
+                String workloadGroup = properties.get(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP);
+                if (!StringUtils.isEmpty(workloadGroup) && !Env.getCurrentEnv().getAccessManager()
+                        .checkWorkloadGroupPriv(ConnectContext.get(), workloadGroup, PrivPredicate.USAGE)) {
+                    String message = String
+                            .format("Access denied; you need (at least one of) "
+                                            + "the %s privilege(s) to use workload group '%s'.",
+                                    "USAGE/ADMIN", workloadGroup);
+                    throw new AnalysisException(message);
+                }
             } else {
                 throw new org.apache.doris.nereids.exceptions.AnalysisException("illegal key:" + key);
             }

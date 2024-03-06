@@ -132,7 +132,9 @@ struct ToBitmap {
                         continue;
                     }
                 }
-                res_data[i].add(col->get_data()[i]);
+                if (auto value = col->get_data()[i]; value >= 0) {
+                    res_data[i].add(value);
+                }
             }
         }
     }
@@ -700,7 +702,7 @@ Status execute_bitmap_op_count_null_to_zero(
         size_t input_rows_count,
         const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
                 exec_impl_func) {
-    if (get_null_presence(block, arguments)) {
+    if (have_null_column(block, arguments)) {
         auto [temporary_block, new_args, new_result] =
                 create_block_with_nested_columns(block, arguments, result);
         RETURN_IF_ERROR(exec_impl_func(context, temporary_block, new_args, new_result,

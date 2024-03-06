@@ -127,6 +127,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     _is_partial_update = pschema.partial_update();
     _is_strict_mode = pschema.is_strict_mode();
+    if (_is_partial_update) {
+        _auto_increment_column = pschema.auto_increment_column();
+    }
 
     for (auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
@@ -187,6 +190,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     if (tschema.__isset.is_strict_mode) {
         _is_strict_mode = tschema.is_strict_mode;
     }
+    if (_is_partial_update) {
+        _auto_increment_column = tschema.auto_increment_column;
+    }
 
     for (auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
@@ -201,23 +207,24 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     }
 
     for (auto& t_index : tschema.indexes) {
-        std::unordered_map<std::string, SlotDescriptor*> index_slots_map;
+        std::unordered_map<std::string, int32_t> index_slots_map;
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (auto& tcolumn_desc : t_index.columns_desc) {
-            auto it = slots_map.find(std::make_pair(to_lower(tcolumn_desc.column_name),
-                                                    thrift_to_type(tcolumn_desc.column_type.type)));
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(tcolumn_desc.column_name) > 0) {
+                auto it = slots_map.find(
+                        std::make_pair(to_lower(tcolumn_desc.column_name),
+                                       thrift_to_type(tcolumn_desc.column_type.type)));
                 if (it == slots_map.end()) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  tcolumn_desc.column_name,
                                                  tcolumn_desc.column_type.type);
                 }
-                index_slots_map.emplace(to_lower(tcolumn_desc.column_name), it->second);
                 index->slots.emplace_back(it->second);
             }
+            index_slots_map.emplace(to_lower(tcolumn_desc.column_name), tcolumn_desc.col_unique_id);
             TabletColumn* tc = _obj_pool.add(new TabletColumn());
             tc->init_from_thrift(tcolumn_desc);
             index->columns.emplace_back(tc);
@@ -228,7 +235,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 for (size_t i = 0; i < tindex_desc.columns.size(); i++) {
                     auto it = index_slots_map.find(to_lower(tindex_desc.columns[i]));
                     if (it != index_slots_map.end()) {
-                        column_unique_ids[i] = it->second->col_unique_id();
+                        column_unique_ids[i] = it->second;
                     }
                 }
                 TabletIndex* ti = _obj_pool.add(new TabletIndex());
@@ -256,6 +263,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_version(_version);
     pschema->set_partial_update(_is_partial_update);
     pschema->set_is_strict_mode(_is_strict_mode);
+    pschema->set_auto_increment_column(_auto_increment_column);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }
@@ -518,6 +526,11 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
     }
     case TExprNodeType::BOOL_LITERAL: {
         column->insert_data(reinterpret_cast<const char*>(&t_expr.bool_literal.value), 0);
+        break;
+    }
+    case TExprNodeType::NULL_LITERAL: {
+        // insert a null literal
+        column->insert_data(nullptr, 0);
         break;
     }
     default: {

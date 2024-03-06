@@ -628,7 +628,7 @@ BaseCompaction:546859:
 
 * 类型：bool
 * 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
-* 默认值：false
+* 默认值：true
 
 #### `segcompaction_batch_size`
 
@@ -1230,7 +1230,7 @@ BaseCompaction:546859:
 #### `sync_tablet_meta`
 
 * 描述：存储引擎是否开sync保留到磁盘上
-* 默认值：false
+* 默认值：true
 
 #### `pending_data_expire_time_sec`
 
@@ -1525,3 +1525,13 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述:  当 group commit 导入的总行数不高于该值，`max_filter_ratio` 正常工作，否则不工作，请参考 [Group Commit](../../data-operate/import/import-way/group-commit-manual.md)
 * 默认值: 10000
+
+#### `default_tzfiles_path`
+
+* 描述：Doris 自带的时区数据库。如果系统目录下未找到时区文件，则启用该目录下的数据。
+* 默认值："${DORIS_HOME}/zoneinfo"
+
+#### `use_doris_tzfile`
+
+* 描述：是否直接使用 Doris 自带的时区数据库。开启后不再尝试查找系统目录。
+* 默认值：false

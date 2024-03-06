@@ -112,19 +112,17 @@ Status FixLengthPlainDecoder<PhysicalType>::_decode_string(MutableColumnPtr& dor
             size_t data_size = run_length * _type_length;
             size_t old_size = chars.size();
             chars.resize(old_size + data_size);
-            memcpy(chars.data() + old_size, _data->data, data_size);
+            memcpy(chars.data() + old_size, _data->data + _offset, data_size);
 
             // copy offsets
             offsets.resize(offsets.size() + run_length);
             auto* offsets_data = offsets.data() + offsets.size() - run_length;
 
-            int i = 0;
-            for (; i < run_length; i++) {
+            for (int i = 0; i < run_length; i++) {
                 bytes_size += _type_length;
                 *(offsets_data++) = bytes_size;
             }
 
-            //doris_column->insert_many_strings_fixed_length<_type_length>(&string_values[0], run_length);
             _offset += data_size;
             break;
         }

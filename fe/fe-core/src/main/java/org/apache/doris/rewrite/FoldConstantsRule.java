@@ -22,14 +22,17 @@ package org.apache.doris.rewrite;
 
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BetweenPredicate;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -96,7 +99,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
         // of the Expr tree. Assumes the bottom-up application of this rule. Constant
         // children should have been folded at this point.
         for (Expr child : expr.getChildren()) {
-            if (!child.isLiteral() && !(child instanceof CastExpr)) {
+            if (!child.isLiteral() && !(child instanceof CastExpr) && !((child instanceof FunctionCallExpr
+                    || child instanceof ArithmeticExpr || child instanceof TimestampArithmeticExpr))) {
                 return expr;
             }
         }
@@ -421,7 +425,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
                         } else {
                             retExpr = allConstMap.get(entry1.getKey());
                         }
-                        LOG.debug("retExpr: " + retExpr.toString());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("retExpr: " + retExpr.toString());
+                        }
                         tmp.put(entry1.getKey(), retExpr);
                     }
                     if (!tmp.isEmpty()) {

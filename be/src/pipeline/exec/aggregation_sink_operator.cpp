@@ -48,30 +48,25 @@ OPERATOR_CODE_GENERATOR(AggSinkOperator, StreamingOperator)
 /// using the planner's estimated input cardinality and the assumption that input
 /// is in a random order. This means that we assume that the reduction factor will
 /// increase over time.
-template <typename DependencyType, typename Derived>
-AggSinkLocalState<DependencyType, Derived>::AggSinkLocalState(DataSinkOperatorXBase* parent,
-                                                              RuntimeState* state)
+AggSinkLocalState::AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
         : Base(parent, state),
           _hash_table_compute_timer(nullptr),
           _hash_table_input_counter(nullptr),
           _build_timer(nullptr),
           _expr_timer(nullptr),
-          _exec_timer(nullptr),
           _serialize_key_timer(nullptr),
           _merge_timer(nullptr),
           _serialize_data_timer(nullptr),
           _deserialize_data_timer(nullptr),
           _max_row_size_counter(nullptr) {}
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
-                                                        LocalSinkStateInfo& info) {
+Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
     _agg_data = Base::_shared_state->agg_data.get();
     _agg_arena_pool = Base::_shared_state->agg_arena_pool.get();
-    auto& p = Base::_parent->template cast<typename Derived::Parent>();
+    auto& p = Base::_parent->template cast<AggSinkOperatorX>();
     Base::_shared_state->align_aggregate_states = p._align_aggregate_states;
     Base::_shared_state->total_size_of_aggregate_states = p._total_size_of_aggregate_states;
     Base::_shared_state->offsets_of_aggregate_states = p._offsets_of_aggregate_states;
@@ -80,19 +75,15 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
     for (auto& evaluator : p._aggregate_evaluators) {
         Base::_shared_state->aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
     }
-    if (p._is_streaming) {
-        Base::_shared_state->data_queue->set_sink_dependency(Base::_dependency, 0);
-    }
     Base::_shared_state->probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < Base::_shared_state->probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(
                 p._probe_expr_ctxs[i]->clone(state, Base::_shared_state->probe_expr_ctxs[i]));
     }
-    _memory_usage_counter = ADD_LABEL_COUNTER(Base::profile(), "MemoryUsage");
-    _hash_table_memory_usage =
-            ADD_CHILD_COUNTER(Base::profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
+    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
+                                                            TUnit::BYTES, "MemoryUsage", 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage");
+            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _build_table_convert_timer = ADD_TIMER(Base::profile(), "BuildConvertToPartitionedTime");
@@ -119,14 +110,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
                 Base::_shared_state->agg_profile_arena->alloc(p._total_size_of_aggregate_states));
 
         if (p._is_merge) {
-            _executor.execute =
-                    std::bind<Status>(&Derived::_merge_without_key, this, std::placeholders::_1);
+            _executor = std::make_unique<Executor<true, true>>();
         } else {
-            _executor.execute =
-                    std::bind<Status>(&Derived::_execute_without_key, this, std::placeholders::_1);
+            _executor = std::make_unique<Executor<true, false>>();
         }
-
-        _executor.update_memusage = std::bind<void>(&Derived::_update_memusage_without_key, this);
     } else {
         _init_hash_method(Base::_shared_state->probe_expr_ctxs);
 
@@ -145,15 +132,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
                 },
                 _agg_data->method_variant);
         if (p._is_merge) {
-            _executor.execute = std::bind<Status>(&Derived::_merge_with_serialized_key, this,
-                                                  std::placeholders::_1);
+            _executor = std::make_unique<Executor<false, true>>();
         } else {
-            _executor.execute = std::bind<Status>(&Derived::_execute_with_serialized_key, this,
-                                                  std::placeholders::_1);
+            _executor = std::make_unique<Executor<false, false>>();
         }
-
-        _executor.update_memusage =
-                std::bind<void>(&Derived::_update_memusage_with_serialized_key, this);
 
         _should_limit_output = p._limit != -1 &&       // has limit
                                (!p._have_conjuncts) && // no having conjunct
@@ -163,8 +145,7 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
     return Status::OK();
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::open(RuntimeState* state) {
+Status AggSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
     RETURN_IF_ERROR(Base::open(state));
@@ -176,12 +157,11 @@ Status AggSinkLocalState<DependencyType, Derived>::open(RuntimeState* state) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
         RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status(_agg_data->without_key)));
     }
+    Base::_shared_state->ready_to_execute = true;
     return Status::OK();
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::_create_agg_status(
-        vectorized::AggregateDataPtr data) {
+Status AggSinkLocalState::_create_agg_status(vectorized::AggregateDataPtr data) {
     auto& shared_state = *Base::_shared_state;
     for (int i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
         try {
@@ -198,23 +178,20 @@ Status AggSinkLocalState<DependencyType, Derived>::_create_agg_status(
     return Status::OK();
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::_execute_without_key(vectorized::Block* block) {
+Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
     DCHECK(_agg_data->without_key != nullptr);
     SCOPED_TIMER(_build_timer);
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_single_add(
                 block,
-                _agg_data->without_key + Base::_parent->template cast<typename Derived::Parent>()
+                _agg_data->without_key + Base::_parent->template cast<AggSinkOperatorX>()
                                                  ._offsets_of_aggregate_states[i],
                 _agg_arena_pool));
     }
     return Status::OK();
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::_merge_with_serialized_key(
-        vectorized::Block* block) {
+Status AggSinkLocalState::_merge_with_serialized_key(vectorized::Block* block) {
     if (_reach_limit) {
         return _merge_with_serialized_key_helper<true, false>(block);
     } else {
@@ -222,8 +199,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_merge_with_serialized_key(
     }
 }
 
-template <typename DependencyType, typename Derived>
-size_t AggSinkLocalState<DependencyType, Derived>::_memory_usage() const {
+size_t AggSinkLocalState::_memory_usage() const {
     size_t usage = 0;
     if (_agg_arena_pool) {
         usage += _agg_arena_pool->size();
@@ -236,8 +212,7 @@ size_t AggSinkLocalState<DependencyType, Derived>::_memory_usage() const {
     return usage;
 }
 
-template <typename DependencyType, typename Derived>
-void AggSinkLocalState<DependencyType, Derived>::_update_memusage_with_serialized_key() {
+void AggSinkLocalState::_update_memusage_with_serialized_key() {
     std::visit(
             [&](auto&& agg_method) -> void {
                 auto& data = *agg_method.hash_table;
@@ -261,9 +236,7 @@ void AggSinkLocalState<DependencyType, Derived>::_update_memusage_with_serialize
             _agg_data->method_variant);
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::_destroy_agg_status(
-        vectorized::AggregateDataPtr data) {
+Status AggSinkLocalState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
     auto& shared_state = *Base::_shared_state;
     for (int i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
         shared_state.aggregate_evaluators[i]->function()->destroy(
@@ -272,10 +245,8 @@ Status AggSinkLocalState<DependencyType, Derived>::_destroy_agg_status(
     return Status::OK();
 }
 
-template <typename DependencyType, typename Derived>
 template <bool limit, bool for_spill>
-Status AggSinkLocalState<DependencyType, Derived>::_merge_with_serialized_key_helper(
-        vectorized::Block* block) {
+Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* block) {
     SCOPED_TIMER(_merge_timer);
 
     size_t key_size = Base::_shared_state->probe_expr_ctxs.size();
@@ -322,7 +293,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_merge_with_serialized_key_he
                             ->function()
                             ->deserialize_and_merge_vec_selected(
                                     _places.data(),
-                                    Base::_parent->template cast<typename Derived::Parent>()
+                                    Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
                                     _deserialize_buffer.data(),
                                     (vectorized::ColumnString*)(column.get()), _agg_arena_pool,
@@ -332,7 +303,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_merge_with_serialized_key_he
                 RETURN_IF_ERROR(
                         Base::_shared_state->aggregate_evaluators[i]->execute_batch_add_selected(
                                 block,
-                                Base::_parent->template cast<typename Derived::Parent>()
+                                Base::_parent->template cast<AggSinkOperatorX>()
                                         ._offsets_of_aggregate_states[i],
                                 _places.data(), _agg_arena_pool));
             }
@@ -366,7 +337,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_merge_with_serialized_key_he
                             ->function()
                             ->deserialize_and_merge_vec(
                                     _places.data(),
-                                    Base::_parent->template cast<typename Derived::Parent>()
+                                    Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
                                     _deserialize_buffer.data(),
                                     (vectorized::ColumnString*)(column.get()), _agg_arena_pool,
@@ -375,7 +346,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_merge_with_serialized_key_he
             } else {
                 RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_batch_add(
                         block,
-                        Base::_parent->template cast<typename Derived::Parent>()
+                        Base::_parent->template cast<AggSinkOperatorX>()
                                 ._offsets_of_aggregate_states[i],
                         _places.data(), _agg_arena_pool));
             }
@@ -383,7 +354,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_merge_with_serialized_key_he
 
         if (_should_limit_output) {
             _reach_limit = _get_hash_table_size() >=
-                           Base::_parent->template cast<typename Derived::Parent>()._limit;
+                           Base::_parent->template cast<AggSinkOperatorX>()._limit;
         }
     }
 
@@ -393,9 +364,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_merge_with_serialized_key_he
 // We should call this function only at 1st phase.
 // 1st phase: is_merge=true, only have one SlotRef.
 // 2nd phase: is_merge=false, maybe have multiple exprs.
-template <typename DependencyType, typename Derived>
-int AggSinkLocalState<DependencyType, Derived>::_get_slot_column_id(
-        const vectorized::AggFnEvaluator* evaluator) {
+int AggSinkLocalState::_get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
     auto ctxs = evaluator->input_exprs_ctxs();
     CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
             << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
@@ -403,8 +372,7 @@ int AggSinkLocalState<DependencyType, Derived>::_get_slot_column_id(
     return ((vectorized::VSlotRef*)ctxs[0]->root().get())->column_id();
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::_merge_without_key(vectorized::Block* block) {
+Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
     SCOPED_TIMER(_merge_timer);
     DCHECK(_agg_data->without_key != nullptr);
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
@@ -420,23 +388,21 @@ Status AggSinkLocalState<DependencyType, Derived>::_merge_without_key(vectorized
                     ->function()
                     ->deserialize_and_merge_from_column(
                             _agg_data->without_key +
-                                    Base::_parent->template cast<typename Derived::Parent>()
+                                    Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
                             *column, _agg_arena_pool);
         } else {
             RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_single_add(
                     block,
-                    _agg_data->without_key +
-                            Base::_parent->template cast<typename Derived::Parent>()
-                                    ._offsets_of_aggregate_states[i],
+                    _agg_data->without_key + Base::_parent->template cast<AggSinkOperatorX>()
+                                                     ._offsets_of_aggregate_states[i],
                     _agg_arena_pool));
         }
     }
     return Status::OK();
 }
 
-template <typename DependencyType, typename Derived>
-void AggSinkLocalState<DependencyType, Derived>::_update_memusage_without_key() {
+void AggSinkLocalState::_update_memusage_without_key() {
     auto arena_memory_usage =
             _agg_arena_pool->size() - Base::_shared_state->mem_usage_record.used_in_arena;
     Base::_mem_tracker->consume(arena_memory_usage);
@@ -444,9 +410,7 @@ void AggSinkLocalState<DependencyType, Derived>::_update_memusage_without_key() 
     Base::_shared_state->mem_usage_record.used_in_arena = _agg_arena_pool->size();
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::_execute_with_serialized_key(
-        vectorized::Block* block) {
+Status AggSinkLocalState::_execute_with_serialized_key(vectorized::Block* block) {
     if (_reach_limit) {
         return _execute_with_serialized_key_helper<true>(block);
     } else {
@@ -454,10 +418,8 @@ Status AggSinkLocalState<DependencyType, Derived>::_execute_with_serialized_key(
     }
 }
 
-template <typename DependencyType, typename Derived>
 template <bool limit>
-Status AggSinkLocalState<DependencyType, Derived>::_execute_with_serialized_key_helper(
-        vectorized::Block* block) {
+Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block* block) {
     SCOPED_TIMER(_build_timer);
     DCHECK(!Base::_shared_state->probe_expr_ctxs.empty());
 
@@ -488,7 +450,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_execute_with_serialized_key_
             RETURN_IF_ERROR(
                     Base::_shared_state->aggregate_evaluators[i]->execute_batch_add_selected(
                             block,
-                            Base::_parent->template cast<typename Derived::Parent>()
+                            Base::_parent->template cast<AggSinkOperatorX>()
                                     ._offsets_of_aggregate_states[i],
                             _places.data(), _agg_arena_pool));
         }
@@ -498,16 +460,16 @@ Status AggSinkLocalState<DependencyType, Derived>::_execute_with_serialized_key_
         for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
             RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_batch_add(
                     block,
-                    Base::_parent->template cast<typename Derived::Parent>()
+                    Base::_parent->template cast<AggSinkOperatorX>()
                             ._offsets_of_aggregate_states[i],
                     _places.data(), _agg_arena_pool));
         }
 
         if (_should_limit_output) {
             _reach_limit = _get_hash_table_size() >=
-                           Base::_parent->template cast<typename Derived::Parent>()._limit;
+                           Base::_parent->template cast<AggSinkOperatorX>()._limit;
             if (_reach_limit &&
-                Base::_parent->template cast<typename Derived::Parent>()._can_short_circuit) {
+                Base::_parent->template cast<AggSinkOperatorX>()._can_short_circuit) {
                 Base::_dependency->set_ready_to_read();
                 return Status::Error<ErrorCode::END_OF_FILE>("");
             }
@@ -517,16 +479,14 @@ Status AggSinkLocalState<DependencyType, Derived>::_execute_with_serialized_key_
     return Status::OK();
 }
 
-template <typename DependencyType, typename Derived>
-size_t AggSinkLocalState<DependencyType, Derived>::_get_hash_table_size() {
+size_t AggSinkLocalState::_get_hash_table_size() {
     return std::visit([&](auto&& agg_method) { return agg_method.hash_table->size(); },
                       _agg_data->method_variant);
 }
 
-template <typename DependencyType, typename Derived>
-void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
-        vectorized::AggregateDataPtr* places, vectorized::ColumnRawPtrs& key_columns,
-        const size_t num_rows) {
+void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
+                                                 vectorized::ColumnRawPtrs& key_columns,
+                                                 const size_t num_rows) {
     std::visit(
             [&](auto&& agg_method) -> void {
                 SCOPED_TIMER(_hash_table_compute_timer);
@@ -548,9 +508,9 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
 
                 auto creator_for_null_key = [&](auto& mapped) {
                     mapped = _agg_arena_pool->aligned_alloc(
-                            Base::_parent->template cast<typename Derived::Parent>()
+                            Base::_parent->template cast<AggSinkOperatorX>()
                                     ._total_size_of_aggregate_states,
-                            Base::_parent->template cast<typename Derived::Parent>()
+                            Base::_parent->template cast<AggSinkOperatorX>()
                                     ._align_aggregate_states);
                     auto st = _create_agg_status(mapped);
                     if (!st) {
@@ -568,10 +528,9 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
             _agg_data->method_variant);
 }
 
-template <typename DependencyType, typename Derived>
-void AggSinkLocalState<DependencyType, Derived>::_find_in_hash_table(
-        vectorized::AggregateDataPtr* places, vectorized::ColumnRawPtrs& key_columns,
-        size_t num_rows) {
+void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places,
+                                            vectorized::ColumnRawPtrs& key_columns,
+                                            size_t num_rows) {
     std::visit(
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
@@ -593,9 +552,7 @@ void AggSinkLocalState<DependencyType, Derived>::_find_in_hash_table(
             _agg_data->method_variant);
 }
 
-template <typename DependencyType, typename Derived>
-void AggSinkLocalState<DependencyType, Derived>::_init_hash_method(
-        const vectorized::VExprContextSPtrs& probe_exprs) {
+void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
     DCHECK(probe_exprs.size() >= 1);
 
     using Type = vectorized::AggregatedDataVariants::Type;
@@ -651,21 +608,18 @@ void AggSinkLocalState<DependencyType, Derived>::_init_hash_method(
 
         _agg_data->init(
                 get_hash_key_type_with_phase(
-                        t,
-                        !Base::_parent->template cast<typename Derived::Parent>()._is_first_phase),
+                        t, !Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase),
                 is_nullable);
     } else {
         if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32,
-                                            vectorized::AggregateDataPtr,
-                                            vectorized::AggregatedMethodVariants>(
-                    _agg_data->method_variant, probe_exprs)) {
+                                            vectorized::AggregateDataPtr>(_agg_data->method_variant,
+                                                                          probe_exprs)) {
             _agg_data->init(Type::serialized);
         }
     }
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::_reset_hash_table() {
+Status AggSinkLocalState::_reset_hash_table() {
     auto& ss = *Base::_shared_state;
     return std::visit(
             [&](auto&& agg_method) {
@@ -693,18 +647,15 @@ Status AggSinkLocalState<DependencyType, Derived>::_reset_hash_table() {
             ss.agg_data->method_variant);
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::try_spill_disk(bool eos) {
-    if (Base::_parent->template cast<typename Derived::Parent>()._external_agg_bytes_threshold ==
-        0) {
+Status AggSinkLocalState::try_spill_disk(bool eos) {
+    if (Base::_parent->template cast<AggSinkOperatorX>()._external_agg_bytes_threshold == 0) {
         return Status::OK();
     }
     return std::visit(
             [&](auto&& agg_method) -> Status {
                 auto& hash_table = *agg_method.hash_table;
-                if (!eos &&
-                    _memory_usage() < Base::_parent->template cast<typename Derived::Parent>()
-                                              ._external_agg_bytes_threshold) {
+                if (!eos && _memory_usage() < Base::_parent->template cast<AggSinkOperatorX>()
+                                                      ._external_agg_bytes_threshold) {
                     return Status::OK();
                 }
 
@@ -718,11 +669,9 @@ Status AggSinkLocalState<DependencyType, Derived>::try_spill_disk(bool eos) {
             _agg_data->method_variant);
 }
 
-template <typename LocalStateType>
-AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operator_id,
-                                                   const TPlanNode& tnode,
-                                                   const DescriptorTbl& descs, bool is_streaming)
-        : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id),
+AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+                                   const DescriptorTbl& descs)
+        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -733,14 +682,12 @@ AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operato
           _pool(pool),
           _limit(tnode.limit),
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
-          _is_streaming(is_streaming),
           _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
                                                                : std::vector<TExpr> {}),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {}
 
-template <typename LocalStateType>
-Status AggSinkOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::init(tnode, state));
+Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::init(tnode, state));
     // ignore return status for now , so we need to introduce ExecNode::init()
     RETURN_IF_ERROR(
             vectorized::VExpr::create_expr_trees(tnode.agg_node.grouping_exprs, _probe_expr_ctxs));
@@ -778,13 +725,12 @@ Status AggSinkOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeSta
     return Status::OK();
 }
 
-template <typename LocalStateType>
-Status AggSinkOperatorX<LocalStateType>::prepare(RuntimeState* state) {
+Status AggSinkOperatorX::prepare(RuntimeState* state) {
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(vectorized::VExpr::prepare(
-            _probe_expr_ctxs, state, DataSinkOperatorX<LocalStateType>::_child_x->row_desc()));
+            _probe_expr_ctxs, state, DataSinkOperatorX<AggSinkLocalState>::_child_x->row_desc()));
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
@@ -799,7 +745,7 @@ Status AggSinkOperatorX<LocalStateType>::prepare(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, DataSinkOperatorX<LocalStateType>::_child_x->row_desc(),
+                state, DataSinkOperatorX<AggSinkLocalState>::_child_x->row_desc(),
                 intermediate_slot_desc, output_slot_desc));
     }
 
@@ -832,8 +778,7 @@ Status AggSinkOperatorX<LocalStateType>::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-template <typename LocalStateType>
-Status AggSinkOperatorX<LocalStateType>::open(RuntimeState* state) {
+Status AggSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -844,20 +789,17 @@ Status AggSinkOperatorX<LocalStateType>::open(RuntimeState* state) {
     return Status::OK();
 }
 
-template <typename LocalStateType>
-Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
-                                              vectorized::Block* in_block,
-                                              SourceState source_state) {
+Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state._executor.execute(in_block));
+        RETURN_IF_ERROR(local_state._executor->execute(&local_state, in_block));
         RETURN_IF_ERROR(local_state.try_spill_disk());
-        local_state._executor.update_memusage();
+        local_state._executor->update_memusage(&local_state);
     }
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         if (local_state._shared_state->spill_context.has_data) {
             static_cast<void>(local_state.try_spill_disk(true));
             RETURN_IF_ERROR(local_state._shared_state->spill_context.prepare_for_reading());
@@ -867,8 +809,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
     return Status::OK();
 }
 
-template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state, Status exec_status) {
+Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     if (Base::_closed) {
@@ -885,13 +826,4 @@ Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state, St
     return Base::close(state, exec_status);
 }
 
-class StreamingAggSinkLocalState;
-class DistinctStreamingAggSinkLocalState;
-
-template class AggSinkOperatorX<BlockingAggSinkLocalState>;
-template class AggSinkOperatorX<StreamingAggSinkLocalState>;
-template class AggSinkOperatorX<DistinctStreamingAggSinkLocalState>;
-template class AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState>;
-template class AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState>;
-template class AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
 } // namespace doris::pipeline

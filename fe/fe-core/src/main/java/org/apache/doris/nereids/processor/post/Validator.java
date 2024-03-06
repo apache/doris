@@ -59,7 +59,7 @@ public class Validator extends PlanPostProcessor {
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
-        if (child instanceof PhysicalProject) {
+        if (child instanceof PhysicalProject && !((PhysicalProject<?>) child).hasPushedDownToProjectionFunctions()) {
             throw new AnalysisException(
                     "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
         }
@@ -107,4 +107,3 @@ public class Validator extends PlanPostProcessor {
         return Optional.empty();
     }
 }
-

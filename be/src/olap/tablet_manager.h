@@ -132,7 +132,7 @@ public:
     //        Status::Error<INVALID_ARGUMENT>(), if tables is null
     Status report_tablet_info(TTabletInfo* tablet_info);
 
-    Status build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
+    void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
     Status start_trash_sweep();
 

@@ -73,7 +73,7 @@ public class ThreadPoolManager {
 
     private static String[] poolMetricTypes = {"pool_size", "active_thread_num", "task_in_queue"};
 
-    private static final long KEEP_ALIVE_TIME = 60L;
+    public static final long KEEP_ALIVE_TIME = 60L;
 
     public static void registerAllThreadPoolMetric() {
         for (Map.Entry<String, ThreadPoolExecutor> entry : nameToThreadPoolMap.entrySet()) {

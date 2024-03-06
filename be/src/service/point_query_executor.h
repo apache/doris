@@ -215,7 +215,6 @@ private:
     void add(__int128_t cache_id, std::shared_ptr<Reusable> item) {
         std::string key = encode_key(cache_id);
         CacheValue* value = new CacheValue;
-        value->last_visit_time = UnixMillis();
         value->item = item;
         auto deleter = [](const doris::CacheKey& key, void* value) {
             CacheValue* cache_value = (CacheValue*)value;
@@ -236,13 +235,12 @@ private:
         if (lru_handle) {
             Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
             auto value = (CacheValue*)cache()->value(lru_handle);
-            value->last_visit_time = UnixMillis();
             return value->item;
         }
         return nullptr;
     }
 
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         std::shared_ptr<Reusable> item;
     };
 };
@@ -303,12 +301,14 @@ private:
     };
 
     PTabletKeyLookupResponse* _response = nullptr;
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
+    // snapshot read version
+    int64_t _version = -1;
 };
 
 } // namespace doris

@@ -32,11 +32,9 @@ std::pair<Cache::Handle*, TabletSchemaSPtr> TabletSchemaCache::insert(const std:
     TabletSchemaSPtr tablet_schema_ptr;
     if (lru_handle) {
         auto* value = (CacheValue*)cache()->value(lru_handle);
-        value->last_visit_time = UnixMillis();
         tablet_schema_ptr = value->tablet_schema;
     } else {
         auto* value = new CacheValue;
-        value->last_visit_time = UnixMillis();
         tablet_schema_ptr = std::make_shared<TabletSchema>();
         TabletSchemaPB pb;
         pb.ParseFromString(key);

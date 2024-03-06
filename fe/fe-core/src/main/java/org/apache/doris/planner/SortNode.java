@@ -225,7 +225,9 @@ public class SortNode extends PlanNode {
                 cardinality = Math.min(cardinality, limit);
             }
         }
-        LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
+        }
     }
 
     public void init(Analyzer analyzer) throws UserException {

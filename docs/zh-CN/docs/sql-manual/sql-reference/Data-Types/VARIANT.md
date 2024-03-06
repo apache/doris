@@ -26,6 +26,10 @@ under the License.
 
 ## VARIANT
 
+<version since="2.1.0">
+
+</version>
+
 ### Description
 
 VARIANT类型
@@ -156,7 +160,7 @@ properties("replication_num" = "1");
 
 **需要注意的是:**
 
-::: tip
+:::tip
 
 1. 在 VARIANT 列上创建索引，比如 payload 的子列很多时，可能会造成索引列过多，影响写入性能
 2. 同一个 VARIANT 列的分词属性是相同的，如果您有不同的分词需求，那么可以创建多个 VARIANT 然后分别指定索引属性
@@ -266,7 +270,7 @@ DESCRIBE ${table_name} PARTITION ($partition_name);
 
 **查询**
 
-::: warning
+:::tip
 
 **注意**
 如使用过滤和聚合等功能来查询子列, 需要对子列进行额外的 cast 操作（因为存储类型不一定是固定的，需要有一个 SQL 统一的类型）。

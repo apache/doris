@@ -30,6 +30,7 @@
 #include <rapidjson/prettywriter.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
@@ -119,7 +120,7 @@ void HttpStreamAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-    if (config::enable_stream_load_record) {
+    if (config::enable_stream_load_record && !config::is_cloud_mode()) {
         str = ctx->prepare_stream_load_record(str);
         _save_stream_load_record(ctx, str);
     }
@@ -354,7 +355,8 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
 
 void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
                                                 const std::string& str) {
-    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    auto stream_load_recorder =
+            ExecEnv::GetInstance()->storage_engine().to_local().get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
         std::string key =
                 std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
@@ -378,7 +380,17 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
     }
-    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode")) {
+    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                     ? 0
+                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    if (content_length < 0) {
+        std::stringstream ss;
+        ss << "This http load content length <0 (" << content_length
+           << "), please check your content length.";
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode") || content_length == 0) {
         // off_mode and empty
         ctx->group_commit = false;
         return Status::OK();
@@ -394,20 +406,14 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
         }
         ctx->group_commit = true;
         if (iequal(group_commit_mode, "async_mode")) {
-            group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
-            if (iequal(group_commit_mode, "sync_mode")) {
-                size_t max_available_size =
-                        ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
-                LOG(INFO) << "When enable group commit, the data size can't be too large or "
-                             "unknown. The data size for this stream load("
-                          << (req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                      ? 0
-                                      : req->header(HttpHeaders::CONTENT_LENGTH))
-                          << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
-                          << max_available_size
-                          << " Bytes). So we set this load to \"group commit\"=sync_mode\" "
-                             "automatically.";
-                return Status::Error<EXCEEDED_LIMIT>("Http load size too large.");
+            if (!load_size_smaller_than_wal_limit(content_length)) {
+                std::stringstream ss;
+                ss << "There is no space for group commit http load async WAL. This http load "
+                      "size is "
+                   << content_length << ". WAL dir info: "
+                   << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
+                LOG(WARNING) << ss.str();
+                return Status::Error<EXCEEDED_LIMIT>(ss.str());
             }
         }
     }

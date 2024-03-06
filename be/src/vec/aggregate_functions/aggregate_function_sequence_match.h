@@ -599,7 +599,7 @@ public:
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, const size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, const ssize_t row_num,
              Arena*) const override {
         std::string pattern =
                 assert_cast<const ColumnString*>(columns[0])->get_data_at(0).to_string();

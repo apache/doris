@@ -46,6 +46,13 @@
 namespace doris {
 class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
+    struct ScanWalInfo {
+        std::string wal_path;
+        int64_t db_id;
+        int64_t tb_id;
+        int64_t wal_id;
+        int64_t be_id;
+    };
 
 public:
     WalManager(ExecEnv* exec_env, const std::string& wal_dir);
@@ -57,21 +64,30 @@ public:
     // wal back pressure
     Status update_wal_dir_limit(const std::string& wal_dir, size_t limit = -1);
     Status update_wal_dir_used(const std::string& wal_dir, size_t used = -1);
-    Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t increase_pre_allocated,
-                                        size_t decrease_pre_allocated);
+    Status update_wal_dir_estimated_wal_bytes(const std::string& wal_dir,
+                                              size_t increase_estimated_wal_bytes,
+                                              size_t decrease_estimated_wal_bytes);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
     size_t get_max_available_size();
+    std::string get_wal_dirs_info_string();
 
     // replay wal
     Status create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
                            const std::string& label, std::string& base_path);
     Status get_wal_path(int64_t wal_id, std::string& wal_path);
-    Status delete_wal(int64_t table_id, int64_t wal_id, size_t block_queue_pre_allocated = 0);
+    Status delete_wal(int64_t table_id, int64_t wal_id);
     Status rename_to_tmp_path(const std::string wal, int64_t table_id, int64_t wal_id);
     Status add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_id, std::string wal);
     void add_wal_queue(int64_t table_id, int64_t wal_id);
     void erase_wal_queue(int64_t table_id, int64_t wal_id);
     size_t get_wal_queue_size(int64_t table_id);
+    // filename format:a_b_c_group_commit_xxx
+    // a:version
+    // b:be id
+    // c:wal id
+    // group_commit_xxx:label
+    static Status parse_wal_path(const std::string& file_name, int64_t& version,
+                                 int64_t& backend_id, int64_t& wal_id, std::string& label);
     // fot ut
     size_t get_wal_table_size(int64_t table_id);
 
@@ -83,18 +99,21 @@ public:
                            std::shared_ptr<std::condition_variable>& cv);
     Status wait_replay_wal_finish(int64_t wal_id);
     Status notify_relay_wal(int64_t wal_id);
+    static std::string get_base_wal_path(const std::string& wal_path_str);
 
 private:
     // wal back pressure
     Status _init_wal_dirs_conf();
     Status _init_wal_dirs();
     Status _init_wal_dirs_info();
-    std::string _get_base_wal_path(const std::string& wal_path_str);
     Status _update_wal_dir_info_thread();
 
-    // replay wal
-    Status _scan_wals(const std::string& wal_path);
-    Status _replay();
+    // scan all wal files under storage path
+    Status _scan_wals(const std::string& wal_path, std::vector<ScanWalInfo>& res);
+    // use a background thread to do replay task
+    Status _replay_background();
+    // load residual wals
+    Status _load_wals();
     void _stop_relay_wal();
 
 public:
@@ -124,6 +143,9 @@ private:
 
     std::shared_mutex _wal_queue_lock;
     std::unordered_map<int64_t, std::set<int64_t>> _wal_queues;
+
+    int64_t _wal_version = 0;
+    std::atomic<bool> _first_replay;
 
     // for test relay
     // <lock, condition_variable>

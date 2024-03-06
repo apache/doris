@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
     cast(v["repo"]["name"] as string) as repo_name,
     count() AS pushes,
     count(distinct cast(v["actor"]["login"] as string)) AS authors

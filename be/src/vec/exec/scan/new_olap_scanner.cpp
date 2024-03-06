@@ -30,6 +30,7 @@
 #include <set>
 #include <shared_mutex>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
@@ -390,6 +391,12 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
         // runtime predicate push down optimization for topn
         _tablet_reader_params.use_topn_opt = olap_scan_node.use_topn_opt;
+        if (olap_scan_node.__isset.topn_filter_source_node_ids) {
+            _tablet_reader_params.topn_filter_source_node_ids =
+                    olap_scan_node.topn_filter_source_node_ids;
+        } else if (_tablet_reader_params.use_topn_opt) {
+            _tablet_reader_params.topn_filter_source_node_ids = {0};
+        }
     }
 
     // If this is a Two-Phase read query, and we need to delay the release of Rowset
@@ -402,7 +409,8 @@ Status NewOlapScanner::_init_tablet_reader_params(
                     delayed_s;
             rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
                     delayed_expired_timestamp);
-            StorageEngine::instance()->add_quering_rowset(rs_reader.rs_reader->rowset());
+            ExecEnv::GetInstance()->storage_engine().add_quering_rowset(
+                    rs_reader.rs_reader->rowset());
         }
     }
 

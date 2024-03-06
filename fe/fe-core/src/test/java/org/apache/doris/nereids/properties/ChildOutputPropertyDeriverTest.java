@@ -459,7 +459,7 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
-    void testFullOuterJoin() {
+    void testFullOuterJoinWithNatural() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.FULL_OUTER_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
@@ -490,7 +490,42 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecAny);
+        Assertions.assertInstanceOf(DistributionSpecStorageAny.class, result.getDistributionSpec());
+    }
+
+    @Test
+    void testFullOuterJoinWithOther() {
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.FULL_OUTER_JOIN,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
+                groupPlan, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(join);
+        new Group(null, groupExpression, null);
+
+        PhysicalProperties left = new PhysicalProperties(
+                new DistributionSpecHash(
+                        Lists.newArrayList(new ExprId(0)),
+                        ShuffleType.EXECUTION_BUCKETED,
+                        0,
+                        Sets.newHashSet(0L)
+                ),
+                new OrderSpec(
+                        Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE),
+                                true, true)))
+        );
+
+        PhysicalProperties right = new PhysicalProperties(new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(1)),
+                ShuffleType.EXECUTION_BUCKETED,
+                1,
+                Sets.newHashSet(1L)
+        ));
+
+        List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
+        ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
+
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
+        Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
+        Assertions.assertInstanceOf(DistributionSpecAny.class, result.getDistributionSpec());
     }
 
     @Test

@@ -264,7 +264,7 @@ public class PropertyConverter {
         s3Properties.put("fs.s3.impl.disable.cache", "true");
         s3Properties.putIfAbsent("fs.s3.impl", S3AFileSystem.class.getName());
         String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
-        String credentialsProviders = s3Properties
+        String credentialsProviders = properties
                 .getOrDefault(S3Properties.CREDENTIALS_PROVIDER, defaultProviderList);
         s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, credentialsProviders);
         if (credential.isWhole()) {
@@ -570,4 +570,3 @@ public class PropertyConverter {
         return props;
     }
 }
-

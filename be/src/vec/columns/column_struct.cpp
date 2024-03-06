@@ -206,11 +206,6 @@ void ColumnStruct::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
-void ColumnStruct::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                            const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
 void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                             const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
@@ -298,15 +293,6 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     }
 
     return ColumnStruct::create(new_columns);
-}
-
-void ColumnStruct::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnStruct&>(column);
-    res.columns.resize(columns.size());
-
-    for (size_t i = 0; i != columns.size(); ++i) {
-        columns[i]->replicate(indexs, target_size, *res.columns[i]);
-    }
 }
 
 MutableColumnPtr ColumnStruct::get_shrinked_column() {

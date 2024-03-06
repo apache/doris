@@ -24,6 +24,8 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -35,6 +37,7 @@ import org.apache.doris.proto.InternalService.KeyTuple;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
@@ -53,9 +56,11 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -85,16 +90,23 @@ public class PointQueryExec implements CoordInterface {
     // using this ID to find for this prepared statement
     private UUID cacheID;
 
+    private final int maxMsgSizeOfResultReceiver;
+
+    // used for snapshot read in cloud mode
+    private List<Long> versions;
+
     private OlapScanNode getPlanRoot() {
         List<PlanFragment> fragments = planner.getFragments();
         PlanFragment fragment = fragments.get(0);
-        LOG.debug("execPointGet fragment {}", fragment);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("execPointGet fragment {}", fragment);
+        }
         OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
         Preconditions.checkNotNull(planRoot);
         return planRoot;
     }
 
-    public PointQueryExec(Planner planner, Analyzer analyzer) {
+    public PointQueryExec(Planner planner, Analyzer analyzer, int maxMessageSize) {
         // init from planner
         this.planner = planner;
         List<PlanFragment> fragments = planner.getFragments();
@@ -115,6 +127,24 @@ public class PointQueryExec implements CoordInterface {
             // TODO
             // planner.getDescTable().toThrift();
         }
+        this.maxMsgSizeOfResultReceiver = maxMessageSize;
+    }
+
+    private void updateCloudPartitionVersions() throws RpcException {
+        OlapScanNode planRoot = getPlanRoot();
+        List<CloudPartition> partitions = new ArrayList<>();
+        Set<Long> partitionSet = new HashSet<>();
+        OlapTable table = planRoot.getOlapTable();
+        for (Long id : planRoot.getSelectedPartitionIds()) {
+            if (!partitionSet.contains(id)) {
+                partitionSet.add(id);
+                partitions.add((CloudPartition) table.getPartition(id));
+            }
+        }
+        versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+        // Only support single partition at present
+        Preconditions.checkState(versions.size() == 1);
+        LOG.debug("set cloud version {}", versions.get(0));
     }
 
     void setScanRangeLocations() throws Exception {
@@ -127,6 +157,13 @@ public class PointQueryExec implements CoordInterface {
         Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
         this.tabletID = planRoot.getScanTabletIds().get(0);
 
+        // update partition version if cloud mode
+        if (Config.isCloudMode()
+                && ConnectContext.get().getSessionVariable().enableSnapshotPointQuery) {
+            // TODO: Optimize to reduce the frequency of version checks in the meta service.
+            updateCloudPartitionVersions();
+        }
+
         Preconditions.checkNotNull(locations);
         candidateBackends = new ArrayList<>();
         for (Long backendID : planRoot.getScanBackendIds()) {
@@ -137,7 +174,9 @@ public class PointQueryExec implements CoordInterface {
         }
         // Random read replicas
         Collections.shuffle(this.candidateBackends);
-        LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
+        }
     }
 
     public void setTimeout(long timeoutMs) {
@@ -243,6 +282,9 @@ public class PointQueryExec implements CoordInterface {
                             .setDescTbl(serializedDescTable)
                             .setOutputExpr(serializedOutputExpr)
                             .setIsBinaryRow(isBinaryProtocol);
+            if (versions != null && !versions.isEmpty()) {
+                requestBuilder.setVersion(versions.get(0));
+            }
             if (cacheID != null) {
                 InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
                 uuidBuilder.setUuidHigh(cacheID.getMostSignificantBits());
@@ -306,8 +348,17 @@ public class PointQueryExec implements CoordInterface {
         } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
             byte[] serialResult = pResult.getRowBatch().toByteArray();
             TResultBatch resultBatch = new TResultBatch();
-            TDeserializer deserializer = new TDeserializer();
-            deserializer.deserialize(resultBatch, serialResult);
+            TDeserializer deserializer = new TDeserializer(
+                    new TCustomProtocolFactory(this.maxMsgSizeOfResultReceiver));
+            try {
+                deserializer.deserialize(resultBatch, serialResult);
+            } catch (TException e) {
+                if (e.getMessage().contains("MaxMessageSize reached")) {
+                    throw new TException("MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
+                } else {
+                    throw e;
+                }
+            }
             rowBatch.setBatch(resultBatch);
             rowBatch.setEos(true);
             return rowBatch;

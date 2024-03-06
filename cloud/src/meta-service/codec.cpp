@@ -17,6 +17,8 @@
 
 #include "codec.h"
 
+#include <cstdint>
+
 namespace doris::cloud {
 
 void encode_bytes(std::string_view bytes, std::string* b) {

@@ -373,19 +373,29 @@ void MemTable::_finalize_one_row(RowInBlock* row,
         // get value columns from agg_places
         for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns; ++i) {
             auto function = _agg_functions[i];
-            auto agg_place = row->agg_places(i);
-            auto col_ptr = _output_mutable_block.get_column_by_position(i).get();
+            auto* agg_place = row->agg_places(i);
+            auto* col_ptr = _output_mutable_block.get_column_by_position(i).get();
             function->insert_result_into(agg_place, *col_ptr);
+
             if constexpr (is_final) {
                 function->destroy(agg_place);
             } else {
                 function->reset(agg_place);
+            }
+        }
+
+        _arena->clear();
+
+        if constexpr (is_final) {
+            row->remove_init_agg();
+        } else {
+            for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns; ++i) {
+                auto function = _agg_functions[i];
+                auto* agg_place = row->agg_places(i);
+                auto* col_ptr = _output_mutable_block.get_column_by_position(i).get();
                 function->add(agg_place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                               row_pos, _arena.get());
             }
-        }
-        if constexpr (is_final) {
-            row->remove_init_agg();
         }
     } else {
         // move columns for rows do not need agg

@@ -458,7 +458,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.bitmap_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "No matching function with signature"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -507,7 +507,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.hll_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "No matching function with signature"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -650,7 +650,7 @@ public class QueryPlanTest extends TestWithFeService {
         ConnectContext.get().getSessionVariable().setRewriteCountDistinct(false);
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ count(distinct id2) from test.bitmap_table";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains(Type.OnlyMetricTypeErrorMsg));
+        Assert.assertTrue(explainString.contains("No matching function with signature"));
     }
 
     @Test
@@ -2062,8 +2062,8 @@ public class QueryPlanTest extends TestWithFeService {
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
-        Assert.assertTrue(explainString, explainString
-                        .contains("OUTPUT EXPRS:\n" + "    CAST(`a`.`aid` AS INT)\n" + "    CAST(`b`.`bid` AS INT)"));
+        Assert.assertTrue(explainString.contains(
+                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS INT)\n" + "    CAST(<slot 5> <slot 3> 4 AS INT)"));
     }
 
     @Test

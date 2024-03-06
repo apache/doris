@@ -92,7 +92,7 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::find_recvr(const TUniqueId& fr
         }
         ++range.first;
     }
-    return std::shared_ptr<VDataStreamRecvr>();
+    return nullptr;
 }
 
 Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,

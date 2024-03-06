@@ -1,6 +1,6 @@
 ---
 {
-    "title": "group_bit_xor",
+    "title": "GROUP_BIT_XOR",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## group_bit_xor
+## GROUP_BIT_XOR
 ### description
 #### Syntax
 

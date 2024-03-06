@@ -41,7 +41,7 @@ If the input string contains a valid IPv4 address, returns its IPv6 equivalent.
 
 ### notice
 
-`will return an error if the input string is not a valid IP address`
+`will return an error if the input string is not a valid IP address or NULL`
 
 ### example
 ```
@@ -63,6 +63,9 @@ mysql> select hex(ipv6_string_to_num('192.168.0.1'));
 
 mysql> select hex(ipv6_string_to_num('notaaddress'));
 ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][E33] Invalid IPv6 value
+
+mysql> select addr_src, hex(ipv6_string_to_num(addr_src)) from ipv4_string_test where addr_src is null;
+ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][E33] Null Input, you may consider convert it to a valid default IPv6 value like '::' first
 ```
 
 ### keywords

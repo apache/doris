@@ -28,10 +28,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 52))) otherCondition=()
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF4 RF5
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1 RF2
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
 ------------------------------filter((d.d_month_seq <= 1219) and (d.d_month_seq >= 1208))

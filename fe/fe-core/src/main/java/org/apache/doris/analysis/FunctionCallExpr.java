@@ -84,6 +84,9 @@ public class FunctionCallExpr extends Expr {
             String.CASE_INSENSITIVE_ORDER)
             .add("round").add("round_bankers").add("ceil").add("floor")
             .add("truncate").add("dround").add("dceil").add("dfloor").build();
+    public static final ImmutableSet<String> STRING_SEARCH_FUNCTION_SET = new ImmutableSortedSet.Builder(
+            String.CASE_INSENSITIVE_ORDER)
+            .add("multi_search_all_positions").add("multi_match_any").build();
 
     private final AtomicBoolean addOnce = new AtomicBoolean(false);
 
@@ -840,12 +843,6 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(
                         "COUNT must have DISTINCT for multiple arguments: " + this.toSql());
             }
-
-            for (Expr child : children) {
-                if (child.type.isOnlyMetricType() && !child.type.isComplexType()) {
-                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-                }
-            }
             return;
         }
 
@@ -971,8 +968,20 @@ public class FunctionCallExpr extends Expr {
         // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
         if (fnName.getFunction().equalsIgnoreCase("avg") && arg.type.isDecimalV3()
                 && arg.type.getDecimalDigits() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
-            Type t = ScalarType.createDecimalType(arg.type.getPrimitiveType(), arg.type.getPrecision(),
-                    ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE);
+            int precision = arg.type.getPrecision();
+            int scale = arg.type.getDecimalDigits();
+            precision = precision - scale + ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE;
+            scale = ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE;
+            if (SessionVariable.getEnableDecimal256()) {
+                if (precision > ScalarType.MAX_DECIMAL256_PRECISION) {
+                    precision = ScalarType.MAX_DECIMAL256_PRECISION;
+                }
+            } else {
+                if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                    precision = ScalarType.MAX_DECIMAL128_PRECISION;
+                }
+            }
+            Type t = ScalarType.createDecimalType(arg.type.getPrimitiveType(), precision, scale);
             Expr e = getChild(0).castTo(t);
             setChild(0, e);
         }
@@ -1349,8 +1358,12 @@ public class FunctionCallExpr extends Expr {
      * @throws AnalysisException
      */
     public void analyzeImplForDefaultValue(Type type) throws AnalysisException {
-        fn = new Function(getBuiltinFunction(fnName.getFunction(), new Type[0],
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF));
+        Type[] childTypes = new Type[children.size()];
+        for (int i = 0; i < children.size(); i++) {
+            childTypes[i] = children.get(i).type;
+        }
+        fn = new Function(
+                getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF));
         fn.setReturnType(type);
         this.type = type;
         for (int i = 0; i < children.size(); ++i) {
@@ -1530,6 +1543,8 @@ public class FunctionCallExpr extends Expr {
 
         } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
                 || fnName.getFunction().equalsIgnoreCase("nvl")) {
+            Preconditions.checkArgument(children != null && children.size() == 2,
+                    "The " + fnName + " function must have two params");
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true,
                     enableDecimal256);
@@ -1755,6 +1770,13 @@ public class FunctionCallExpr extends Expr {
                     .contains(constParam)) {
                 throw new AnalysisException("date_trunc function second param only support argument is "
                         + "year|quarter|month|week|day|hour|minute|second");
+            }
+        }
+        if (fnName.getFunction().equalsIgnoreCase("array_range")
+                || fnName.getFunction().equalsIgnoreCase("sequence")) {
+            if (getChild(0) instanceof DateLiteral && !(getChild(2) instanceof StringLiteral)) {
+                throw new AnalysisException("To generate datetime array, please use interval literal like: "
+                        + "interval 1 day.");
             }
         }
         if (fnName.getFunction().equalsIgnoreCase("char")) {
@@ -2455,8 +2477,8 @@ public class FunctionCallExpr extends Expr {
         String dbName = fnName.analyzeDb(analyzer);
         if (!Strings.isNullOrEmpty(dbName)) {
             // check operation privilege
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+            if (!analyzer.isReplay() && !Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    dbName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
             }
             // TODO(gaoxin): ExternalDatabase not implement udf yet.

@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
     repo_name,
     sum(issue_created) AS c,
     count(distinct actor_login) AS u,

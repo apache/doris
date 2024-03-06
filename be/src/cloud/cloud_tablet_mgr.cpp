@@ -185,7 +185,8 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                 delete value1;
             };
 
-            auto* handle = cache->insert(key, value.release(), 1, deleter);
+            auto* handle = cache->insert(key, value.release(), 1, deleter, CachePriority::NORMAL,
+                                         sizeof(CloudTablet));
             auto ret = std::shared_ptr<CloudTablet>(
                     tablet.get(), [cache, handle](...) { cache->release(handle); });
             _tablet_map->put(std::move(tablet));
@@ -236,7 +237,7 @@ std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
 
 void CloudTabletMgr::sync_tablets() {
     LOG_INFO("begin to sync tablets");
-    int64_t last_sync_time_bound = ::time(nullptr) - config::tablet_sync_interval_seconds;
+    int64_t last_sync_time_bound = ::time(nullptr) - config::tablet_sync_interval_s;
 
     auto weak_tablets = get_weak_tablets();
 

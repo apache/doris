@@ -17,19 +17,35 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import java.lang.reflect.Type;
+import java.util.List;
 import java.util.Map;
 
 public class EnvFactory {
 
-    public EnvFactory() {
-    }
+    public EnvFactory() {}
 
     private static class SingletonHolder {
         private static final EnvFactory INSTANCE =
@@ -76,6 +92,10 @@ public class EnvFactory {
         return new Replica();
     }
 
+    public Replica createReplica(Replica.ReplicaContext context) {
+        return new Replica(context);
+    }
+
     public ReplicaAllocation createDefReplicaAllocation() {
         return new ReplicaAllocation((short) 3);
     }
@@ -88,4 +108,27 @@ public class EnvFactory {
         return new DynamicPartitionProperty(properties);
     }
 
+    public GlobalTransactionMgrIface createGlobalTransactionMgr(Env env) {
+        return new GlobalTransactionMgr(env);
+    }
+
+    public BrokerLoadJob createBrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt,
+            UserIdentity userInfo) throws MetaNotFoundException {
+        return new BrokerLoadJob(dbId, label, brokerDesc, originStmt, userInfo);
+    }
+
+    public BrokerLoadJob createBrokerLoadJob() {
+        return new BrokerLoadJob();
+    }
+
+    public Coordinator createCoordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+                                         StatsErrorEstimator statsErrorEstimator) {
+        return new Coordinator(context, analyzer, planner, statsErrorEstimator);
+    }
+
+    public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
+                                         List<PlanFragment> fragments, List<ScanNode> scanNodes,
+                                         String timezone, boolean loadZeroTolerance) {
+        return new Coordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance);
+    }
 }

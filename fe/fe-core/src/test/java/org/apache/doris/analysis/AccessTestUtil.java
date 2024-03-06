@@ -124,7 +124,7 @@ public class AccessTestUtil {
                     KeysType.AGG_KEYS);
             table.addPartition(partition);
             table.setBaseIndexId(baseIndex.getId());
-            db.createTable(table);
+            db.registerTable(table);
 
             InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
             new Expectations(catalog) {

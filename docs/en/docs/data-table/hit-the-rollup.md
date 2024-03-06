@@ -128,7 +128,7 @@ Doris automatically hits the ROLLUP table.
 
 #### ROLLUP in Duplicate Model
 
-Because the Duplicate model has no aggregate semantics. So the ROLLLUP in this model has lost the meaning of "scroll up". It's just to adjust the column order to hit the prefix index. In the next section, we will introduce prefix index in [data model prefix index](./data-model.md), and how to use ROLLUP to change prefix index in order to achieve better query efficiency.
+Because the Duplicate model has no aggregate semantics. So the ROLLLUP in this model has lost the meaning of "scroll up". It's just to adjust the column order to hit the prefix index. In the next section, we will introduce prefix index in [data model prefix index](https://doris.apache.org/docs/data-table/index/index-overview/#prefix-index), and how to use ROLLUP to change prefix index in order to achieve better query efficiency.
 
 ## ROLLUP adjusts prefix index
 

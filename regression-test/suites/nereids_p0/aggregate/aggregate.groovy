@@ -334,6 +334,13 @@ suite("aggregate") {
               SELECT k1, k2 FROM tempbaseall
               GROUP BY k1;
             """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = k2 not in agg's output"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = k2 not in aggregate's output"
+    }
+
+    test {
+        sql """
+              SELECT sum(avg(k1)) FROM tempbaseall;
+            """
+        exception "aggregate function cannot contain aggregate parameters"
     }
 }

@@ -49,7 +49,7 @@
 #include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
-const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/jdbc/JdbcExecutor";
+const char* JDBC_EXECUTOR_FACTORY_CLASS = "org/apache/doris/jdbc/JdbcExecutorFactory";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
@@ -85,6 +85,7 @@ Status JdbcConnector::close(Status /*unused*/) {
     }
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->DeleteGlobalRef(_executor_factory_clazz);
     env->DeleteGlobalRef(_executor_clazz);
     DELETE_BASIC_JAVA_CLAZZ_REF(object)
     DELETE_BASIC_JAVA_CLAZZ_REF(string)
@@ -104,7 +105,29 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, JDBC_EXECUTOR_CLASS, &_executor_clazz));
+    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, JDBC_EXECUTOR_FACTORY_CLASS,
+                                                   &_executor_factory_clazz));
+
+    _executor_factory_ctor_id =
+            env->GetStaticMethodID(_executor_factory_clazz, "getExecutorClass",
+                                   "(Lorg/apache/doris/thrift/TOdbcTableType;)Ljava/lang/String;");
+    if (_executor_factory_ctor_id == nullptr) {
+        return Status::InternalError("Failed to find method ID for getExecutorClass");
+    }
+
+    jobject jtable_type = _get_java_table_type(env, _conn_param.table_type);
+
+    jstring executor_name = (jstring)env->CallStaticObjectMethod(
+            _executor_factory_clazz, _executor_factory_ctor_id, jtable_type);
+    if (executor_name == nullptr) {
+        return Status::InternalError("getExecutorClass returned null");
+    }
+    const char* executor_name_str = env->GetStringUTFChars(executor_name, nullptr);
+
+    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, executor_name_str, &_executor_clazz));
+    env->DeleteLocalRef(jtable_type);
+    env->ReleaseStringUTFChars(executor_name, executor_name_str);
+    env->DeleteLocalRef(executor_name);
     GET_BASIC_JAVA_CLAZZ("java/util/List", list)
     GET_BASIC_JAVA_CLAZZ("java/lang/Object", object)
     GET_BASIC_JAVA_CLAZZ("java/lang/String", string)
@@ -135,6 +158,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
+        ctor_params.__set_catalog_id(_conn_param.catalog_id);
         ctor_params.__set_jdbc_url(_conn_param.jdbc_url);
         ctor_params.__set_jdbc_user(_conn_param.user);
         ctor_params.__set_jdbc_password(_conn_param.passwd);
@@ -143,11 +167,13 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_batch_size(read ? state->batch_size() : 0);
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
         ctor_params.__set_table_type(_conn_param.table_type);
-        ctor_params.__set_min_pool_size(_conn_param.min_pool_size);
-        ctor_params.__set_max_pool_size(_conn_param.max_pool_size);
-        ctor_params.__set_max_idle_time(_conn_param.max_idle_time);
-        ctor_params.__set_max_wait_time(_conn_param.max_wait_time);
-        ctor_params.__set_keep_alive(_conn_param.keep_alive);
+        ctor_params.__set_connection_pool_min_size(_conn_param.connection_pool_min_size);
+        ctor_params.__set_connection_pool_max_size(_conn_param.connection_pool_max_size);
+        ctor_params.__set_connection_pool_max_wait_time(_conn_param.connection_pool_max_wait_time);
+        ctor_params.__set_connection_pool_max_life_time(_conn_param.connection_pool_max_life_time);
+        ctor_params.__set_connection_pool_cache_clear_time(
+                config::jdbc_connection_pool_cache_clear_time_sec);
+        ctor_params.__set_connection_pool_keep_alive(_conn_param.connection_pool_keep_alive);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -744,4 +770,12 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     return Status::OK();
 }
 
+jobject JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType) {
+    jclass enumClass = env->FindClass("org/apache/doris/thrift/TOdbcTableType");
+    jmethodID findByValueMethod = env->GetStaticMethodID(
+            enumClass, "findByValue", "(I)Lorg/apache/doris/thrift/TOdbcTableType;");
+    jobject javaEnumObj =
+            env->CallStaticObjectMethod(enumClass, findByValueMethod, static_cast<jint>(tableType));
+    return javaEnumObj;
+}
 } // namespace doris::vectorized

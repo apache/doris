@@ -105,7 +105,7 @@ Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
 
 template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
-                                                 SourceState source_state) {
+                                                 bool eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -129,7 +129,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                 *local_state._shared_state->hash_table_variants));
     }
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         _finalize_probe(local_state);
     }
     return Status::OK();
@@ -137,11 +137,12 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
 
 template <bool is_intersect>
 Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SetProbeSinkDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     Parent& parent = _parent->cast<Parent>();
-    _dependency->set_cur_child_id(parent._cur_child_id);
+    _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
+    _dependency->block();
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
         RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
@@ -219,7 +220,7 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
         local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                 ->set_ready();
     } else {
-        local_state._shared_state->source_dep->set_ready();
+        local_state._dependency->set_ready_to_read();
     }
 }
 

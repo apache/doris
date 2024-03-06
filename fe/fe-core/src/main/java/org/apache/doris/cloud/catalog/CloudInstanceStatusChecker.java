@@ -17,8 +17,8 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
@@ -27,23 +27,26 @@ import org.apache.logging.log4j.Logger;
 
 public class CloudInstanceStatusChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudInstanceStatusChecker.class);
+    private CloudSystemInfoService cloudSystemInfoService;
 
-    public CloudInstanceStatusChecker() {
+    public CloudInstanceStatusChecker(CloudSystemInfoService cloudSystemInfoService) {
         super("cloud instance check");
+        this.cloudSystemInfoService = cloudSystemInfoService;
     }
 
     @Override
     protected void runAfterCatalogReady() {
         try {
-            Cloud.GetInstanceResponse response =
-                    Env.getCurrentSystemInfo().getCloudInstance();
-            LOG.debug("get from ms response {}", response);
+            Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get from ms response {}", response);
+            }
             if (!response.hasStatus() || !response.getStatus().hasCode()
                     || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("failed to get cloud instance due to incomplete response, "
                         + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
             } else {
-                Env.getCurrentSystemInfo().setInstanceStatus(response.getInstance().getStatus());
+                cloudSystemInfoService.setInstanceStatus(response.getInstance().getStatus());
             }
         } catch (Exception e) {
             LOG.warn("get instance from ms exception", e);

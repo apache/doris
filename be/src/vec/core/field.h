@@ -341,6 +341,7 @@ public:
             UInt128 = 4,
             Int128 = 5,
             FixedLengthObject = 6,
+            IPv6 = 7,
 
             /// Non-POD types.
 
@@ -359,7 +360,7 @@ public:
             HyperLogLog = 28,
             QuantileState = 29,
             Int256 = 30,
-            Decimal256 = 31,
+            Decimal256 = 31
         };
 
         static const int MIN_NON_POD = 16;
@@ -408,6 +409,8 @@ public:
                 return "HyperLogLog";
             case QuantileState:
                 return "QuantileState";
+            case IPv6:
+                return "IPv6";
             default:
                 LOG(FATAL) << "type not supported, type=" << Types::to_string(which);
                 break;
@@ -580,6 +583,8 @@ public:
             return get<Int64>() <=> rhs.get<Int64>();
         case Types::Int128:
             return get<Int128>() <=> rhs.get<Int128>();
+        case Types::IPv6:
+            return get<IPv6>() <=> rhs.get<IPv6>();
         case Types::Float64:
             return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
                    : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
@@ -621,6 +626,9 @@ public:
             return;
         case Types::Int128:
             f(field.template get<Int128>());
+            return;
+        case Types::IPv6:
+            f(field.template get<IPv6>());
             return;
         case Types::Float64:
             f(field.template get<Float64>());
@@ -675,7 +683,7 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
+                         Int128, IPv6, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
                          DecimalField<Decimal32>, DecimalField<Decimal64>,
                          DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
                          DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState>
@@ -835,6 +843,10 @@ struct Field::TypeToEnum<Float64> {
     static constexpr Types::Which value = Types::Float64;
 };
 template <>
+struct Field::TypeToEnum<IPv6> {
+    static constexpr Types::Which value = Types::IPv6;
+};
+template <>
 struct Field::TypeToEnum<String> {
     static constexpr Types::Which value = Types::String;
 };
@@ -917,6 +929,10 @@ struct Field::EnumToType<Field::Types::Int128> {
 template <>
 struct Field::EnumToType<Field::Types::Float64> {
     using Type = Float64;
+};
+template <>
+struct Field::EnumToType<Field::Types::IPv6> {
+    using Type = IPv6;
 };
 template <>
 struct Field::EnumToType<Field::Types::String> {

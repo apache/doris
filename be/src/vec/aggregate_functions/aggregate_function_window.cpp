@@ -102,8 +102,11 @@ CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_last,
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("dense_rank", creator_without_type::creator<WindowFunctionDenseRank>);
     factory.register_function("rank", creator_without_type::creator<WindowFunctionRank>);
+    factory.register_function("percent_rank",
+                              creator_without_type::creator<WindowFunctionPercentRank>);
     factory.register_function("row_number", creator_without_type::creator<WindowFunctionRowNumber>);
     factory.register_function("ntile", creator_without_type::creator<WindowFunctionNTile>);
+    factory.register_function("cume_dist", creator_without_type::creator<WindowFunctionCumeDist>);
 }
 
 void register_aggregate_function_window_lead_lag_first_last(

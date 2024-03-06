@@ -46,6 +46,9 @@ public class PhysicalProperties {
 
     public static PhysicalProperties MUST_SHUFFLE = new PhysicalProperties(DistributionSpecMustShuffle.INSTANCE);
 
+    public static PhysicalProperties TABLET_ID_SHUFFLE
+            = new PhysicalProperties(DistributionSpecTabletIdShuffle.INSTANCE);
+
     private final OrderSpec orderSpec;
 
     private final DistributionSpec distributionSpec;
@@ -91,6 +94,14 @@ public class PhysicalProperties {
 
     public static PhysicalProperties createHash(DistributionSpecHash distributionSpecHash) {
         return new PhysicalProperties(distributionSpecHash);
+    }
+
+    public static PhysicalProperties createAnyFromHash(DistributionSpecHash childSpec) {
+        if (childSpec.getShuffleType() == ShuffleType.NATURAL) {
+            return PhysicalProperties.STORAGE_ANY;
+        } else {
+            return PhysicalProperties.ANY;
+        }
     }
 
     public PhysicalProperties withOrderSpec(OrderSpec orderSpec) {

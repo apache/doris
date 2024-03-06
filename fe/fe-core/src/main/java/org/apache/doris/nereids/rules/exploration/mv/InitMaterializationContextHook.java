@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -56,7 +57,11 @@ public class InitMaterializationContextHook implements PlannerHook {
         initMaterializationContext(planner.getCascadesContext());
     }
 
-    private void initMaterializationContext(CascadesContext cascadesContext) {
+    /**
+     * init materialization context
+     */
+    @VisibleForTesting
+    public void initMaterializationContext(CascadesContext cascadesContext) {
         if (!cascadesContext.getConnectContext().getSessionVariable().isEnableMaterializedViewRewrite()) {
             return;
         }
@@ -70,7 +75,7 @@ public class InitMaterializationContextHook implements PlannerHook {
         List<BaseTableInfo> usedBaseTables =
                 collectedTables.stream().map(BaseTableInfo::new).collect(Collectors.toList());
         Set<MTMV> availableMTMVs = Env.getCurrentEnv().getMtmvService().getRelationManager()
-                .getAvailableMTMVs(usedBaseTables);
+                .getAvailableMTMVs(usedBaseTables, cascadesContext.getConnectContext());
         if (availableMTMVs.isEmpty()) {
             return;
         }
