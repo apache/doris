@@ -2628,7 +2628,7 @@ public class Coordinator implements CoordInterface {
                     LOG.warn("Instance {} of query {} report failed status, error msg: {}",
                             DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
                             status.getErrorMsg());
-                    updateStatus(status, params.getFragmentInstanceId());
+                    updateStatus(status);
                 }
             }
 
