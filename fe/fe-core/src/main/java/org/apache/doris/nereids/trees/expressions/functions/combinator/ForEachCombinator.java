@@ -20,13 +20,12 @@ package org.apache.doris.nereids.trees.expressions.functions.combinator;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -35,55 +34,57 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * AggState combinator state
+ * combinator foreach
  */
-public class StateCombinator extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+public class ForEachCombinator extends AggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     private final AggregateFunction nested;
-    private final AggStateType returnType;
 
     /**
-     * constructor of StateCombinator
+     * constructor of ForEachCombinator
      */
-    public StateCombinator(List<Expression> arguments, AggregateFunction nested) {
-        super(nested.getName() + AggCombinerFunctionBuilder.STATE_SUFFIX, arguments);
+    public ForEachCombinator(List<Expression> arguments, AggregateFunction nested) {
+        super(nested.getName() + AggCombinerFunctionBuilder.FOREACH_SUFFIX, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        this.returnType = new AggStateType(nested.getName(), arguments.stream().map(arg -> {
-            return arg.getDataType();
-        }).collect(ImmutableList.toImmutableList()), arguments.stream().map(arg -> {
-            return arg.nullable();
-        }).collect(ImmutableList.toImmutableList()));
     }
 
-    public static StateCombinator create(AggregateFunction nested) {
-        return new StateCombinator(nested.getArguments(), nested);
+    public static ForEachCombinator create(AggregateFunction nested) {
+        return new ForEachCombinator(nested.getArguments(), nested);
     }
 
     @Override
-    public StateCombinator withChildren(List<Expression> children) {
-        return new StateCombinator(children, nested);
+    public ForEachCombinator withChildren(List<Expression> children) {
+        return new ForEachCombinator(children, nested);
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
         return nested.getSignatures().stream().map(sig -> {
-            return sig.withReturnType(returnType);
+            return sig.withReturnType(ArrayType.of(sig.returnType)).withArgumentTypes(false,
+                    sig.argumentsTypes.stream().map(arg -> {
+                        return ArrayType.of(arg);
+                    }).collect(ImmutableList.toImmutableList()));
         }).collect(ImmutableList.toImmutableList());
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitStateCombinator(this, context);
+        return visitor.visitForEachCombinator(this, context);
     }
 
     @Override
     public DataType getDataType() {
-        return returnType;
+        return ArrayType.of(nested.getDataType(), nested.nullable());
     }
 
     public AggregateFunction getNestedFunction() {
         return nested;
+    }
+
+    @Override
+    public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
+        throw new UnsupportedOperationException("Unimplemented method 'withDistinctAndChildren'");
     }
 }
