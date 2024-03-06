@@ -1050,7 +1050,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Partition partition = olapTable.getPartition(info.getPartitionId());
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
-        Replica replica = tablet.getReplicaByBackendId(info.getBackendId());
+        Replica replica = tablet.getReplicaById(info.getReplicaId());
         Preconditions.checkNotNull(replica, info);
         replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRemoteDataSize(), info.getRowCount());
         replica.setBad(false);
