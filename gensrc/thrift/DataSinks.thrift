@@ -38,6 +38,7 @@ enum TDataSinkType {
     MULTI_CAST_DATA_STREAM_SINK,
     GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
     GROUP_COMMIT_BLOCK_SINK,
+    HIVE_TABLE_SINK,
 }
 
 enum TResultSinkType {

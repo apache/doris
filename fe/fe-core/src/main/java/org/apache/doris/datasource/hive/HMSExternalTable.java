@@ -784,6 +784,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
+    public Long getPartitionId(String partName) {
+        Map<String, Long> partitionNameToIdMap = getHivePartitionValues().getPartitionNameToIdMap();
+        return partitionNameToIdMap.get(partName);
+    }
+
     @Override
     public String getPartitionName(long partitionId) throws AnalysisException {
         Map<String, Long> partitionNameToIdMap = getHivePartitionValues().getPartitionNameToIdMap();

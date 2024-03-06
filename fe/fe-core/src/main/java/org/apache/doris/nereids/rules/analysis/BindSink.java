@@ -66,7 +66,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -377,12 +379,16 @@ public class BindSink implements AnalysisRuleFactory {
         List<Long> partitionIds = sink.getPartitions().isEmpty()
                 ? ImmutableList.of()
                 : sink.getPartitions().stream().map(pn -> {
-                    Partition partition = table.getPartition(pn);
-                    if (partition == null) {
+                    List<FieldSchema> partitionKeys = table.getRemoteTable().getPartitionKeys();
+                    Map<String, FieldSchema> partitionsMap = new HashMap<>();
+                    for (FieldSchema partitionKey : partitionKeys) {
+                        partitionsMap.put(partitionKey.getName(), partitionKey);
+                    }
+                    if (!partitionsMap.containsKey(pn)) {
                         throw new AnalysisException(String.format("partition %s is not found in table %s",
                                 pn, table.getName()));
                     }
-                    return partition.getId();
+                    return table.getPartitionId(pn);
                 }).collect(Collectors.toList());
 
         LogicalHiveTableSink<?> boundSink = new LogicalHiveTableSink<>(

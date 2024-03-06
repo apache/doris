@@ -26,6 +26,8 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.HiveTableSink;
@@ -34,7 +36,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
@@ -68,20 +69,17 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     public void beginTransaction() {
-
+        // TODO: use hive txn rather than internal txn
     }
 
     @Override
     protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
         HiveTableSink hiveTableSink = (HiveTableSink) sink;
-        // PhysicalHiveTableSink physicalHiveTableSink = (PhysicalHiveTableSink) physicalSink;
+        PhysicalHiveTableSink<? extends Plan> physicalHiveSink = (PhysicalHiveTableSink<? extends Plan>) physicalSink;
         try {
-            hiveTableSink.init();
+            hiveTableSink.init(physicalHiveSink.getCols(), physicalHiveSink.getPartitionIds());
             hiveTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
-            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
-            if (state == null) {
-                throw new AnalysisException("txn does not exist: " + txnId);
-            }
+            // TODO: end txn
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -140,6 +138,6 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void afterExec(StmtExecutor executor) {
-
+        // TODO: set THivePartitionUpdate
     }
 }

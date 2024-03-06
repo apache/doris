@@ -47,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -240,7 +239,7 @@ public class InsertUtils {
         }
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS) {
             if (unboundLogicalSink instanceof UnboundTableSink
-                && ((UnboundTableSink<? extends Plan>) unboundLogicalSink).isPartialUpdate()) {
+                    && ((UnboundTableSink<? extends Plan>) unboundLogicalSink).isPartialUpdate()) {
                 // check the necessary conditions for partial updates
                 OlapTable olapTable = (OlapTable) table;
                 if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {

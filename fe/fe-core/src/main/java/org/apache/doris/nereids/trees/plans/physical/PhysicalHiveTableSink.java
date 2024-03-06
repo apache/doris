@@ -82,6 +82,22 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         this.partitionIds = Utils.copyRequiredList(partitionIds);
     }
 
+    public HMSExternalDatabase getDatabase() {
+        return database;
+    }
+
+    public HMSExternalTable getTargetTable() {
+        return targetTable;
+    }
+
+    public List<Column> getCols() {
+        return cols;
+    }
+
+    public List<Long> getPartitionIds() {
+        return partitionIds;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs, groupExpression,
