@@ -894,6 +894,7 @@ CREATE CATALOG `jdbc_db2` PROPERTIES (
 | LONG VARGRAPHIC  | STRING       |       |
 | TIME             | STRING       |       |
 | CLOB             | STRING       |       |
+| XML              | STRING       |       |
 | OTHER            | UNSUPPORTED  |       |
 
 ## JDBC Driver 列表
