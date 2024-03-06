@@ -665,6 +665,7 @@ enum TFileType {
     FILE_S3,
     FILE_HDFS,
     FILE_NET,       // read file by network, such as http
+    FILE_KAFKA,
 }
 
 struct TTabletCommitInfo {
