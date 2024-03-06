@@ -475,7 +475,8 @@ Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& va
         RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_pos, ctx));
         vectorized::schema_util::finalize_variant_columns(block, variant_pos,
                                                           false /*not ingore sparse*/);
-        vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_pos);
+        RETURN_IF_ERROR(
+                vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_pos));
     } catch (const doris::Exception& e) {
         // TODO more graceful, max_filter_ratio
         LOG(WARNING) << "encounter execption " << e.to_string();
@@ -506,7 +507,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                 auto raw_column = vectorized::ColumnString::create();
                 for (size_t i = 0; i < var->rows(); ++i) {
                     std::string raw_str;
-                    var->serialize_one_row_to_string(i, &raw_str);
+                    static_cast<void>(var->serialize_one_row_to_string(i, &raw_str));
                     raw_column->insert_data(raw_str.c_str(), raw_str.size());
                 }
                 var->set_rowstore_column(raw_column->get_ptr());
@@ -578,7 +579,7 @@ void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
     }
 }
 
-void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos) {
+Status encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto& column_ref = block.get_by_position(variant_pos[i]).column->assume_mutable_ref();
         auto& column =
@@ -589,8 +590,9 @@ void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& vari
         // Make sure the root node is jsonb storage type
         auto expected_root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
         column.ensure_root_node_type(expected_root_type);
-        column.merge_sparse_to_root_column();
+        RETURN_IF_ERROR(column.merge_sparse_to_root_column());
     }
+    return Status::OK();
 }
 
 static void _append_column(const TabletColumn& parent_variant,
