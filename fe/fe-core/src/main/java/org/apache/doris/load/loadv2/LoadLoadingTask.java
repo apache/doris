@@ -146,6 +146,7 @@ public class LoadLoadingTask extends LoadTask {
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
         if (this.jobProfile != null) {
             this.jobProfile.setExecutionProfile(curCoordinator.getExecutionProfile());
+            curCoordinator.getQueryOptions().setEnableProfile(true);
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
