@@ -786,4 +786,9 @@ public class ExpressionUtils {
             }
         }, null);
     }
+
+    public static Expression replaceExpression(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
+        return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
+    }
+
 }

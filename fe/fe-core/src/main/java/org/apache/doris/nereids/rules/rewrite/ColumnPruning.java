@@ -151,9 +151,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         if (union.getQualifier() == Qualifier.DISTINCT) {
             return skipPruneThisAndFirstLevelChildren(union);
         }
-
-        LogicalUnion prunedOutputUnion = pruneOutput(union, union.getOutputs(), union::pruneOutputs, context);
-
+        LogicalUnion prunedOutputUnion = pruneUnionOutput(union, context);
         // start prune children of union
         List<Slot> originOutput = union.getOutput();
         Set<Slot> prunedOutput = prunedOutputUnion.getOutputSet();
@@ -300,6 +298,48 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return plan;
         } else {
             return withPrunedOutput.apply(prunedOutputs);
+        }
+    }
+
+    private LogicalUnion pruneUnionOutput(LogicalUnion union, PruneContext context) {
+        List<NamedExpression> originOutput = union.getOutputs();
+        if (originOutput.isEmpty()) {
+            return union;
+        }
+        List<NamedExpression> prunedOutputs = Lists.newArrayList();
+        List<List<NamedExpression>> constantExprsList = union.getConstantExprsList();
+        List<List<NamedExpression>> prunedConstantExprsList = Lists.newArrayList();
+        List<Integer> extractColumnIndex = Lists.newArrayList();
+        for (int i = 0; i < originOutput.size(); i++) {
+            NamedExpression output = originOutput.get(i);
+            if (context.requiredSlots.contains(output.toSlot())) {
+                prunedOutputs.add(output);
+                extractColumnIndex.add(i);
+            }
+        }
+        int len = extractColumnIndex.size();
+        for (List<NamedExpression> row : constantExprsList) {
+            ArrayList<NamedExpression> newRow = new ArrayList<>(len);
+            for (int idx : extractColumnIndex) {
+                newRow.add(row.get(idx));
+            }
+            prunedConstantExprsList.add(newRow);
+        }
+
+        if (prunedOutputs.isEmpty()) {
+            List<NamedExpression> candidates = Lists.newArrayList(originOutput);
+            candidates.retainAll(keys);
+            if (candidates.isEmpty()) {
+                candidates = originOutput;
+            }
+            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(candidates);
+            prunedOutputs = ImmutableList.of(minimumColumn);
+        }
+
+        if (prunedOutputs.equals(originOutput)) {
+            return union;
+        } else {
+            return union.withNewOutputsAndConstExprsList(prunedOutputs, prunedConstantExprsList);
         }
     }
 
