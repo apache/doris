@@ -27,9 +27,9 @@
 #include "olap/compaction.h"
 #include "olap/task/engine_checksum_task.h"
 #include "service/backend_options.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
-#include "util/doris_bvar_metrics.h"
 namespace doris {
 using namespace ErrorCode;
 

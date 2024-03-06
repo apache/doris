@@ -118,6 +118,8 @@ extern BvarAdderMetric<int64_t> g_adder_base_compaction_deltas_total;
 extern BvarAdderMetric<int64_t> g_adder_base_compaction_bytes_total;
 extern BvarAdderMetric<int64_t> g_adder_cumulative_compaction_deltas_total;
 extern BvarAdderMetric<int64_t> g_adder_cumulative_compaction_bytes_total;
+extern BvarAdderMetric<int64_t> g_adder_full_compaction_deltas_total;
+extern BvarAdderMetric<int64_t> g_adder_full_compaction_bytes_total;
 
 extern BvarAdderMetric<int64_t> g_adder_publish_task_request_total;
 extern BvarAdderMetric<int64_t> g_adder_publish_task_failed_total;

@@ -29,9 +29,9 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_meta.h"
 #include "service/backend_options.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
-#include "util/doris_bvar_metrics.h"
 #include "vec/columns/column.h"
 
 namespace doris {
