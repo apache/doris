@@ -87,9 +87,11 @@ suite("test_partition") {
     }
 
     //modify partition in_memory
-    test {
-        sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("in_memory"="true");"""
-        exception "Not support set 'in_memory'='true' now!"
+    if (!isCloudMode()) {
+        test {
+            sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("in_memory"="true");"""
+            exception "Not support set 'in_memory'='true' now!"
+        }
     }
 
     sql """DROP TABLE IF EXISTS ${tblName} FORCE; """
