@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.table.ActiveBeTasks;
 import org.apache.doris.nereids.trees.expressions.functions.table.ActiveQueries;
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
@@ -59,7 +60,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Jobs.class, "jobs"),
             tableValued(Tasks.class, "tasks"),
-            tableValued(WorkloadGroups.class, "workload_groups")
+            tableValued(WorkloadGroups.class, "workload_groups"),
+            tableValued(ActiveBeTasks.class, "active_be_tasks")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();
