@@ -59,7 +59,7 @@ excludeGroups = ""
 excludeSuites = "test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
 
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery,job_p0"
+excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery"
 
 customConf1 = "test_custom_conf_value"
 
@@ -109,6 +109,6 @@ s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
-max_failure_num=5
+max_failure_num=50
 
 externalEnvIp="127.0.0.1"
