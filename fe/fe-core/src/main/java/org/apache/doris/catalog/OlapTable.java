@@ -98,6 +98,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -2598,6 +2599,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         LOG.info("updateVisibleVersionAndTime, tableName: {}, visibleVersion, {}, visibleVersionTime: {}", name,
                 visibleVersion, visibleVersionTime);
         tableAttributes.updateVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+    }
+
+    public List<Integer> getBaseClusterKeyIdxes() {
+        Map<Integer, Integer> clusterKeyMap = new TreeMap<>();
+        for (int i = 0; i < getBaseSchema().size(); i++) {
+            Column column = getBaseSchema().get(i);
+            if (column.getClusterKeyId() != -1) {
+                clusterKeyMap.put(column.getClusterKeyId(), i);
+            }
+        }
+        return clusterKeyMap.values().stream().collect(Collectors.toList());
     }
 
     // During `getNextVersion` and `updateVisibleVersionAndTime` period,

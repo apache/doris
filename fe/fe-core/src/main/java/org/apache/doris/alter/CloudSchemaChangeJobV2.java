@@ -48,6 +48,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
@@ -182,20 +183,25 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
                 long originIndexId = indexIdMap.get(shadowIdxId);
                 KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
+                Map<Integer, Integer> clusterKeyMap = new TreeMap<>();
+                for (int i = 0; i < shadowSchema.size(); i++) {
+                    Column column = shadowSchema.get(i);
+                    if (column.getClusterKeyId() != -1) {
+                        clusterKeyMap.put(column.getClusterKeyId(), i);
+                    }
+                }
+                List<Integer> clusterKeyIdxes = clusterKeyMap.values().stream().collect(Collectors.toList());
 
                 Cloud.CreateTabletsRequest.Builder requestBuilder =
                         Cloud.CreateTabletsRequest.newBuilder();
                 for (Tablet shadowTablet : shadowIdx.getTablets()) {
                     OlapFile.TabletMetaCloudPB.Builder builder =
                             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                .createTabletMetaBuilder(tableId, shadowIdxId,
+                                .createTabletMetaBuilder(tbl, shadowIdxId,
                                 partitionId, shadowTablet, tbl.getPartitionInfo().getTabletType(partitionId),
                                 shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
-                                bfFpp, indexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
-                                tbl.getStoragePolicy(), tbl.isInMemory(), true,
-                                tbl.getName(), tbl.getTTLSeconds(),
-                                tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                shadowSchemaVersion);
+                                bfFpp, indexes, shadowSchema, tbl.getStoragePolicy(), tbl.isInMemory(), true,
+                                shadowSchemaVersion, clusterKeyIdxes);
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

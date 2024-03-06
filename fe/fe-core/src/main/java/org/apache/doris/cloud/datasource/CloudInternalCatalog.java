@@ -87,7 +87,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes)
+                                                   boolean isStorageMediumSpecified,
+                                                   List<Integer> baseClusterKeyIndexes)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -118,6 +119,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         long version = partition.getVisibleVersion();
 
+        long baseIndexId = tbl.getBaseIndexId();
+
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
@@ -138,11 +141,10 @@ public class CloudInternalCatalog extends InternalCatalog {
 
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             for (Tablet tablet : index.getTablets()) {
-                OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
+                OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl, indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
-                        bfColumns, tbl.getBfFpp(), tbl.getIndexes(), columns, tbl.getDataSortInfo(),
-                        tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
-                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion());
+                        bfColumns, tbl.getBfFpp(), tbl.getIndexes(), columns, storagePolicy, isInMemory,
+                        false, indexMeta.getSchemaVersion(), indexId == baseIndexId ? baseClusterKeyIndexes : null);
                 requestBuilder.addTabletMetas(builder);
             }
 
@@ -162,13 +164,18 @@ public class CloudInternalCatalog extends InternalCatalog {
         return partition;
     }
 
-    public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(long tableId, long indexId,
+    public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(OlapTable tbl, long indexId,
             long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
             short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
-            List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
-            String storagePolicy, boolean isInMemory, boolean isShadow,
-            String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
-            boolean storeRowColumn, int schemaVersion) throws DdlException {
+            List<Column> schemaColumns, String storagePolicy, boolean isInMemory, boolean isShadow,
+            int schemaVersion, List<Integer> clusterKeyIndexes) throws DdlException {
+        long tableId = tbl.getId();
+        DataSortInfo dataSortInfo = tbl.getDataSortInfo();
+        TCompressionType compressionType = tbl.getCompressionType();
+        String tableName = tbl.getName();
+        long ttlSeconds = tbl.getTTLSeconds();
+        boolean enableUniqueKeyMergeOnWrite = tbl.getEnableUniqueKeyMergeOnWrite();
+        boolean storeRowColumn = tbl.storeRowColumn();
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -199,6 +206,9 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         OlapFile.TabletSchemaCloudPB.Builder schemaBuilder = OlapFile.TabletSchemaCloudPB.newBuilder();
         schemaBuilder.setSchemaVersion(schemaVersion);
+        if (clusterKeyIndexes != null) {
+            schemaBuilder.addAllClusterKeyIdxes(clusterKeyIndexes);
+        }
 
         if (keysType == KeysType.DUP_KEYS) {
             schemaBuilder.setKeysType(OlapFile.KeysType.DUP_KEYS);
