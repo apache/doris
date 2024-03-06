@@ -358,6 +358,13 @@ INIT_INT64_G_ADDER_BVAR_METRIC(cumulative_compaction_deltas_total, BvarMetricTyp
 INIT_INT64_G_ADDER_BVAR_METRIC(cumulative_compaction_bytes_total, BvarMetricType::COUNTER,
                                BvarMetricUnit::BYTES, "", "compaction_bytes_total",
                                BvarMetric::Labels({{"type", "cumulative"}}), false);
+INIT_INT64_G_ADDER_BVAR_METRIC(full_compaction_deltas_total, BvarMetricType::COUNTER,
+                               BvarMetricUnit::ROWSETS, "", "compaction_deltas_total",
+                               BvarMetric::Labels({{"type", "base"}}), false);
+INIT_INT64_G_ADDER_BVAR_METRIC(full_compaction_bytes_total, BvarMetricType::COUNTER,
+                               BvarMetricUnit::BYTES, "", "compaction_bytes_total",
+                               BvarMetric::Labels({{"type", "base"}}), false);
+
 INIT_INT64_G_ADDER_BVAR_METRIC(publish_task_request_total, BvarMetricType::COUNTER,
                                BvarMetricUnit::REQUESTS, "", "engine_requests_total",
                                BvarMetric::Labels({{"type", "publish"}, {"status", "total"}}),

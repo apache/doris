@@ -459,11 +459,9 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
 
     if (max_compaction_score > 0) {
         if (compaction_type == CompactionType::BASE_COMPACTION) {
-            g_adder_tablet_base_max_compaction_score->set_value(
-                    max_compaction_score);
+            g_adder_tablet_base_max_compaction_score.set_value(max_compaction_score);
         } else {
-            g_adder_tablet_cumulative_max_compaction_score->set_value(
-                    max_compaction_score);
+            g_adder_tablet_cumulative_max_compaction_score.set_value(max_compaction_score);
         }
     }
 

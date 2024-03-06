@@ -27,9 +27,9 @@
 #include "olap/compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "service/backend_options.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/trace.h"
 #include "util/uuid_generator.h"
-#include "util/doris_bvar_metrics.h"
 namespace doris {
 using namespace ErrorCode;
 
