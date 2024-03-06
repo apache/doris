@@ -88,7 +88,7 @@ public class InPredicate extends Expression {
         }
 
         if (children().get(0).getDataType().isArrayType()) {
-            // we should check in value list is all struct type
+            // we should check in value list is all list type
             for (int i = 1; i < children().size(); i++) {
                 if (!children().get(i).getDataType().isArrayType() && !children().get(i).getDataType().isNullType()) {
                     throw new AnalysisException("in predicate list should compare with struct type list, but got : "

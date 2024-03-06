@@ -1158,10 +1158,10 @@ public class TypeCoercionUtils {
     /**
      * get common type for comparison.
      * in legacy planner, comparison predicate convert int vs string to double.
-     * however, in predicate and between predicate convert int vs string to string
-     * but after between rewritten to comparison predicate,
-     * int vs string been convert to double again
-     * so, in Nereids, only in predicate set this flag to true.
+     *   however, in predicate and between predicate convert int vs string to string
+     *   but after between rewritten to comparison predicate,
+     *   int vs string been convert to double again
+     *   so, in Nereids, only in predicate set this flag to true.
      */
     private static Optional<DataType> findCommonPrimitiveTypeForComparison(
             DataType leftType, DataType rightType, boolean intStringToString) {
