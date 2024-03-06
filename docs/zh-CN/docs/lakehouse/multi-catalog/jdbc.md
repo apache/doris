@@ -196,11 +196,11 @@ JDBC Catalog 对于外部表大小写的映射规则存在如下三个阶段：
 
 * Doris 2.1.0 以及之后版本：
 
-    为了避免和 FE conf 的 `lower_case_table_names` 参数混淆，此配置名改为 `lower_case_meta_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.4 ，需要 `Refresh <catalog_name>` 才能生效。
+    为了避免和 FE conf 的 `lower_case_table_names` 参数混淆，此配置名改为 `lower_case_meta_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.1.0 ，需要 `Refresh <catalog_name>` 才能生效。
 
     具体规则参考本小节开始对于 `lower_case_meta_names` 的介绍。
 
-    此前设置过 JDBC Catalog `lower_case_table_names` 参数的用户会在升级到 2.0.4 时，自动将 `lower_case_table_names` 转换为 `lower_case_meta_names`。
+    此前设置过 JDBC Catalog `lower_case_table_names` 参数的用户会在升级到 2.1.0 时，自动将 `lower_case_table_names` 转换为 `lower_case_meta_names`。
 
 ### 指定同步数据库
 
@@ -614,6 +614,7 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 | char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                              |
 | binary/varbinary                       | STRING        |                                                              |
 | time/datetimeoffset                    | STRING        |                                                              |
+| timestamp                              | STRING        | 读取二进制数据的十六进制显示，无实际意义                            |
 | Other                                  | UNSUPPORTED   |                                                              |
 
 ### Doris
