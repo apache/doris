@@ -24,6 +24,18 @@ suite("test_analyze_triggered_by_update_row_count_streamload") {
 
     String db = "test_analyze_triggered_by_update_row_count"
 
+    sql """
+        DROP DATABASE IF EXISTS `${db}`
+    """
+
+    sql """
+        CREATE DATABASE `${db}`
+    """
+
+    sql """
+        USE `${db}`
+    """
+
     String tbl = "analyzetestlimited_agg_streamload"
 
     sql "show tables"
