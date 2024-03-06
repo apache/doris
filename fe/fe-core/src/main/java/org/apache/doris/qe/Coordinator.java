@@ -642,7 +642,7 @@ public class Coordinator implements CoordInterface {
 
     private void execInternal() throws Exception {
         LOG.debug("query id: {}, memtableonsinknode: {}", DebugUtil.printId(queryId),
-                  queryOptions.isMemTableOnSinkNode();
+                  queryOptions.isMemTableOnSinkNode());
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
