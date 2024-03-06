@@ -76,6 +76,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -246,6 +247,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     long originIndexId = indexIdMap.get(shadowIdxId);
                     int originSchemaHash = tbl.getSchemaHashByIndexId(originIndexId);
                     KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
+                    Map<Integer, Integer> clusterKeyMap = new TreeMap<>();
+                    for (int i = 0; i < shadowSchema.size(); i++) {
+                        Column column = shadowSchema.get(i);
+                        if (column.getClusterKeyId() != -1) {
+                            clusterKeyMap.put(column.getClusterKeyId(), i);
+                        }
+                    }
+                    List<Integer> clusterKeyIdxes = clusterKeyMap.values().stream().collect(Collectors.toList());
 
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {
                         long shadowTabletId = shadowTablet.getId();
@@ -281,6 +290,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
+                            createReplicaTask.setClusterKeyIndexes(clusterKeyIdxes);
 
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
