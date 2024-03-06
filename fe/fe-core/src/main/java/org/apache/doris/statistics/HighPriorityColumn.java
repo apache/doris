@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.thrift.TQueryColumn;
+
 import java.util.Objects;
 
 public class HighPriorityColumn {
@@ -51,5 +53,14 @@ public class HighPriorityColumn {
             && this.dbId == otherCriticalColumn.dbId
             && this.tblId == otherCriticalColumn.tblId
             && this.colName.equals(otherCriticalColumn.colName);
+    }
+
+    public TQueryColumn toThrift() {
+        TQueryColumn tQueryColumn = new TQueryColumn();
+        tQueryColumn.catalogId = catalogId;
+        tQueryColumn.dbId = dbId;
+        tQueryColumn.tblId = tblId;
+        tQueryColumn.colName = colName;
+        return tQueryColumn;
     }
 }
