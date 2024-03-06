@@ -94,7 +94,7 @@ public:
     bool need_more_input_data(RuntimeState* state) const override;
 
     DataDistribution required_data_distribution() const override {
-        if (_needs_finalize) {
+        if (_needs_finalize || !_probe_expr_ctxs.empty()) {
             return _is_colocate
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
