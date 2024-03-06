@@ -1077,7 +1077,7 @@ Status VScanNode::_normalize_binary_in_compound_predicate(vectorized::VExpr* exp
         auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
         auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
         auto noneq_checker = [](const std::string& fn_name) {
-            return fn_name != "ne" && fn_name != "eq";
+            return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";
         };
 
         StringRef value;
