@@ -55,6 +55,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.DropCatalogRecycleBinStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
@@ -3114,6 +3115,10 @@ public class Env {
 
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverPartition(recoverStmt);
+    }
+
+    public void dropCatalogRecycleBin(DropCatalogRecycleBinStmt dropStmt) throws DdlException {
+        getInternalCatalog().dropCatalogRecycleBin(dropStmt);
     }
 
     public void replayEraseDatabase(long dbId) throws DdlException {

@@ -34,6 +34,7 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.DropCatalogRecycleBinStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
@@ -705,6 +706,19 @@ public class InternalCatalog implements CatalogIf<Database> {
                     recoverStmt.getPartitionId(), newPartitionName);
         } finally {
             olapTable.writeUnlock();
+        }
+    }
+
+    public void dropCatalogRecycleBin(DropCatalogRecycleBinStmt dropStmt) throws DdlException {
+        if (dropStmt.getIdType().equals("'DbId'")) {
+            Env.getCurrentRecycleBin().eraseDatabaseInstantly(dropStmt.getDbId());
+            LOG.info("drop database[{}] in catalog recycle bin", dropStmt.getDbId());
+        } else if (dropStmt.getIdType().equals("'TableId'")) {
+            Env.getCurrentRecycleBin().eraseTableInstantly(dropStmt.getTableId());
+            LOG.info("drop table[{}] in catalog recycle bin", dropStmt.getTableId());
+        } else if (dropStmt.getIdType().equals("'PartitionId'")) {
+            Env.getCurrentRecycleBin().erasePartitionInstantly(dropStmt.getPartitionId());
+            LOG.info("drop partition[{}] in catalog recycle bin", dropStmt.getPartitionId());
         }
     }
 
