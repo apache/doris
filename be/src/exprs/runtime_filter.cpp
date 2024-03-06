@@ -446,7 +446,8 @@ public:
     }
 
     Status get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                          std::vector<vectorized::VExprSPtr>& push_exprs, const TExpr& probe_expr);
+                          std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
+                          const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
         bool can_not_merge_in_or_bloom =
@@ -1050,14 +1051,23 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                                          std::vector<vectorized::VExprSPtr>& push_exprs,
+                                          std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
+    auto origin_size = push_exprs.size();
     if (!_wrapper->is_ignored()) {
         _set_push_down(!is_late_arrival);
         RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
     _profile->add_info_string("Info", _format_status());
+    // The runtime filter is pushed down, adding filtering information.
+    auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
+    auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
+    auto* always_true_counter = ADD_COUNTER(_profile, "always_true", TUnit::UNIT);
+    for (auto i = origin_size; i < push_exprs.size(); i++) {
+        push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
+                                              always_true_counter);
+    }
     return Status::OK();
 }
 
@@ -1706,9 +1716,9 @@ void IRuntimeFilter::update_filter(RuntimePredicateWrapper* wrapper, int64_t mer
     this->signal();
 }
 
-Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                                               std::vector<vectorized::VExprSPtr>& container,
-                                               const TExpr& probe_expr) {
+Status RuntimePredicateWrapper::get_push_exprs(
+        std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+        std::vector<vectorized::VRuntimeFilterPtr>& container, const TExpr& probe_expr) {
     vectorized::VExprContextSPtr probe_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
     probe_ctxs.push_back(probe_ctx);
