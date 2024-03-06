@@ -242,7 +242,8 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(TNetworkAddress address,
-            PlanFragmentId fragmentId, TUniqueId queryId, Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
+            PlanFragmentId fragmentId, TUniqueId queryId,
+            Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
                 .newBuilder()
                 .setFinstId(Types.PUniqueId.newBuilder().setHi(0).setLo(0).build())
