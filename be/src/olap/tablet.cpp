@@ -423,6 +423,12 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
     if (!calc_bm_status.ok()) {
         if (is_incremental_clone) {
             delete_rowsets(to_add, false);
+            LOG(WARNING) << "incremental clone on tablet: " << tablet_id() << " failed due to "
+                         << calc_bm_status.msg() << ", revert " << to_add.size()
+                         << " rowsets added before.";
+        } else {
+            LOG(WARNING) << "full clone on tablet: " << tablet_id() << " failed due to "
+                         << calc_bm_status.msg() << ", will not update tablet meta.";
         }
         return calc_bm_status;
     }
@@ -442,6 +448,14 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             auto st = capture_consistent_rowsets_unlocked(full_version, &expected_rowsets);
             DCHECK(st.ok()) << st;
             DCHECK_EQ(base_rowsets_for_full_clone.size(), expected_rowsets.size());
+            if (st.ok() && base_rowsets_for_full_clone.size() != expected_rowsets.size())
+                    [[unlikely]] {
+                LOG(WARNING) << "full clone succeeded, but the count("
+                             << base_rowsets_for_full_clone.size()
+                             << ") of base rowsets used for delete bitmap calculation is not match "
+                                "expect count("
+                             << expected_rowsets.size() << ") we capture from tablet meta";
+            }
         }
     }
 
