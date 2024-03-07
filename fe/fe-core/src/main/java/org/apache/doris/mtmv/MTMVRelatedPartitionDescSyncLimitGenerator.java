@@ -18,16 +18,18 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.common.AnalysisException;
+
+import java.util.Map;
+import java.util.Set;
 
 /**
- * Interface for materialized view partitioning function
+ * Only focus on partial partitions of related tables
  */
-public interface MTMVPartitionExprService {
+public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPartitionDescGeneratorService {
 
-    String getRollUpIdentity(PartitionKeyDesc partitionKeyDesc) throws AnalysisException;
-
-    PartitionKeyDesc generateRollUpPartitionKeyDesc(
-            PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo)
-            throws AnalysisException;
+    @Override
+    public Map<PartitionKeyDesc, Set<Long>> apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> descs,
+            Map<PartitionKeyDesc, Set<Long>> lastResult) {
+        return lastResult;
+    }
 }

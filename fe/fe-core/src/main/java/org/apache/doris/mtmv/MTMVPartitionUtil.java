@@ -27,13 +27,13 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -56,6 +56,14 @@ public class MTMVPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPartitionUtil.class);
     private static final Pattern PARTITION_NAME_PATTERN = Pattern.compile("[^a-zA-Z0-9,]");
     private static final String PARTITION_NAME_PREFIX = "p_";
+
+    private static final List<MTMVRelatedPartitionDescGeneratorService> partitionDescGenerators = ImmutableList
+            .of(
+                    // It is necessary to maintain this order
+                    new MTMVRelatedPartitionDescOnePartitionColGenerator(),
+                    new MTMVRelatedPartitionDescSyncLimitGenerator(),
+                    new MTMVRelatedPartitionDescRollUpGenerator()
+            );
 
     /**
      * Determine whether the partition is sync with retated partition and other baseTables
@@ -97,7 +105,8 @@ public class MTMVPartitionUtil {
     public static void alignMvPartition(MTMV mtmv)
             throws DdlException, AnalysisException {
         Map<Long, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
-        Set<PartitionKeyDesc> relatedPartitionDescs = mtmv.generateRelatedPartitionDescs().keySet();
+        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
+                mtmv.getMvProperties()).keySet();
         // drop partition of mtmv
         for (Entry<Long, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
             if (!relatedPartitionDescs.contains(entry.getValue())) {
@@ -122,13 +131,12 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(
-            Map<String, String> tableProperties, MTMVPartitionInfo mvPartitionInfo) throws AnalysisException {
+            Map<String, String> tableProperties, MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties)
+            throws AnalysisException {
         List<AllPartitionDesc> res = Lists.newArrayList();
-        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return res;
-        }
         HashMap<String, String> partitionProperties = Maps.newHashMap();
-        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mvPartitionInfo).keySet();
+        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mvPartitionInfo, mvProperties)
+                .keySet();
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
                     generatePartitionName(partitionKeyDesc),
@@ -140,26 +148,13 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    public static Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo)
-            throws AnalysisException {
-        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return Maps.newHashMap();
+    public static Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
+            Map<String, String> mvProperties) throws AnalysisException {
+        Map<PartitionKeyDesc, Set<Long>> lastResult = Maps.newHashMap();
+        for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
+            lastResult = service.apply(mvPartitionInfo, mvProperties, lastResult);
         }
-        Map<PartitionKeyDesc, Set<Long>> res = new HashMap<>();
-        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems();
-        int relatedColPos = mvPartitionInfo.getRelatedColPos();
-        for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
-            PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
-            if (res.containsKey(partitionKeyDesc)) {
-                res.get(partitionKeyDesc).add(entry.getKey());
-            } else {
-                res.put(partitionKeyDesc, Sets.newHashSet(entry.getKey()));
-            }
-        }
-        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
-            res = MTMVExprUtil.rollUp(res, mvPartitionInfo);
-        }
-        return res;
+        return lastResult;
     }
 
     public static List<String> getPartitionNamesByIds(MTMV mtmv, Collection<Long> ids) throws AnalysisException {

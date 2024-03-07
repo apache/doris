@@ -109,7 +109,6 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             DateTimeLiteral endTime, Type partitionColumnType) throws AnalysisException {
         String beginTimeStr;
         String endTimeStr;
-        // maybe need check the range in FE also, like getAddPartitionClause.
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
             beginTimeStr = String.format(PartitionExprUtil.DATE_FORMATTER, beginTime.getYear(), beginTime.getMonth(),
                     beginTime.getDay());
