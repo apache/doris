@@ -187,7 +187,7 @@ public class MaterializationContext {
     /**
      * toString, this contains summary and detail info.
      */
-    public static String toString(List<MaterializationContext> materializationContexts) {
+    public static String toDetailString(List<MaterializationContext> materializationContexts) {
         StringBuilder builder = new StringBuilder();
         builder.append("materializationContexts:").append("\n");
         for (MaterializationContext ctx : materializationContexts) {
@@ -209,6 +209,22 @@ public class MaterializationContext {
                 .collect(Collectors.toSet());
         StringBuilder builder = new StringBuilder();
         builder.append("\nMaterializedView");
+        // rewrite success and chosen
+        builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
+        if (!materializationChosenNameSet.isEmpty()) {
+            builder.append("  Names: ").append(String.join(", ", materializationChosenNameSet));
+        }
+        // rewrite success but not chosen
+        builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
+        Set<String> rewriteSuccessButNotChoseNameSet = materializationContexts.stream()
+                .filter(materializationContext -> materializationContext.isSuccess()
+                        && !materializationChosenNameSet.contains(materializationContext.getMTMV().getName()))
+                .map(materializationContext -> materializationContext.getMTMV().getName())
+                .collect(Collectors.toSet());
+        if (!rewriteSuccessButNotChoseNameSet.isEmpty()) {
+            builder.append("  Names: ").append(String.join(", ", rewriteSuccessButNotChoseNameSet));
+        }
+        // rewrite fail
         builder.append("\nMaterializedViewRewriteFail:");
         for (MaterializationContext ctx : materializationContexts) {
             if (!ctx.isSuccess()) {
@@ -220,14 +236,6 @@ public class MaterializationContext {
                         .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
         }
-        builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
-        builder.append("  Names: ").append(materializationContexts.stream()
-                .filter(materializationContext -> materializationContext.isSuccess()
-                        && !materializationChosenNameSet.contains(materializationContext.getMTMV().getName()))
-                .map(materializationContext -> materializationContext.getMTMV().getName())
-                .collect(Collectors.joining(", ")));
-        builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
-        builder.append("  Names: ").append(String.join(", ", materializationChosenNameSet));
         return builder.toString();
     }
 
