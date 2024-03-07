@@ -67,6 +67,9 @@ public:
     // used for workload scheduler policy
     void get_metric_map(std::string query_id,
                         std::map<WorkloadMetricType, std::string>& metric_map);
+    
+    // used for tvf active_queries
+    std::vector<TRow> get_active_be_tasks_statistics(std::vector<std::string> filter_columns);
 
 private:
     std::shared_mutex _qs_ctx_map_lock;
