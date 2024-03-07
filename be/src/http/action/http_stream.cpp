@@ -294,6 +294,10 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     TStreamLoadPutRequest request;
     if (http_req != nullptr) {
         request.__set_load_sql(http_req->header(HTTP_SQL));
+        if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
+            bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
+            request.__set_memtable_on_sink_node(value);
+        }
     } else {
         request.__set_token(ctx->auth.token);
         request.__set_load_sql(ctx->sql_str);
