@@ -109,7 +109,9 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
     qt_sql "select * from ${tbName1} where value2=2 order by k1;"
 
     // test alter light schema change by the way
-    sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+    if (!isCloudMode()) {
+        sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+    }
 
     // delete value3 = 2
     sql "delete from ${tbName1} where k1 = 2;"

@@ -273,7 +273,7 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (is_pop) {
             this->data(place).add(columns[0], columns[1], row_num);

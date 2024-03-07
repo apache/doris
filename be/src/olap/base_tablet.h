@@ -35,6 +35,7 @@ struct RowsetWriterContext;
 class RowsetWriter;
 class CalcDeleteBitmapToken;
 class SegmentCacheHandle;
+class RowIdConversion;
 
 struct TabletWithVersion {
     BaseTabletSPtr tablet;
@@ -215,6 +216,22 @@ public:
                                       DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                                       const RowsetIdUnorderedSet& cur_rowset_ids) = 0;
     virtual CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() = 0;
+
+    void calc_compaction_output_rowset_delete_bitmap(
+            const std::vector<RowsetSharedPtr>& input_rowsets,
+            const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            std::set<RowLocation>* missed_rows,
+            std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
+            const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap);
+
+    Status check_rowid_conversion(
+            RowsetSharedPtr dst_rowset,
+            const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
+                    location_map);
+
+    static Status update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
+                                                    const RowsetSharedPtr& rowset);
+
     ////////////////////////////////////////////////////////////////////////////
     // end MoW functions
     ////////////////////////////////////////////////////////////////////////////

@@ -47,7 +47,7 @@ public class ActiveQueries extends TableValuedFunction {
             Map<String, String> arguments = getTVFProperties().getMap();
             return new ActiveQueriesTableValuedFunction(arguments);
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build FrontendsTableValuedFunction by "
+            throw new AnalysisException("Can not build ActiveQueriesTableValuedFunction by "
                     + this + ": " + t.getMessage(), t);
         }
     }

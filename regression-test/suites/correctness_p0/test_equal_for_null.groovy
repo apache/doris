@@ -47,4 +47,5 @@ suite("test_equal_for_null") {
     """
 
     qt_select " select * from `test_equal_for_null_tbl` where `k1` <=> 4 order by 1, 2, 3, 4; "
+    qt_select " select * from `test_equal_for_null_tbl` where `k1` <=> 4 or `k1` <=> 3 order by 1, 2, 3, 4; "
 }
