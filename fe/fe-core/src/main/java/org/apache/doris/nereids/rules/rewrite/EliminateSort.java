@@ -29,7 +29,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Eliminate sort that is not directly below result sink,
+ * Eliminate sort that is not directly below result sink, if there is project between result sink and sort,
+ * the sort will not be eliminated.
  * Note we have put limit in sort node so that we don't need to consider limit
  */
 
