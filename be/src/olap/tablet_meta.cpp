@@ -459,7 +459,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
     string meta_binary;
 
     auto t1 = MonotonicMicros();
-    RETURN_IF_ERROR(serialize(&meta_binary));
+    serialize(&meta_binary);
     auto t2 = MonotonicMicros();
     Status status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (!status.ok()) {
@@ -476,7 +476,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
     return status;
 }
 
-Status TabletMeta::serialize(string* meta_binary) {
+void TabletMeta::serialize(string* meta_binary) {
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);
     if (tablet_meta_pb.partition_id() <= 0) {
@@ -493,7 +493,6 @@ Status TabletMeta::serialize(string* meta_binary) {
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << tablet_id();
     }
-    return Status::OK();
 }
 
 Status TabletMeta::deserialize(const string& meta_binary) {
