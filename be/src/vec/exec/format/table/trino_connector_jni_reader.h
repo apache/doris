@@ -42,12 +42,6 @@ struct TypeDescriptor;
 
 namespace doris::vectorized {
 
-/**
- * The demo usage of JniReader, showing how to read data from java scanner.
- * The java side is also a mock reader that provide values for each type.
- * This class will only be retained during the functional testing phase to verify that
- * the communication and data exchange with the jvm are correct.
- */
 class TrinoConnectorJniReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(TrinoConnectorJniReader);
 
@@ -68,10 +62,10 @@ public:
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 private:
+    Status _set_spi_plugins_dir();
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state;
     RuntimeProfile* _profile;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::unique_ptr<JniConnector> _jni_connector;
 };
 } // namespace doris::vectorized

@@ -17,6 +17,8 @@
 
 package org.apache.doris.trinoconnector;
 
+import org.apache.doris.common.EnvUtils;
+
 import com.google.common.util.concurrent.MoreExecutors;
 import io.trino.FeaturesConfig;
 import io.trino.metadata.HandleResolver;
@@ -31,38 +33,43 @@ import java.io.File;
 
 public class PluginLoader {
     private static final Logger LOG = LogManager.getLogger(PluginLoader.class);
-    private FeaturesConfig featuresConfig;
-    private TrinoConnectorPluginManager trinoConnectorPluginManager;
 
-    public void loadSpiPlugins(String pluginsDir) {
-        File trinoConnectorPluginsDir = new File(pluginsDir);
-        if (!trinoConnectorPluginsDir.exists()) {
-            LOG.warn("trino_connector_plugin_dir=" + pluginsDir + " is not found.");
-            return;
-        } else if (trinoConnectorPluginsDir.isFile()) {
-            LOG.warn("trino_connector_plugin_dir must be a directory, not a file.");
-            return;
+    private static String pluginsDir = EnvUtils.getDorisHome() + "/connectors";
+
+    private static class TrinoConnectorPluginLoad {
+        private static FeaturesConfig featuresConfig = new FeaturesConfig();
+        private static TrinoConnectorPluginManager trinoConnectorPluginManager;
+
+        static {
+            try {
+                TypeOperators typeOperators = new TypeOperators();
+                featuresConfig = new FeaturesConfig();
+                TypeRegistry typeRegistry = new TypeRegistry(typeOperators, featuresConfig);
+
+                ServerPluginsProviderConfig serverPluginsProviderConfig = new ServerPluginsProviderConfig()
+                        .setInstalledPluginsDir(new File(pluginsDir));
+                ServerPluginsProvider serverPluginsProvider = new ServerPluginsProvider(serverPluginsProviderConfig,
+                        MoreExecutors.directExecutor());
+                HandleResolver handleResolver = new HandleResolver();
+                trinoConnectorPluginManager = new TrinoConnectorPluginManager(serverPluginsProvider,
+                        typeRegistry, handleResolver);
+                trinoConnectorPluginManager.loadPlugins();
+            } catch (Exception e) {
+                LOG.warn("Failed load trino-connector plugins from  " + pluginsDir + ", Exception:" + e.getMessage());
+            }
         }
-
-        TypeOperators typeOperators = new TypeOperators();
-        this.featuresConfig = new FeaturesConfig();
-        TypeRegistry typeRegistry = new TypeRegistry(typeOperators, featuresConfig);
-
-        ServerPluginsProviderConfig serverPluginsProviderConfig = new ServerPluginsProviderConfig()
-                .setInstalledPluginsDir(trinoConnectorPluginsDir);
-        ServerPluginsProvider serverPluginsProvider = new ServerPluginsProvider(serverPluginsProviderConfig,
-                MoreExecutors.directExecutor());
-        HandleResolver handleResolver = new HandleResolver();
-        this.trinoConnectorPluginManager = new TrinoConnectorPluginManager(serverPluginsProvider,
-                typeRegistry, handleResolver);
-        trinoConnectorPluginManager.loadPlugins();
     }
 
-    public TrinoConnectorPluginManager getTrinoConnectorPluginManager() {
-        return trinoConnectorPluginManager;
+    // called by c++
+    public static void setPluginsDir(String pluginsDir) {
+        PluginLoader.pluginsDir = pluginsDir;
     }
 
-    public FeaturesConfig getFeaturesConfig() {
-        return featuresConfig;
+    public static TrinoConnectorPluginManager getTrinoConnectorPluginManager() {
+        return TrinoConnectorPluginLoad.trinoConnectorPluginManager;
+    }
+
+    public static FeaturesConfig getFeaturesConfig() {
+        return TrinoConnectorPluginLoad.featuresConfig;
     }
 }

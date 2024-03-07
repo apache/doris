@@ -172,7 +172,6 @@ jmethodID JniUtil::get_jvm_metrics_id_ = nullptr;
 jmethodID JniUtil::get_jvm_threads_id_ = nullptr;
 jmethodID JniUtil::get_jmx_json_ = nullptr;
 jobject JniUtil::jni_scanner_loader_obj_ = nullptr;
-jobject JniUtil::plugin_loader_obj_ = nullptr;
 jmethodID JniUtil::jni_scanner_loader_method_ = nullptr;
 
 Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) {
@@ -393,47 +392,6 @@ Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
     return Status::OK();
 }
 
-Status JniUtil::_load_spi_plugins(JNIEnv* env) {
-    // get PluginLoader class
-    jclass plugin_loader_cls;
-    std::string plugin_loader_str = "org/apache/doris/trinoconnector/PluginLoader";
-    // RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, plugin_loader_str.c_str(), &plugin_loader_cls));
-    RETURN_IF_ERROR(
-            JniUtil::get_jni_scanner_class(env, plugin_loader_str.c_str(), &plugin_loader_cls));
-    if (!plugin_loader_cls) {
-        if (env->ExceptionOccurred()) {
-            env->ExceptionDescribe();
-        }
-        return Status::InternalError("Fail to get JniScanner class.");
-    }
-    RETURN_ERROR_IF_EXC(env);
-
-    // get method: <init>
-    jmethodID plugin_loader_constructor = env->GetMethodID(plugin_loader_cls, "<init>", "()V");
-    RETURN_ERROR_IF_EXC(env);
-    // get method: loadSpiPlugins(String pluginsDir)
-    jmethodID load_spi_plugins_method =
-            env->GetMethodID(plugin_loader_cls, "loadSpiPlugins", "(Ljava/lang/String;)V");
-    RETURN_ERROR_IF_EXC(env);
-
-    // call: new PluginLoader()
-    plugin_loader_obj_ = env->NewObject(plugin_loader_cls, plugin_loader_constructor);
-    RETURN_ERROR_IF_EXC(env);
-    if (!plugin_loader_obj_) {
-        if (env->ExceptionOccurred()) {
-            env->ExceptionDescribe();
-        }
-        return Status::InternalError("Failed to create PluginLoader object.");
-    }
-    // call: loadSpiPlugins(String pluginsDir)
-    jstring trino_connector_plugin_path =
-            env->NewStringUTF(doris::config::trino_connector_plugin_dir.c_str());
-    env->CallVoidMethod(plugin_loader_obj_, load_spi_plugins_method, trino_connector_plugin_path);
-    RETURN_ERROR_IF_EXC(env);
-
-    return Status::OK();
-}
-
 Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,
                                       jclass* jni_scanner_class) {
     // Get JNI scanner class by class name;
@@ -561,7 +519,6 @@ Status JniUtil::Init() {
         return Status::InternalError("Failed to find JniUtil.getJMXJson method.");
     }
     RETURN_IF_ERROR(init_jni_scanner_loader(env));
-    RETURN_IF_ERROR(_load_spi_plugins(env));
     jvm_inited_ = true;
     return Status::OK();
 }

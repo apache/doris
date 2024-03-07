@@ -53,8 +53,8 @@ public class TrinoConnectorPluginLoader {
                         typeRegistry, handleResolver);
                 trinoConnectorPluginManager.loadPlugins();
             } catch (Exception e) {
-                LOG.warn("Exception when load trino-connector plugins from  " + Config.trino_connector_plugin_dir);
-                LOG.warn("Exception when load trino-connector plugins: " + e.getMessage());
+                LOG.warn("Failed load trino-connector plugins from  " + Config.trino_connector_plugin_dir
+                        + ", Exception:" + e.getMessage());
             }
         }
     }

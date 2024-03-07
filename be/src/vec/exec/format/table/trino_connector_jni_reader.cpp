@@ -22,6 +22,7 @@
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
+#include "util/jni-util.h"
 #include "vec/core/types.h"
 
 namespace doris {
@@ -76,8 +77,8 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
 
 Status TrinoConnectorJniReader::init_reader(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
+    RETURN_IF_ERROR(_set_spi_plugins_dir());
     return _jni_connector->open(_state, _profile);
 }
 
@@ -97,4 +98,36 @@ Status TrinoConnectorJniReader::get_columns(
     }
     return Status::OK();
 }
+
+Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    // get PluginLoader class
+    jclass plugin_loader_cls;
+    std::string plugin_loader_str = "org/apache/doris/trinoconnector/PluginLoader";
+    RETURN_IF_ERROR(
+            JniUtil::get_jni_scanner_class(env, plugin_loader_str.c_str(), &plugin_loader_cls));
+    if (!plugin_loader_cls) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::InternalError("Fail to get JniScanner class.");
+    }
+    RETURN_ERROR_IF_EXC(env);
+
+    // get method: setPluginsDir(String pluginsDir)
+    jmethodID set_plugins_dir_method =
+            env->GetStaticMethodID(plugin_loader_cls, "setPluginsDir", "(Ljava/lang/String;)V");
+    RETURN_ERROR_IF_EXC(env);
+
+    // call: setPluginsDir(String pluginsDir)
+    jstring trino_connector_plugin_path =
+            env->NewStringUTF(doris::config::trino_connector_plugin_dir.c_str());
+    env->CallStaticVoidMethod(plugin_loader_cls, set_plugins_dir_method,
+                              trino_connector_plugin_path);
+    RETURN_ERROR_IF_EXC(env);
+
+    return Status::OK();
+}
+
 } // namespace doris::vectorized

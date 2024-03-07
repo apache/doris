@@ -66,8 +66,6 @@ public:
     static Status GetJniExceptionMsg(JNIEnv* env, bool log_stack = true,
                                      const std::string& prefix = "") WARN_UNUSED_RESULT;
 
-    static jobject getPluginLoaderObj() { return plugin_loader_obj_; }
-
     static jclass jni_util_class() { return jni_util_cl_; }
     static jmethodID throwable_to_stack_trace_id() { return throwable_to_stack_trace_id_; }
 
@@ -83,7 +81,6 @@ public:
 private:
     static Status GetJNIEnvSlowPath(JNIEnv** env);
     static Status init_jni_scanner_loader(JNIEnv* env);
-    static Status _load_spi_plugins(JNIEnv* env);
 
     static bool jvm_inited_;
     static jclass internal_exc_cl_;
@@ -96,7 +93,6 @@ private:
     static jmethodID get_jmx_json_;
     // JNI scanner loader
     static jobject jni_scanner_loader_obj_;
-    static jobject plugin_loader_obj_;
     static jmethodID jni_scanner_loader_method_;
     // Thread-local cache of the JNIEnv for this thread.
     static __thread JNIEnv* tls_env_;
