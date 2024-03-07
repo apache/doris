@@ -70,7 +70,8 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
             .add(WorkloadGroup.MAX_CONCURRENCY).add(WorkloadGroup.MAX_QUEUE_SIZE)
             .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
-            .add(WorkloadGroup.SCAN_THREAD_NUM)
+            .add(WorkloadGroup.SCAN_THREAD_NUM).add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
+            .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
             .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
@@ -135,6 +136,13 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public WorkloadGroupMgr() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(WorkloadGroup.CPU_SHARE, "1024");
+        properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+        WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(1, DEFAULT_GROUP_NAME, properties);
+        nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
+        idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
     }
 
     public static WorkloadGroupMgr read(DataInput in) throws IOException {
@@ -156,12 +164,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    public void init() {
-        if (Config.enable_workload_group || Config.use_fuzzy_session_variable /* for github workflow */) {
-            checkAndCreateDefaultGroup();
-        }
     }
 
     public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
@@ -237,29 +239,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                     ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName);
         }
         return groupName;
-    }
-
-    private void checkAndCreateDefaultGroup() {
-        WorkloadGroup defaultWorkloadGroup = null;
-        writeLock();
-        try {
-            if (nameToWorkloadGroup.containsKey(DEFAULT_GROUP_NAME)) {
-                return;
-            }
-            Map<String, String> properties = Maps.newHashMap();
-            properties.put(WorkloadGroup.CPU_SHARE, "1024");
-            properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
-            properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-            defaultWorkloadGroup = WorkloadGroup.create(DEFAULT_GROUP_NAME, properties);
-            nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
-            idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
-            Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(defaultWorkloadGroup);
-        } catch (DdlException e) {
-            LOG.warn("Create workload group " + DEFAULT_GROUP_NAME + " fail");
-        } finally {
-            writeUnlock();
-        }
-        LOG.info("Create workload group success: {}", defaultWorkloadGroup);
     }
 
     public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {

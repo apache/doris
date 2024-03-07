@@ -64,9 +64,9 @@ private:
     int _mult_cast_id = -1;
 };
 
-class ExchangeSinkLocalState final : public PipelineXSinkLocalState<AndSharedState> {
+class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
-    using Base = PipelineXSinkLocalState<AndSharedState>;
+    using Base = PipelineXSinkLocalState<>;
 
 public:
     ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -79,6 +79,16 @@ public:
                 state->get_query_ctx());
     }
 
+    std::vector<Dependency*> dependencies() const override {
+        std::vector<Dependency*> dep_vec;
+        dep_vec.push_back(_queue_dependency.get());
+        if (_broadcast_dependency) {
+            dep_vec.push_back(_broadcast_dependency.get());
+        }
+        std::for_each(_local_channels_dependency.begin(), _local_channels_dependency.end(),
+                      [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
+        return dep_vec;
+    }
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
@@ -154,8 +164,8 @@ private:
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
-    std::shared_ptr<Dependency> _queue_dependency;
-    std::shared_ptr<Dependency> _broadcast_dependency;
+    std::shared_ptr<Dependency> _queue_dependency = nullptr;
+    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
 
     /**
      * We use this to control the execution for local exchange.
@@ -194,8 +204,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);

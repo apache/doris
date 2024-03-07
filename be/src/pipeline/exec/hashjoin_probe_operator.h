@@ -80,7 +80,7 @@ public:
     void add_tuple_is_null_column(vectorized::Block* block) override;
     void init_for_probe(RuntimeState* state);
     Status filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
-                                        SourceState& source_state, vectorized::Block* temp_block,
+                                        bool* eos, vectorized::Block* temp_block,
                                         bool check_rows_count = true);
 
     bool have_other_join_conjunct() const;
@@ -154,10 +154,9 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status push(RuntimeState* state, vectorized::Block* input_block,
-                SourceState source_state) const override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state) const override;
+                bool* eos) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
     DataDistribution required_data_distribution() const override {

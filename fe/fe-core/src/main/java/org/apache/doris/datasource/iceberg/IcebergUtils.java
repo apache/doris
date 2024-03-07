@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.iceberg;
 
-
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
@@ -38,13 +37,17 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.types.Types;
@@ -54,16 +57,30 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Iceberg utils
  */
 public class IcebergUtils {
     private static final Logger LOG = LogManager.getLogger(IcebergUtils.class);
-    private static long MILLIS_TO_NANO_TIME = 1000;
+    private static ThreadLocal<Integer> columnIdThreadLocal = new ThreadLocal<Integer>() {
+        @Override
+        public Integer initialValue() {
+            return 0;
+        }
+    };
+    static long MILLIS_TO_NANO_TIME = 1000;
+    private static final Pattern PARTITION_REG = Pattern.compile("(\\w+)\\((\\d+)?,?(\\w+)\\)");
     // https://iceberg.apache.org/spec/#schemas-and-data-types
     // All time and timestamp values are stored with microsecond precision
     private static final int ICEBERG_DATETIME_SCALE_MS = 6;
+
+    public static final String TOTAL_RECORDS = "total-records";
+    public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
+    public static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -245,6 +262,59 @@ public class IcebergUtils {
         return slotRef;
     }
 
+    // "partition"="c1;day(c1);bucket(4,c3)"
+    public static PartitionSpec solveIcebergPartitionSpec(Map<String, String> properties, Schema schema)
+            throws UserException {
+        if (properties.containsKey("partition")) {
+            PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
+            String par = properties.get("partition").replaceAll(" ", "");
+            String[] pars = par.split(";");
+            for (String func : pars) {
+                if (func.contains("(")) {
+                    Matcher matcher = PARTITION_REG.matcher(func);
+                    if (matcher.matches()) {
+                        switch (matcher.group(1).toLowerCase()) {
+                            case "bucket":
+                                builder.bucket(matcher.group(3), Integer.parseInt(matcher.group(2)));
+                                break;
+                            case "year":
+                            case "years":
+                                builder.year(matcher.group(3));
+                                break;
+                            case "month":
+                            case "months":
+                                builder.month(matcher.group(3));
+                                break;
+                            case "date":
+                            case "day":
+                            case "days":
+                                builder.day(matcher.group(3));
+                                break;
+                            case "date_hour":
+                            case "hour":
+                            case "hours":
+                                builder.hour(matcher.group(3));
+                                break;
+                            case "truncate":
+                                builder.truncate(matcher.group(3), Integer.parseInt(matcher.group(2)));
+                                break;
+                            default:
+                                throw new UserException("unsupported partition for " + matcher.group(1));
+                        }
+                    } else {
+                        throw new UserException("failed to get partition info from " + func);
+                    }
+                } else {
+                    builder.identity(func);
+                }
+            }
+            properties.remove("partition");
+            return builder.build();
+        } else {
+            return PartitionSpec.unpartitioned();
+        }
+    }
+
     private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
         switch (primitive.typeId()) {
             case BOOLEAN:
@@ -294,15 +364,19 @@ public class IcebergUtils {
         }
     }
 
+    public static org.apache.iceberg.Table getIcebergTable(ExternalCatalog catalog, String dbName, String tblName) {
+        return Env.getCurrentEnv()
+                .getExtMetaCacheMgr()
+                .getIcebergMetadataCache()
+                .getIcebergTable(catalog, dbName, tblName);
+    }
+
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
     public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
-            org.apache.iceberg.Table icebergTable = Env.getCurrentEnv()
-                    .getExtMetaCacheMgr()
-                    .getIcebergMetadataCache()
-                    .getIcebergTable(catalog, dbName, name);
+            org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
             Schema schema = icebergTable.schema();
             List<Types.NestedField> columns = schema.columns();
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
@@ -314,4 +388,31 @@ public class IcebergUtils {
             return tmpSchema;
         });
     }
+
+
+    /**
+     * Estimate iceberg table row count.
+     * Get the row count by adding all task file recordCount.
+     *
+     * @return estimated row count
+     */
+    public static long getIcebergRowCount(ExternalCatalog catalog, String dbName, String tbName) {
+        try {
+            Table icebergTable = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getIcebergTable(catalog, dbName, tbName);
+            Snapshot snapshot = icebergTable.currentSnapshot();
+            if (snapshot == null) {
+                // empty table
+                return 0;
+            }
+            Map<String, String> summary = snapshot.summary();
+            return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        } catch (Exception e) {
+            LOG.warn("Fail to collect row count for db {} table {}", dbName, tbName, e);
+        }
+        return -1;
+    }
+
 }

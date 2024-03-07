@@ -49,7 +49,6 @@ import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -226,12 +225,6 @@ public class CreateTableInfo {
             properties = Maps.newHashMap();
         }
 
-        if (Config.isCloudMode() && properties != null
-                && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
-            // FIXME: MOW is not supported in cloud mode yet.
-            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
-        }
-
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {
             if (distribution == null) {
                 throw new AnalysisException("Create olap table should contain distribution desc");
@@ -252,13 +245,6 @@ public class CreateTableInfo {
             } else {
                 ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
-        }
-
-        // disallow external catalog
-        try {
-            Util.prohibitExternalCatalog(ctlName, this.getClass().getSimpleName());
-        } catch (Exception ex) {
-            throw new AnalysisException(ex.getMessage(), ex.getCause());
         }
 
         // analyze table name
@@ -630,7 +616,7 @@ public class CreateTableInfo {
 
     private void checkEngineName() {
         if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
-                || engineName.equals("elasticsearch") || engineName.equals("hive")
+                || engineName.equals("elasticsearch") || engineName.equals("hive") || engineName.equals("iceberg")
                 || engineName.equals("jdbc")) {
             if (!isExternal) {
                 // this is for compatibility
@@ -679,9 +665,6 @@ public class CreateTableInfo {
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
             throw new AnalysisException(
                     "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
-        }
-        if (partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && column.isNullable()) {
-            throw new AnalysisException("The list partition column must be NOT NULL");
         }
     }
 

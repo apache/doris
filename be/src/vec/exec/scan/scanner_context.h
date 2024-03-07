@@ -59,8 +59,7 @@ class SimplifiedScanScheduler;
 
 class ScanTask {
 public:
-    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner, vectorized::BlockUPtr free_block)
-            : scanner(delegate_scanner), current_block(std::move(free_block)) {}
+    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {}
 
 private:
     // whether current scanner is finished
@@ -69,10 +68,7 @@ private:
 
 public:
     std::weak_ptr<ScannerDelegate> scanner;
-    // cache the block of current loop
-    vectorized::BlockUPtr current_block;
-    // only take the size of the first block as estimated size
-    bool first_block = true;
+    std::list<vectorized::BlockUPtr> cached_blocks;
     uint64_t last_submit_time; // nanoseconds
 
     void set_status(Status _status) {
@@ -86,16 +82,6 @@ public:
     bool status_ok() { return status.ok() || status.is<ErrorCode::END_OF_FILE>(); }
     bool is_eos() const { return eos; }
     void set_eos(bool _eos) { eos = _eos; }
-
-    // reuse current running scanner
-    // reset `eos` and `status`
-    // `first_block` is used to update `_free_blocks_memory_usage`, and take the first block size
-    // as the `_estimated_block_size`. It has updated `_free_blocks_memory_usage`, so don't reset.
-    void reuse_scanner(std::weak_ptr<ScannerDelegate> next_scanner) {
-        scanner = next_scanner;
-        eos = false;
-        status = Status::OK();
-    }
 };
 
 // ScannerContext is responsible for recording the execution status
@@ -120,8 +106,12 @@ public:
     virtual ~ScannerContext() = default;
     virtual Status init();
 
-    vectorized::BlockUPtr get_free_block();
+    vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
+    inline void inc_free_block_usage(size_t usage) {
+        _free_blocks_memory_usage += usage;
+        _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
+    }
 
     // Get next block from blocks queue. Called by ScanNode/ScanOperator
     // Set eos to true if there is no more data to read.
@@ -156,6 +146,8 @@ public:
     virtual bool empty_in_queue(int id);
 
     SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
+
+    SimplifiedScanScheduler* get_remote_scan_scheduler() { return _remote_scan_task_scheduler; }
 
     void stop_scanners(RuntimeState* state);
 
@@ -215,6 +207,7 @@ protected:
     int64_t _max_bytes_in_queue;
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
     SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
+    SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     moodycamel::ConcurrentQueue<std::weak_ptr<ScannerDelegate>> _scanners;
     int32_t _num_scheduled_scanners = 0;
     int32_t _num_finished_scanners = 0;
@@ -231,9 +224,8 @@ protected:
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
 
     // for scaling up the running scanners
-    std::mutex _free_blocks_lock;
     size_t _estimated_block_size = 0;
-    int64_t _free_blocks_memory_usage = 0;
+    std::atomic_long _free_blocks_memory_usage = 0;
     int64_t _last_scale_up_time = 0;
     int64_t _last_fetch_time = 0;
     int64_t _total_wait_block_time = 0;

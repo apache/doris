@@ -25,9 +25,9 @@ under the License.
 -->
 
 ## 概述
-Doris 的异步物化视图采用了基于 SPJG（SELECT-PROJECT-JOIN-GROUP-BY）模式的结构信息来进行透明改写的算法。
+Doris 的异步物化视图采用了基于 SPJG（SELECT-PROJECT-JOIN-GROUP-BY）模式结构信息来进行透明改写的算法。
 
-Doris 可以分析查询 SQL 的结构信息，自动寻找满足要求的物化视图，并尝试进行透明改写，使用物化视图来表达查询SQL。
+Doris 可以分析查询 SQL 的结构信息，自动寻找满足要求的物化视图，并尝试进行透明改写，使用最优的物化视图来表达查询SQL。
 
 通过使用预计算的物化视图结果，可以大幅提高查询性能，减少计算成本。
 
@@ -126,9 +126,9 @@ WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
 
 ## 透明改写能力
 ### JOIN 改写
-JOIN 改写指的是查询和物化使用的表相同，可以在物化视图和查询 JOIN 的内部输入或者 JOIN 的外部写 WHERE，可以进行改写。
+Join 改写指的是查询和物化使用的表相同，可以在物化视图和查询 Join 的输入或者 Join 的外层写 where，优化器对此 pattern 的查询会尝试进行透明改写。
 
-当查询和物化视图的 Join 的类型不同时，满足一定条件时，也可以进行改写。
+支持多表 Join，支持 Join 的类型为 inner，left。其他类型在不断拓展中。
 
 **用例1:**
 
@@ -155,9 +155,9 @@ WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
 
 **用例2:**
 
-JOIN衍生（Coming soon）
-当查询和物化视图的 JOIN 的类型不一致时，但物化可以提供查询所需的所有数据时，通过在 JOIN 的外部补偿谓词，也可以进行透明改写，
-举例如下，待支持。
+JOIN衍生，当查询和物化视图的 JOIN 的类型不一致时，如果物化可以提供查询所需的所有数据时，通过在 JOIN 的外部补偿谓词，也可以进行透明改写，
+
+举例如下
 
 mv 定义:
 ```sql
@@ -195,6 +195,9 @@ o_orderdate;
 ```
 
 ### 聚合改写
+查询和物化视图定义中，聚合的维度可以一致或者不一致，可以使用维度中的字段写 WHERE 对结果进行过滤。
+
+物化视图使用的维度需要包含查询的维度，并且查询使用的指标可以使用物化视图的指标来表示。
 
 **用例1**
 
@@ -236,11 +239,10 @@ o_comment;
 
 **用例2**
 
-如下查询可以进行透明改写，查询和物化使用聚合的维度不一致，物化视图使用的维度包含查询的维度。 可以使用维度中的字段进行过滤结果，
+如下查询可以进行透明改写，查询和物化使用聚合的维度不一致，物化视图使用的维度包含查询的维度。 查询可以使用维度中的字段对结果进行过滤，
 
 查询会尝试使用物化视图 SELECT 后的函数进行上卷，如物化视图的 `bitmap_union` 最后会上卷成 `bitmap_union_count`，和查询中
-
-`count(distinct)` 的语义 保持一致。
+`count(distinct)` 的语义保持一致。
 
 mv 定义:
 ```sql
@@ -360,14 +362,34 @@ WHERE o_orderkey > 5 AND o_orderkey <= 10;
 ## 辅助功能
 **透明改写后数据一致性问题**
 
-对于物化视图中的内表，可以通过设定 `grace_period`属性来控制透明改写使用的物化视图所允许数据最大的延迟时间。
+`grace_period` 的单位是秒，指的是容许物化视图和所用基表数据不一致的时间。
+比如 `grace_period` 设置成0，意味要求物化视图和基表数据保持一致，此物化视图才可用于透明改写；对于外表，因为无法感知数据变更，所以物化视图使用了外表，
+
+无论外表的数据是不是最新的，都可以使用此物化视图用于透明改写，如果外表配置了 HMS 元数据源，是可以感知数据变更的，配置数据源和感知数据变更的功能会在后面迭代支持。
+
+如果设置成10，意味物化视图和基表数据允许10s的延迟，如果物化视图的数据和基表的数据有延迟，如果在10s内，此物化视图都可以用于透明改写。
+
+对于物化视图中的内表，可以通过设定 `grace_period` 属性来控制透明改写使用的物化视图所允许数据最大的延迟时间。
 可查看 [CREATE-ASYNC-MATERIALIZED-VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
 **查询透明改写命中情况查看和调试**
 
 可通过如下语句查看物化视图的透明改写命中情况，会展示查询透明改写简要过程信息。
 
-`explain <query_sql>`
+`explain <query_sql>` 返回的信息如下，截取了物化视图相关的信息
+```text
+| MaterializedView                                                                                                                                                                                         |
+| MaterializedViewRewriteFail:                                                                                                                                                                             |
+| MaterializedViewRewriteSuccessButNotChose:                                                                                                                                                               |
+|   Names:                                                                                                                                                                                                 |
+| MaterializedViewRewriteSuccessAndChose:                                                                                                                                                                  |
+|   Names: mv1  
+```
+**MaterializedViewRewriteFail**：列举透明改写失败及原因摘要。
+
+**MaterializedViewRewriteSuccessButNotChose**：透明改写成功，但是最终CBO没有选择的物化视图名称列表。
+
+**MaterializedViewRewriteSuccessAndChose**：透明改写成功，并且CBO选择的物化视图名称列表。
 
 如果想知道物化视图候选，改写和最终选择情况的过程详细信息，可以执行如下语句，会展示透明改写过程详细的信息。
 
@@ -383,11 +405,11 @@ WHERE o_orderkey > 5 AND o_orderkey <= 10;
 
 
 ## 限制
-- 物化视图定义语句中只允许包含 SELECT、FROM、WHERE、JOIN、GROUP BY 语句，并且 JOIN 的输入不能包含 GROUP BY，其中JOIN的支持的类型为
+- 物化视图定义语句中只允许包含 SELECT、FROM、WHERE、JOIN、GROUP BY 语句，JOIN 的输入可以包含简单的 GROUP BY（单表聚合），其中JOIN的支持的类型为
 INNER 和 LEFT OUTER JOIN 其他类型的 JOIN 操作逐步支持。
 - 基于 External Table 的物化视图不保证查询结果强一致。
-- 不支持非确定性函数的改写，包括 rand、now、current_time、current_date、random、uuid等。
-- 不支持窗口函数的改写。
+- 不支持使用非确定性函数来构建物化视图，包括 rand、now、current_time、current_date、random、uuid等。
+- 不支持窗口函数和 LIMIT 的透明改写。
 - 物化视图的定义暂时不能使用视图和物化视图。
 - 目前 WHERE 条件补偿，支持物化视图没有 WHERE，查询有 WHERE情况的条件补偿；或者物化视图有 WHERE 且查询的 WHERE 条件是物化视图的超集。
-目前暂时还不支持，范围的条件补偿，比如物化视图定义是 a > 5，查询是 a > 10。
+目前暂时还不支持范围的条件补偿，比如物化视图定义是 a > 5，查询是 a > 10，逐步支持。

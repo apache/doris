@@ -1525,3 +1525,13 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述:  当 group commit 导入的总行数不高于该值，`max_filter_ratio` 正常工作，否则不工作，请参考 [Group Commit](../../data-operate/import/import-way/group-commit-manual.md)
 * 默认值: 10000
+
+#### `default_tzfiles_path`
+
+* 描述：Doris 自带的时区数据库。如果系统目录下未找到时区文件，则启用该目录下的数据。
+* 默认值："${DORIS_HOME}/zoneinfo"
+
+#### `use_doris_tzfile`
+
+* 描述：是否直接使用 Doris 自带的时区数据库。开启后不再尝试查找系统目录。
+* 默认值：false

@@ -133,7 +133,8 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap);
         }
         List<Expression> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap);
-        return join.withJoinConjuncts(hashConjuncts, otherConjuncts, markConjuncts).recomputeLogicalProperties();
+        return join.withJoinConjuncts(hashConjuncts, otherConjuncts, markConjuncts,
+                    join.getJoinReorderContext()).recomputeLogicalProperties();
     }
 
     @Override

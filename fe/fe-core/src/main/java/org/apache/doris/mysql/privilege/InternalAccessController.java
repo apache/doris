@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthorizationException;
 
@@ -63,5 +64,11 @@ public class InternalAccessController implements CatalogAccessController {
     @Override
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
         return auth.checkWorkloadGroupPriv(currentUser, workloadGroupName, wanted);
+    }
+
+    @Override
+    public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
+                                  PrivPredicate wanted, ResourceTypeEnum type) {
+        return auth.checkResourcePriv(currentUser, resourceName, wanted);
     }
 }

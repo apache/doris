@@ -52,9 +52,9 @@ public:
     bool available() { return _client != nullptr; }
 
 private:
-    void _convert_block_to_proto(vectorized::Block& block,
-                                 const vectorized::ColumnNumbers& arguments,
-                                 size_t input_rows_count, PFunctionCallRequest* request);
+    Status _convert_block_to_proto(vectorized::Block& block,
+                                   const vectorized::ColumnNumbers& arguments,
+                                   size_t input_rows_count, PFunctionCallRequest* request);
     void _convert_to_block(vectorized::Block& block, const PValues& result, size_t pos);
 
     std::shared_ptr<PFunctionService_Stub> _client;

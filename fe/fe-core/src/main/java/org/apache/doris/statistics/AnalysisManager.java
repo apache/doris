@@ -423,9 +423,8 @@ public class AnalysisManager implements Writable {
             String colName = entry.getKey();
             List<Long> indexIds = Lists.newArrayList();
             // Get index id this column belongs to for OlapTable. Set it to -1 for baseIndex id.
-            if (StatisticsUtil.isMvColumn(table, colName)) {
-                OlapTable olapTable = (OlapTable) table;
-                indexIds = olapTable.getMvColumnIndexIds(colName);
+            if (table instanceof OlapTable) {
+                indexIds = ((OlapTable) table).getMvColumnIndexIds(colName);
             } else {
                 indexIds.add(-1L);
             }
@@ -702,9 +701,8 @@ public class AnalysisManager implements Writable {
 
         for (String column : columns) {
             List<Long> indexIds = Lists.newArrayList();
-            if (StatisticsUtil.isMvColumn(table, column)) {
-                OlapTable olapTable = (OlapTable) table;
-                indexIds = olapTable.getMvColumnIndexIds(column);
+            if (table instanceof OlapTable) {
+                indexIds = ((OlapTable) table).getMvColumnIndexIds(column);
             } else {
                 indexIds.add(-1L);
             }
@@ -998,21 +996,31 @@ public class AnalysisManager implements Writable {
     }
 
     // Invoke this when load transaction finished.
-    public void updateUpdatedRows(long tblId, long rows) {
-        TableStatsMeta statsStatus = idToTblStats.get(tblId);
-        if (statsStatus != null) {
-            statsStatus.updatedRows.addAndGet(rows);
-            logCreateTableStats(statsStatus);
+    public void updateUpdatedRows(Map<Long, Long> records) {
+        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread() || records == null || records.isEmpty()) {
+            return;
         }
+        for (Entry<Long, Long> record : records.entrySet()) {
+            TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
+            if (statsStatus != null) {
+                statsStatus.updatedRows.addAndGet(record.getValue());
+            }
+        }
+        logUpdateRowsRecord(new UpdateRowsEvent(records));
     }
 
     // Set to true means new partition loaded data
-    public void setNewPartitionLoaded(long tblId) {
-        TableStatsMeta statsStatus = idToTblStats.get(tblId);
-        if (statsStatus != null && Env.getCurrentEnv().isMaster() && !Env.isCheckpointThread()) {
-            statsStatus.newPartitionLoaded.set(true);
-            logCreateTableStats(statsStatus);
+    public void setNewPartitionLoaded(List<Long> tableIds) {
+        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread() || tableIds == null || tableIds.isEmpty()) {
+            return;
         }
+        for (long tableId : tableIds) {
+            TableStatsMeta statsStatus = idToTblStats.get(tableId);
+            if (statsStatus != null) {
+                statsStatus.newPartitionLoaded.set(true);
+            }
+        }
+        logNewPartitionLoadedEvent(new NewPartitionLoadedEvent(tableIds));
     }
 
     public void updateTableStatsStatus(TableStatsMeta tableStats) {
@@ -1026,6 +1034,38 @@ public class AnalysisManager implements Writable {
 
     public void logCreateTableStats(TableStatsMeta tableStats) {
         Env.getCurrentEnv().getEditLog().logCreateTableStats(tableStats);
+    }
+
+    public void logUpdateRowsRecord(UpdateRowsEvent record) {
+        Env.getCurrentEnv().getEditLog().logUpdateRowsRecord(record);
+    }
+
+    public void logNewPartitionLoadedEvent(NewPartitionLoadedEvent event) {
+        Env.getCurrentEnv().getEditLog().logNewPartitionLoadedEvent(event);
+    }
+
+    public void replayUpdateRowsRecord(UpdateRowsEvent event) {
+        if (event == null || event.getRecords() == null) {
+            return;
+        }
+        for (Entry<Long, Long> record : event.getRecords().entrySet()) {
+            TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
+            if (statsStatus != null) {
+                statsStatus.updatedRows.addAndGet(record.getValue());
+            }
+        }
+    }
+
+    public void replayNewPartitionLoadedEvent(NewPartitionLoadedEvent event) {
+        if (event == null || event.getTableIds() == null) {
+            return;
+        }
+        for (long tableId : event.getTableIds()) {
+            TableStatsMeta statsStatus = idToTblStats.get(tableId);
+            if (statsStatus != null) {
+                statsStatus.newPartitionLoaded.set(true);
+            }
+        }
     }
 
     public void registerSysJob(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> taskInfos) {

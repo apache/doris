@@ -21,9 +21,9 @@ import java.nio.file.Paths
 import java.net.URL
 import java.io.File
 
-suite("stress_test_two_stream_load") {
+suite("stress_test_two_stream_load", "p2,nonConcurrent") {
 
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '100000')"""
+    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '10000000')"""
 
     // get doris-db from s3
     def dirPath = context.file.parent
@@ -226,6 +226,4 @@ suite("stress_test_two_stream_load") {
     assertTrue(row_count_list[0][0] == partition_res_list.size)
 
     data_delete("list")
-
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '2000')"""
 }

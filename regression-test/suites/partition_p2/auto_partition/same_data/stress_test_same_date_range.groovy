@@ -21,9 +21,9 @@ import java.nio.file.Paths
 import java.net.URL
 import java.io.File
 
-suite("stress_test_same_date_range") {
+suite("stress_test_same_date_range", "p2,nonConcurrent") {
 
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '5000')"""
+    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '10000000')"""
 
     // get doris-db from s3
     def dirPath = context.file.parent
@@ -196,6 +196,4 @@ suite("stress_test_same_date_range") {
     }
     def part_context_unique = part_context.clone().unique()
     assertTrue(part_context.size == part_context_unique.size)
-
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '2000')"""
 }

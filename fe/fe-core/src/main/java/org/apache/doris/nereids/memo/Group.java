@@ -19,7 +19,6 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
@@ -77,6 +76,8 @@ public class Group {
     private int chosenGroupExpressionId = -1;
 
     private List<StructInfo> structInfos = new ArrayList<>();
+
+    private StructInfoMap structInfoMap = new StructInfoMap();
 
     /**
      * Constructor for Group.
@@ -418,8 +419,8 @@ public class Group {
         return false;
     }
 
-    public List<HyperGraph> getHyperGraphs() {
-        return new ArrayList<>();
+    public StructInfoMap getstructInfoMap() {
+        return structInfoMap;
     }
 
     public boolean isProjectGroup() {

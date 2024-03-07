@@ -71,7 +71,6 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
@@ -79,7 +78,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TException;
 
-import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -150,7 +148,7 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
-    public static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
+    private static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, metaStoreUris);
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
@@ -585,6 +583,34 @@ public class HiveMetaStoreClientHelper {
     }
 
     /**
+     * Convert doris type to hive type.
+     */
+    public static String dorisTypeToHiveType(Type dorisType) {
+        if (dorisType.equals(Type.BOOLEAN)) {
+            return "boolean";
+        } else if (dorisType.equals(Type.TINYINT)) {
+            return "tinyint";
+        } else if (dorisType.equals(Type.SMALLINT)) {
+            return "smallint";
+        } else if (dorisType.equals(Type.INT)) {
+            return "int";
+        } else if (dorisType.equals(Type.BIGINT)) {
+            return "bigint";
+        } else if (dorisType.equals(Type.DATE) || dorisType.equals(Type.DATEV2)) {
+            return "date";
+        } else if (dorisType.equals(Type.DATETIME) || dorisType.equals(Type.DATETIMEV2)) {
+            return "timestamp";
+        } else if (dorisType.equals(Type.FLOAT)) {
+            return "float";
+        } else if (dorisType.equals(Type.DOUBLE)) {
+            return "double";
+        } else if (dorisType.equals(Type.STRING)) {
+            return "string";
+        }
+        throw new HMSClientException("Unsupported type conversion of " + dorisType.toSql());
+    }
+
+    /**
      * Convert hive type to doris type.
      */
     public static Type hiveTypeToDorisType(String hiveType) {
@@ -800,39 +826,14 @@ public class HiveMetaStoreClientHelper {
                     AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
                     AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
         }
-        UserGroupInformation ugi = HadoopUGI.loginWithUGI(krbConfig);
-        try {
-            if (ugi != null) {
-                ugi.checkTGTAndReloginFromKeytab();
-                return ugi.doAs(action);
-            } else {
-                return action.run();
-            }
-        } catch (Exception e) {
-            throw new RuntimeException(e.getMessage(), e);
-        }
+        return HadoopUGI.ugiDoAs(krbConfig, action);
     }
 
     public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
-
         Configuration conf = getConfiguration(table);
-        UserGroupInformation ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(conf));
-        HoodieTableMetaClient metaClient;
-        if (ugi != null) {
-            try {
-                metaClient = ugi.doAs(
-                        (PrivilegedExceptionAction<HoodieTableMetaClient>) () -> HoodieTableMetaClient.builder()
-                                .setConf(conf).setBasePath(hudiBasePath).build());
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } catch (InterruptedException e) {
-                throw new RuntimeException("Cannot get hudi client.", e);
-            }
-        } else {
-            metaClient = HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build();
-        }
-        return metaClient;
+        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf),
+                () -> HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build());
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {

@@ -221,8 +221,6 @@ public class PlanTranslatorContext {
         srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
         targetFragment.setHasColocatePlanNode(targetFragment.hasColocatePlanNode()
                 || srcFragment.hasColocatePlanNode());
-        targetFragment.setHasNullAwareLeftAntiJoin(targetFragment.isHasNullAwareLeftAntiJoin()
-                || srcFragment.isHasNullAwareLeftAntiJoin());
         this.planFragments.remove(srcFragment);
     }
 

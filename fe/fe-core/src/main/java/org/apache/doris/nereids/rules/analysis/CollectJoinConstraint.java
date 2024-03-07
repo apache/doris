@@ -47,7 +47,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            logicalJoin().whenNot(LogicalJoin::isMarkJoin).thenApply(ctx -> {
+            logicalJoin().thenApply(ctx -> {
                 if (!ctx.cascadesContext.isLeadingJoin()) {
                     return ctx.root;
                 }
@@ -105,7 +105,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
     private void collectJoinConstraintList(LeadingHint leading, Long leftHand, Long rightHand, LogicalJoin join,
                                             Long filterTableBitMap, Long nonNullableSlotBitMap) {
         Long totalTables = LongBitmap.or(leftHand, rightHand);
-        if (join.getJoinType().isInnerJoin()) {
+        if (join.getJoinType().isInnerOrCrossJoin()) {
             leading.setInnerJoinBitmap(LongBitmap.or(leading.getInnerJoinBitmap(), totalTables));
             return;
         }
@@ -161,6 +161,12 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     minRightHand = LongBitmap.or(minRightHand, other.getRightHand());
                 }
             }
+        }
+        if (minLeftHand == 0L) {
+            minLeftHand = leftHand;
+        }
+        if (minRightHand == 0L) {
+            minRightHand = rightHand;
         }
 
         JoinConstraint newJoinConstraint = new JoinConstraint(minLeftHand, minRightHand, leftHand, rightHand,

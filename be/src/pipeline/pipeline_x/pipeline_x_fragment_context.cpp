@@ -225,17 +225,29 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
             request, root_pipeline->output_row_desc(), _runtime_state.get(), *_desc_tbl,
             root_pipeline->id()));
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
-    static_cast<void>(root_pipeline->set_sink(_sink));
+    RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
 
     for (PipelinePtr& pipeline : _pipelines) {
         DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
-        static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
+        RETURN_IF_ERROR(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
     }
     if (_enable_local_shuffle()) {
         RETURN_IF_ERROR(_plan_local_exchange(request.num_buckets,
                                              request.bucket_seq_to_instance_idx,
                                              request.shuffle_idx_to_instance_idx));
     }
+
+    const auto& local_params = request.local_params[0];
+    if (local_params.__isset.runtime_filter_params) {
+        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                local_params.runtime_filter_params);
+    }
+    if (local_params.__isset.topn_filter_source_node_ids) {
+        _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
+    } else {
+        _query_ctx->init_runtime_predicates({0});
+    }
+
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
         pipeline->children().clear();
@@ -523,10 +535,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         // build local_runtime_filter_mgr for each instance
         runtime_filter_mgr =
                 std::make_unique<RuntimeFilterMgr>(request.query_id, filterparams.get());
-        if (i == 0 && local_params.__isset.runtime_filter_params) {
-            _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                    local_params.runtime_filter_params);
-        }
+
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
         _runtime_filter_states.push_back(std::move(filterparams));
@@ -610,9 +619,13 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                     auto& deps = _dag[_pipeline->id()];
                     for (auto& dep : deps) {
                         if (pipeline_id_to_task.contains(dep)) {
-                            task->add_upstream_dependency(
-                                    pipeline_id_to_task[dep]->get_downstream_dependency(),
-                                    pipeline_id_to_task[dep]->get_shared_states());
+                            auto ss = pipeline_id_to_task[dep]->get_sink_shared_state();
+                            if (ss) {
+                                task->inject_shared_state(ss);
+                            } else {
+                                pipeline_id_to_task[dep]->inject_shared_state(
+                                        task->get_source_shared_state());
+                            }
                         }
                     }
                 }
@@ -781,7 +794,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
                                                  "LOCAL_EXCHANGE_SINK_DEPENDENCY", true,
                                                  _runtime_state->get_query_ctx());
     sink_dep->set_shared_state(shared_state.get());
-    shared_state->sink_dependency = sink_dep;
+    shared_state->sink_deps.push_back(sink_dep);
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
 
     // 3. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to
@@ -803,6 +816,9 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
         RETURN_IF_ERROR(operator_xs.front()->set_child(source_op));
     }
     operator_xs.insert(operator_xs.begin(), source_op);
+
+    shared_state->create_source_dependencies(source_op->operator_id(), source_op->node_id(),
+                                             _query_ctx.get());
 
     // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;
@@ -1255,7 +1271,7 @@ void PipelineXFragmentContext::_close_fragment_instance() {
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
-    if (_is_report_success) {
+    if (_runtime_state->enable_profile()) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile
         // Before add this operation, the print out like that:

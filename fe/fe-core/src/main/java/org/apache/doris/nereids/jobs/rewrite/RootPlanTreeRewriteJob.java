@@ -20,6 +20,8 @@ package org.apache.doris.nereids.jobs.rewrite;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.JobType;
+import org.apache.doris.nereids.jobs.scheduler.JobStack;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -50,6 +52,8 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
 
         context.getScheduleContext().pushJob(rewriteJob);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+
+        cascadesContext.setCurrentRootRewriteJobContext(null);
     }
 
     @Override
@@ -70,6 +74,7 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
         RootRewriteJobContext(Plan plan, boolean childrenVisited, JobContext jobContext) {
             super(plan, null, -1, childrenVisited);
             this.jobContext = Objects.requireNonNull(jobContext, "jobContext cannot be null");
+            jobContext.getCascadesContext().setCurrentRootRewriteJobContext(this);
         }
 
         @Override
@@ -95,6 +100,73 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
         @Override
         public RewriteJobContext withPlanAndChildrenVisited(Plan plan, boolean childrenVisited) {
             return new RootRewriteJobContext(plan, childrenVisited, jobContext);
+        }
+
+        /** linkChildren */
+        public Plan getNewestPlan() {
+            JobStack jobStack = new JobStack();
+            LinkPlanJob linkPlanJob = new LinkPlanJob(
+                    jobContext, this, null, false, jobStack);
+            jobStack.push(linkPlanJob);
+            while (!jobStack.isEmpty()) {
+                Job job = jobStack.pop();
+                job.execute();
+            }
+            return linkPlanJob.result;
+        }
+    }
+
+    /** use to assemble the rewriting plan */
+    private static class LinkPlanJob extends Job {
+        LinkPlanJob parentJob;
+        RewriteJobContext rewriteJobContext;
+        Plan[] childrenResult;
+        Plan result;
+        boolean linked;
+        JobStack jobStack;
+
+        private LinkPlanJob(JobContext context, RewriteJobContext rewriteJobContext,
+                LinkPlanJob parentJob, boolean linked, JobStack jobStack) {
+            super(JobType.LINK_PLAN, context);
+            this.rewriteJobContext = rewriteJobContext;
+            this.parentJob = parentJob;
+            this.linked = linked;
+            this.childrenResult = new Plan[rewriteJobContext.plan.arity()];
+            this.jobStack = jobStack;
+        }
+
+        @Override
+        public void execute() {
+            if (!linked) {
+                linked = true;
+                jobStack.push(this);
+                for (int i = rewriteJobContext.childrenContext.length - 1; i >= 0; i--) {
+                    RewriteJobContext childContext = rewriteJobContext.childrenContext[i];
+                    if (childContext != null) {
+                        jobStack.push(new LinkPlanJob(context, childContext, this, false, jobStack));
+                    }
+                }
+            } else if (rewriteJobContext.result != null) {
+                linkResult(rewriteJobContext.result);
+            } else {
+                Plan[] newChildren = new Plan[childrenResult.length];
+                for (int i = 0; i < newChildren.length; i++) {
+                    Plan childResult = childrenResult[i];
+                    if (childResult == null) {
+                        childResult = rewriteJobContext.plan.child(i);
+                    }
+                    newChildren[i] = childResult;
+                }
+                linkResult(rewriteJobContext.plan.withChildren(newChildren));
+            }
+        }
+
+        private void linkResult(Plan result) {
+            if (parentJob != null) {
+                parentJob.childrenResult[rewriteJobContext.childIndexInParentContext] = result;
+            } else {
+                this.result = result;
+            }
         }
     }
 }

@@ -209,42 +209,27 @@ Status GroupCommitTable::get_first_block_load_queue(
                         "schema version not match, maybe a schema change is in process. Please "
                         "retry this load manually.");
             }
-            if (!_need_plan_fragment) {
-                _need_plan_fragment = true;
+            if (!_is_creating_plan_fragment) {
+                _is_creating_plan_fragment = true;
                 RETURN_IF_ERROR(_thread_pool->submit_func([&] {
-                    [[maybe_unused]] auto st =
-                            _create_group_commit_load(load_block_queue, be_exe_version);
+                    auto st = _create_group_commit_load(be_exe_version);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+                        std::unique_lock l(_lock);
+                        _is_creating_plan_fragment = false;
+                        _cv.notify_all();
+                    }
                 }));
             }
             _cv.wait_for(l, std::chrono::seconds(4));
-            if (load_block_queue != nullptr) {
-                if (load_block_queue->schema_version == base_schema_version) {
-                    if (load_block_queue->add_load_id(load_id).ok()) {
-                        return Status::OK();
-                    }
-                } else if (base_schema_version < load_block_queue->schema_version) {
-                    return Status::DataQualityError<false>(
-                            "schema version not match, maybe a schema change is in process. Please "
-                            "retry this load manually.");
-                }
-                load_block_queue.reset();
-            }
         }
     }
     return Status::InternalError<false>("can not get a block queue for table_id: " +
                                         std::to_string(_table_id));
 }
 
-Status GroupCommitTable::_create_group_commit_load(
-        std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version) {
+Status GroupCommitTable::_create_group_commit_load(int be_exe_version) {
     Status st = Status::OK();
-    std::unique_ptr<int, std::function<void(int*)>> finish_plan_func((int*)0x01, [&](int*) {
-        if (!st.ok()) {
-            std::unique_lock l(_lock);
-            _need_plan_fragment = false;
-            _cv.notify_all();
-        }
-    });
     TStreamLoadPutRequest request;
     UniqueId load_id = UniqueId::gen_uid();
     TUniqueId tload_id;
@@ -276,12 +261,15 @@ Status GroupCommitTable::_create_group_commit_load(
                 client->streamLoadPut(result, request);
             },
             10000L);
-    RETURN_IF_ERROR(st);
+    if (!st.ok()) {
+        LOG(WARNING) << "create group commit load rpc error, st=" << st.to_string();
+        return st;
+    }
     st = Status::create<false>(result.status);
     if (!st.ok()) {
         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+        return st;
     }
-    RETURN_IF_ERROR(st);
     auto schema_version = result.base_schema_version;
     auto is_pipeline = result.__isset.pipeline_params;
     auto& params = result.params;
@@ -303,13 +291,11 @@ Status GroupCommitTable::_create_group_commit_load(
                << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
                << ", is_pipeline=" << is_pipeline;
     {
-        load_block_queue = std::make_shared<LoadBlockQueue>(
+        auto load_block_queue = std::make_shared<LoadBlockQueue>(
                 instance_id, label, txn_id, schema_version, _all_block_queues_bytes,
                 result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
                 result.group_commit_data_bytes);
         std::unique_lock l(_lock);
-        _load_block_queues.emplace(instance_id, load_block_queue);
-        _need_plan_fragment = false;
         //create wal
         if (!is_pipeline) {
             RETURN_IF_ERROR(load_block_queue->create_wal(
@@ -321,6 +307,8 @@ Status GroupCommitTable::_create_group_commit_load(
                     pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
                     be_exe_version));
         }
+        _load_block_queues.emplace(instance_id, load_block_queue);
+        _is_creating_plan_fragment = false;
         _cv.notify_all();
     }
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,

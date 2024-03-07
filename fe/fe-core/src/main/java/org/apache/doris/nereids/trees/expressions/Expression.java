@@ -252,8 +252,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
-        if (this instanceof AssertNumRowsElement
-                || this instanceof AggregateFunction
+        if (this instanceof AggregateFunction
                 || this instanceof Lambda
                 || this instanceof MaxValue
                 || this instanceof OrderExpression

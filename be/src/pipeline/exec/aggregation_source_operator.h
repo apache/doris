@@ -65,25 +65,21 @@ public:
 protected:
     friend class AggSourceOperatorX;
 
-    Status _get_without_key_result(RuntimeState* state, vectorized::Block* block,
-                                   SourceState& source_state);
-    Status _serialize_without_key(RuntimeState* state, vectorized::Block* block,
-                                  SourceState& source_state);
+    Status _get_without_key_result(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status _serialize_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
     Status _get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                           SourceState& source_state);
+                                           bool* eos);
     Status _serialize_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                                 SourceState& source_state);
+                                                 bool* eos);
     Status _get_result_with_serialized_key_non_spill(RuntimeState* state, vectorized::Block* block,
-                                                     SourceState& source_state);
-    Status _get_result_with_spilt_data(RuntimeState* state, vectorized::Block* block,
-                                       SourceState& source_state);
+                                                     bool* eos);
+    Status _get_result_with_spilt_data(RuntimeState* state, vectorized::Block* block, bool* eos);
 
     Status _serialize_with_serialized_key_result_non_spill(RuntimeState* state,
-                                                           vectorized::Block* block,
-                                                           SourceState& source_state);
+                                                           vectorized::Block* block, bool* eos);
     Status _serialize_with_serialized_key_result_with_spilt_data(RuntimeState* state,
                                                                  vectorized::Block* block,
-                                                                 SourceState& source_state);
+                                                                 bool* eos);
     Status _destroy_agg_status(vectorized::AggregateDataPtr data);
     Status _reset_hash_table();
     Status _merge_spilt_data();
@@ -105,8 +101,8 @@ protected:
     RuntimeProfile::Counter* _serialize_data_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
 
-    using vectorized_get_result = std::function<Status(
-            RuntimeState* state, vectorized::Block* block, SourceState& source_state)>;
+    using vectorized_get_result =
+            std::function<Status(RuntimeState* state, vectorized::Block* block, bool* eos)>;
 
     struct executor {
         vectorized_get_result get_result;
@@ -124,8 +120,7 @@ public:
                        const DescriptorTbl& descs);
     ~AggSourceOperatorX() = default;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

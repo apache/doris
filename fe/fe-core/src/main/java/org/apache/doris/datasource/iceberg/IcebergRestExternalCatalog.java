@@ -42,7 +42,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
+    protected void initCatalog() {
         icebergCatalogType = ICEBERG_REST;
 
         Configuration conf = replaceS3Properties(getConfiguration());
@@ -54,8 +54,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
     private Configuration replaceS3Properties(Configuration conf) {
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
-        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, defaultProviderList);
+        initS3Param(conf);
         String usePahStyle = catalogProperties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "true");
         // Set path style
         conf.set(PropertyConverter.USE_PATH_STYLE, usePahStyle);

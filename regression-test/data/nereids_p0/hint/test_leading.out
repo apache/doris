@@ -1815,157 +1815,25 @@
 119
 
 -- !select70_1 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
-
-Hint log:
-Used:
-UnUsed:
-SyntaxError: leading(t1 t3) Msg:can not find table: t3
+1719
 
 -- !select70_2 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
-
-Hint log:
-Used:
-UnUsed:
-SyntaxError: leading(t1 t5) Msg:can not find table: t5
+1719
 
 -- !select71_1 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
-
-Hint log:
-Used:
-UnUsed:
-SyntaxError: leading(t1 t1 t2) Msg:duplicated table
+1719
 
 -- !select71_2 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
-
-Hint log:
-Used:
-UnUsed:
-SyntaxError: leading(t1 t2 t2) Msg:duplicated table
+1719
 
 -- !select72_1 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t4]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: leading(t4 t3 )
-UnUsed:
-SyntaxError:
+1235
 
 -- !select72_2 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t4]
-
-Hint log:
-Used: leading(t1 t2 )
-UnUsed:
-SyntaxError:
+1235
 
 -- !select73_1 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t4]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: leading(t1 t2 ) leading(t4 t3 )
-UnUsed:
-SyntaxError:
+1235
 
 -- !select81_1 --
 259

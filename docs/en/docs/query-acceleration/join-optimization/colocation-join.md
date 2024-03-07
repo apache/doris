@@ -400,7 +400,7 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
   * Mark as Stable
 
         ```
-        POST /api/colocate/group_stable?db_id=10005&group_id=10008
+        DELETE /api/colocate/group_stable?db_id=10005&group_id=10008
         
         Returns: 200
         ```
@@ -408,7 +408,7 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
   * Mark as Unstable
 
         ```
-        DELETE /api/colocate/group_stable?db_id=10005&group_id=10008
+        POST /api/colocate/group_stable?db_id=10005&group_id=10008
         
         Returns: 200
         ```

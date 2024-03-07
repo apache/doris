@@ -389,7 +389,7 @@ PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
 ------PhysicalWindow
---------PhysicalPartitionTopN
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalPartitionTopN
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]

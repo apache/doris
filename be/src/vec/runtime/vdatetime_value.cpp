@@ -1925,7 +1925,7 @@ template <typename T>
 bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
                                 uint8_t minute, uint8_t second, uint32_t microsecond,
                                 bool only_time_part) {
-    if (hour > 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
+    if (hour >= 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
         return true;
     }
     if (only_time_part) {

@@ -31,6 +31,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class MTMVRewriteUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVRewriteUtil.class);
@@ -64,6 +66,7 @@ public class MTMVRewriteUtil {
                 && mtmv.getStatus().getRefreshState() == MTMVRefreshState.SUCCESS)) {
             return res;
         }
+        Map<Long, Set<Long>> partitionMappings = null;
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
         for (Partition partition : allPartitions) {
@@ -73,7 +76,11 @@ public class MTMVRewriteUtil {
                 continue;
             }
             try {
-                if (MTMVPartitionUtil.isMTMVPartitionSync(mtmv, partition.getId(), mtmvRelation.getBaseTables(),
+                if (partitionMappings == null) {
+                    partitionMappings = mtmv.calculatePartitionMappings();
+                }
+                if (MTMVPartitionUtil.isMTMVPartitionSync(mtmv, partition.getId(),
+                        partitionMappings.get(partition.getId()), mtmvRelation.getBaseTables(),
                         Sets.newHashSet())) {
                     res.add(partition);
                 }

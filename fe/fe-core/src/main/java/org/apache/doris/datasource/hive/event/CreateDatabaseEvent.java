@@ -55,8 +55,7 @@ public class CreateDatabaseEvent extends MetastoreEvent {
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
-            Env.getCurrentEnv().getCatalogMgr()
-                    .createExternalDatabase(dbName, catalogName, true);
+            Env.getCurrentEnv().getCatalogMgr().registerExternalDatabase(dbName, catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

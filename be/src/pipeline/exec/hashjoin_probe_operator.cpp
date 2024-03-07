@@ -232,13 +232,13 @@ HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode
                                    : std::vector<TExpr> {}) {}
 
 Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                                    SourceState& source_state) const {
+                                    bool* eos) const {
     auto& local_state = get_local_state(state);
     local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
-        source_state = SourceState::FINISHED;
+        *eos = true;
         return Status::OK();
     }
 
@@ -249,9 +249,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         // If we use a short-circuit strategy, should return block directly by add additional null data.
         auto block_rows = local_state._probe_block.rows();
         if (local_state._probe_eos && block_rows == 0) {
-            if (local_state._probe_eos) {
-                source_state = SourceState::FINISHED;
-            }
+            *eos = local_state._probe_eos;
             return Status::OK();
         }
 
@@ -287,7 +285,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
 
         /// No need to check the block size in `_filter_data_and_build_output` because here dose not
         /// increase the output rows count(just same as `_probe_block`'s rows count).
-        RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, source_state,
+        RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
                                                                  &temp_block, false));
         temp_block.clear();
         local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
@@ -341,10 +339,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                         if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                             using HashTableCtxType = std::decay_t<decltype(arg)>;
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                bool eos = false;
                                 st = process_hashtable_ctx.process_data_in_hashtable(
-                                        arg, mutable_join_block, &temp_block, &eos, _is_mark_join);
-                                source_state = eos ? SourceState::FINISHED : source_state;
+                                        arg, mutable_join_block, &temp_block, eos, _is_mark_join);
                             } else {
                                 st = Status::InternalError("uninited hash table");
                             }
@@ -355,7 +351,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     *local_state._shared_state->hash_table_variants,
                     *local_state._process_hashtable_ctx_variants);
         } else {
-            source_state = SourceState::FINISHED;
+            *eos = true;
             return Status::OK();
         }
     } else {
@@ -365,8 +361,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         return st;
     }
 
-    RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, source_state,
-                                                             &temp_block));
+    RETURN_IF_ERROR(
+            local_state.filter_data_and_build_output(state, output_block, eos, &temp_block));
     // Here make _join_block release the columns' ptr
     local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
     mutable_join_block.clear();
@@ -417,7 +413,7 @@ std::vector<uint16_t> HashJoinProbeLocalState::_convert_block_to_null(vectorized
 
 Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state,
                                                              vectorized::Block* output_block,
-                                                             SourceState& source_state,
+                                                             bool* eos,
                                                              vectorized::Block* temp_block,
                                                              bool check_rows_count) {
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
@@ -434,9 +430,9 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
                                                                temp_block->columns()));
     }
 
-    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_output_block(temp_block, output_block, false));
     _reset_tuple_is_null_column();
-    reached_limit(output_block, source_state);
+    reached_limit(output_block, eos);
     return Status::OK();
 }
 
@@ -468,10 +464,10 @@ Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
 }
 
 Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
-                                    SourceState source_state) const {
+                                    bool eos) const {
     auto& local_state = get_local_state(state);
     local_state.prepare_for_next();
-    local_state._probe_eos = source_state == SourceState::FINISHED;
+    local_state._probe_eos = eos;
     if (input_block->rows() > 0) {
         COUNTER_UPDATE(local_state._probe_rows_counter, input_block->rows());
         int probe_expr_ctxs_sz = local_state._probe_expr_ctxs.size();

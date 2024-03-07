@@ -60,10 +60,10 @@ PipelineXTask::PipelineXTask(
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
-    _sink->get_dependency(_downstream_dependency, _shared_states, state->get_query_ctx());
-    for (auto& op : _operators) {
-        _source_dependency.insert(
-                {op->operator_id(), op->get_dependency(state->get_query_ctx(), _shared_states)});
+
+    auto shared_state = _sink->create_shared_state();
+    if (shared_state) {
+        _sink_shared_state = shared_state;
     }
     pipeline->incr_created_tasks();
 }
@@ -82,7 +82,7 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
         LocalSinkStateInfo info {_task_idx,
                                  _task_profile.get(),
                                  local_params.sender_id,
-                                 get_downstream_dependency(),
+                                 get_sink_shared_state().get(),
                                  _le_state_map,
                                  tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
@@ -97,14 +97,8 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
-        auto& deps = get_upstream_dependency(op->operator_id());
-        LocalStateInfo info {parent_profile,
-                             scan_ranges,
-                             deps,
-                             get_shared_state(op->operator_id()),
-                             _le_state_map,
-                             _task_idx,
-                             _source_dependency[op->operator_id()]};
+        LocalStateInfo info {parent_profile, scan_ranges, get_op_shared_state(op->operator_id()),
+                             _le_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
         query_ctx->register_query_statistics(
@@ -126,9 +120,9 @@ Status PipelineXTask::_extract_dependencies() {
             return result.error();
         }
         auto* local_state = result.value();
-        auto* dep = local_state->dependency();
-        DCHECK(dep != nullptr);
-        _read_dependencies.push_back(dep);
+        const auto& deps = local_state->dependencies();
+        std::copy(deps.begin(), deps.end(),
+                  std::inserter(_read_dependencies, _read_dependencies.end()));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
@@ -136,9 +130,9 @@ Status PipelineXTask::_extract_dependencies() {
     }
     {
         auto* local_state = _state->get_sink_local_state();
-        auto* dep = local_state->dependency();
-        DCHECK(dep != nullptr);
-        _write_dependencies = dep;
+        _write_dependencies = local_state->dependencies();
+        DCHECK(std::all_of(_write_dependencies.begin(), _write_dependencies.end(),
+                           [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
@@ -229,8 +223,8 @@ Status PipelineXTask::execute(bool* eos) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
-    // The status must be runnable
     *eos = false;
+    // The status must be runnable
     if (!_opened) {
         {
             SCOPED_RAW_TIMER(&time_spent);
@@ -257,7 +251,7 @@ Status PipelineXTask::execute(bool* eos) {
     Status status = Status::OK();
     set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
-        if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
+        if (_root->need_data_from_children(_state) && !source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;
         }
@@ -269,7 +263,6 @@ Status PipelineXTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
-        // TODO llj: Pipeline entity should_yield
         SCOPED_RAW_TIMER(&time_spent);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
@@ -278,15 +271,19 @@ Status PipelineXTask::execute(bool* eos) {
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, _data_state));
+            try {
+                RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+            } catch (const Exception& e) {
+                return Status::InternalError(e.to_string() +
+                                             " task debug string: " + debug_string());
+            }
         } else {
-            _data_state = SourceState::FINISHED;
+            *eos = true;
         }
 
-        *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            status = _sink->sink(_state, block, _data_state);
+            status = _sink->sink(_state, block, *eos);
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -304,10 +301,8 @@ void PipelineXTask::finalize() {
     PipelineTask::finalize();
     std::unique_lock<std::mutex> lc(_release_lock);
     _finished = true;
-    std::vector<DependencySPtr> {}.swap(_downstream_dependency);
-    _upstream_dependency.clear();
-    _source_dependency.clear();
-    _shared_states.clear();
+    _sink_shared_state.reset();
+    _op_shared_states.clear();
     _le_state_map.clear();
 }
 
@@ -350,9 +345,9 @@ std::string PipelineXTask::debug_string() {
                    print_id(_state->fragment_instance_id()));
 
     fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, state = {}, data state = {}, dry run = {}, elapse time "
+                   "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
                    "= {}ns], block dependency = {}, is running = {}\noperators: ",
-                   (void*)this, get_state_name(_cur_state), (int)_data_state, _dry_run,
+                   (void*)this, get_state_name(_cur_state), _dry_run,
                    MonotonicNanos() - _fragment_context->create_time(),
                    _blocked_dep ? _blocked_dep->debug_string() : "NULL", is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
@@ -374,8 +369,10 @@ std::string PipelineXTask::debug_string() {
     }
 
     fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");
-    fmt::format_to(debug_string_buffer, "{}. {}\n", i, _write_dependencies->debug_string(1));
-    i++;
+    for (size_t j = 0; j < _write_dependencies.size(); j++, i++) {
+        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                       _write_dependencies[j]->debug_string(i + 1));
+    }
 
     if (_filter_dependency) {
         fmt::format_to(debug_string_buffer, "Runtime Filter Dependency Information: \n");

@@ -196,11 +196,11 @@ JDBC Catalog 对于外部表大小写的映射规则存在如下三个阶段：
 
 * Doris 2.1.0 以及之后版本：
 
-    为了避免和 FE conf 的 `lower_case_table_names` 参数混淆，此配置名改为 `lower_case_meta_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.4 ，需要 `Refresh <catalog_name>` 才能生效。
+    为了避免和 FE conf 的 `lower_case_table_names` 参数混淆，此配置名改为 `lower_case_meta_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.1.0 ，需要 `Refresh <catalog_name>` 才能生效。
 
     具体规则参考本小节开始对于 `lower_case_meta_names` 的介绍。
 
-    此前设置过 JDBC Catalog `lower_case_table_names` 参数的用户会在升级到 2.0.4 时，自动将 `lower_case_table_names` 转换为 `lower_case_meta_names`。
+    此前设置过 JDBC Catalog `lower_case_table_names` 参数的用户会在升级到 2.1.0 时，自动将 `lower_case_table_names` 转换为 `lower_case_meta_names`。
 
 ### 指定同步数据库
 
@@ -613,6 +613,7 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 | datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                              |
 | char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                              |
 | time/datetimeoffset                    | STRING        |                                                              |
+| timestamp                              | STRING        | 读取二进制数据的十六进制显示，无实际意义                            |
 | Other                                  | UNSUPPORTED   |                                                              |
 
 ### Doris
@@ -842,28 +843,82 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
  Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#mysql) 与 [Oracle](#oracle)
 :::
 
+### DB2
+
+#### 创建示例
+
+```sql
+CREATE CATALOG `jdbc_db2` PROPERTIES (
+    "user" = "db2inst1",
+    "type" = "jdbc",
+    "password" = "123456",
+    "jdbc_url" = "jdbc:db2://127.0.0.1:50000/doris",
+    "driver_url" = "jcc-11.5.8.0.jar",
+    "driver_class" = "com.ibm.db2.jcc.DB2Driver"
+);
+```
+
+#### 层级映射
+
+映射 DB2 时，Doris 的 Database 对应于 DB2 中指定 DataBase（如示例中 `jdbc_url` 参数中的 "doris"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 DB2 中 Schema 下的 Tables。即映射关系如下：
+
+|  Doris   |   DB2    |
+|:--------:|:--------:|
+| Catalog  | DataBase |
+| Database |  Schema  |
+|  Table   |  Table   |
+
+
+#### 类型映射
+
+| DB2 Type         | Trino Type   | Notes |
+|------------------|--------------|-------|
+| SMALLINT         | SMALLINT     |       |
+| INT              | INT          |       |
+| BIGINT           | BIGINT       |       |
+| DOUBLE           | DOUBLE       |       |
+| DOUBLE PRECISION | DOUBLE       |       |
+| FLOAT            | DOUBLE       |       |
+| REAL             | FLOAT        |       |
+| NUMERIC          | DECIMAL      |       |
+| DECIMAL          | DECIMAL      |       |
+| DECFLOAT         | DECIMAL      |       |
+| DATE             | DATE         |       |
+| TIMESTAMP        | DATETIME     |       |
+| CHAR             | CHAR         |       |
+| CHAR VARYING     | VARCHAR      |       |
+| VARCHAR          | VARCHAR      |       |
+| LONG VARCHAR     | VARCHAR      |       |
+| VARGRAPHIC       | STRING       |       |
+| LONG VARGRAPHIC  | STRING       |       |
+| TIME             | STRING       |       |
+| CLOB             | STRING       |       |
+| XML              | STRING       |       |
+| OTHER            | UNSUPPORTED  |       |
+
 ## JDBC Driver 列表
 
 推荐使用以下版本的 Driver 连接对应的数据库。其他版本的 Driver 未经测试，可能导致非预期的问题。
 
-|  Source | JDBC Driver Version |
-|:--------:|:--------:|
-| MySQL 5.x  | mysql-connector-java-5.1.47.jar |
-| MySQL 8.x  | mysql-connector-java-8.0.25.jar |
-| PostgreSQL | postgresql-42.5.1.jar |
-| Oracle   | ojdbc8.jar|
-| SQLServer | mssql-jdbc-11.2.3.jre8.jar |
-| Doris | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
-| Clickhouse | clickhouse-jdbc-0.4.2-all.jar  |
-| SAP HAHA | ngdbc.jar |
-| Trino/Presto | trino-jdbc-389.jar / presto-jdbc-0.280.jar |
-| OceanBase | oceanbase-client-2.4.2.jar |
+|    Source    |                        JDBC Driver Version                        |
+|:------------:|:-----------------------------------------------------------------:|
+|  MySQL 5.x   |                  mysql-connector-java-5.1.47.jar                  |
+|  MySQL 8.x   |                  mysql-connector-java-8.0.25.jar                  |
+|  PostgreSQL  |                       postgresql-42.5.1.jar                       |
+|    Oracle    |                            ojdbc8.jar                             |
+|  SQLServer   |                    mssql-jdbc-11.2.3.jre8.jar                     |
+|    Doris     | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+|  Clickhouse  |                   clickhouse-jdbc-0.4.2-all.jar                   |
+|   SAP HAHA   |                             ngdbc.jar                             |
+| Trino/Presto |            trino-jdbc-389.jar / presto-jdbc-0.280.jar             |
+|  OceanBase   |                    oceanbase-client-2.4.2.jar                     |
+|     DB2      |                         jcc-11.5.8.0.jar                          |
 
 ## 常见问题
 
-1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase 是否能够支持更多的数据库
+1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase,DB2 是否能够支持更多的数据库
 
-    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase,DB2. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写 MySQL外表的emoji表情出现乱码
 
@@ -995,3 +1050,6 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
     可以先下载[lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar)包，然后放到DorisFE lib 目录以及BE 的 `lib/lib/java_extensions`目录中（Doris 2.0 之前的版本需放到 BE 的 lib 目录下）。
 
     从 2.0.2 版本起，可以将这个文件放置在 FE 和 BE 的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+
+11. 如果通过 Jdbc catalog 查询 MySQL 的时候，出现长时间卡住没有返回结果，或着卡住很长时间并且 fe.warn.log 中出现出现大量 write lock 日志，可以尝试在 url 添加 socketTimeout ，例如：`jdbc:mysql://host:port/database?socketTimeout=30000` ， 防止 MySQL 在关闭连接后 Jdbc 客户端无限等待。
+

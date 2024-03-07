@@ -175,11 +175,6 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                 Optional.empty(), Optional.empty(), children);
     }
 
-    public LogicalUnion withHasPushedFilter() {
-        return new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, true,
-                Optional.empty(), Optional.empty(), children);
-    }
-
     @Override
     public LogicalUnion pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withNewOutputs(prunedOutputs);

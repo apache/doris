@@ -98,8 +98,8 @@ public class PrivPredicate {
 
     // resource/workloadGroup usage
     public static final PrivPredicate USAGE = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.USAGE_PRIV),
-            Operator.OR);
+            Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV), Operator.OR);
+
 
     // all
     public static final PrivPredicate ALL = PrivPredicate.of(PrivBitSet.of(Privilege.NODE_PRIV,
@@ -109,7 +109,8 @@ public class PrivPredicate {
             Privilege.ALTER_PRIV,
             Privilege.CREATE_PRIV,
             Privilege.DROP_PRIV,
-            Privilege.USAGE_PRIV),
+            Privilege.USAGE_PRIV,
+            Privilege.CLUSTER_USAGE_PRIV),
             Operator.OR);
 
     private PrivBitSet privs;
@@ -120,7 +121,7 @@ public class PrivPredicate {
         this.op = op;
     }
 
-    private static PrivPredicate of(PrivBitSet privs, Operator op) {
+    public static PrivPredicate of(PrivBitSet privs, Operator op) {
         final PrivPredicate predicate = new PrivPredicate(privs, op);
         return predicate;
     }

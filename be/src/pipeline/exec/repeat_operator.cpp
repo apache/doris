@@ -45,8 +45,6 @@ Status RepeatOperator::close(doris::RuntimeState* state) {
 RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _child_block(vectorized::Block::create_unique()),
-          _child_source_state(SourceState::DEPEND_ON_SOURCE),
-          _child_eos(false),
           _repeat_id_idx(0) {}
 
 Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
@@ -179,10 +177,9 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
     return Status::OK();
 }
 
-Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
-                             SourceState source_state) const {
+Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block, bool eos) const {
     auto& local_state = get_local_state(state);
-    local_state._child_eos = source_state == SourceState::FINISHED;
+    local_state._child_eos = eos;
     auto& _intermediate_block = local_state._intermediate_block;
     auto& _expr_ctxs = local_state._expr_ctxs;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
@@ -207,7 +204,7 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
 }
 
 Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                             SourceState& source_state) const {
+                             bool* eos) const {
     auto& local_state = get_local_state(state);
     auto& _repeat_id_idx = local_state._repeat_id_idx;
     auto& _child_block = *local_state._child_block;
@@ -235,10 +232,8 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
     }
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
                                                            output_block->columns()));
-    if (_child_eos && _child_block.rows() == 0) {
-        source_state = SourceState::FINISHED;
-    }
-    local_state.reached_limit(output_block, source_state);
+    *eos = _child_eos && _child_block.rows() == 0;
+    local_state.reached_limit(output_block, eos);
     COUNTER_SET(local_state._rows_returned_counter, local_state._num_rows_returned);
     return Status::OK();
 }

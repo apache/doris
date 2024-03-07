@@ -39,9 +39,7 @@ protected:
     template <typename LocalStateType>
     friend class StatefulOperatorX;
     JoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-            : Base(state, parent),
-              _child_block(vectorized::Block::create_unique()),
-              _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
+            : Base(state, parent), _child_block(vectorized::Block::create_unique()) {}
     ~JoinProbeLocalState() override = default;
     void _construct_mutable_join_block();
     Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
@@ -61,7 +59,7 @@ protected:
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
 
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
-    SourceState _child_source_state;
+    bool _child_eos = false;
 };
 
 template <typename LocalStateType>

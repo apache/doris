@@ -53,7 +53,7 @@ public:
     AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
 
-    Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override;
+    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return false; }
 

@@ -726,7 +726,7 @@ public abstract class ScanNode extends PlanNode {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
                 && context.getSessionVariable().getEnablePipelineXEngine()
-                && !fragment.isHasNullAwareLeftAntiJoin()
+                && !fragment.hasNullAwareLeftAntiJoin()
                 && getScanRangeNum()
                 < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numBackends;
     }
@@ -735,7 +735,7 @@ public abstract class ScanNode extends PlanNode {
         return Integer.MAX_VALUE;
     }
 
-    public boolean haveLimitAndConjunts() {
-        return hasLimit() && !conjuncts.isEmpty();
+    public boolean shouldUseOneInstance() {
+        return hasLimit() && conjuncts.isEmpty();
     }
 }

@@ -44,7 +44,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 public class StatisticsCache {
 
@@ -74,21 +73,6 @@ public class StatisticsCache {
                     .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
                     .executor(threadPool)
                     .buildAsync(histogramCacheLoader);
-
-    {
-        threadPool.submit(() -> {
-            while (true) {
-                try {
-                    columnStatisticsCacheLoader.removeExpiredInProgressing();
-                    histogramCacheLoader.removeExpiredInProgressing();
-                } catch (Throwable t) {
-                    // IGNORE
-                }
-                Thread.sleep(TimeUnit.MINUTES.toMillis(15));
-            }
-
-        });
-    }
 
     public ColumnStatistic getColumnStatistics(long catalogId, long dbId, long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
@@ -189,7 +173,10 @@ public class StatisticsCache {
                 String colId = statsId.colId;
                 final StatisticsCacheKey k =
                         new StatisticsCacheKey(tblId, idxId, colId);
-                final ColumnStatistic c = ColumnStatistic.fromResultRow(r);
+                ColumnStatistic c = ColumnStatistic.fromResultRow(r);
+                if (c.count > 0 && c.ndv == 0 && c.count != c.numNulls) {
+                    c = ColumnStatistic.UNKNOWN;
+                }
                 putCache(k, c);
             } catch (Throwable t) {
                 LOG.warn("Error when preheating stats cache", t);

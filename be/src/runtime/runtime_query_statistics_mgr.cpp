@@ -95,7 +95,7 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
         report_runtime_params.__set_query_statistics_map(qs_map);
 
         TReportExecStatusParams params;
-        params.report_workload_runtime_status = report_runtime_params;
+        params.__set_report_workload_runtime_status(report_runtime_params);
 
         TReportExecStatusResult res;
         Status rpc_status;
@@ -172,12 +172,81 @@ std::shared_ptr<QueryStatistics> RuntimeQueryStatiticsMgr::get_runtime_query_sta
     return qs_ptr;
 }
 
+void RuntimeQueryStatiticsMgr::get_metric_map(
+        std::string query_id, std::map<WorkloadMetricType, std::string>& metric_map) {
+    QueryStatistics ret_qs;
+    int64_t query_time_ms = 0;
+    {
+        std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+        if (_query_statistics_ctx_map.find(query_id) != _query_statistics_ctx_map.end()) {
+            for (auto const& qs : _query_statistics_ctx_map[query_id]->_qs_list) {
+                ret_qs.merge(*qs);
+            }
+            query_time_ms =
+                    MonotonicMillis() - _query_statistics_ctx_map.at(query_id)->_query_start_time;
+        }
+    }
+    metric_map.emplace(WorkloadMetricType::QUERY_TIME, std::to_string(query_time_ms));
+    metric_map.emplace(WorkloadMetricType::SCAN_ROWS, std::to_string(ret_qs.get_scan_rows()));
+    metric_map.emplace(WorkloadMetricType::SCAN_BYTES, std::to_string(ret_qs.get_scan_bytes()));
+}
+
 void RuntimeQueryStatiticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
     // wg id just need eventual consistency, read lock is ok
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     if (_query_statistics_ctx_map.find(query_id) != _query_statistics_ctx_map.end()) {
         _query_statistics_ctx_map.at(query_id)->_wg_id = wg_id;
     }
+}
+
+std::vector<TRow> RuntimeQueryStatiticsMgr::get_active_be_tasks_statistics(
+        std::vector<std::string> filter_columns) {
+    std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+    std::vector<TRow> table_rows;
+    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+
+    for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
+        TRow trow;
+
+        TQueryStatistics tqs;
+        qs_ctx_ptr->collect_query_statistics(&tqs);
+
+        for (auto iter = filter_columns.begin(); iter != filter_columns.end(); iter++) {
+            std::string col_name = *iter;
+
+            TCell tcell;
+            if (col_name == "beid") {
+                tcell.longVal = be_id;
+            } else if (col_name == "fehost") {
+                tcell.stringVal = qs_ctx_ptr->_fe_addr.hostname;
+            } else if (col_name == "queryid") {
+                tcell.stringVal = query_id;
+            } else if (col_name == "tasktimems") {
+                if (qs_ctx_ptr->_is_query_finished) {
+                    tcell.longVal = qs_ctx_ptr->_query_finish_time - qs_ctx_ptr->_query_start_time;
+                } else {
+                    tcell.longVal = MonotonicMillis() - qs_ctx_ptr->_query_start_time;
+                }
+            } else if (col_name == "taskcputimems") {
+                tcell.longVal = tqs.cpu_ms;
+            } else if (col_name == "scanrows") {
+                tcell.longVal = tqs.scan_rows;
+            } else if (col_name == "scanbytes") {
+                tcell.longVal = tqs.scan_bytes;
+            } else if (col_name == "bepeakmemorybytes") {
+                tcell.longVal = tqs.max_peak_memory_bytes;
+            } else if (col_name == "currentusedmemorybytes") {
+                tcell.longVal = tqs.current_used_memory_bytes;
+            } else if (col_name == "shufflesendbytes") {
+                tcell.longVal = tqs.shuffle_send_bytes;
+            } else if (col_name == "shufflesendRows") {
+                tcell.longVal = tqs.shuffle_send_rows;
+            }
+            trow.column_value.push_back(tcell);
+        }
+        table_rows.push_back(trow);
+    }
+    return table_rows;
 }
 
 } // namespace doris

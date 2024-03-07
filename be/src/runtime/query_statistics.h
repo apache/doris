@@ -35,25 +35,6 @@ class QueryStatisticsRecvr;
 class PNodeStatistics;
 class PQueryStatistics;
 
-class NodeStatistics {
-public:
-    NodeStatistics() : peak_memory_bytes(0) {}
-
-    void set_peak_memory(int64_t peak_memory) {
-        this->peak_memory_bytes = std::max(this->peak_memory_bytes, peak_memory);
-    }
-
-    void merge(const NodeStatistics& other);
-
-    void to_pb(PNodeStatistics* node_statistics);
-
-    void from_pb(const PNodeStatistics& node_statistics);
-
-private:
-    friend class QueryStatistics;
-    int64_t peak_memory_bytes;
-};
-
 // This is responsible for collecting query statistics, usually it consists of
 // two parts, one is current fragment or plan's statistics, the other is sub fragment
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
@@ -92,18 +73,6 @@ public:
         this->shuffle_send_rows.fetch_add(delta_rows, std::memory_order_relaxed);
     }
 
-    NodeStatistics* add_nodes_statistics(int64_t node_id) {
-        NodeStatistics* nodeStatistics = nullptr;
-        auto iter = _nodes_statistics_map.find(node_id);
-        if (iter == _nodes_statistics_map.end()) {
-            nodeStatistics = new NodeStatistics;
-            _nodes_statistics_map[node_id] = nodeStatistics;
-        } else {
-            nodeStatistics = iter->second;
-        }
-        return nodeStatistics;
-    }
-
     void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
 
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
@@ -117,8 +86,6 @@ public:
     void merge(QueryStatisticsRecvr* recvr);
 
     void merge(QueryStatisticsRecvr* recvr, int sender_id);
-    // Get the maximum value from the peak memory collected by all node statistics
-    int64_t calculate_max_peak_memory_bytes();
 
     void clearNodeStatistics();
 
@@ -159,9 +126,6 @@ private:
     // Maximum memory peak for all backends.
     // only set once by result sink when closing.
     std::atomic<int64_t> max_peak_memory_bytes;
-    // The statistics of the query on each backend.
-    using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
-    NodeStatisticsMap _nodes_statistics_map;
     bool _collected = false;
     std::atomic<int64_t> current_used_memory_bytes;
 

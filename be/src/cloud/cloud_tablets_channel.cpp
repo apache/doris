@@ -123,8 +123,8 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     // All senders are closed
     // 1. close all delta writers
-    std::vector<CloudDeltaWriter*> need_wait_writers;
-    need_wait_writers.reserve(_tablet_writers.size());
+    std::vector<CloudDeltaWriter*> writers_to_commit;
+    writers_to_commit.reserve(_tablet_writers.size());
     bool success = true;
 
     for (auto&& [tablet_id, base_writer] : _tablet_writers) {
@@ -132,29 +132,34 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         // ATTN: the strict mode means strict filtering of column type conversions during import.
         // Sometimes all inputs are filtered, but the partition ID is still set, and the writer is
         // not initialized.
-        if (_partition_ids.contains(writer->partition_id()) && writer->is_init()) {
+        if (_partition_ids.contains(writer->partition_id())) {
             if (!success) { // Already failed, cancel all remain writers
                 static_cast<void>(writer->cancel());
                 continue;
             }
-            auto st = writer->close();
-            if (!st.ok()) {
-                LOG(WARNING) << "close tablet writer failed, tablet_id=" << tablet_id
-                             << ", txn_id=" << _txn_id << ", err=" << st;
-                PTabletError* tablet_error = tablet_errors->Add();
-                tablet_error->set_tablet_id(tablet_id);
-                tablet_error->set_msg(st.to_string());
-                success = false;
-                _close_status = std::move(st);
-                continue;
+
+            if (writer->is_init()) {
+                auto st = writer->close();
+                if (!st.ok()) {
+                    LOG(WARNING) << "close tablet writer failed, tablet_id=" << tablet_id
+                                 << ", txn_id=" << _txn_id << ", err=" << st;
+                    PTabletError* tablet_error = tablet_errors->Add();
+                    tablet_error->set_tablet_id(tablet_id);
+                    tablet_error->set_msg(st.to_string());
+                    success = false;
+                    _close_status = std::move(st);
+                    continue;
+                }
             }
+
             // to make sure tablet writer in `_broken_tablets` won't call `close_wait` method.
             if (_is_broken_tablet(writer->tablet_id())) {
                 LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
                              << ", tablet_id=" << tablet_id << ", transaction_id=" << _txn_id;
                 continue;
             }
-            need_wait_writers.push_back(writer);
+
+            writers_to_commit.push_back(writer);
         } else {
             auto st = writer->cancel();
             if (!st.ok()) {
@@ -171,11 +176,13 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     }
 
     // 2. wait delta writers
-    std::vector<RowsetMetaSharedPtr> rowsets_to_commit;
-    rowsets_to_commit.reserve(need_wait_writers.size());
     using namespace std::chrono;
     auto build_start = steady_clock::now();
-    for (auto* writer : need_wait_writers) {
+    for (auto* writer : writers_to_commit) {
+        if (!writer->is_init()) {
+            continue;
+        }
+
         auto st = writer->build_rowset();
         if (!st.ok()) {
             LOG(WARNING) << "failed to close wait DeltaWriter. tablet_id=" << writer->tablet_id()
@@ -186,19 +193,15 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
             _close_status = std::move(st);
             return _close_status;
         }
-
-        rowsets_to_commit.push_back(writer->rowset_meta());
     }
     int64_t build_latency = duration_cast<milliseconds>(steady_clock::now() - build_start).count();
 
     // 3. commit rowsets to meta-service
     auto commit_start = steady_clock::now();
     std::vector<std::function<Status()>> tasks;
-    tasks.reserve(rowsets_to_commit.size());
-    for (auto& rs_meta : rowsets_to_commit) {
-        tasks.emplace_back([&rs_meta, &meta_mgr = _engine.meta_mgr()] {
-            return meta_mgr.commit_rowset(*rs_meta, true);
-        });
+    tasks.reserve(writers_to_commit.size());
+    for (auto* writer : writers_to_commit) {
+        tasks.emplace_back([writer] { return writer->commit_rowset(); });
     }
     _close_status = cloud::bthread_fork_join(tasks, 10);
     if (!_close_status.ok()) {
@@ -209,7 +212,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
             duration_cast<milliseconds>(steady_clock::now() - commit_start).count();
 
     // 4. calculate delete bitmap for Unique Key MoW tables
-    for (auto* writer : need_wait_writers) {
+    for (auto* writer : writers_to_commit) {
         auto st = writer->submit_calc_delete_bitmap_task();
         if (!st.ok()) {
             LOG(WARNING) << "failed to close wait DeltaWriter. tablet_id=" << writer->tablet_id()
@@ -221,7 +224,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     }
 
     // 5. wait for delete bitmap calculation complete if necessary
-    for (auto* writer : need_wait_writers) {
+    for (auto* writer : writers_to_commit) {
         auto st = writer->wait_calc_delete_bitmap();
         if (!st.ok()) {
             LOG(WARNING) << "failed to close wait DeltaWriter. tablet_id=" << writer->tablet_id()
@@ -232,10 +235,19 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         }
     }
 
-    // TODO(plat1ko): 6. set txn related delete bitmap if necessary
+    // 6. set txn related delete bitmap if necessary
+    for (auto it = writers_to_commit.begin(); it != writers_to_commit.end();) {
+        auto st = (*it)->set_txn_related_delete_bitmap();
+        if (!st.ok()) {
+            _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
+            _close_status = std::move(st);
+            return _close_status;
+        }
+        it++;
+    }
 
-    tablet_vec->Reserve(need_wait_writers.size());
-    for (auto* writer : need_wait_writers) {
+    tablet_vec->Reserve(writers_to_commit.size());
+    for (auto* writer : writers_to_commit) {
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
         // unused required field.

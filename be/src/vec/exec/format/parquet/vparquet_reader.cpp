@@ -246,11 +246,10 @@ Status ParquetReader::_open_file() {
         }
         size_t meta_size = 0;
         if (_meta_cache == nullptr) {
-            RETURN_IF_ERROR(
-                    parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx));
+            auto st = parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx);
             // wrap it with unique ptr, so that it can be released finally.
             _file_metadata_ptr.reset(_file_metadata);
-            _file_metadata = _file_metadata_ptr.get();
+            RETURN_IF_ERROR(st);
 
             _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data

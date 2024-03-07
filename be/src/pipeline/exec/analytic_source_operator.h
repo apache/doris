@@ -76,7 +76,6 @@ private:
         if (need_more_input) {
             _dependency->block();
             _dependency->set_ready_to_write();
-            _shared_state->sink_dep->set_ready();
         } else {
             _dependency->set_block_to_write();
             _dependency->set_ready();
@@ -89,7 +88,7 @@ private:
                                                      bool need_check_first = false);
     bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
-    Status _reset_agg_status();
+    void _reset_agg_status();
     Status _create_agg_status();
     Status _destroy_agg_status();
 
@@ -135,8 +134,7 @@ public:
     AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                             const DescriptorTbl& descs);
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

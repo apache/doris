@@ -74,7 +74,6 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
             def sout = new StringBuilder(), serr = new StringBuilder()
             proc.consumeProcessOutput(sout, serr)
             proc.waitForOrKill(7200000)
-            // logger.info("std out: " + sout + "std err: " + serr)
         }
     }
 
@@ -152,10 +151,6 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
         proc.waitForOrKill(600000) // 10 minutes
     }
 
-    // for (int i = 0; i < data_count; i++) {
-    //     logger.info("try to run " + i + " : " + cm_list[i])
-    //     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[i])})
-    // }
     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[0])})
     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[1])})
     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[2])})

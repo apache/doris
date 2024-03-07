@@ -17,7 +17,9 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
@@ -29,17 +31,26 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudBrokerLoadJob;
+import org.apache.doris.cloud.qe.CloudCoordinator;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import java.lang.reflect.Type;
+import java.util.List;
 import java.util.Map;
 
 public class CloudEnvFactory extends EnvFactory {
@@ -93,6 +104,11 @@ public class CloudEnvFactory extends EnvFactory {
     }
 
     @Override
+    public Replica createReplica(Replica.ReplicaContext context) {
+        return new CloudReplica(context);
+    }
+
+    @Override
     public ReplicaAllocation createDefReplicaAllocation() {
         return new ReplicaAllocation((short) 1);
     }
@@ -121,5 +137,16 @@ public class CloudEnvFactory extends EnvFactory {
     @Override
     public BrokerLoadJob createBrokerLoadJob() {
         return new CloudBrokerLoadJob();
+    }
+
+    public Coordinator createCoordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+                                         StatsErrorEstimator statsErrorEstimator) {
+        return new CloudCoordinator(context, analyzer, planner, statsErrorEstimator);
+    }
+
+    public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
+                                         List<PlanFragment> fragments, List<ScanNode> scanNodes,
+                                         String timezone, boolean loadZeroTolerance) {
+        return new CloudCoordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance);
     }
 }

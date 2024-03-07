@@ -533,12 +533,14 @@ message PMergeFilterRequest {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional bool opt_remote_rf = 9;
+    optional PColumnType column_type = 10;
 };
 
 message PMergeFilterResponse {
     required PStatus status = 1;
 };
 
+// delete PPublishFilterRequest after upgrade doris 2.1
 message PPublishFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
@@ -549,6 +551,7 @@ message PPublishFilterRequest {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
+    optional PColumnType column_type = 10;
 };
 
 message PPublishFilterRequestV2 {

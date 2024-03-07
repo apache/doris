@@ -143,4 +143,9 @@ public class TVFScanNode extends FileQueryScanNode {
         }
         return splits;
     }
+
+    @Override
+    public int getNumInstances() {
+        return scanRangeLocations.size();
+    }
 }

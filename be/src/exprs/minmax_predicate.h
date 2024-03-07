@@ -65,9 +65,10 @@ public:
     }
 
     void update_batch(const vectorized::ColumnPtr& column, size_t start) {
+        const auto size = column->size();
         if constexpr (std::is_same_v<T, StringRef>) {
             const auto& column_string = assert_cast<const vectorized::ColumnString&>(*column);
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 if constexpr (NeedMin) {
                     _min = std::min(_min, column_string.get_data_at(i));
                 }
@@ -77,7 +78,7 @@ public:
             }
         } else {
             const T* data = (T*)column->get_raw_data().data;
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 if constexpr (NeedMin) {
                     _min = std::min(_min, *(data + i));
                 }
@@ -90,9 +91,10 @@ public:
 
     void update_batch(const vectorized::ColumnPtr& column, const vectorized::NullMap& nullmap,
                       size_t start) {
+        const auto size = column->size();
         if constexpr (std::is_same_v<T, StringRef>) {
             const auto& column_string = assert_cast<const vectorized::ColumnString&>(*column);
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 if (!nullmap[i]) {
                     if constexpr (NeedMin) {
                         _min = std::min(_min, column_string.get_data_at(i));
@@ -104,7 +106,7 @@ public:
             }
         } else {
             const T* data = (T*)column->get_raw_data().data;
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 if (!nullmap[i]) {
                     if constexpr (NeedMin) {
                         _min = std::min(_min, *(data + i));

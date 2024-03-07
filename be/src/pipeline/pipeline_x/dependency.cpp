@@ -29,6 +29,22 @@
 
 namespace doris::pipeline {
 
+Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
+                                                       std::string name, QueryContext* ctx) {
+    source_deps.push_back(
+            std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY", ctx));
+    source_deps.back()->set_shared_state(this);
+    return source_deps.back().get();
+}
+
+Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name,
+                                                     QueryContext* ctx) {
+    sink_deps.push_back(
+            std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true, ctx));
+    sink_deps.back()->set_shared_state(this);
+    return sink_deps.back().get();
+}
+
 void Dependency::_add_block_task(PipelineXTask* task) {
     DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
             << "Duplicate task: " << task->debug_string();
@@ -88,9 +104,10 @@ Dependency* RuntimeFilterDependency::is_blocked_by(PipelineXTask* task) {
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}",
+    fmt::format_to(debug_string_buffer,
+                   "{}{}: id={}, block task = {}, ready={}, _always_ready={}, is cancelled={}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
-                   _ready);
+                   _ready, _always_ready, _is_cancelled());
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -100,17 +117,6 @@ std::string RuntimeFilterDependency::debug_string(int indentation_level) {
                    "{}{}: id={}, block task = {}, ready={}, _filters = {}, _blocked_by_rf = {}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
                    _ready, _filters.load(), _blocked_by_rf ? _blocked_by_rf->load() : false);
-    return fmt::to_string(debug_string_buffer);
-}
-
-std::string AndDependency::debug_string(int indentation_level) {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, children=[",
-                   std::string(indentation_level * 2, ' '), _name, _node_id);
-    for (auto& child : _children) {
-        fmt::format_to(debug_string_buffer, "{}, \n", child->debug_string(indentation_level = 1));
-    }
-    fmt::format_to(debug_string_buffer, "{}]", std::string(indentation_level * 2, ' '));
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -193,7 +199,7 @@ void LocalExchangeSharedState::sub_running_sink_operators() {
 }
 
 LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
-    source_dependencies.resize(num_instances, nullptr);
+    source_deps.resize(num_instances, nullptr);
     mem_trackers.resize(num_instances, nullptr);
 }
 

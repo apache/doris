@@ -117,6 +117,7 @@ message RowsetMetaPB {
     reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
+    optional int64 compaction_level = 52 [default = 0];
 
     // For cloud
     // for data recycling
@@ -129,6 +130,7 @@ message RowsetMetaPB {
     // If enable_segments_file_size is false,
     // the segments_file_size maybe is empty or error
     optional bool enable_segments_file_size = 1004;
+    optional bool has_variant_type_in_schema = 1005;
 }
 
 message RowsetMetaCloudPB {
@@ -198,6 +200,7 @@ message RowsetMetaCloudPB {
     // If enable_segments_file_size is false,
     // the segments_file_size maybe is empty or error
     optional bool enable_segments_file_size = 103;
+    optional bool has_variant_type_in_schema = 104;
 }
 
 message SegmentStatisticsPB {
@@ -295,6 +298,7 @@ message ColumnPB {
     optional segment_v2.ColumnPathInfo column_path_info = 20;
     // sparse column within a variant column
     repeated ColumnPB sparse_columns = 21;
+    optional bool is_auto_increment = 22;
 }
 
 enum IndexType {
@@ -454,6 +458,7 @@ message TabletMetaPB {
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
     optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
+    optional int64 time_series_compaction_level_threshold = 33 [default = 1];
 
     // For cloud
     optional int64 index_id = 1000;
@@ -507,6 +512,7 @@ message TabletMetaCloudPB {
     optional int64 time_series_compaction_file_count_threshold = 33 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 34 [default = 3600];
     optional int64 time_series_compaction_empty_rowsets_threshold = 35 [default = 5];
+    optional int64 time_series_compaction_level_threshold = 36 [default = 1];
 
     // Use for selectdb-cloud
     optional string table_name = 101;

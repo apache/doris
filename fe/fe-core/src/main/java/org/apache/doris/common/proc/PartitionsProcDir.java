@@ -220,7 +220,7 @@ public class PartitionsProcDir implements ProcDirInterface {
         return result;
     }
 
-    private List<List<Comparable>> getPartitionInfos() {
+    private List<List<Comparable>> getPartitionInfos() throws AnalysisException {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(olapTable);
         Preconditions.checkState(olapTable.isManagedTable());
@@ -244,6 +244,12 @@ public class PartitionsProcDir implements ProcDirInterface {
             }
 
             Joiner joiner = Joiner.on(", ");
+            Map<Long, List<String>> partitionsUnSyncTables = null;
+            if (olapTable instanceof MTMV) {
+                partitionsUnSyncTables = MTMVPartitionUtil
+                        .getPartitionsUnSyncTables((MTMV) olapTable, partitionIds);
+
+            }
             for (Long partitionId : partitionIds) {
                 Partition partition = olapTable.getPartition(partitionId);
 
@@ -308,15 +314,9 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                 partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
                 if (olapTable instanceof MTMV) {
-                    try {
-                        List<String> partitionUnSyncTables = MTMVPartitionUtil
-                                .getPartitionUnSyncTables((MTMV) olapTable, partitionId);
-                        partitionInfo.add(CollectionUtils.isEmpty(partitionUnSyncTables));
-                        partitionInfo.add(partitionUnSyncTables.toString());
-                    } catch (AnalysisException e) {
-                        partitionInfo.add(false);
-                        partitionInfo.add(e.getMessage());
-                    }
+                    List<String> partitionUnSyncTables = partitionsUnSyncTables.get(partitionId);
+                    partitionInfo.add(CollectionUtils.isEmpty(partitionUnSyncTables));
+                    partitionInfo.add(partitionUnSyncTables.toString());
                 } else {
                     partitionInfo.add(true);
                     partitionInfo.add(FeConstants.null_string);

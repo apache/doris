@@ -50,7 +50,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
                 task_group_info.enable_cpu_hard_limit);
 
         // 4 create and update task scheduler
-        _exec_env->task_group_manager()->upsert_cg_task_scheduler(&task_group_info, _exec_env);
+        tg->upsert_task_scheduler(&task_group_info, _exec_env);
 
         LOG(INFO) << "update task group finish, tg info=" << tg->debug_string()
                   << ", enable_cpu_hard_limit="

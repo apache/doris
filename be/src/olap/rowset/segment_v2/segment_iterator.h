@@ -451,8 +451,6 @@ private:
             _column_pred_in_remaining_vconjunct;
     std::set<ColumnId> _not_apply_index_pred;
 
-    std::shared_ptr<ColumnPredicate> _runtime_predicate;
-
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<Schema> _seek_schema;

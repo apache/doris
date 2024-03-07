@@ -87,7 +87,7 @@ class FindHashConditionForJoinTest implements MemoPatternMatchSupported {
         Expression eq5 = new EqualTo(studentId, new Add(studentId, cid));
         List<Expression> expr = ImmutableList.of(eq1, eq2, eq3, or, less, eq4, eq5);
         LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
-                expr, new DistributeHint(DistributeType.NONE), Optional.empty(), studentScan, scoreScan);
+                expr, new DistributeHint(DistributeType.NONE), Optional.empty(), studentScan, scoreScan, null);
 
         PlanChecker.from(new ConnectContext(), join)
                 .applyTopDown(new FindHashConditionForJoin())
@@ -106,7 +106,7 @@ class FindHashConditionForJoinTest implements MemoPatternMatchSupported {
         Expression eq2 = new EqualTo(studentId, new IntegerLiteral(1)); // a=1
 
         LogicalJoin join = new LogicalJoin<>(JoinType.CROSS_JOIN, new ArrayList<>(),
-                ImmutableList.of(eq1, eq2), new DistributeHint(DistributeType.NONE), Optional.empty(), studentScan, scoreScan);
+                ImmutableList.of(eq1, eq2), new DistributeHint(DistributeType.NONE), Optional.empty(), studentScan, scoreScan, null);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), join)
                 .applyTopDown(new FindHashConditionForJoin())

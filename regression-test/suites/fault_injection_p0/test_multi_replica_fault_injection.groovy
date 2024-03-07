@@ -93,7 +93,7 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
         // StreamSinkFileWriter appendv write segment failed two replica
         load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", "replica num 1 < load required replica num 2")
         // StreamSinkFileWriter appendv write segment failed all replica
-        load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "failed to write any replicas")
+        load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "failed to send segment data to any replicas")
 
         sql """ set enable_memtable_on_sink_node=false """
     }

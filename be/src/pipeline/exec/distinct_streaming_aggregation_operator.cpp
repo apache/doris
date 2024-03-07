@@ -39,7 +39,6 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
           _agg_data(std::make_unique<vectorized::AggregatedDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
-          _child_source_state(SourceState::DEPEND_ON_SOURCE),
           _aggregated_block(vectorized::Block::create_unique()) {}
 
 Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
@@ -331,7 +330,7 @@ Status DistinctStreamingAggOperatorX::open(RuntimeState* state) {
 }
 
 Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_block,
-                                           SourceState source_state) const {
+                                           bool eos) const {
     auto& local_state = get_local_state(state);
     local_state._input_num_rows += in_block->rows();
     Status ret = Status::OK();
@@ -351,8 +350,7 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
     }
 
     // reach limit or source finish
-    if ((UNLIKELY(source_state == SourceState::FINISHED)) ||
-        (_limit != -1 && local_state._output_distinct_rows >= _limit)) {
+    if ((UNLIKELY(eos)) || (_limit != -1 && local_state._output_distinct_rows >= _limit)) {
         local_state._output_distinct_rows += local_state._aggregated_block->rows();
         return Status::OK(); // need given finish signal
     }
@@ -360,7 +358,7 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
 }
 
 Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block,
-                                           SourceState& source_state) const {
+                                           bool* eos) const {
     auto& local_state = get_local_state(state);
     if (!local_state._aggregated_block->empty()) {
         block->swap(*local_state._aggregated_block);
@@ -374,19 +372,13 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
                 vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
     }
 
-    if (UNLIKELY(local_state._child_source_state == SourceState::FINISHED ||
-                 (_limit != -1 && local_state._output_distinct_rows >= _limit))) {
-        source_state = SourceState::FINISHED;
-    } else {
-        source_state = SourceState::DEPEND_ON_SOURCE;
-    }
+    *eos = local_state._child_eos || (_limit != -1 && local_state._output_distinct_rows >= _limit);
     return Status::OK();
 }
 
 bool DistinctStreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    return local_state._aggregated_block->empty() &&
-           local_state._child_source_state != SourceState::FINISHED &&
+    return local_state._aggregated_block->empty() && !local_state._child_eos &&
            (_limit == -1 || local_state._output_distinct_rows < _limit);
 }
 

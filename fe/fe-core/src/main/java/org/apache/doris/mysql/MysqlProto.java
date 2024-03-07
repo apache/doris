@@ -19,6 +19,7 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -324,6 +325,22 @@ public class MysqlProto {
                 context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
                 return false;
             }
+
+            // mysql -d
+            if (Config.isCloudMode()) {
+                try {
+                    dbName = ((CloudEnv) Env.getCurrentEnv()).analyzeCloudCluster(dbName, context);
+                } catch (DdlException e) {
+                    context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+                    sendResponsePacket(context);
+                    return false;
+                }
+
+                if (dbName == null || dbName.isEmpty()) {
+                    return true;
+                }
+            }
+
             String dbFullName = dbName;
 
             // check catalog and db exists

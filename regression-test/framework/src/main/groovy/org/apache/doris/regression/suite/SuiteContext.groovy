@@ -46,6 +46,7 @@ class SuiteContext implements Closeable {
     public final ThreadLocal<ConnectionInfo> threadArrowFlightSqlConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveDockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadDB2DockerConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
@@ -180,6 +181,15 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
+    Connection getDB2DockerConnection(){
+        def threadConn = threadDB2DockerConn.get()
+        if (threadConn == null) {
+            threadConn = getConnectionByDB2DockerConfig()
+            threadDB2DockerConn.set(threadConn)
+        }
+        return threadConn
+    }
+
     private String getJdbcNetInfo() {
         String subJdbc = config.jdbcUrl.substring(config.jdbcUrl.indexOf("://") + 3)
         return subJdbc.substring(0, subJdbc.indexOf("/"))
@@ -231,6 +241,16 @@ class SuiteContext implements Closeable {
         String hiveJdbcUser =  "hadoop"
         String hiveJdbcPassword = "hadoop"
         return DriverManager.getConnection(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword)
+    }
+
+    Connection getConnectionByDB2DockerConfig() {
+        Class.forName("com.ibm.db2.jcc.DB2Driver");
+        String db2Host = config.otherConfigs.get("externalEnvIp")
+        String db2Port = config.otherConfigs.get("db2_11_port")
+        String db2JdbcUrl = "jdbc:db2://${db2Host}:${db2Port}/doris"
+        String db2JdbcUser =  "db2inst1"
+        String db2JdbcPassword = "123456"
+        return DriverManager.getConnection(db2JdbcUrl, db2JdbcUser, db2JdbcPassword)
     }
 
     Connection getTargetConnection(Suite suite) {

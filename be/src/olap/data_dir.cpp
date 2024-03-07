@@ -138,7 +138,6 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
 
 DataDir::~DataDir() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_data_dir_metric_entity);
-    delete _id_generator;
     delete _meta;
 }
 
@@ -493,8 +492,8 @@ Status DataDir::load() {
     }
     if (rowset_partition_id_eq_0_num > config::ignore_invalid_partition_id_rowset_num) {
         LOG(FATAL) << fmt::format(
-                "roswet partition id eq 0 bigger than config {}, be exit, plz check be.INFO",
-                config::ignore_invalid_partition_id_rowset_num);
+                "roswet partition id eq 0 is {} bigger than config {}, be exit, plz check be.INFO",
+                rowset_partition_id_eq_0_num, config::ignore_invalid_partition_id_rowset_num);
         exit(-1);
     }
 
@@ -777,7 +776,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         };
 
         // rowset_id -> is_garbage
-        std::unordered_map<RowsetId, bool, HashOfRowsetId> checked_rowsets;
+        std::unordered_map<RowsetId, bool> checked_rowsets;
         for (auto&& [rowset_id, filename] : rowsets_not_pending) {
             if (auto it = checked_rowsets.find(rowset_id); it != checked_rowsets.end()) {
                 if (it->second) { // Is checked garbage rowset

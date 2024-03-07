@@ -71,7 +71,7 @@ private:
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
-    SourceState _child_source_state;
+    bool _child_eos = false;
     std::unique_ptr<vectorized::Block> _aggregated_block = nullptr;
 
     RuntimeProfile::Counter* _build_timer = nullptr;
@@ -89,14 +89,12 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status pull(RuntimeState* state, vectorized::Block* block,
-                SourceState& source_state) const override;
-    Status push(RuntimeState* state, vectorized::Block* input_block,
-                SourceState source_state) const override;
+    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
 
     DataDistribution required_data_distribution() const override {
-        if (_needs_finalize) {
+        if (_needs_finalize || !_probe_expr_ctxs.empty()) {
             return _is_colocate
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);

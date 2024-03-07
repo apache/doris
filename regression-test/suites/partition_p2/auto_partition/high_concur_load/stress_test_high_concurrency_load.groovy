@@ -21,9 +21,9 @@ import java.nio.file.Paths
 import java.net.URL
 import java.io.File
 
-suite("stress_test_high_concurrency_load") {
+suite("stress_test_high_concurrency_load", "p2,nonConcurrent") {
 
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '5000')"""
+    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '10000000')"""
 
     // get doris-db from s3
     def dirPath = context.file.parent
@@ -179,15 +179,13 @@ suite("stress_test_high_concurrency_load") {
     }
 
     def row_count_range = sql """select count(*) from ${tb_name2};"""
-    assertTrue(cur_rows * data_count == row_count_range[0][0])
+    assertTrue(cur_rows * data_count == row_count_range[0][0], "${cur_rows * data_count}, ${row_count_range[0][0]}")
     def partition_res_range = sql """show partitions from ${tb_name2} order by PartitionName;"""
     for (int i = 0; i < partition_res_range.size(); i++) {
         for (int j = i+1; j < partition_res_range.size(); j++) {
             if (partition_res_range[i][6] == partition_res_range[j][6]) {
-                assertTrue(false)
+                assertTrue(false, "$i, $j")
             }
         }
     }
-
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '2000')"""
 }

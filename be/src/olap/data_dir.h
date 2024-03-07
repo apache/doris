@@ -189,7 +189,6 @@ private:
     std::set<TabletInfo> _tablet_set;
 
     OlapMeta* _meta = nullptr;
-    RowsetIdGenerator* _id_generator = nullptr;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity = nullptr;

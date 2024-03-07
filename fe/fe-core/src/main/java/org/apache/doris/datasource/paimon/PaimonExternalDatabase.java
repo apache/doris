@@ -21,42 +21,14 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable> {
-
-    private static final Logger LOG = LogManager.getLogger(PaimonExternalDatabase.class);
 
     public PaimonExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
         super(extCatalog, id, name, InitDatabaseLog.Type.PAIMON);
     }
 
     @Override
-    protected PaimonExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected PaimonExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new PaimonExternalTable(tblId, tableName, name, (PaimonExternalCatalog) extCatalog);
-    }
-
-    @Override
-    public void dropTable(String tableName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("drop table [{}]", tableName);
-        }
-        Long tableId = tableNameToId.remove(tableName);
-        if (tableId == null) {
-            LOG.warn("drop table [{}] failed", tableName);
-        }
-        idToTbl.remove(tableId);
-    }
-
-    @Override
-    public void createTable(String tableName, long tableId) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", tableName);
-        }
-        tableNameToId.put(tableName, tableId);
-        PaimonExternalTable table = new PaimonExternalTable(tableId, tableName, name,
-                (PaimonExternalCatalog) extCatalog);
-        idToTbl.put(tableId, table);
     }
 }

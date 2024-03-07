@@ -64,6 +64,8 @@ suite("test_crud_wlg") {
     """
 
     sql "ADMIN SET FRONTEND CONFIG ('enable_workload_group' = 'true');"
+    sql "ADMIN SET FRONTEND CONFIG ('enable_alter_queue_prop_sync' = 'true');"
+    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '100');"
 
     sql "create workload group if not exists normal " +
             "properties ( " +
@@ -286,10 +288,10 @@ suite("test_crud_wlg") {
     }
 
     // test query queue limit
-    sql "ADMIN SET FRONTEND CONFIG ('enable_alter_queue_prop_sync' = 'true');"
     sql "set workload_group=test_group;"
     sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
     sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
+    Thread.sleep(10000)
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
@@ -312,6 +314,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'max_queue_size'='1' );"
     sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
+    Thread.sleep(10000)
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
@@ -319,7 +322,8 @@ suite("test_crud_wlg") {
     }
 
     sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
-    sql "select 1;"
+    Thread.sleep(10000)
+    sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
     sql "set workload_group=normal;"
     sql "drop workload group test_group;"
 }

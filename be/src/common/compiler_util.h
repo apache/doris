@@ -50,4 +50,4 @@
 
 #define ALIGN_CACHE_LINE __attribute__((aligned(CACHE_LINE_SIZE)))
 
-#define PURE __attribute_pure__
+#define PURE __attribute__((pure))
