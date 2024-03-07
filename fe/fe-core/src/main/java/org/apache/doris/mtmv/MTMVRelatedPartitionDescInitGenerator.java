@@ -22,7 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import java.util.Map;
 
 /**
- * Only focus on partial partitions of related tables
+ * get all related partition descs
  */
 public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartitionDescGeneratorService {
 
