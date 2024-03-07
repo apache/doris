@@ -179,15 +179,11 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             for (Tablet rollupTablet : rollupIndex.getTablets()) {
                 OlapFile.TabletMetaCloudPB.Builder builder =
                         ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                            .createTabletMetaBuilder(tableId, rollupIndexId,
+                            .createTabletMetaBuilder(tbl, rollupIndexId,
                             partitionId, rollupTablet, tabletType, rollupSchemaHash,
                             rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
-                            tbl.getBfFpp(), null, rollupSchema,
-                            tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
-                            tbl.isInMemory(), true,
-                            tbl.getName(), tbl.getTTLSeconds(),
-                            tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                            tbl.getBaseSchemaVersion());
+                            tbl.getBfFpp(), null, rollupSchema, tbl.getStoragePolicy(), tbl.isInMemory(),
+                            true, tbl.getBaseSchemaVersion(), null);
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
