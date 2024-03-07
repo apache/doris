@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -71,34 +70,31 @@ public class MergeAggregate implements RewriteRuleFactory {
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
                 .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0)));
         // rewrite agg function. e.g. max(max)
-        List<NamedExpression> newAggFunc = outerAgg.getOutputExpressions().stream()
+        List<NamedExpression> aggFunc = outerAgg.getOutputExpressions().stream()
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
                 .map(e -> rewriteAggregateFunction(e, innerAggExprIdToAggFunc))
                 .collect(Collectors.toList());
         // rewrite agg function directly refer to the slot below the project
-        Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(project.getProjects());
-        newAggFunc = newAggFunc.stream()
-                .map(expr -> (NamedExpression) ExpressionUtils.replaceExpression(expr, replaceMap))
-                .collect(Collectors.toList());
-
+        List<Expression> replacedAggFunc = PlanUtils.replaceExpressionByProjections(project.getProjects(),
+                (List) aggFunc);
         // replace groupByKeys directly refer to the slot below the project
-        List<Expression> newGroupBy = PlanUtils.replaceExpressionByProjections(project.getProjects(),
+        List<Expression> replacedGroupBy = PlanUtils.replaceExpressionByProjections(project.getProjects(),
                 outerAgg.getGroupByExpressions());
         List<NamedExpression> newOutputExpressions = ImmutableList.<NamedExpression>builder()
-                .addAll(newGroupBy.stream().map(slot -> (NamedExpression) slot).iterator())
-                .addAll(newAggFunc).build();
+                .addAll(replacedGroupBy.stream().map(slot -> (NamedExpression) slot).iterator())
+                .addAll(replacedAggFunc.stream().map(alias -> (NamedExpression) alias).iterator()).build();
         // construct agg
-        LogicalAggregate<Plan> resAgg = outerAgg.withGroupByAndOutput(newGroupBy, newOutputExpressions)
+        LogicalAggregate<Plan> resAgg = outerAgg.withGroupByAndOutput(replacedGroupBy, newOutputExpressions)
                 .withChildren(innerAgg.children());
 
         // construct upper project
         Map<SlotReference, Alias> childToAlias = project.getProjects().stream()
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof SlotReference))
                 .collect(Collectors.toMap(alias -> (SlotReference) alias.child(0), alias -> (Alias) alias));
-        List<Expression> newProjectGroupBy = ExpressionUtils.replace(newGroupBy, childToAlias);
+        List<Expression> projectGroupBy = ExpressionUtils.replace(replacedGroupBy, childToAlias);
         List<NamedExpression> upperProjects = ImmutableList.<NamedExpression>builder()
-                .addAll(newProjectGroupBy.stream().map(slot -> (NamedExpression) slot).iterator())
-                .addAll(newAggFunc.stream().map(expr -> (NamedExpression) expr.toSlot()).iterator())
+                .addAll(projectGroupBy.stream().map(namedExpr -> (NamedExpression) namedExpr).iterator())
+                .addAll(replacedAggFunc.stream().map(expr -> ((NamedExpression) expr).toSlot()).iterator())
                 .build();
         return new LogicalProject<Plan>(upperProjects, resAgg);
     }
