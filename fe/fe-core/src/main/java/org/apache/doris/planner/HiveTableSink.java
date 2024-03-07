@@ -122,9 +122,9 @@ public class HiveTableSink extends DataSink {
         bucketInfo.setBucketCount(sd.getNumBuckets());
         tSink.setBucketInfo(bucketInfo);
 
-        tSink.setFileFormat(getFileFormatType());
-
-        tSink.setCompressionType(THiveCompressionType.SNAPPY);
+        TFileFormatType formatType = getFileFormatType();
+        tSink.setFileFormat(formatType);
+        setCompressType(tSink, formatType);
 
         THiveLocationParams locationParams = new THiveLocationParams();
         locationParams.setWritePath(sd.getLocation());
@@ -133,6 +133,35 @@ public class HiveTableSink extends DataSink {
 
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
+    }
+
+    private void setCompressType(THiveTableSink tSink, TFileFormatType formatType) {
+        String compressType;
+        switch (formatType) {
+            case FORMAT_ORC:
+                compressType = targetTable.getRemoteTable().getParameters().get("orc.compress");
+                break;
+            case FORMAT_PARQUET:
+                compressType = targetTable.getRemoteTable().getParameters().get("parquet.compression");
+                break;
+            default:
+                compressType = "uncompressed";
+                break;
+        }
+
+        if ("snappy".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(THiveCompressionType.SNAPPY);
+        } else if ("lz4".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(THiveCompressionType.LZ4);
+        } else if ("lzo".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(THiveCompressionType.LZO);
+        } else if ("zlib".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(THiveCompressionType.ZLIB);
+        } else if ("zstd".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(THiveCompressionType.ZSTD);
+        } else {
+            tSink.setCompressionType(THiveCompressionType.NO_COMPRESSION);
+        }
     }
 
     private void setPartitionValues(List<Long> partitionIds, THiveTableSink tSink) throws AnalysisException {

@@ -300,10 +300,14 @@ struct THiveBucket {
 }
 
 enum THiveCompressionType {
-    SNAPPY = 3,
-    LZ4 = 4,
-    ZLIB = 6,
-    ZSTD = 7,
+    NO_COMPRESSION = 0,
+    SNAPPY = 1,
+    LZ4 = 2,
+    LZ4F = 3,
+    ZLIB = 4,
+    ZSTD = 5,
+    LZ4HC = 6,
+    LZO = 7
 }
 
 enum THiveColumnType {
