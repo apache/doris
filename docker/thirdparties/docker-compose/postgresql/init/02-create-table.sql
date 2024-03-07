@@ -258,3 +258,8 @@ LANGUAGE plpgsql;
 CREATE TRIGGER insert_almart_partition_trigger
     BEFORE INSERT ON catalog_pg_test.tb_test_alarm
     FOR EACH ROW EXECUTE PROCEDURE alarm_partition_trigger();
+
+CREATE TABLE catalog_pg_test.num_zero (
+    id varchar(20) NULL,
+    num numeric NULL
+);

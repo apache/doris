@@ -151,6 +151,7 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         cur_col++;
     }
 
+    const auto rows = child_block->rows();
     // Fill grouping ID to block
     for (auto slot_idx = 0; slot_idx < _grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, _output_tuple_desc->slots().size());
@@ -162,12 +163,10 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         DCHECK(!_output_slots[cur_col]->is_nullable());
 
         auto* col = assert_cast<ColumnVector<Int64>*>(column_ptr);
-        for (size_t i = 0; i < child_block->rows(); ++i) {
-            col->insert_value(val);
-        }
+        col->insert_raw_integers(val, rows);
         cur_col++;
     }
-
+    output_block->set_columns(std::move(columns));
     DCHECK_EQ(cur_col, column_size);
 
     return Status::OK();

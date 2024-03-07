@@ -17,6 +17,7 @@
 
 suite("push_down_alias_through_join") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "use regression_test_nereids_rules_p0"
     sql "set disable_join_reorder=true"

@@ -18,15 +18,15 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -43,7 +43,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
@@ -85,7 +84,6 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
             Expression src, Expression probeExpr,
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         // currently, we can ensure children in the two side are corresponding to the equal_to's.
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
@@ -106,8 +104,8 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
             return true;
         }
 
-        Slot scanSlot = aliasTransferMap.get(probeSlot).second;
-        PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
+        Slot scanSlot = ctx.getAliasTransferPair(probeSlot).second;
+        PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
         if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
             return false;
         }
@@ -115,26 +113,42 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         // in-filter is not friendly to pipeline
         if (type == TRuntimeFilterType.IN_OR_BLOOM
                 && ctx.getSessionVariable().getEnablePipelineEngine()
-                && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)) {
+                && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)
+                && !builderNode.isBroadCastJoin()) {
             type = TRuntimeFilterType.BLOOM;
         }
         org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter =
                 ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
         Preconditions.checkState(scanSlot != null, "scan slot is null");
         if (filter != null) {
-            this.addAppliedRuntimeFilter(filter);
-            filter.addTargetSlot(scanSlot);
-            filter.addTargetExpression(scanSlot);
-            ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
-            ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first, scanSlot);
+            if (!filter.hasTargetScan(scan)) {
+                // A join B on A.a1=B.b and A.a1 = A.a2
+                // RF B.b->(A.a1, A.a2)
+                // however, RF(B.b->A.a2) is implied by RF(B.a->A.a1) and A.a1=A.a2
+                // we skip RF(B.b->A.a2)
+                this.addAppliedRuntimeFilter(filter);
+                filter.addTargetSlot(scanSlot, probeExpr, scan);
+                ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
+                ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
+                ctx.setTargetsOnScanNode(ctx.getAliasTransferPair(probeSlot).first, scanSlot);
+            }
         } else {
+            // null safe equal runtime filter only support bloom filter
+            EqualPredicate eq = (EqualPredicate) builderNode.getHashJoinConjuncts().get(exprOrder);
+            if (eq instanceof NullSafeEqual && type == TRuntimeFilterType.IN_OR_BLOOM) {
+                type = TRuntimeFilterType.BLOOM;
+            }
+            if (eq instanceof NullSafeEqual && type != TRuntimeFilterType.BLOOM) {
+                return false;
+            }
             filter = new RuntimeFilter(generator.getNextId(),
-                    src, ImmutableList.of(scanSlot), type, exprOrder, builderNode, buildSideNdv);
+                    src, ImmutableList.of(scanSlot), ImmutableList.of(probeExpr),
+                    type, exprOrder, builderNode, buildSideNdv,
+                    !context.getStatementContext().isHasUnknownColStats(), scan);
             this.addAppliedRuntimeFilter(filter);
             ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
             ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first, scanSlot);
+            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair(probeSlot).first, scanSlot);
             ctx.setRuntimeFilterIdentityToFilter(src, type, builderNode, filter);
         }
         return true;

@@ -24,6 +24,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <algorithm>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -33,6 +34,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/thrift_rpc_helper.h"
@@ -83,7 +85,23 @@ Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     VLOG_CRITICAL << "VMetaScanner::prepare";
     RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
-    RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
+    bool has_col_nullable =
+            std::any_of(std::begin(_tuple_desc->slots()), std::end(_tuple_desc->slots()),
+                        [](SlotDescriptor* slot_desc) { return slot_desc->is_nullable(); });
+
+    if (has_col_nullable) {
+        // We do not allow any columns to be Nullable here, since FE can not
+        // transmit a NULL value to BE, so we can not distinguish a empty string
+        // from a NULL value.
+        return Status::InternalError("Logical error, VMetaScanner do not allow ColumnNullable");
+    }
+
+    if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ACTIVE_BE_TASKS) {
+        // tvf active_be_tasks fetch data in be directly, it does not need to request FE for data
+        RETURN_IF_ERROR(_build_active_be_tasks_data());
+    } else {
+        RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
+    }
     return Status::OK();
 }
 
@@ -112,7 +130,7 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             }
         }
         // fill block
-        static_cast<void>(_fill_block_with_remote_data(columns));
+        RETURN_IF_ERROR(_fill_block_with_remote_data(columns));
         if (_meta_eos == true) {
             if (block->rows() == 0) {
                 *eof = true;
@@ -146,11 +164,9 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
         }
 
         for (int _row_idx = 0; _row_idx < _batch_data.size(); _row_idx++) {
+            // No need to check nullable column since no nullable column is
+            // guaranteed in VMetaScanner::prepare
             vectorized::IColumn* col_ptr = columns[col_idx].get();
-            if (slot_desc->is_nullable() == true) {
-                auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-                col_ptr = &nullable_column->get_nested_column();
-            }
             switch (slot_desc->type().type) {
             case TYPE_BOOLEAN: {
                 bool data = _batch_data[_row_idx].column_value[col_idx].boolVal;
@@ -228,6 +244,9 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::WORKLOAD_GROUPS:
         RETURN_IF_ERROR(_build_workload_groups_metadata_request(meta_scan_range, &request));
         break;
+    case TMetadataType::WORKLOAD_SCHED_POLICY:
+        RETURN_IF_ERROR(_build_workload_sched_policy_metadata_request(meta_scan_range, &request));
+        break;
     case TMetadataType::CATALOGS:
         RETURN_IF_ERROR(_build_catalogs_metadata_request(meta_scan_range, &request));
         break;
@@ -272,6 +291,20 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         return status;
     }
     _batch_data = std::move(result.data_batch);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_active_be_tasks_data() {
+    std::vector<std::string> filter_columns;
+    for (const auto& slot : _tuple_desc->slots()) {
+        filter_columns.emplace_back(slot->col_name_lower_case());
+    }
+
+    std::vector<TRow> ret =
+            ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_active_be_tasks_statistics(
+                    filter_columns);
+    _batch_data = std::move(ret);
+
     return Status::OK();
 }
 
@@ -363,6 +396,23 @@ Status VMetaScanner::_build_workload_groups_metadata_request(
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_GROUPS);
+    metadata_table_params.__set_current_user_ident(_user_identity);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_workload_sched_policy_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_workload_sched_policy_metadata_request";
+
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_SCHED_POLICY);
     metadata_table_params.__set_current_user_ident(_user_identity);
 
     request->__set_metada_table_params(metadata_table_params);

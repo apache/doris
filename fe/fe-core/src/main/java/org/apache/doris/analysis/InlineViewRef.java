@@ -27,8 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.parser.ParseDialect;
-import org.apache.doris.nereids.parser.spark.SparkSql3LogicalPlanBuilder;
+import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TNullSide;
@@ -49,6 +48,8 @@ import java.util.Set;
  */
 public class InlineViewRef extends TableRef {
     private static final Logger LOG = LogManager.getLogger(InlineViewRef.class);
+
+    private static final String DEFAULT_TABLE_ALIAS_FOR_SPARK_SQL = "__auto_generated_subquery_name";
 
     // Catalog or local view that is referenced.
     // Null for inline views parsed directly from a query string.
@@ -101,7 +102,9 @@ public class InlineViewRef extends TableRef {
     public InlineViewRef(String alias, QueryStmt queryStmt, List<String> colLabels) {
         this(alias, queryStmt);
         explicitColLabels = Lists.newArrayList(colLabels);
-        LOG.debug("inline view explicitColLabels {}", explicitColLabels);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("inline view explicitColLabels {}", explicitColLabels);
+        }
     }
 
     /**
@@ -198,12 +201,12 @@ public class InlineViewRef extends TableRef {
 
         if (view == null && !hasExplicitAlias()) {
             String dialect = ConnectContext.get().getSessionVariable().getSqlDialect();
-            ParseDialect.Dialect sqlDialect = ParseDialect.Dialect.getByName(dialect);
-            if (ParseDialect.Dialect.SPARK_SQL != sqlDialect) {
+            Dialect sqlDialect = Dialect.getByName(dialect);
+            if (Dialect.SPARK != sqlDialect) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
             }
             hasExplicitAlias = true;
-            aliases = new String[] { SparkSql3LogicalPlanBuilder.DEFAULT_TABLE_ALIAS };
+            aliases = new String[] { DEFAULT_TABLE_ALIAS_FOR_SPARK_SQL };
         }
 
         // Analyze the inline view query statement with its own analyzer
@@ -244,10 +247,14 @@ public class InlineViewRef extends TableRef {
         // TODO: relax this a bit by allowing propagation out of the inline view (but
         // not into it)
         List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
-        LOG.debug("inline view query {}", queryStmt.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("inline view query {}", queryStmt.toSql());
+        }
         for (int i = 0; i < getColLabels().size(); ++i) {
             String colName = getColLabels().get(i);
-            LOG.debug("inline view register {}", colName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("inline view register {}", colName);
+            }
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(),
                                             colName, getSubColPath().get(i));
             Expr colExpr = queryStmt.getResultExprs().get(i);

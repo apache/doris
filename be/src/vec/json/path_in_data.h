@@ -61,6 +61,7 @@ public:
     explicit PathInData(std::string_view path_);
     explicit PathInData(const Parts& parts_);
     explicit PathInData(const std::vector<std::string>& paths);
+    explicit PathInData(const std::string& root, const std::vector<std::string>& paths);
     PathInData(const PathInData& other);
     PathInData& operator=(const PathInData& other);
     static UInt128 get_parts_hash(const Parts& parts_);
@@ -79,6 +80,12 @@ public:
     PathInData copy_pop_nfront(size_t n) const;
     void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
     void from_protobuf(const segment_v2::ColumnPathInfo& pb);
+
+    bool operator<(const PathInData& rhs) const {
+        return std::lexicographical_compare(
+                parts.begin(), parts.end(), rhs.parts.begin(), rhs.parts.end(),
+                [](const auto& a, const auto& b) { return a.key < b.key; });
+    }
 
 private:
     /// Creates full path from parts.

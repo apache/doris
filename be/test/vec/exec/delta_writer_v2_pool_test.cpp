@@ -56,9 +56,19 @@ TEST_F(DeltaWriterV2PoolTest, test_map) {
     auto map = pool.get_or_create(load_id);
     EXPECT_EQ(1, pool.size());
     WriteRequest req;
-    auto writer = map->get_or_create(100, [&req]() { return DeltaWriterV2::open(&req, {}); });
-    auto writer2 = map->get_or_create(101, [&req]() { return DeltaWriterV2::open(&req, {}); });
-    auto writer3 = map->get_or_create(100, [&req]() { return DeltaWriterV2::open(&req, {}); });
+    RuntimeState state;
+    auto writer = map->get_or_create(100, [&req, &state]() {
+        return std::make_unique<DeltaWriterV2>(
+                &req, std::vector<std::shared_ptr<LoadStreamStub>> {}, &state);
+    });
+    auto writer2 = map->get_or_create(101, [&req, &state]() {
+        return std::make_unique<DeltaWriterV2>(
+                &req, std::vector<std::shared_ptr<LoadStreamStub>> {}, &state);
+    });
+    auto writer3 = map->get_or_create(100, [&req, &state]() {
+        return std::make_unique<DeltaWriterV2>(
+                &req, std::vector<std::shared_ptr<LoadStreamStub>> {}, &state);
+    });
     EXPECT_EQ(2, map->size());
     EXPECT_EQ(writer, writer3);
     EXPECT_NE(writer, writer2);

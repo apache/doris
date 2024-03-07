@@ -212,26 +212,26 @@ GeoShape* GeoShape::from_wkb(const char* data, size_t size, GeoParseStatus* stat
     return shape;
 }
 
-GeoShape* GeoShape::from_encoded(const void* ptr, size_t size) {
+std::unique_ptr<GeoShape> GeoShape::from_encoded(const void* ptr, size_t size) {
     if (size < 2 || ((const char*)ptr)[0] != 0X00) {
         return nullptr;
     }
     std::unique_ptr<GeoShape> shape;
     switch (((const char*)ptr)[1]) {
     case GEO_SHAPE_POINT: {
-        shape.reset(GeoPoint::create_unique().release());
+        shape = GeoPoint::create_unique();
         break;
     }
     case GEO_SHAPE_LINE_STRING: {
-        shape.reset(GeoLine::create_unique().release());
+        shape = GeoLine::create_unique();
         break;
     }
     case GEO_SHAPE_POLYGON: {
-        shape.reset(GeoPolygon::create_unique().release());
+        shape = GeoPolygon::create_unique();
         break;
     }
     case GEO_SHAPE_CIRCLE: {
-        shape.reset(GeoCircle::create_unique().release());
+        shape = GeoCircle::create_unique();
         break;
     }
     default:
@@ -241,7 +241,7 @@ GeoShape* GeoShape::from_encoded(const void* ptr, size_t size) {
     if (!res) {
         return nullptr;
     }
-    return shape.release();
+    return shape;
 }
 
 GeoParseStatus GeoPoint::from_coord(double x, double y) {

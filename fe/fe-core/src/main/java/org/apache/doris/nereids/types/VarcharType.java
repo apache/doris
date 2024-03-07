@@ -28,8 +28,9 @@ import java.util.Objects;
  */
 public class VarcharType extends CharacterType {
 
-    public static final VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
     public static final int MAX_VARCHAR_LENGTH = ScalarType.MAX_VARCHAR_LENGTH;
+    public static final VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
+    public static final VarcharType MAX_VARCHAR_TYPE = new VarcharType(MAX_VARCHAR_LENGTH);
 
     public VarcharType(int len) {
         super(len);
@@ -40,9 +41,14 @@ public class VarcharType extends CharacterType {
         return len;
     }
 
+    /**
+     * create varchar type from length.
+     */
     public static VarcharType createVarcharType(int len) {
         if (len == SYSTEM_DEFAULT.len) {
             return SYSTEM_DEFAULT;
+        } else if (len == MAX_VARCHAR_LENGTH) {
+            return MAX_VARCHAR_TYPE;
         }
         return new VarcharType(len);
     }

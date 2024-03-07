@@ -50,7 +50,7 @@ public class TaskDisruptor<T> {
                          WaitStrategy waitStrategy, WorkHandler<T>[] workHandlers,
                          EventTranslatorVararg<T> eventTranslator) {
         disruptor = new Disruptor<>(eventFactory, ringBufferSize, threadFactory,
-                ProducerType.SINGLE, waitStrategy);
+                ProducerType.MULTI, waitStrategy);
         disruptor.handleEventsWithWorkerPool(workHandlers);
         this.eventTranslator = eventTranslator;
         disruptor.start();

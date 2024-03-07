@@ -176,8 +176,18 @@ Status RowGroupReader::init(
 
 bool RowGroupReader::_can_filter_by_dict(int slot_id,
                                          const tparquet::ColumnMetaData& column_metadata) {
-    if (column_metadata.encodings[0] != tparquet::Encoding::RLE_DICTIONARY ||
-        column_metadata.type != tparquet::Type::BYTE_ARRAY) {
+    SlotDescriptor* slot = nullptr;
+    const std::vector<SlotDescriptor*>& slots = _tuple_descriptor->slots();
+    for (auto each : slots) {
+        if (each->id() == slot_id) {
+            slot = each;
+            break;
+        }
+    }
+    if (!slot->type().is_string_type()) {
+        return false;
+    }
+    if (column_metadata.type != tparquet::Type::BYTE_ARRAY) {
         return false;
     }
 
@@ -790,8 +800,10 @@ Status RowGroupReader::_rewrite_dict_predicates() {
                 auto data_type = slot_desc->get_data_type_ptr();
                 if (data_type->is_nullable()) {
                     temp_block.insert(
-                            {ColumnNullable::create(std::move(dict_value_column),
-                                                    ColumnUInt8::create(dict_value_column_size, 0)),
+                            {ColumnNullable::create(
+                                     std::move(
+                                             dict_value_column), // NOLINT(bugprone-use-after-move)
+                                     ColumnUInt8::create(dict_value_column_size, 0)),
                              std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                              ""});
                 } else {

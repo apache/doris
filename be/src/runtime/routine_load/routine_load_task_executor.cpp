@@ -213,6 +213,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if (task.__isset.is_multi_table && task.is_multi_table) {
         ctx->is_multi_table = true;
     }
+    if (task.__isset.memtable_on_sink_node) {
+        ctx->memtable_on_sink_node = task.memtable_on_sink_node;
+    }
 
     // set execute plan params (only for non-single-stream-multi-table load)
     TStreamLoadPutResult put_result;
@@ -347,7 +350,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         HANDLE_ERROR(multi_table_pipe->request_and_exec_plans(),
                      "multi tables task executes plan error");
         // need memory order
-        multi_table_pipe->set_consume_finished();
+        multi_table_pipe->handle_consume_finished();
         HANDLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
     }
 

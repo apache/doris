@@ -68,7 +68,7 @@ suite("test_backup_restore_inverted_index", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
         """
 

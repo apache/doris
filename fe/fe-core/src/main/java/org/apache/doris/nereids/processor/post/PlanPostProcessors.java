@@ -61,14 +61,19 @@ public class PlanPostProcessors {
         builder.add(new PushDownFilterThroughProject());
         builder.add(new MergeProjectPostProcessor());
         builder.add(new RecomputeLogicalPropertiesProcessor());
+        builder.add(new AddOffsetIntoDistribute());
         builder.add(new TopNScanOpt());
         // after generate rf, DO NOT replace PLAN NODE
         builder.add(new FragmentProcessor());
         if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
                         .toUpperCase().equals(TRuntimeFilterMode.OFF.name())) {
+            builder.add(new RegisterParent());
             builder.add(new RuntimeFilterGenerator());
             if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
                 builder.add(new RuntimeFilterPruner());
+                if (ConnectContext.get().getSessionVariable().runtimeFilterPruneForExternal) {
+                    builder.add(new RuntimeFilterPrunerForExternalTable());
+                }
             }
         }
         builder.add(new Validator());

@@ -55,4 +55,6 @@ suite("group_by_constant") {
     qt_sql """select SUM(if(lo_tax=1,lo_tax,0)) FROM lineorder where false;"""
 
     qt_sql """select 2 FROM lineorder group by 1;"""
+
+    qt_sql """select 1 from lineorder group by 1 + 1"""
 }

@@ -24,7 +24,7 @@ suite("test_map_column_delete") {
     sql """ insert into ${tableName} values(1, {1:'a', 2:"doris"}),(2,{}),(3,NULL),(4,NULL),(5,NULL) """
     test {
         sql """ DELETE FROM ${tableName} WHERE m_map is NULL """
-        exception("java.sql.SQLException: errCode = 2, detailMessage = errCode = 2, detailMessage = Can not apply delete condition to column type: MAP<INT,VARCHAR(30)>")
+        exception("Can not apply delete condition to column type: MAP<INT,VARCHAR(30)>")
     }
     sql """ DELETE FROM ${tableName} WHERE id = 1; """
     qt_sql """ SELECT * FROM ${tableName} order by id """

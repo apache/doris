@@ -17,26 +17,42 @@
 
 #include "vec/sink/group_commit_block_sink.h"
 
+#include <gen_cpp/DataSinks_types.h>
+
+#include <future>
+#include <shared_mutex>
+
+#include "common/exception.h"
+#include "common/status.h"
+#include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_finder.h"
-#include "vec/sink/vtablet_sink.h"
 
 namespace doris {
 
 namespace vectorized {
+bvar::Adder<int64_t> g_group_commit_load_rows("doris_group_commit_load_rows");
+bvar::Adder<int64_t> g_group_commit_load_bytes("doris_group_commit_load_bytes");
 
 GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                            const std::vector<TExpr>& texprs, Status* status)
-        : DataSink(row_desc) {
+        : DataSink(row_desc), _filter_bitmap(1024) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "GroupCommitBlockSink";
 }
 
-GroupCommitBlockSink::~GroupCommitBlockSink() = default;
+GroupCommitBlockSink::~GroupCommitBlockSink() {
+    if (_load_block_queue) {
+        _remove_estimated_wal_bytes();
+        _load_block_queue->remove_load_id(_load_id);
+        _load_block_queue->group_commit_load_count.fetch_add(1);
+    }
+}
 
 Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     DCHECK(t_sink.__isset.olap_table_sink);
@@ -50,6 +66,8 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
     _max_filter_ratio = table_sink.max_filter_ratio;
+    _vpartition = std::make_unique<doris::VOlapTablePartitionParam>(_schema, table_sink.partition);
+    RETURN_IF_ERROR(_vpartition->init());
     return Status::OK();
 }
 
@@ -58,10 +76,10 @@ Status GroupCommitBlockSink::prepare(RuntimeState* state) {
     _state = state;
 
     // profile must add to state's object pool
-    _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
+    _profile = state->obj_pool()->add(new RuntimeProfile("GroupCommitBlockSink"));
     init_sink_common_profile();
-    _mem_tracker =
-            std::make_shared<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));
+    _mem_tracker = std::make_shared<MemTracker>("GroupCommitBlockSink:" +
+                                                std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -101,9 +119,10 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
             (double)state->num_rows_load_filtered() / num_selected_rows > _max_filter_ratio) {
             return Status::DataQualityError("too many filtered rows");
         }
-        RETURN_IF_ERROR(_add_blocks());
+        RETURN_IF_ERROR(_add_blocks(state, true));
     }
     if (_load_block_queue) {
+        _remove_estimated_wal_bytes();
         _load_block_queue->remove_load_id(_load_id);
     }
     // wait to wal
@@ -128,22 +147,45 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
         return status;
     }
     SCOPED_TIMER(_profile->total_time_counter());
+
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
     state->update_num_rows_load_total(rows);
     state->update_num_bytes_load_total(bytes);
-    DorisMetrics::instance()->load_rows->increment(rows);
-    DorisMetrics::instance()->load_bytes->increment(bytes);
+    g_group_commit_load_rows << rows;
+    g_group_commit_load_bytes << bytes;
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             state, input_block, block, _output_vexpr_ctxs, rows, has_filtered_rows));
-    if (_block_convertor->num_filtered_rows() > 0) {
+    _has_filtered_rows = false;
+    if (!_vpartition->is_auto_partition()) {
+        //reuse vars for find_partition
+        _partitions.assign(rows, nullptr);
+        _filter_bitmap.Reset(rows);
+
+        for (int index = 0; index < rows; index++) {
+            _vpartition->find_partition(block.get(), index, _partitions[index]);
+        }
+        for (int row_index = 0; row_index < rows; row_index++) {
+            if (_partitions[row_index] == nullptr) [[unlikely]] {
+                _filter_bitmap.Set(row_index, true);
+                LOG(WARNING) << "no partition for this tuple. tuple="
+                             << block->dump_data(row_index, 1);
+            }
+            _has_filtered_rows = true;
+        }
+    }
+
+    if (_block_convertor->num_filtered_rows() > 0 || _has_filtered_rows) {
         auto cloneBlock = block->clone_without_columns();
         auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         for (int i = 0; i < rows; ++i) {
             if (_block_convertor->filter_map()[i]) {
+                continue;
+            }
+            if (_filter_bitmap.Get(i)) {
                 continue;
             }
             res_block.add_row(block.get(), i);
@@ -185,15 +227,16 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         _blocks.emplace_back(output_block);
     } else {
         if (!_is_block_appended) {
-            RETURN_IF_ERROR(_add_blocks());
+            RETURN_IF_ERROR(_add_blocks(state, false));
         }
         RETURN_IF_ERROR(_load_block_queue->add_block(
-                output_block, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
+                state, output_block, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
     }
     return Status::OK();
 }
 
-Status GroupCommitBlockSink::_add_blocks() {
+Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
+                                         bool is_blocks_contain_all_load_data) {
     DCHECK(_is_block_appended == false);
     TUniqueId load_id;
     load_id.__set_hi(_load_id.hi);
@@ -203,6 +246,23 @@ Status GroupCommitBlockSink::_add_blocks() {
             RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
                     _state->be_exec_version()));
+            if (_group_commit_mode == TGroupCommitMode::ASYNC_MODE) {
+                size_t estimated_wal_bytes =
+                        _calculate_estimated_wal_bytes(is_blocks_contain_all_load_data);
+                _group_commit_mode =
+                        _load_block_queue->has_enough_wal_disk_space(estimated_wal_bytes)
+                                ? TGroupCommitMode::ASYNC_MODE
+                                : TGroupCommitMode::SYNC_MODE;
+                if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
+                    LOG(INFO) << "Load id=" << print_id(_state->query_id())
+                              << ", use group commit label=" << _load_block_queue->label
+                              << " will not write wal because wal disk space usage reach max "
+                                 "limit. Detail info: "
+                              << _state->exec_env()->wal_mgr()->get_wal_dirs_info_string();
+                } else {
+                    _estimated_wal_bytes = estimated_wal_bytes;
+                }
+            }
             _state->set_import_label(_load_block_queue->label);
             _state->set_wal_id(_load_block_queue->txn_id);
         } else {
@@ -211,12 +271,60 @@ Status GroupCommitBlockSink::_add_blocks() {
     }
     for (auto it = _blocks.begin(); it != _blocks.end(); ++it) {
         RETURN_IF_ERROR(_load_block_queue->add_block(
-                *it, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
+                state, *it, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
     }
     _is_block_appended = true;
     _blocks.clear();
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
+        if (_load_block_queue) {
+            _remove_estimated_wal_bytes();
+            _load_block_queue->remove_load_id(_load_id);
+        }
+        if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
+                    std ::chrono ::seconds(60)) == std ::future_status ::ready) {
+            auto st = ExecEnv::GetInstance()->group_commit_mgr()->debug_future.get();
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise = std::promise<Status>();
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_future =
+                    ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.get_future();
+            LOG(INFO) << "debug future output: " << st.to_string();
+            RETURN_IF_ERROR(st);
+        }
+    });
     return Status::OK();
 }
+
+size_t GroupCommitBlockSink::_calculate_estimated_wal_bytes(bool is_blocks_contain_all_load_data) {
+    size_t blocks_size = 0;
+    for (auto block : _blocks) {
+        blocks_size += block->bytes();
+    }
+    return is_blocks_contain_all_load_data
+                   ? blocks_size
+                   : (blocks_size > _state->content_length() ? blocks_size
+                                                             : _state->content_length());
+}
+
+void GroupCommitBlockSink::_remove_estimated_wal_bytes() {
+    if (_estimated_wal_bytes == 0) {
+        return;
+    } else {
+        std::string wal_path;
+        Status st = ExecEnv::GetInstance()->wal_mgr()->get_wal_path(_load_block_queue->txn_id,
+                                                                    wal_path);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to get wal path in remove estimated wal bytes, reason: "
+                         << st.to_string();
+            return;
+        }
+        st = ExecEnv::GetInstance()->wal_mgr()->update_wal_dir_estimated_wal_bytes(
+                WalManager::get_base_wal_path(wal_path), 0, _estimated_wal_bytes);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to remove estimated wal bytes, reason: " << st.to_string();
+            return;
+        }
+        _estimated_wal_bytes = 0;
+    }
+};
 
 } // namespace vectorized
 } // namespace doris

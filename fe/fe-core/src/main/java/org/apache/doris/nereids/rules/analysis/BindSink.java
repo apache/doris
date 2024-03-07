@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -67,7 +68,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * bind an unbound logicalOlapTableSink represent the target table of an insert command
+ * bind an unbound logicalTableSink represent the target table of an insert command
  */
 public class BindSink implements AnalysisRuleFactory {
 
@@ -101,33 +102,8 @@ public class BindSink implements AnalysisRuleFactory {
                                     .map(NamedExpression.class::cast)
                                     .collect(ImmutableList.toImmutableList()),
                             isPartialUpdate,
-                            sink.isFromNativeInsertStmt(),
+                            sink.getDMLCommandType(),
                             child);
-
-                    if (isPartialUpdate) {
-                        // check the necessary conditions for partial updates
-                        if (!table.getEnableUniqueKeyMergeOnWrite()) {
-                            throw new AnalysisException("Partial update is only allowed on "
-                                    + "unique table with merge-on-write enabled.");
-                        }
-                        if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()) {
-                            throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                                    + "updating partial columns using the INSERT statement.");
-                        }
-                        for (Column col : table.getFullSchema()) {
-                            boolean exists = false;
-                            for (Column insertCol : boundSink.getCols()) {
-                                if (insertCol.getName().equals(col.getName())) {
-                                    exists = true;
-                                    break;
-                                }
-                            }
-                            if (col.isKey() && !exists) {
-                                throw new AnalysisException("Partial update should include all key columns, missing: "
-                                        + col.getName());
-                            }
-                        }
-                    }
 
                     // we need to insert all the columns of the target table
                     // although some columns are not mentions.
@@ -152,26 +128,35 @@ public class BindSink implements AnalysisRuleFactory {
                             Optional<Column> seqColInTable = Optional.empty();
                             if (table.getSequenceMapCol() != null) {
                                 if (!sink.getColNames().isEmpty()) {
-                                    if (sink.getColNames().contains(table.getSequenceMapCol())) {
+                                    if (sink.getColNames().stream()
+                                            .anyMatch(c -> c.equalsIgnoreCase(table.getSequenceMapCol()))) {
                                         haveInputSeqCol = true; // case1.a
                                     }
                                 } else {
                                     haveInputSeqCol = true; // case1.b
                                 }
                                 seqColInTable = table.getFullSchema().stream()
-                                        .filter(col -> col.getName().equals(table.getSequenceMapCol())).findFirst();
+                                        .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
+                                        .findFirst();
                             } else {
                                 if (!sink.getColNames().isEmpty()) {
-                                    if (sink.getColNames().contains(Column.SEQUENCE_COL)) {
+                                    if (sink.getColNames().stream()
+                                            .anyMatch(c -> c.equalsIgnoreCase(Column.SEQUENCE_COL))) {
                                         haveInputSeqCol = true; // case2.a
                                     } // else case2.b
                                 }
                             }
 
-                            if (!haveInputSeqCol && !isPartialUpdate) {
+                            // Don't require user to provide sequence column for partial updates,
+                            // including the following cases:
+                            // 1. it's a load job with `partial_columns=true`
+                            // 2. UPDATE and DELETE, planner will automatically add these hidden columns
+                            if (!haveInputSeqCol && !isPartialUpdate && (
+                                    boundSink.getDmlCommandType() != DMLCommandType.UPDATE
+                                            && boundSink.getDmlCommandType() != DMLCommandType.DELETE)) {
                                 if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                                         || !seqColInTable.get().getDefaultValue()
-                                        .equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                                        .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
                                     throw new org.apache.doris.common.AnalysisException("Table " + table.getName()
                                             + " has sequence column, need to specify the sequence column");
                                 }
@@ -231,7 +216,14 @@ public class BindSink implements AnalysisRuleFactory {
                                             + " target table " + table.getName());
                                 }
                                 if (columnToOutput.get(seqCol.get().getName()) != null) {
-                                    columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
+                                    // should generate diff exprId for seq column
+                                    NamedExpression seqColumn = columnToOutput.get(seqCol.get().getName());
+                                    if (seqColumn instanceof Alias) {
+                                        seqColumn = new Alias(((Alias) seqColumn).child(), column.getName());
+                                    } else {
+                                        seqColumn = new Alias(seqColumn, column.getName());
+                                    }
+                                    columnToOutput.put(column.getName(), seqColumn);
                                 }
                             } else if (isPartialUpdate) {
                                 // If the current load is a partial update, the values of unmentioned
@@ -315,10 +307,13 @@ public class BindSink implements AnalysisRuleFactory {
                         DataType inputType = expr.getDataType();
                         DataType targetType = DataType.fromCatalogType(table.getFullSchema().get(i).getType());
                         Expression castExpr = expr;
-                        if (isSourceAndTargetStringLikeType(inputType, targetType)) {
+                        // TODO move string like type logic into TypeCoercionUtils#castIfNotSameType
+                        if (isSourceAndTargetStringLikeType(inputType, targetType) && !inputType.equals(targetType)) {
                             int sourceLength = ((CharacterType) inputType).getLen();
                             int targetLength = ((CharacterType) targetType).getLen();
-                            if (sourceLength >= targetLength && targetLength >= 0) {
+                            if (sourceLength == targetLength) {
+                                castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+                            } else if (sourceLength > targetLength && targetLength >= 0) {
                                 castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                             } else if (targetType.isStringType()) {
                                 castExpr = new Cast(castExpr, StringType.INSTANCE);
@@ -343,6 +338,14 @@ public class BindSink implements AnalysisRuleFactory {
                         logicalFileSink().when(s -> s.getOutputExprs().isEmpty())
                                 .then(fileSink -> fileSink.withOutputExprs(
                                         fileSink.child().getOutput().stream()
+                                                .map(NamedExpression.class::cast)
+                                                .collect(ImmutableList.toImmutableList())))
+                ),
+                // TODO: bind hive taget table
+                RuleType.BINDING_INSERT_TARGET_EXTERNAL_TABLE.build(
+                        logicalHiveTableSink().when(s -> s.getOutputExprs().isEmpty())
+                                .then(hiveTableSink -> hiveTableSink.withOutputExprs(
+                                        hiveTableSink.child().getOutput().stream()
                                                 .map(NamedExpression.class::cast)
                                                 .collect(ImmutableList.toImmutableList())))
                 )

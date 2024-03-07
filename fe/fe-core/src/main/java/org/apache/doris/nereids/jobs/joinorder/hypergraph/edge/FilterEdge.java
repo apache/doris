@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
-import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
@@ -32,25 +31,11 @@ import java.util.Set;
  */
 public class FilterEdge extends Edge {
     private final LogicalFilter<? extends Plan> filter;
-    private final List<Integer> rejectEdges;
 
     public FilterEdge(LogicalFilter<? extends Plan> filter, int index,
             BitSet childEdges, long subTreeNodes, long childRequireNodes) {
         super(index, childEdges, new BitSet(), subTreeNodes, childRequireNodes, 0L);
         this.filter = filter;
-        rejectEdges = new ArrayList<>();
-    }
-
-    public void addRejectJoin(JoinEdge joinEdge) {
-        rejectEdges.add(joinEdge.getIndex());
-    }
-
-    public List<Integer> getRejectEdges() {
-        return rejectEdges;
-    }
-
-    public boolean isTopFilter() {
-        return rejectEdges.isEmpty();
     }
 
     @Override
@@ -61,5 +46,9 @@ public class FilterEdge extends Edge {
     @Override
     public List<? extends Expression> getExpressions() {
         return filter.getExpressions();
+    }
+
+    public FilterEdge clear() {
+        return new FilterEdge(filter, getIndex(), getLeftChildEdges(), getSubTreeNodes(), getLeftRequiredNodes());
     }
 }

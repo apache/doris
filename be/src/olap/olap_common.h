@@ -325,6 +325,7 @@ struct OlapReaderStatistics {
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
+    int64_t rows_stats_rp_filtered = 0;
     int64_t rows_bf_filtered = 0;
     int64_t rows_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
@@ -337,6 +338,10 @@ struct OlapReaderStatistics {
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
     int64_t block_conditions_filtered_ns = 0;
+    int64_t block_conditions_filtered_bf_ns = 0;
+    int64_t block_conditions_filtered_zonemap_ns = 0;
+    int64_t block_conditions_filtered_zonemap_rp_ns = 0;
+    int64_t block_conditions_filtered_dict_ns = 0;
 
     int64_t index_load_ns = 0;
 
@@ -453,18 +458,7 @@ struct RowsetId {
     }
 };
 
-// used for hash-struct of hash_map<RowsetId, Rowset*>.
-struct HashOfRowsetId {
-    size_t operator()(const RowsetId& rowset_id) const {
-        size_t seed = 0;
-        seed = HashUtil::hash64(&rowset_id.hi, sizeof(rowset_id.hi), seed);
-        seed = HashUtil::hash64(&rowset_id.mi, sizeof(rowset_id.mi), seed);
-        seed = HashUtil::hash64(&rowset_id.lo, sizeof(rowset_id.lo), seed);
-        return seed;
-    }
-};
-
-using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+using RowsetIdUnorderedSet = std::unordered_set<RowsetId>;
 
 // Extract rowset id from filename, return uninitialized rowset id if filename is invalid
 inline RowsetId extract_rowset_id(std::string_view filename) {
@@ -493,18 +487,13 @@ inline RowsetId extract_rowset_id(std::string_view filename) {
 class DeleteBitmap;
 // merge on write context
 struct MowContext {
-    MowContext(int64_t version, int64_t txnid, RowsetIdUnorderedSet& ids,
+    MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
                std::shared_ptr<DeleteBitmap> db)
             : max_version(version), txn_id(txnid), rowset_ids(ids), delete_bitmap(db) {}
-    void update_rowset_ids_with_lock(std::function<void()> callback) {
-        std::lock_guard<std::mutex> lock(m);
-        callback();
-    }
     int64_t max_version;
     int64_t txn_id;
-    RowsetIdUnorderedSet& rowset_ids;
+    const RowsetIdUnorderedSet& rowset_ids;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
-    std::mutex m; // protection for updating rowset_ids only
 };
 
 // used in mow partial update
@@ -517,3 +506,18 @@ struct RidAndPos {
 using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
 } // namespace doris
+
+// This intended to be a "good" hash function.  It may change from time to time.
+template <>
+struct std::hash<doris::RowsetId> {
+    size_t operator()(const doris::RowsetId& rowset_id) const {
+        size_t seed = 0;
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.hi, sizeof(rowset_id.hi),
+                                                 seed);
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.mi, sizeof(rowset_id.mi),
+                                                 seed);
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.lo, sizeof(rowset_id.lo),
+                                                 seed);
+        return seed;
+    }
+};

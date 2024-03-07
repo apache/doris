@@ -220,15 +220,8 @@ public:
         // TODO add hash function
     }
 
-    virtual void update_hashes_with_value(
-            std::vector<SipHash>& hashes,
-            const uint8_t* __restrict null_data = nullptr) const override {
-        // TODO add hash function
-    }
-
-    virtual void update_hashes_with_value(
-            uint64_t* __restrict hashes,
-            const uint8_t* __restrict null_data = nullptr) const override {
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override {
         // TODO add hash function
     }
 
@@ -264,8 +257,6 @@ public:
     T& get_element(size_t n) { return data[n]; }
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
@@ -401,18 +392,6 @@ ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const
     }
 
     return res;
-}
-
-template <typename T>
-void ColumnComplexType<T>::replicate(const uint32_t* indexs, size_t target_size,
-                                     IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnComplexType<T>&>(column);
-    typename Self::Container& res_data = res.get_data();
-    res_data.resize(target_size);
-
-    for (size_t i = 0; i < target_size; ++i) {
-        res_data[i] = data[indexs[i]];
-    }
 }
 
 using ColumnBitmap = ColumnComplexType<BitmapValue>;

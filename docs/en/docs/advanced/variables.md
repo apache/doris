@@ -247,7 +247,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
         Forward to Master to view the start time and last heartbeat information.
         
-    4. `SHOW TABLET;`/`ADMIN SHOW REPLICA DISTRIBUTION;`/`ADMIN SHOW REPLICA STATUS;`
+    4. `SHOW TABLET;`/`SHOW REPLICA DISTRIBUTION;`/`SHOW REPLICA STATUS;`
 
         Forward to Master to view the tablet information stored in the Master FE metadata. Under normal circumstances, the tablet information in different FE metadata should be consistent. When a problem occurs, this method can be used to compare the difference between the current FE and Master FE metadata.
         
@@ -393,11 +393,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
 * `system_time_zone`
 
-    Displays the current system time zone. Cannot be changed.
+    Set to the current system time zone when the cluster is initialised. It cannot be changed.
     
 * `time_zone`
 
-    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here](./time-zone.md).
+    Used to set the time zone for the current session. Defaults to the value of `system_time_zone`. It affects the results of certain time functions. For more information, see the [time zone](./time-zone) documentation.
     
 * `tx_isolation`
 
@@ -579,6 +579,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover. This config can control the behavior of query. When it is opened, the query will ignore the visible version recorded in FE partition, use the replica version. If the replica on be has missing versions, the query will directly skip this missing version, and only return the data of the existing version, In addition, the query will always try to select the one with the highest lastSuccessVersion among all surviving BE replicas, so as to recover as much data as possible. You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries. Note that, this variable conflicts with the a variable, when the a variable is not -1, this variable will not work.
 
+* `skip_bad_tablet`
+
+    In some scenarios, user has a huge amount of data and only a single replica was specified when creating the table, if one of the tablet is damaged, the table will not be able to be select. If the user does not care about the integrity of the data, they can use this variable to temporarily skip the bad tablet for querying and load the remaining data into a new table.
+
 * `default_password_lifetime`
 
 	Default password expiration time. The default value is 0, which means no expiration. The unit is days. This parameter is only enabled if the user's password expiration property has a value of DEFAULT. like:
@@ -689,7 +693,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 * `enable_memtable_on_sink_node`
 
   <version since="2.1.0">
-  Whether to enable MemTable on DataSink node when loading data, default is false.
+  Whether to enable MemTable on DataSink node when loading data, default is true.
   </version>
 
   Build MemTable on DataSink node, and send segments to other backends through brpc streaming.

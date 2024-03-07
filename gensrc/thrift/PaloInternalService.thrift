@@ -181,7 +181,7 @@ struct TQueryOptions {
 
   54: optional bool enable_share_hash_table_for_broadcast_join
 
-  55: optional bool check_overflow_for_decimal = false
+  55: optional bool check_overflow_for_decimal = true
 
   // For debug purpose, skip delete bitmap when reading data
   56: optional bool skip_delete_bitmap = false
@@ -263,6 +263,19 @@ struct TQueryOptions {
   93: optional i32 inverted_index_max_expansions = 50;
 
   94: optional i32 inverted_index_skip_threshold = 50;
+
+  95: optional bool enable_parallel_scan = false;
+
+  96: optional i32 parallel_scan_max_scanners_count = 0;
+
+  97: optional i64 parallel_scan_min_rows_per_scanner = 0;
+
+  98: optional bool skip_bad_tablet = false;
+  // Increase concurrency of scanners adaptively, the maxinum times to scale up
+  99: optional double scanner_scale_up_ratio = 0;
+
+  // For cloud, to control if the content would be written into file cache
+  1000: optional bool disable_file_cache = false
 }
 
 
@@ -391,6 +404,13 @@ struct TGlobalDict {
   2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
 }
 
+struct TPipelineWorkloadGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
+}
+
 // ExecPlanFragment
 struct TExecPlanFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
@@ -471,6 +491,15 @@ struct TExecPlanFragmentParams {
   27: optional i32 total_load_streams
 
   28: optional i32 num_local_sink
+
+  29: optional i64 content_length
+
+  30: optional list<TPipelineWorkloadGroup> workload_groups
+
+  31: optional bool is_nereids = true;
+
+  // For cloud
+  1000: optional bool is_mow_table;
 }
 
 struct TExecPlanFragmentParamsList {
@@ -619,6 +648,14 @@ struct TFetchDataResult {
     4: optional Status.TStatus status
 }
 
+// For cloud
+enum TCompoundType {
+    UNKNOWN = 0,
+    AND = 1,
+    OR = 2,
+    NOT = 3,
+}
+
 struct TCondition {
     1:  required string column_name
     2:  required string condition_op
@@ -627,6 +664,9 @@ struct TCondition {
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
     5:  optional bool marked_by_runtime_filter = false
+
+    // For cloud
+    1000: optional TCompoundType compound_type = TCompoundType.UNKNOWN
 }
 
 struct TExportStatusResult {
@@ -643,13 +683,7 @@ struct TPipelineInstanceParams {
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
-}
-
-struct TPipelineWorkloadGroup {
-  1: optional i64 id
-  2: optional string name
-  3: optional map<string, string> properties
-  4: optional i64 version
+  8: optional list<i32> topn_filter_source_node_ids
 }
 
 // ExecPlanFragment
@@ -692,6 +726,13 @@ struct TPipelineFragmentParams {
   34: optional i32 num_buckets
   35: optional map<i32, i32> bucket_seq_to_instance_idx
   36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  37: optional i32 parallel_instances
+  38: optional i32 total_instances
+  39: optional map<i32, i32> shuffle_idx_to_instance_idx
+  40: optional bool is_nereids = true;
+
+  // For cloud
+  1000: optional bool is_mow_table;
 }
 
 struct TPipelineFragmentParamsList {

@@ -108,6 +108,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             }
             throw new AnalysisException("The nereids is disabled in this sql, fallback to original planner");
         }
+        context.invalidCache(selectHint.getHintName());
     }
 
     private void extractLeading(SelectHintLeading selectHint, CascadesContext context,
@@ -121,10 +122,13 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             context.setLeadingJoin(false);
             return;
         }
-        hint.setStatus(Hint.HintStatus.SUCCESS);
+        if (!hint.isSyntaxError()) {
+            hint.setStatus(Hint.HintStatus.SUCCESS);
+        }
         statementContext.addHint(hint);
         context.getHintMap().put("Leading", hint);
-        if (hints.get("ordered") != null || ConnectContext.get().getSessionVariable().isDisableJoinReorder()) {
+        if (hints.get("ordered") != null || ConnectContext.get().getSessionVariable().isDisableJoinReorder()
+                || context.isLeadingDisableJoinReorder()) {
             context.setLeadingJoin(false);
             hint.setStatus(Hint.HintStatus.UNUSED);
         } else {

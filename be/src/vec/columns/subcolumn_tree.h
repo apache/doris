@@ -19,8 +19,11 @@
 // and modified by Doris
 
 #pragma once
+#include <memory>
+
 #include "vec/columns/column.h"
 #include "vec/common/hash_table/hash_map.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 namespace doris::vectorized {
@@ -52,7 +55,8 @@ public:
 
         bool is_nested() const { return kind == NESTED; }
         bool is_scalar() const { return kind == SCALAR; }
-        bool is_scalar_without_children() const { return kind == SCALAR && children.empty(); }
+
+        bool is_leaf_node() const { return kind == SCALAR && children.empty(); }
 
         // Only modify data and kind
         void modify(std::shared_ptr<Node>&& other) {
@@ -71,6 +75,22 @@ public:
             next_node->parent = this;
             StringRef key_ref {strings_pool.insert(key.data(), key.length()), key.length()};
             children[key_ref] = std::move(next_node);
+        }
+
+        std::vector<StringRef> get_sorted_chilren_keys() const {
+            std::vector<StringRef> sorted_keys;
+            for (auto it = children.begin(); it != children.end(); ++it) {
+                sorted_keys.push_back(it->get_first());
+            }
+            std::sort(sorted_keys.begin(), sorted_keys.end());
+            return sorted_keys;
+        }
+        std::shared_ptr<const Node> get_child_node(StringRef key) const {
+            auto it = children.find(key);
+            if (it != children.end()) {
+                return it->get_second();
+            }
+            return nullptr;
         }
     };
 

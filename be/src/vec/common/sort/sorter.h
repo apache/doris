@@ -88,7 +88,7 @@ public:
 
     bool is_spilled() const { return is_spilled_; }
 
-    const Block& last_sorted_block() const { return sorted_blocks_.back(); }
+    Block& last_sorted_block() { return sorted_blocks_.back(); }
 
     std::vector<Block>& get_sorted_block() { return sorted_blocks_; }
     std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }

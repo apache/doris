@@ -82,20 +82,23 @@ public class SimplifyArithmeticComparisonRule extends AbstractExpressionRewriteR
 
     @Override
     public Expression visitComparisonPredicate(ComparisonPredicate comparison, ExpressionRewriteContext context) {
-        ComparisonPredicate newComparison = comparison;
         if (couldRearrange(comparison)) {
-            newComparison = normalize(comparison);
+            ComparisonPredicate newComparison = normalize(comparison);
             if (newComparison == null) {
                 return comparison;
             }
             try {
-                List<Expression> children = tryRearrangeChildren(newComparison.left(), newComparison.right());
-                newComparison = (ComparisonPredicate) newComparison.withChildren(children);
+                List<Expression> children =
+                        tryRearrangeChildren(newComparison.left(), newComparison.right(), context);
+                newComparison = (ComparisonPredicate) visitComparisonPredicate(
+                        (ComparisonPredicate) newComparison.withChildren(children), context);
             } catch (Exception e) {
                 return comparison;
             }
+            return TypeCoercionUtils.processComparisonPredicate(newComparison);
+        } else {
+            return comparison;
         }
-        return TypeCoercionUtils.processComparisonPredicate(newComparison);
     }
 
     private boolean couldRearrange(ComparisonPredicate cmp) {
@@ -104,11 +107,12 @@ public class SimplifyArithmeticComparisonRule extends AbstractExpressionRewriteR
                 && cmp.left().children().stream().anyMatch(Expression::isConstant);
     }
 
-    private List<Expression> tryRearrangeChildren(Expression left, Expression right) throws Exception {
-        if (!left.child(1).isLiteral()) {
+    private List<Expression> tryRearrangeChildren(Expression left, Expression right,
+            ExpressionRewriteContext context) throws Exception {
+        if (!left.child(1).isConstant()) {
             throw new RuntimeException(String.format("Expected literal when arranging children for Expr %s", left));
         }
-        Literal leftLiteral = (Literal) left.child(1);
+        Literal leftLiteral = (Literal) FoldConstantRule.INSTANCE.rewrite(left.child(1), context);
         Expression leftExpr = left.child(0);
 
         Class<? extends Expression> oppositeOperator = rearrangementMap.get(left.getClass());

@@ -191,6 +191,8 @@ message ColumnMetaPB {
     optional bytes default_value = 14; // ColumnMessage.default_value ?
     optional int32 precision = 15; // ColumnMessage.precision
     optional int32 frac = 16; // ColumnMessag
+
+    repeated ColumnMetaPB sparse_columns = 17; // sparse column within a variant column
 }
 
 message PrimaryKeyIndexMetaPB {

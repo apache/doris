@@ -27,6 +27,7 @@ import org.apache.doris.job.exception.JobException;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.RandomUtils;
 
 @Data
 @Log4j2
@@ -51,6 +52,15 @@ public abstract class AbstractTask implements Task {
 
     @SerializedName(value = "emg")
     private String errMsg;
+
+    public AbstractTask() {
+        taskId = getNextTaskId();
+    }
+
+    private static long getNextTaskId() {
+        // do not use Env.getNextId(), just generate id without logging
+        return System.nanoTime() + RandomUtils.nextInt();
+    }
 
     @Override
     public void onFail(String msg) throws JobException {
@@ -120,6 +130,7 @@ public abstract class AbstractTask implements Task {
             run();
             onSuccess();
         } catch (Exception e) {
+            this.errMsg = e.getMessage();
             onFail();
             log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
         }
@@ -132,6 +143,14 @@ public abstract class AbstractTask implements Task {
     public String getJobName() {
         AbstractJob job = Env.getCurrentEnv().getJobManager().getJob(jobId);
         return job == null ? "" : job.getJobName();
+    }
+
+    public Job getJobOrJobException() throws JobException {
+        AbstractJob job = Env.getCurrentEnv().getJobManager().getJob(jobId);
+        if (job == null) {
+            throw new JobException("job not exist, jobId:" + jobId);
+        }
+        return job;
     }
 
 }

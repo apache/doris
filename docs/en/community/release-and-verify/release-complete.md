@@ -78,7 +78,7 @@ https://www.apache.org/dist/doris/1.xx/
 http://www.apache.org/dyn/closer.cgi/doris/1.xx/apache-doris-1.xx-src.tar.gz
 ```
 
-Ssource package:
+Source package:
 
 ```
 http://www.apache.org/dyn/closer.cgi/doris/1.xx/apache-doris-1.xx-src.tar.gz
@@ -100,7 +100,14 @@ refer to: <http://www.apache.org/dev/release-download-pages#closer>
 
 ### Maven
 
-Find staging repo on [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) and click `Release` to release.
+Find staging repo on [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories).
+
+- If not closed, click `close` first to close.
+- Click `release` for official release.
+
+> If an error is reported in the `close` stage: `No public key: Key with id: (xxx) was not able to be located on`.
+
+> You can execute `gpg --keyserver hkp://keyserver.ubuntu.com --send-keys xxx` and then close again. xxx can be viewed through `gpg -k`.
 
 ### Prepare the release note
 

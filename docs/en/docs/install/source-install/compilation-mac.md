@@ -77,7 +77,7 @@ The version of jdk installed using brew is 11, because on macOS, the arm64 versi
 
 ## Start-up
 
-1. Set `file descriptors` （_**NOTICE: If you have closed the current session, you need to set this variable again**_）。
+1. Set `file descriptors` （_**NOTICE: If you have closed the current session, you need to set this variable again**_）.
     ```shell
     ulimit -n 65536
     ```

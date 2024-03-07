@@ -28,7 +28,7 @@ under the License.
 ### Description
 HLL
 
-HLL cannot be used as a key column, and the aggregation type is HLL_UNION when create table.
+HLL cannot be used as a key column. The columns of the HLL type can be used in Aggregate tables, Duplicate tables and Unique tables. When used in an Aggregate table, the aggregation type is HLL_UNION when building table.
 The user does not need to specify the length and default value. 
 The length is controlled within the system according to the degree of data aggregation.
 And HLL columns can only be queried or used through the matching hll_union_agg, hll_raw_agg, hll_cardinality, and hll_hash.

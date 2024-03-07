@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
@@ -69,7 +70,21 @@ public class Replica implements Writable {
         VERSION_ERROR, // missing version
         MISSING, // replica does not exist
         SCHEMA_ERROR, // replica's schema hash does not equal to index's schema hash
-        BAD // replica is broken.
+        BAD, // replica is broken.
+        DROP,  // user force drop replica on this backend
+    }
+
+    public static class ReplicaContext {
+        public long replicaId;
+        public long backendId;
+        public ReplicaState state;
+        public long version;
+        public int schemaHash;
+        public long dbId;
+        public long tableId;
+        public long partitionId;
+        public long indexId;
+        public Replica originReplica;
     }
 
     @SerializedName(value = "id")
@@ -157,8 +172,16 @@ public class Replica implements Writable {
      */
     private long preWatermarkTxnId = -1;
     private long postWatermarkTxnId = -1;
+    private long segmentCount = 0L;
+    private long rowsetCount = 0L;
+
+    private long userDropTime = -1;
 
     public Replica() {
+    }
+
+    public Replica(ReplicaContext context) {
+        this(context.replicaId, context.backendId, context.state, context.version, context.schemaHash);
     }
 
     // for rollup
@@ -235,6 +258,14 @@ public class Replica implements Writable {
 
     public long getRowCount() {
         return rowCount;
+    }
+
+    public long getSegmentCount() {
+        return segmentCount;
+    }
+
+    public long getRowsetCount() {
+        return rowsetCount;
     }
 
     public long getLastFailedVersion() {
@@ -328,6 +359,13 @@ public class Replica implements Writable {
         this.remoteDataSize = remoteDataSize;
         this.rowCount = rowNum;
         this.versionCount = versionCount;
+    }
+
+    public synchronized void updateCloudStat(long dataSize, long rowsetNum, long segmentNum, long rowNum) {
+        this.dataSize = dataSize;
+        this.rowsetCount = rowsetNum;
+        this.segmentCount = segmentNum;
+        this.rowCount = rowNum;
     }
 
     public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRemoteDataSize,
@@ -444,9 +482,11 @@ public class Replica implements Writable {
 
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
-            LOG.debug("current version {} is larger than last failed version {}, "
-                        + "maybe a fatal error or be report version, print a stack here ",
-                    this.version, lastFailedVersion, new Exception());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("current version {} is larger than last failed version {}, "
+                            + "maybe a fatal error or be report version, print a stack here ",
+                        this.version, lastFailedVersion, new Exception());
+            }
         }
 
         if (lastFailedVersion != this.lastFailedVersion) {
@@ -515,8 +555,10 @@ public class Replica implements Writable {
         }
 
         if (this.version < expectedVersion) {
-            LOG.debug("replica version does not catch up with version: {}. replica: {}",
-                      expectedVersion, this);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replica version does not catch up with version: {}. replica: {}",
+                          expectedVersion, this);
+            }
             return false;
         }
         return true;
@@ -597,8 +639,16 @@ public class Replica implements Writable {
         strBuffer.append(", backendId=");
         strBuffer.append(backendId);
         if (checkBeAlive) {
-            strBuffer.append(", backendAlive=");
-            strBuffer.append(Env.getCurrentSystemInfo().checkBackendAlive(backendId));
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend == null) {
+                strBuffer.append(", backend=null");
+            } else {
+                strBuffer.append(", backendAlive=");
+                strBuffer.append(backend.isAlive());
+                if (backend.isDecommissioned()) {
+                    strBuffer.append(", backendDecommission=true");
+                }
+            }
         }
         strBuffer.append(", version=");
         strBuffer.append(version);
@@ -609,6 +659,20 @@ public class Replica implements Writable {
             strBuffer.append(lastSuccessVersion);
             strBuffer.append(", lastFailedTimestamp=");
             strBuffer.append(lastFailedTimestamp);
+        }
+        if (isBad()) {
+            strBuffer.append(", isBad=true");
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend != null && pathHash != -1) {
+                DiskInfo diskInfo = backend.getDisks().values().stream()
+                        .filter(disk -> disk.getPathHash() == pathHash)
+                        .findFirst().orElse(null);
+                if (diskInfo == null) {
+                    strBuffer.append(", disk with path hash " + pathHash + " not exists");
+                } else if (diskInfo.getState() == DiskInfo.DiskState.OFFLINE) {
+                    strBuffer.append(", disk " + diskInfo.getRootPath() + " is bad");
+                }
+            }
         }
         strBuffer.append(", state=");
         strBuffer.append(state.name());
@@ -648,7 +712,7 @@ public class Replica implements Writable {
     }
 
     public static Replica read(DataInput in) throws IOException {
-        Replica replica = new Replica();
+        Replica replica = EnvFactory.getInstance().createReplica();
         replica.readFields(in);
         return replica;
     }
@@ -737,9 +801,29 @@ public class Replica implements Writable {
         return postWatermarkTxnId;
     }
 
+    public void setUserDropTime(long userDropTime) {
+        this.userDropTime = userDropTime;
+    }
+
+    public boolean isUserDrop() {
+        if (userDropTime > 0) {
+            if (System.currentTimeMillis() - userDropTime < Config.manual_drop_replica_valid_second * 1000L) {
+                return true;
+            }
+            userDropTime = -1;
+        }
+
+        return false;
+    }
+
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE
                 && getState() != ReplicaState.DECOMMISSION
                 && !isBad();
+    }
+
+    public boolean isScheduleAvailable() {
+        return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(backendId)
+            && !isUserDrop();
     }
 }

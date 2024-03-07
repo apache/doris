@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "exec/olap_common.h"
+#include "olap/shared_predicate.h"
 #include "olap/tablet_schema.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
@@ -43,7 +44,7 @@ class RuntimePredicate {
 public:
     RuntimePredicate() = default;
 
-    Status init(const PrimitiveType type, const bool nulls_first);
+    Status init(PrimitiveType type, bool nulls_first, bool is_asc, const std::string& col_name);
 
     bool inited() {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
@@ -52,73 +53,47 @@ public:
 
     void set_tablet_schema(TabletSchemaSPtr tablet_schema) {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
+        if (_tablet_schema) {
+            return;
+        }
         _tablet_schema = tablet_schema;
+        _predicate = SharedPredicate::create_shared(
+                tablet_schema->field_index(_tablet_schema->column(_col_name).unique_id()));
     }
 
-    std::shared_ptr<ColumnPredicate> get_predictate() {
+    std::shared_ptr<ColumnPredicate> get_predicate() {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
-        return _predictate;
+        return _predicate;
     }
 
-    Status update(const Field& value, const String& col_name, bool is_reverse);
+    Status update(const Field& value);
 
 private:
     mutable std::shared_mutex _rwlock;
     Field _orderby_extrem {Field::Types::Null};
-    std::shared_ptr<ColumnPredicate> _predictate;
+    std::shared_ptr<ColumnPredicate> _predicate;
     TabletSchemaSPtr _tablet_schema = nullptr;
-    std::unique_ptr<Arena> _predicate_arena;
+    Arena _predicate_arena;
     std::function<std::string(const Field&)> _get_value_fn;
     bool _nulls_first = true;
+    bool _is_asc;
+    std::function<ColumnPredicate*(const TabletColumn&, int, const std::string&, bool,
+                                   vectorized::Arena*)>
+            _pred_constructor;
     bool _inited = false;
+    std::string _col_name;
 
-    static std::string get_bool_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType;
-        return cast_to_string<TYPE_BOOLEAN, ValueType>(field.get<ValueType>(), 0);
+    template <PrimitiveType type>
+    static std::string get_normal_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<type>::CppType;
+        return cast_to_string<type, ValueType>(field.get<ValueType>(), 0);
     }
-
-    static std::string get_tinyint_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType;
-        return cast_to_string<TYPE_TINYINT, ValueType>(field.get<ValueType>(), 0);
-    }
-
-    static std::string get_smallint_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType;
-        return cast_to_string<TYPE_SMALLINT, ValueType>(field.get<ValueType>(), 0);
-    }
-
-    static std::string get_int_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_INT>::CppType;
-        return cast_to_string<TYPE_INT, ValueType>(field.get<ValueType>(), 0);
-    }
-
-    static std::string get_bigint_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType;
-        return cast_to_string<TYPE_BIGINT, ValueType>(field.get<ValueType>(), 0);
-    }
-
-    static std::string get_largeint_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType;
-        return cast_to_string<TYPE_LARGEINT, ValueType>(field.get<ValueType>(), 0);
-    }
-
-    static std::string get_float_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType;
-        return cast_to_string<TYPE_FLOAT, ValueType>(field.get<ValueType>(), 0);
-    }
-
-    static std::string get_double_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType;
-        return cast_to_string<TYPE_DOUBLE, ValueType>(field.get<ValueType>(), 0);
-    }
-
-    static std::string get_string_value(const Field& field) { return field.get<String>(); }
 
     static std::string get_date_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
         ValueType value;
         Int64 v = field.get<Int64>();
-        VecDateTimeValue* p = (VecDateTimeValue*)&v;
+        auto* p = (VecDateTimeValue*)&v;
         value.from_olap_date(p->to_olap_date());
         value.cast_to_date();
         return cast_to_string<TYPE_DATE, ValueType>(value, 0);
@@ -128,56 +103,27 @@ private:
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
         ValueType value;
         Int64 v = field.get<Int64>();
-        VecDateTimeValue* p = (VecDateTimeValue*)&v;
+        auto* p = (VecDateTimeValue*)&v;
         value.from_olap_datetime(p->to_olap_datetime());
         value.to_datetime();
         return cast_to_string<TYPE_DATETIME, ValueType>(value, 0);
     }
 
-    static std::string get_datev2_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType;
-        return cast_to_string<TYPE_DATEV2, ValueType>(
-                binary_cast<UInt32, ValueType>(field.get<UInt32>()), 0);
-    }
-
-    static std::string get_datetimev2_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
-        return cast_to_string<TYPE_DATETIMEV2, ValueType>(
-                binary_cast<UInt64, ValueType>(field.get<UInt64>()), 0);
-    }
-
     static std::string get_decimalv2_value(const Field& field) {
         // can NOT use PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType since
-        //   it is DecimalV2Value and Decimal128 can not convert to it implicitly
-        using ValueType = Decimal128::NativeType;
-        auto v = field.get<DecimalField<Decimal128>>();
+        //   it is DecimalV2Value and Decimal128V2 can not convert to it implicitly
+        using ValueType = Decimal128V2::NativeType;
+        auto v = field.get<DecimalField<Decimal128V2>>();
         // use TYPE_DECIMAL128I instead of TYPE_DECIMALV2 since v.get_scale()
         //   is always 9 for DECIMALV2
         return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
     }
 
-    static std::string get_decimal32_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType;
-        auto v = field.get<DecimalField<Decimal32>>();
-        return cast_to_string<TYPE_DECIMAL32, ValueType>(v.get_value(), v.get_scale());
-    }
-
-    static std::string get_decimal64_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType;
-        auto v = field.get<DecimalField<Decimal64>>();
-        return cast_to_string<TYPE_DECIMAL64, ValueType>(v.get_value(), v.get_scale());
-    }
-
-    static std::string get_decimal128_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType;
-        auto v = field.get<DecimalField<Decimal128I>>();
-        return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
-    }
-
-    static std::string get_decimal256_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType;
-        auto v = field.get<DecimalField<Decimal256>>();
-        return cast_to_string<TYPE_DECIMAL256, ValueType>(v.get_value(), v.get_scale());
+    template <PrimitiveType type>
+    static std::string get_decimal_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<type>::CppType;
+        auto v = field.get<DecimalField<ValueType>>();
+        return cast_to_string<type, ValueType>(v.get_value(), v.get_scale());
     }
 };
 

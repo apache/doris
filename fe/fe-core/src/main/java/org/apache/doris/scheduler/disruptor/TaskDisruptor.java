@@ -81,7 +81,7 @@ public class TaskDisruptor implements Closeable {
     public void start() {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
         disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
-                ProducerType.SINGLE, new BlockingWaitStrategy());
+                ProducerType.MULTI, new BlockingWaitStrategy());
         WorkHandler<TaskEvent>[] workers = new TaskHandler[consumerThreadCount];
         for (int i = 0; i < consumerThreadCount; i++) {
             workers[i] = new TaskHandler(transientTaskManager);

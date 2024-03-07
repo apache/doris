@@ -44,6 +44,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "util/time.h"
 #include "vec/core/block.h"
 
@@ -61,7 +62,45 @@ enum class TxnState {
     DELETED = 5,
 };
 
-struct TabletTxnInfo;
+struct TabletTxnInfo {
+    PUniqueId load_id;
+    RowsetSharedPtr rowset;
+    PendingRowsetGuard pending_rs_guard;
+    bool unique_key_merge_on_write {false};
+    DeleteBitmapPtr delete_bitmap;
+    // records rowsets calc in commit txn
+    RowsetIdUnorderedSet rowset_ids;
+    int64_t creation_time;
+    bool ingest {false};
+    std::shared_ptr<PartialUpdateInfo> partial_update_info;
+    TxnState state {TxnState::PREPARED};
+
+    TabletTxnInfo() = default;
+
+    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset)
+            : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()) {}
+
+    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset, bool ingest_arg)
+            : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()), ingest(ingest_arg) {}
+
+    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset, bool merge_on_write,
+                  DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& ids)
+            : load_id(load_id),
+              rowset(rowset),
+              unique_key_merge_on_write(merge_on_write),
+              delete_bitmap(delete_bitmap),
+              rowset_ids(ids),
+              creation_time(UnixSeconds()) {}
+
+    void prepare() { state = TxnState::PREPARED; }
+    void commit() { state = TxnState::COMMITTED; }
+    void rollback() { state = TxnState::ROLLEDBACK; }
+    void abort() {
+        if (state == TxnState::PREPARED) {
+            state = TxnState::ABORTED;
+        }
+    }
+};
 
 struct CommitTabletTxnInfo {
     TTransactionId transaction_id {0};
@@ -76,7 +115,7 @@ using CommitTabletTxnInfoVec = std::vector<CommitTabletTxnInfo>;
 // txn manager is used to manage mapping between tablet and txns
 class TxnManager {
 public:
-    TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size);
+    TxnManager(StorageEngine& engine, int32_t txn_map_shard_size, int32_t txn_shard_size);
 
     ~TxnManager() {
         delete[] _txn_tablet_maps;
@@ -169,7 +208,7 @@ public:
                                        const RowsetIdUnorderedSet& rowset_ids,
                                        std::shared_ptr<PartialUpdateInfo> partial_update_info);
     void get_all_commit_tablet_txn_info_by_tablet(
-            const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec);
+            const Tablet& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec);
 
     int64_t get_txn_by_tablet_version(int64_t tablet_id, int64_t version);
     void update_tablet_version_txn(int64_t tablet_id, int64_t version, int64_t txn_id);
@@ -220,7 +259,17 @@ private:
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
 
+    class TabletVersionCache : public LRUCachePolicy {
+    public:
+        TabletVersionCache(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::TABLET_VERSION_CACHE, capacity,
+                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+    };
+
 private:
+    StorageEngine& _engine;
+
     const int32_t _txn_map_shard_size;
 
     const int32_t _txn_shard_size;
@@ -238,7 +287,7 @@ private:
     std::shared_mutex* _txn_mutex = nullptr;
 
     txn_tablet_delta_writer_map_t* _txn_tablet_delta_writer_map = nullptr;
-    std::unique_ptr<Cache> _tablet_version_cache;
+    std::unique_ptr<TabletVersionCache> _tablet_version_cache;
     std::shared_mutex* _txn_tablet_delta_writer_map_locks = nullptr;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager

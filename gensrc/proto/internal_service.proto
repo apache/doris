@@ -62,6 +62,11 @@ message PTabletWithPartition {
     required int64 tablet_id = 2;
 }
 
+message PTabletLoadRowsetInfo {
+    required int32 current_rowset_nums = 1;
+    required int32 max_config_rowset_nums = 2;
+}
+
 message PTabletID {
     optional int64 partition_id = 1;
     optional int64 index_id = 2;
@@ -102,6 +107,7 @@ message PTabletWriterOpenRequest {
 
 message PTabletWriterOpenResult {
     required PStatus status = 1;
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 2;
 };
 
 // add batch to tablet writer
@@ -183,6 +189,11 @@ message PTabletWriterAddBatchResult {
     optional int64 wait_execution_time_us = 5;
     repeated PTabletError tablet_errors = 6;
     map<int64, PSuccessSlaveTabletNodeIds> success_slave_tablet_node_ids = 7;
+
+    // For cloud
+    optional int64 build_rowset_latency_ms = 1000;
+    optional int64 commit_rowset_latency_ms = 1001;
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 1002;
 };
 
 message PTabletWriterAddBlockResult {
@@ -194,6 +205,11 @@ message PTabletWriterAddBlockResult {
     repeated PTabletError tablet_errors = 6;
     map<int64, PSuccessSlaveTabletNodeIds> success_slave_tablet_node_ids = 7;
     optional bytes load_channel_profile = 8;
+
+    // For cloud
+    optional int64 build_rowset_latency_ms = 1000;
+    optional int64 commit_rowset_latency_ms = 1001;
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 1002;
 };
 
 // tablet writer cancel
@@ -287,6 +303,10 @@ message PTabletKeyLookupRequest {
     optional bytes output_expr = 5;
     // return binary mysql row format if true
     optional bool is_binary_row = 6;
+
+    // For cloud
+    // version to read
+    optional int64 version = 7;
 }
 
 message PTabletKeyLookupResponse {
@@ -513,12 +533,14 @@ message PMergeFilterRequest {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional bool opt_remote_rf = 9;
+    optional PColumnType column_type = 10;
 };
 
 message PMergeFilterResponse {
     required PStatus status = 1;
 };
 
+// delete PPublishFilterRequest after upgrade doris 2.1
 message PPublishFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
@@ -529,6 +551,7 @@ message PPublishFilterRequest {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
+    optional PColumnType column_type = 10;
 };
 
 message PPublishFilterRequestV2 {
@@ -698,6 +721,31 @@ message PGetTabletVersionsResponse {
     repeated PVersion versions = 2;
 };
 
+message PGetFileCacheMetaRequest {
+    repeated int64 tablet_ids = 1;
+}
+
+enum FileCacheType {
+    TTL = 0;
+    INDEX = 1;
+    NORMAL = 2;
+}
+
+message FileCacheSegmentMeta {
+    required int64 tablet_id = 1;
+    required string rowset_id = 2;
+    required int64 segment_id = 3;
+    required string file_name = 4;
+    required int64 offset = 5;
+    required int64 size = 6;
+    required FileCacheType cache_type = 7;
+    required int64 expiration_time = 8;
+}
+
+message PGetFileCacheMetaResponse {
+    repeated FileCacheSegmentMeta file_cache_segment_metas = 1;
+}
+
 message PReportStreamLoadStatusRequest {
     optional PUniqueId load_id = 1;
     optional PStatus status = 2;
@@ -721,11 +769,11 @@ message PGlobResponse {
 }
 
 message PGroupCommitInsertRequest {
-    optional int64 db_id = 1;
-    optional int64 table_id = 2;
+    optional int64 db_id = 1; // deprecated
+    optional int64 table_id = 2; // deprecated
     //  Descriptors.TDescriptorTable
     // optional bytes desc_tbl = 3;
-    optional int64 base_schema_version = 4;
+    optional int64 base_schema_version = 4; // deprecated
 
     // TExecPlanFragmentParams -> TPlanFragment -> PlanNodes.TPlan
     // optional bytes plan_node = 5;
@@ -754,6 +802,7 @@ message POpenLoadStreamRequest {
     repeated PTabletID tablets = 5;
     optional bool enable_profile = 6 [default = false];
     optional int64 total_streams = 7;
+    optional int64 idle_timeout_ms = 8;
 }
 
 message PTabletSchemaWithIndex {
@@ -767,12 +816,18 @@ message POpenLoadStreamResponse {
     repeated PTabletSchemaWithIndex tablet_schemas = 2;
 }
 
-message PWriteStreamSinkResponse {
+message PFailedTablet {
+    optional int64 id = 1;
+    optional PStatus status = 2;
+}
+
+message PLoadStreamResponse {
     optional PStatus status = 1;
     repeated int64 success_tablet_ids = 2;
-    repeated int64 failed_tablet_ids = 3;
+    repeated PFailedTablet failed_tablets = 3;
     optional bytes load_stream_profile = 4;
     repeated PTabletSchemaWithIndex tablet_schemas = 5;
+    optional bool eos = 6;
 }
 
 message PStreamHeader {
@@ -798,7 +853,6 @@ message PStreamHeader {
 
 message PGetWalQueueSizeRequest{
     optional int64 table_id = 1;
-    optional int64 txn_id = 2;
 }
 
 message PGetWalQueueSizeResponse{
@@ -858,6 +912,7 @@ service PBackendService {
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
+    rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);

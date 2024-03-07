@@ -40,6 +40,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.NoConsistencyRequiredPolicy;
 import com.sleepycat.je.rep.NodeType;
+import com.sleepycat.je.rep.RepInternal;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.ReplicationConfig;
 import com.sleepycat.je.rep.RollbackException;
@@ -51,10 +52,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
-import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.nio.file.FileStore;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -76,7 +74,6 @@ public class BDBEnvironment {
             "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL");
     public static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
 
-    private File envHome;
     private ReplicatedEnvironment replicatedEnvironment;
     private EnvironmentConfig environmentConfig;
     private ReplicationConfig replicationConfig;
@@ -98,7 +95,6 @@ public class BDBEnvironment {
     // The setup() method opens the environment and database
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort) {
-        this.envHome = envHome;
         // Almost never used, just in case the master can not restart
         if (metadataFailureRecovery) {
             if (!isElectable) {
@@ -369,7 +365,9 @@ public class BDBEnvironment {
                 if (StringUtils.isNumeric(name)) {
                     ret.add(Long.parseLong(name));
                 } else {
-                    // LOG.debug("get database names, skipped {}", name);
+                    if (LOG.isDebugEnabled()) {
+                        // LOG.debug("get database names, skipped {}", name);
+                    }
                 }
             }
         }
@@ -443,25 +441,6 @@ public class BDBEnvironment {
         }
     }
 
-    // Get the disk usage of BDB Environment in percent. -1 is returned if any error occuried.
-    public long getEnvDiskUsagePercent() {
-        if (envHome == null) {
-            return -1;
-        }
-
-        try {
-            FileStore fileStore = Files.getFileStore(envHome.toPath());
-            long totalSpace = fileStore.getTotalSpace();
-            long usableSpace = fileStore.getUsableSpace();
-            if (totalSpace <= 0) {
-                return -1;
-            }
-            return 100 - (usableSpace * 100) / totalSpace;
-        } catch (IOException e) {
-            return -1;
-        }
-    }
-
     private static SyncPolicy getSyncPolicy(String policy) {
         if (policy.equalsIgnoreCase("SYNC")) {
             return Durability.SyncPolicy.SYNC;
@@ -482,6 +461,25 @@ public class BDBEnvironment {
         }
         // default value is SIMPLE_MAJORITY
         return Durability.ReplicaAckPolicy.SIMPLE_MAJORITY;
+    }
+
+    public String getNotReadyReason() {
+        if (replicatedEnvironment == null) {
+            LOG.warn("replicatedEnvironment is null");
+            return "replicatedEnvironment is null";
+        }
+        try {
+            if (replicatedEnvironment.getInvalidatingException() != null) {
+                return replicatedEnvironment.getInvalidatingException().getMessage();
+            }
+
+            if (RepInternal.getNonNullRepImpl(replicatedEnvironment).getDiskLimitViolation() != null) {
+                return RepInternal.getNonNullRepImpl(replicatedEnvironment).getDiskLimitViolation();
+            }
+        } catch (Exception e) {
+            LOG.warn("getNotReadyReason exception:", e);
+        }
+        return "";
     }
 
 }

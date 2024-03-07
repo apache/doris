@@ -30,7 +30,7 @@ suite("test_case_when_to_if") {
     from test_case_when_to_if
     group by k2;
     '''
-    res = sql '''
+    def res = sql '''
     explain rewritten plan select k2,
         sum(case when (k1=1) then 1 end) sum1
     from test_case_when_to_if
@@ -45,13 +45,13 @@ suite("test_case_when_to_if") {
     from test_case_when_to_if
     group by k2;
     '''
-    res = sql '''
+    def res1 = sql '''
     explain rewritten plan select k2,
         sum(case when (k1=1) then 1 else null end) sum1
     from test_case_when_to_if
     group by k2;
     '''
-    assertTrue(res.toString().contains("if"))
+    assertTrue(res1.toString().contains("if"))
 
     sql '''
     select k2,
@@ -59,11 +59,11 @@ suite("test_case_when_to_if") {
     from test_case_when_to_if
     group by k2;
     '''
-    res = sql '''
+    def res2 = sql '''
     explain rewritten plan select k2,
         sum(case when (k1>0) then k1 else abs(k1) end) sum1
     from test_case_when_to_if
     group by k2;
     '''
-    assertTrue(res.toString().contains("if"))
+    assertTrue(res2.toString().contains("if"))
 }

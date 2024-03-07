@@ -310,7 +310,9 @@ public class InferFiltersRule implements ExprRewriteRule {
 
             if (row >= arrayMaxSize
                     || column >= arrayMaxSize) {
-                LOG.debug("Error row {} or column {}, but max size is {}.", row, column, arrayMaxSize);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Error row {} or column {}, but max size is {}.", row, column, arrayMaxSize);
+                }
                 needGenWarshallArray = false;
                 break;
             } else {

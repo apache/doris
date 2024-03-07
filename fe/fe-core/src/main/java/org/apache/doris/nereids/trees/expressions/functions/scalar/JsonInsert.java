@@ -67,4 +67,3 @@ public class JsonInsert extends ScalarFunction
         return visitor.visitJsonInsert(this, context);
     }
 }
-

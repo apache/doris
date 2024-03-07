@@ -36,7 +36,7 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
         createTable("create table test.student (\n" + "id int not null,\n" + "name varchar(128),\n"
                 + "age int, sex int)\n" + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
     }
 
     @Test

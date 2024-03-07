@@ -25,7 +25,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -93,7 +92,6 @@ public class CleanQueryStatsStmt extends DdlStmt {
                 if (StringUtils.isEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
                 }
-                dbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
 
                 Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(dbName);
                 if (!Env.getCurrentEnv().getAccessManager()

@@ -21,6 +21,7 @@
 
 #include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
+#include "vec/core/materialize_block.h"
 #include "vec/exec/vset_operation_node.h"
 
 namespace doris {
@@ -42,7 +43,7 @@ OperatorPtr SetSinkOperatorBuilder<is_intersect>::build_operator() {
 template <bool is_intersect>
 SetSinkOperator<is_intersect>::SetSinkOperator(
         OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : StreamingOperator<SetSinkOperatorBuilder<is_intersect>>(builder, set_node) {}
+        : StreamingOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
 
 template class SetSinkOperatorBuilder<true>;
 template class SetSinkOperatorBuilder<false>;
@@ -51,7 +52,7 @@ template class SetSinkOperator<false>;
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
-                                            SourceState source_state) {
+                                            bool eos) {
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
@@ -59,22 +60,24 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    auto& mem_used = local_state._shared_state->mem_used;
     auto& build_block = local_state._shared_state->build_block;
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
 
     if (in_block->rows() != 0) {
-        mem_used += in_block->allocated_bytes();
         RETURN_IF_ERROR(local_state._mutable_block.merge(*in_block));
+
+        if (local_state._mutable_block.rows() > std::numeric_limits<uint32_t>::max()) {
+            return Status::NotSupported("set operator do not support build table rows over:" +
+                                        std::to_string(std::numeric_limits<uint32_t>::max()));
+        }
     }
 
-    if (source_state == SourceState::FINISHED ||
-        local_state._mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
+    if (eos || local_state._mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
         build_block = local_state._mutable_block.to_block();
         RETURN_IF_ERROR(_process_build_block(local_state, build_block, state));
         local_state._mutable_block.clear();
 
-        if (source_state == SourceState::FINISHED) {
+        if (eos) {
             if constexpr (is_intersect) {
                 valid_element_in_hash_tbl = 0;
             } else {
@@ -90,7 +93,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
             if (_child_quantity == 1) {
-                local_state._shared_state->source_dep->set_ready();
+                local_state._dependency->set_ready_to_read();
             }
         }
     }
@@ -136,10 +139,10 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        auto column = block.get_by_position(result_col_id).column.get();
+        const auto* column = block.get_by_position(result_col_id).column.get();
 
-        if (auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-            auto& col_nested = nullable->get_nested_column();
+        if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+            const auto& col_nested = nullable->get_nested_column();
             if (local_state._shared_state->build_not_ignore_null[i]) {
                 raw_ptrs[i] = nullable;
             } else {
@@ -157,13 +160,13 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSinkDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _build_timer = ADD_TIMER(_profile, "BuildTime");
 
-    Parent& parent = _parent->cast<Parent>();
-    _dependency->set_cur_child_id(parent._cur_child_id);
+    auto& parent = _parent->cast<Parent>();
+    _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
         RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
@@ -172,16 +175,15 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     _shared_state->child_quantity = parent._child_quantity;
 
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
-    DCHECK(child_exprs_lists.size() == 0 || child_exprs_lists.size() == parent._child_quantity);
-    if (child_exprs_lists.size() == 0) {
+    DCHECK(child_exprs_lists.empty() || child_exprs_lists.size() == parent._child_quantity);
+    if (child_exprs_lists.empty()) {
         child_exprs_lists.resize(parent._child_quantity);
     }
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
 
-    _shared_state->hash_table_variants = std::make_unique<vectorized::HashTableVariants>();
+    _shared_state->hash_table_variants = std::make_unique<vectorized::SetHashTableVariants>();
 
-    for (int i = 0; i < child_exprs_lists[0].size(); ++i) {
-        const auto& ctx = child_exprs_lists[0][i];
+    for (const auto& ctx : child_exprs_lists[0]) {
         _shared_state->build_not_ignore_null.push_back(ctx->root()->is_nullable());
     }
     _shared_state->hash_table_init();
@@ -196,10 +198,8 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
     // Create result_expr_ctx_lists_ from thrift exprs.
     if (tnode.node_type == TPlanNodeType::type::INTERSECT_NODE) {
         result_texpr_lists = &(tnode.intersect_node.result_expr_lists);
-        _child_quantity = tnode.intersect_node.result_expr_lists.size();
     } else if (tnode.node_type == TPlanNodeType::type::EXCEPT_NODE) {
         result_texpr_lists = &(tnode.except_node.result_expr_lists);
-        _child_quantity = tnode.except_node.result_expr_lists.size();
     } else {
         return Status::NotSupported("Not Implemented, Check The Operation Node.");
     }

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContain
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -57,12 +58,16 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .when(join -> !justNonInner || !join.getJoinType().isInnerJoin())
                 .when(join -> checkReorder(join))
                 .when(join -> check(swapType, join))
-                .whenNot(LogicalJoin::hasJoinHint)
+                .whenNot(LogicalJoin::hasDistributeHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
-                .whenNot(LogicalJoin::isMarkJoin)
+                // null aware mark join will be translated to null aware left semi/anti join
+                // we don't support null aware right semi/anti join, so should not commute
+                .whenNot(join -> JoinUtils.isNullAwareMarkJoin(join))
+                // commuting nest loop mark join is not supported by be
+                .whenNot(join -> join.isMarkJoin() && join.getHashJoinConjuncts().isEmpty())
                 .then(join -> {
                     LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
-                            join.right(), join.left());
+                            join.right(), join.left(), null);
                     newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
@@ -100,6 +105,9 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     private boolean checkReorder(LogicalJoin<GroupPlan, GroupPlan> join) {
+        if (join.isLeadingJoin()) {
+            return false;
+        }
         return !join.getJoinReorderContext().hasCommute()
                 && !join.getJoinReorderContext().hasExchange();
     }
@@ -114,9 +122,13 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     private static boolean containJoin(GroupPlan groupPlan) {
-        // TODO: tmp way to judge containJoin
-        List<Slot> output = groupPlan.getOutput();
-        return !output.stream().map(Slot::getQualifier).allMatch(output.get(0).getQualifier()::equals);
+        if (groupPlan.getGroup().getStatistics() != null) {
+            return groupPlan.getGroup().getStatistics().getWidthInJoinCluster() > 1;
+        } else {
+            // tmp way to judge containJoin, just used for test case where stats is null
+            List<Slot> output = groupPlan.getOutput();
+            return !output.stream().map(Slot::getQualifier).allMatch(output.get(0).getQualifier()::equals);
+        }
     }
 
     /**

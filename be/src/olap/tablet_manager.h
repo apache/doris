@@ -54,7 +54,7 @@ class TTabletInfo;
 // please uniformly name the method in "xxx_unlocked()" mode
 class TabletManager {
 public:
-    TabletManager(int32_t tablet_map_lock_shard_size);
+    TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size);
     ~TabletManager();
 
     bool check_tablet_id_exist(TTabletId tablet_id);
@@ -132,7 +132,7 @@ public:
     //        Status::Error<INVALID_ARGUMENT>(), if tables is null
     Status report_tablet_info(TTabletInfo* tablet_info);
 
-    Status build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
+    void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
     Status start_trash_sweep();
 
@@ -156,6 +156,7 @@ public:
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
     void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables,
+                              std::vector<RowsetSharedPtr>* rowsets,
                               std::function<bool(const TabletSharedPtr&)> skip_tablet);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
@@ -224,6 +225,8 @@ private:
         tablet_map_t tablet_map;
         std::set<int64_t> tablets_under_clone;
     };
+
+    StorageEngine& _engine;
 
     // TODO: memory size of TabletSchema cannot be accurately tracked.
     // trace the memory use by meta of tablet

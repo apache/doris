@@ -116,10 +116,6 @@ public:
         return clone_dummy(offsets.back());
     }
 
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
-        LOG(FATAL) << "Not implemented";
-    }
-
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         if (s != selector.size()) {
             LOG(FATAL) << "Size of selector doesn't match size of column.";
@@ -149,8 +145,6 @@ public:
     }
 
     void addSize(size_t delta) { s += delta; }
-
-    bool is_dummy() const override { return true; }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";

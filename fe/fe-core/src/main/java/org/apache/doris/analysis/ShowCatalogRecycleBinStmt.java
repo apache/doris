@@ -34,7 +34,7 @@ import java.util.function.Predicate;
 public class ShowCatalogRecycleBinStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Type").add("Name").add("DbId").add("TableId").add("PartitionId").add("DropTime")
-            .build();
+            .add("DataSize").add("RemoteDataSize").build();
 
     private Expr where;
     private String nameValue;

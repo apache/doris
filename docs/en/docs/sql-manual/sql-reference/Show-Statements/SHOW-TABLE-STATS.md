@@ -28,6 +28,8 @@ under the License.
 
 ### Name
 
+<version since="2.0"></version>
+
 SHOW TABLE STATS
 
 ### Description

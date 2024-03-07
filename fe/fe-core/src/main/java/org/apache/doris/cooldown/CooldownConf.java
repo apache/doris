@@ -79,4 +79,3 @@ public class CooldownConf implements Writable {
         return GsonUtils.GSON.fromJson(json, CooldownConf.class);
     }
 }
-

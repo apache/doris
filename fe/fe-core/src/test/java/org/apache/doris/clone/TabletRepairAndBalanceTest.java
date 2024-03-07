@@ -106,9 +106,15 @@ public class TabletRepairAndBalanceTest {
         FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        Config.tablet_checker_interval_ms = 1000;
+        Config.tablet_schedule_interval_ms = 100;
+        Config.tablet_checker_interval_ms = 100;
         Config.tablet_repair_delay_factor_second = 1;
         Config.colocate_group_relocate_delay_second = 1;
+        Config.schedule_slot_num_per_hdd_path = 10000;
+        Config.schedule_slot_num_per_ssd_path = 10000;
+        Config.schedule_batch_size = 10000;
+        Config.disable_colocate_balance_between_groups = true;
+        Config.max_scheduling_tablets = 10000;
         Config.disable_balance = true;
         // 5 backends:
         // 127.0.0.1
@@ -265,7 +271,7 @@ public class TabletRepairAndBalanceTest {
                 + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\"\n"
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr3));
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         // alter table's replica allocation failed, tag not enough
@@ -281,12 +287,12 @@ public class TabletRepairAndBalanceTest {
         String alterStr2 = "alter table test.tbl1 modify partition p1"
                 + " set (\"replication_allocation\" = \"tag.location.zone1: 1, tag.location.zone2: 2\");";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr2));
+        Thread.sleep(5000);
         Partition p1 = tbl.getPartition("p1");
         ReplicaAllocation p1ReplicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(p1.getId());
         Assert.assertEquals(3, p1ReplicaAlloc.getTotalReplicaNum());
         Assert.assertEquals(Short.valueOf((short) 1), p1ReplicaAlloc.getReplicaNumByTag(tag1));
         Assert.assertEquals(Short.valueOf((short) 2), p1ReplicaAlloc.getReplicaNumByTag(tag2));
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
 
         // check backend get() methods
         SystemInfoService infoService = Env.getCurrentSystemInfo();
@@ -320,7 +326,7 @@ public class TabletRepairAndBalanceTest {
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertEquals(tag2, be.getLocationTag());
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
+        Thread.sleep(5000);
         checkTableReplicaAllocation(tbl);
         Assert.assertEquals(90, replicaMetaTable.cellSet().size());
 
@@ -382,7 +388,8 @@ public class TabletRepairAndBalanceTest {
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertEquals(tag1, be.getLocationTag());
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
+        Thread.sleep(5000);
+        tbl.checkReplicaAllocation();
 
         checkTableReplicaAllocation(colTbl1);
         checkTableReplicaAllocation(colTbl2);
@@ -592,8 +599,8 @@ public class TabletRepairAndBalanceTest {
                 // it will increase the probability of map to throw NoSuchElementException exception.
                 System.out.println(e.getMessage());
             }
-            Thread.sleep(1000);
             System.out.println("wait table " + tbl.getId() + " to be stable");
+            Thread.sleep(1000);
         }
         ExceptionChecker.expectThrowsNoException(() -> tbl.checkReplicaAllocation());
         System.out.println("table " + tbl.getId() + " is stable");

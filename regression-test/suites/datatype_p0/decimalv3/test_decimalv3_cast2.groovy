@@ -974,7 +974,7 @@ suite("test_decimalv3_cast2") {
         sql """
             select cast(k2 as decimalv3(9,1)) from test_float_to_decimal32_1;
         """
-        exception "Arithmetic overflow"
+        exception "overflow"
     }
     qt_castfloat_to_decimal32_1 """
         select cast(k2 as decimalv3(9,0)) from test_float_to_decimal32_1;
@@ -992,7 +992,7 @@ suite("test_decimalv3_cast2") {
         sql """
             select cast(k2 as decimalv3(38,30)) from test_float_to_decimal32_1;
         """
-        exception "Arithmetic overflow"
+        exception "overflow"
     }
     qt_castfloat_to_decimal32_5 """
         select cast(k2 as decimalv3(38,29)) from test_float_to_decimal32_1;
@@ -1005,7 +1005,7 @@ suite("test_decimalv3_cast2") {
         sql """
             select cast(k2 as decimalv3(76,68)) from test_float_to_decimal32_1;
         """
-        exception "Arithmetic overflow"
+        exception "overflow"
     }
     /*
     float numbers i not accurate:
@@ -1046,7 +1046,7 @@ suite("test_decimalv3_cast2") {
         sql """
             select cast(k2 as decimalv3(9,1)) from test_float_to_decimal32_1;
         """
-        exception "Arithmetic overflow"
+        exception "overflow"
     }
     qt_cast_negative_float_to_decimal32_1 """
         select cast(k2 as decimalv3(9,0)) from test_float_to_decimal32_1;
@@ -1064,7 +1064,7 @@ suite("test_decimalv3_cast2") {
         sql """
             select cast(k2 as decimalv3(38,30)) from test_float_to_decimal32_1;
         """
-        exception "Arithmetic overflow"
+        exception "overflow"
     }
     qt_cast_negative_float_to_decimal32_5 """
         select cast(k2 as decimalv3(38,29)) from test_float_to_decimal32_1;
@@ -1077,7 +1077,7 @@ suite("test_decimalv3_cast2") {
         sql """
             select cast(k2 as decimalv3(76,68)) from test_float_to_decimal32_1;
         """
-        exception "Arithmetic overflow"
+        exception "overflow"
     }
     /*
     qt_cast_negative_float_to_decimal32_7 """

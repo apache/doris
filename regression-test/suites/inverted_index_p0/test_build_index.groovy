@@ -63,14 +63,17 @@ suite("test_build_index", "inverted_index"){
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
-            def last_job_state = alter_res[alter_res.size()-1][7];
-            if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
-                logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
-                return last_job_state;
+            if (alter_res.size() > 0) {
+                def last_job_state = alter_res[alter_res.size()-1][7];
+                if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
+                    logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
+                    return last_job_state;
+                }
             }
             useTime = t
             sleep(delta_time)
         }
+        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout")
         return "wait_timeout"
     }
@@ -79,15 +82,18 @@ suite("test_build_index", "inverted_index"){
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
-            def last_job_state = alter_res[alter_res.size()-1][7];
-            if (last_job_state == "RUNNING") {
-                logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
-                return last_job_state;
+            if (alter_res.size() > 0) {
+                def last_job_state = alter_res[alter_res.size()-1][7];
+                if (last_job_state == "RUNNING") {
+                    logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
+                    return last_job_state;
+                }
             }
             useTime = t
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout")
+        logger.info("wait_for_last_build_index_on_table_running debug: " + alter_res)
+        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_running timeout")
         return "wait_timeout"
     }
 

@@ -38,6 +38,7 @@ SHOW BACKUP
 
 ```sql
  SHOW BACKUP [FROM db_name]
+     [WHERE SnapshotName ( LIKE | = ) 'snapshot name' ]
 ```
 
 说明：

@@ -18,21 +18,23 @@
 #include "olap/wrapper_field.h"
 
 #include <glog/logging.h>
-#include <string.h>
 
 #include <algorithm>
+#include <cstring>
 #include <ostream>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
+#include "util/expected.hpp"
 
 namespace doris {
 
 const size_t DEFAULT_STRING_LENGTH = 50;
 
-WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
+Result<WrapperField*> WrapperField::create(const TabletColumn& column, uint32_t len) {
     bool is_string_type = (column.type() == FieldType::OLAP_FIELD_TYPE_CHAR ||
                            column.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                            column.type() == FieldType::OLAP_FIELD_TYPE_HLL ||
@@ -44,12 +46,13 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     if (is_string_type && len > max_length) {
         LOG(WARNING) << "length of string parameter is too long[len=" << len
                      << ", max_len=" << max_length << "].";
-        return nullptr;
+        return unexpected {Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                "length of string parameter is too long[len={}, max_len={}].", len, max_length)};
     }
 
     Field* rep = FieldFactory::create(column);
     if (rep == nullptr) {
-        return nullptr;
+        return unexpected {Status::Uninitialized("Unsupport field creation of {}", column.name())};
     }
 
     size_t variable_len = 0;
@@ -67,9 +70,7 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     } else {
         variable_len = column.length();
     }
-
-    WrapperField* wrapper = new WrapperField(rep, variable_len, is_string_type);
-    return wrapper;
+    return new WrapperField(rep, variable_len, is_string_type);
 }
 
 WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_length) {
@@ -83,8 +84,7 @@ WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_le
              type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
              type == FieldType::OLAP_FIELD_TYPE_STRING ||
              type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE);
-    auto wrapper = new WrapperField(rep, var_length, is_string_type);
-    return wrapper;
+    return new WrapperField(rep, var_length, is_string_type);
 }
 
 WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
@@ -98,7 +98,7 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
 
     if (_is_string_type) {
         _var_length = variable_len > DEFAULT_STRING_LENGTH ? DEFAULT_STRING_LENGTH : variable_len;
-        Slice* slice = reinterpret_cast<Slice*>(buf);
+        auto* slice = reinterpret_cast<Slice*>(buf);
         slice->size = _var_length;
         _string_content.reset(new char[slice->size]);
         slice->data = _string_content.get();

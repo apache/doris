@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## group_bitmap_xor
+## GROUP_BITMAP_XOR
 ### description
 #### Syntax
 

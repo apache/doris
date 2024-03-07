@@ -28,10 +28,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.es.EsExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalogFactory;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -119,13 +123,16 @@ public class CatalogFactory {
                 catalog = new EsExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "jdbc":
-                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment);
+                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment, isReplay);
                 break;
             case "iceberg":
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
                 break;
             case "paimon":
                 catalog = PaimonExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
+                break;
+            case "trino-connector":
+                catalog = TrinoConnectorExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
                 break;
             case "max_compute":
                 catalog = new MaxComputeExternalCatalog(catalogId, name, resource, props, comment);
@@ -155,4 +162,3 @@ public class CatalogFactory {
         return catalog;
     }
 }
-

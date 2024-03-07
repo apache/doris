@@ -20,7 +20,10 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <string.h>
+
+#include <cstdint>
 
 #if defined(__SSE2__) || defined(__aarch64__)
 #include "util/sse_util.hpp"
@@ -82,7 +85,41 @@ inline void memcpy_small_allow_read_write_overflow15(void* __restrict dst,
 
 #endif
 
-template <typename T>
+// assume input address not aligned by default
+template <typename T, bool aligned = false>
 void memcpy_fixed(char* lhs, const char* rhs) {
-    *(T*)lhs = *(T*)rhs;
+    if constexpr (aligned || sizeof(T) <= 8) {
+        *(T*)lhs = *(T*)rhs;
+    } else {
+        memcpy(lhs, rhs, sizeof(T));
+    }
+}
+
+template <int max_size>
+inline void memcpy_small(char* lhs, const char* rhs, size_t n) {
+    DCHECK_NE(n, 0);
+    if constexpr (max_size >= 4) {
+        if (n >= 4) {
+            memcpy_fixed<uint32_t>(lhs, rhs);
+            lhs += 4;
+            rhs += 4;
+            n -= 4;
+        }
+    }
+    while (n >= 1) {
+        memcpy_fixed<uint8_t>(lhs, rhs);
+        lhs++;
+        rhs++;
+        n--;
+    }
+}
+
+template <>
+inline void memcpy_small<2>(char* lhs, const char* rhs, size_t n) {
+    DCHECK_NE(n, 0);
+    if (n == 2) {
+        memcpy_fixed<uint16_t>(lhs, rhs);
+    } else {
+        memcpy_fixed<uint8_t>(lhs, rhs);
+    }
 }

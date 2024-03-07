@@ -28,6 +28,7 @@ import java.util.stream.Collectors
 @Slf4j
 class ExplainAction implements SuiteAction {
     private String sql
+    private boolean verbose = false
     private SuiteContext context
     private Set<String> containsStrings = new LinkedHashSet<>()
     private Set<String> notContainsStrings = new LinkedHashSet<>()
@@ -41,6 +42,10 @@ class ExplainAction implements SuiteAction {
 
     void sql(String sql) {
         this.sql = sql
+    }
+
+    void verbose(boolean verbose) {
+        this.verbose = verbose
     }
 
     void sql(Closure<String> sqlSupplier) {
@@ -61,7 +66,7 @@ class ExplainAction implements SuiteAction {
 
     @Override
     void run() {
-        String explainSql = "explain\n" + sql
+        String explainSql = "explain\n" + (verbose ? "verbose\n" : "") + sql
         def result = doTest(explainSql)
         String explainString = result.result
         if (checkFunction != null) {

@@ -255,11 +255,14 @@ Status VCollectIterator::_topn_next(Block* block) {
 
     auto clone_block = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
-    // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
+    // clear TEMP columns to avoid column align problem in mutable_block.add_rows bellow
     auto all_column_names = mutable_block.get_names();
     for (auto& name : all_column_names) {
         if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
             mutable_block.erase(name);
+            // clear TEMP columns from block to prevent from storage engine merge with this
+            // fake column
+            block->erase(name);
         }
     }
 
@@ -301,8 +304,6 @@ Status VCollectIterator::_topn_next(Block* block) {
                     return status;
                 }
             }
-
-            auto col_name = block->get_names()[first_sort_column_idx];
 
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
@@ -414,14 +415,15 @@ Status VCollectIterator::_topn_next(Block* block) {
                 sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
-                auto col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
+                auto* col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
                 Field new_top;
                 col_ptr->get(last_sorted_row, new_top);
 
                 // update orderby_extrems in query global context
-                auto query_ctx = _reader->_reader_context.runtime_state->get_query_ctx();
-                RETURN_IF_ERROR(
-                        query_ctx->get_runtime_predicate().update(new_top, col_name, _is_reverse));
+                auto* query_ctx = _reader->_reader_context.runtime_state->get_query_ctx();
+                for (int id : _reader->_reader_context.topn_filter_source_node_ids) {
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate(id).update(new_top));
+                }
             }
         } // end of while (read_rows < _topn_limit && !eof)
         VLOG_DEBUG << "topn debug rowset " << i << " read_rows=" << read_rows << " eof=" << eof
@@ -770,7 +772,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
 Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     int target_block_row = 0;
     auto target_columns = block->mutate_columns();
-    size_t column_count = block->columns();
+    size_t column_count = target_columns.size();
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
 
@@ -809,6 +811,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
             }
+            block->set_columns(std::move(target_columns));
             return res;
         }
 
@@ -825,6 +828,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
                                                          continuous_row_in_block);
                 }
             }
+            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
         if (continuous_row_in_block == 0) {

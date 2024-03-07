@@ -40,7 +40,7 @@ Get the distribution of tablets under each partition between different disks on 
     only supports `partition`
 
 * `partition_id`
-    ID of the specified partition，Optional with default all partition。
+    ID of the specified partition，Optional with default all partition.
 
 ## Request body
 

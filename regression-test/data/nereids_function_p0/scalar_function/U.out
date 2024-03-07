@@ -289,3 +289,15 @@ STRING3
 STRING3
 STRING3
 
+-- !sql_url_decode --
+https://doris.apache.org/zh-CN/docs/sql-manual/sql-functions/string-functions
+
+-- !sql_url_decode_empty --
+
+
+-- !sql_url_decode_null --
+\N
+
+-- !sql_url_decode_invalid_url --
+This is not a url
+

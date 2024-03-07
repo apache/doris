@@ -97,7 +97,6 @@ public:
 
     std::shared_ptr<Block> get_left_block() { return _left_block; }
 
-    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
     VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
     RuntimeProfile::Counter* runtime_filter_compute_timer() {
         return _runtime_filter_compute_timer;
@@ -115,7 +114,6 @@ private:
         _left_side_process_count = 0;
         DCHECK(!_need_more_input_data || !_matched_rows_done);
 
-        MutableBlock mutable_join_block(&_join_block);
         if (!_matched_rows_done && !_need_more_input_data) {
             // We should try to join rows if there still are some rows from probe side.
             while (_join_block.rows() < state->batch_size()) {
@@ -129,7 +127,7 @@ private:
                     _reset_with_next_probe_row();
                     if (_left_block_pos < _left_block->rows()) {
                         if constexpr (set_probe_side_flag) {
-                            _probe_offset_stack.push(mutable_join_block.rows());
+                            _probe_offset_stack.push(_join_block.rows());
                         }
                     } else {
                         if (_left_side_eos) {
@@ -148,9 +146,9 @@ private:
 
                 const auto& now_process_build_block = _build_blocks[_current_build_pos++];
                 if constexpr (set_build_side_flag) {
-                    _build_offset_stack.push(mutable_join_block.rows());
+                    _build_offset_stack.push(_join_block.rows());
                 }
-                _process_left_child_block(mutable_join_block, now_process_build_block);
+                _process_left_child_block(_join_block, now_process_build_block);
             }
 
             if constexpr (set_probe_side_flag) {
@@ -163,22 +161,16 @@ private:
                 if (!status.ok()) {
                     return status;
                 }
-                mutable_join_block = MutableBlock(&_join_block);
                 // If this join operation is left outer join or full outer join, when
                 // `_left_side_process_count`, means all rows from build
                 // side have been joined with _left_side_process_count, we should output current
                 // probe row with null from build side.
                 if (_left_side_process_count) {
                     _finalize_current_phase<false, JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
-                            mutable_join_block, state->batch_size());
+                            _join_block, state->batch_size());
                 }
-            }
-
-            if (_left_side_process_count) {
-                if (_is_mark_join && _build_blocks.empty()) {
-                    DCHECK_EQ(JoinOpType::value, TJoinOp::CROSS_JOIN);
-                    _append_left_data_with_null(mutable_join_block);
-                }
+            } else if (_left_side_process_count && _is_mark_join && _build_blocks.empty()) {
+                _append_left_data_with_null(_join_block);
             }
         }
 
@@ -189,7 +181,6 @@ private:
                              set_build_side_flag, set_probe_side_flag, ignore_null>(
                              &_join_block, !_is_right_semi_anti)));
             _update_additional_flags(&_join_block);
-            mutable_join_block = MutableBlock(&_join_block);
             if (!status.ok()) {
                 return status;
             }
@@ -198,7 +189,7 @@ private:
         if constexpr (set_build_side_flag) {
             if (_matched_rows_done && _output_null_idx_build_side < _build_blocks.size()) {
                 _finalize_current_phase<true, JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN>(
-                        mutable_join_block, state->batch_size());
+                        _join_block, state->batch_size());
             }
         }
         return Status::OK();
@@ -208,8 +199,7 @@ private:
     // Processes a block from the left child.
     //  dst_columns: left_child_row and now_process_build_block to construct a bundle column of new block
     //  now_process_build_block: right child block now to process
-    void _process_left_child_block(MutableBlock& mutable_block,
-                                   const Block& now_process_build_block) const;
+    void _process_left_child_block(Block& block, const Block& now_process_build_block) const;
 
     template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
     Status _do_filtering_and_update_visited_flags(Block* block, bool materialize);
@@ -221,7 +211,7 @@ private:
                                                      bool materialize, Filter& filter);
 
     template <bool BuildSide, bool IsSemi>
-    void _finalize_current_phase(MutableBlock& mutable_block, size_t batch_size);
+    void _finalize_current_phase(Block& block, size_t batch_size);
 
     void _reset_with_next_probe_row();
 
@@ -238,7 +228,7 @@ private:
 
     // For mark join, if the relation from right side is empty, we should construct intermediate
     // block with data from left side and filled with null for right side
-    void _append_left_data_with_null(MutableBlock& mutable_block) const;
+    void _append_left_data_with_null(Block& block) const;
 
     // List of build blocks, constructed in prepare()
     Blocks _build_blocks;
@@ -271,7 +261,6 @@ private:
 
     MutableColumns _dst_columns;
 
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     VExprContextSPtrs _filter_src_expr_ctxs;
     bool _is_output_left_side_only = false;
     bool _need_more_input_data = true;

@@ -39,23 +39,15 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AnalyticSourceOperator final : public SourceOperator<AnalyticSourceOperatorBuilder> {
+class AnalyticSourceOperator final : public SourceOperator<vectorized::VAnalyticEvalNode> {
 public:
     AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
 
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-class AnalyticSourceDependency final : public Dependency {
-public:
-    using SharedState = AnalyticSharedState;
-    AnalyticSourceDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AnalyticSourceDependency", query_ctx) {}
-    ~AnalyticSourceDependency() override = default;
-};
-
 class AnalyticSourceOperatorX;
-class AnalyticLocalState final : public PipelineXLocalState<AnalyticSourceDependency> {
+class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AnalyticLocalState);
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
@@ -83,9 +75,9 @@ private:
         auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
         if (need_more_input) {
             _dependency->block();
-            _shared_state->sink_dep->set_ready();
+            _dependency->set_ready_to_write();
         } else {
-            _shared_state->sink_dep->block();
+            _dependency->set_block_to_write();
             _dependency->set_ready();
         }
         return need_more_input;
@@ -96,7 +88,7 @@ private:
                                                      bool need_check_first = false);
     bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
-    Status _reset_agg_status();
+    void _reset_agg_status();
     Status _create_agg_status();
     Status _destroy_agg_status();
 
@@ -120,7 +112,6 @@ private:
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
@@ -143,8 +134,7 @@ public:
     AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                             const DescriptorTbl& descs);
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

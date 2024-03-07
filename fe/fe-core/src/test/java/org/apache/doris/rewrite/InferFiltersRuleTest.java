@@ -299,6 +299,7 @@ public class InferFiltersRuleTest {
     public void testWhereIsNotNullPredicate() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
+        sessionVariable.setEnableRewriteElementAtToSlot(false);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
         String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 inner join tb3"
                 + " where tb1.k1 = tb3.k1 and tb2.k1 = tb3.k1 and tb1.k1 is not null";

@@ -31,7 +31,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         String test_insert = "test_insert";
         String test_all_types = "test_all_types";
         String test_insert_all_types = "test_pg_insert_all_types";
-        String test_ctas = "test_ctas";
+        String test_ctas = "test_pg_ctas";
 
         sql """create database if not exists ${internal_db_name}; """
 
@@ -105,6 +105,8 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         order_qt_test9  """ select * from test7 order by id; """
         order_qt_test10  """ select * from test8 order by id; """
         order_qt_test11  """ select * from test9 order by id1; """
+        order_qt_filter4  """ select * from test3 where name not like '%abc%' order by id; """
+        order_qt_filter4_old  """ select /*+ SET_VAR(enable_nereids_planner=false) */  * from test3 where name not like '%abc%' order by id; """
 
         sql """ use ${ex_schema_name2}"""
         order_qt_test12  """ select * from test10 order by id; """
@@ -127,6 +129,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         order_qt_partition_2_2 "select * from tb_test_alarm_2020_10;"
         order_qt_partition_2_3 "select * from tb_test_alarm_2020_11;"
         order_qt_partition_2_4 "select * from tb_test_alarm_2020_12;"
+        order_qt_num_zero "select * from num_zero;"
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();

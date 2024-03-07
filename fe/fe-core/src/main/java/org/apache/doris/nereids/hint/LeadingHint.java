@@ -22,7 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -33,11 +33,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -51,8 +53,12 @@ import java.util.Stack;
  */
 public class LeadingHint extends Hint {
     private String originalString = "";
+
+    private List<String> parameters;
     private final List<String> tablelist = new ArrayList<>();
     private final List<Integer> levellist = new ArrayList<>();
+
+    private final Map<Integer, DistributeHint> distributeHints = new HashMap<>();
 
     private final Map<RelationId, LogicalPlan> relationIdToScanMap = Maps.newLinkedHashMap();
 
@@ -82,16 +88,42 @@ public class LeadingHint extends Hint {
     public LeadingHint(String hintName, List<String> parameters, String originalString) {
         super(hintName);
         this.originalString = originalString;
+        this.parameters = parameters;
         int level = 0;
+        Stack<Boolean> brace = new Stack<>();
+        String lastParameter = "";
         for (String parameter : parameters) {
             if (parameter.equals("{")) {
-                ++level;
+                if (lastParameter.equals("}")) {
+                    level += 2;
+                    brace.push(true);
+                } else {
+                    ++level;
+                    brace.push(false);
+                }
             } else if (parameter.equals("}")) {
-                level--;
+                if (brace.pop().equals(true)) {
+                    level -= 2;
+                } else {
+                    level--;
+                }
+            } else if (parameter.equals("shuffle")) {
+                DistributeHint distributeHint = new DistributeHint(DistributeType.SHUFFLE_RIGHT);
+                distributeHints.put(tablelist.size(), distributeHint);
+                if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+                    ConnectContext.get().getStatementContext().addHint(distributeHint);
+                }
+            } else if (parameter.equals("broadcast")) {
+                DistributeHint distributeHint = new DistributeHint(DistributeType.BROADCAST_RIGHT);
+                distributeHints.put(tablelist.size(), distributeHint);
+                if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+                    ConnectContext.get().getStatementContext().addHint(distributeHint);
+                }
             } else {
                 tablelist.add(parameter);
                 levellist.add(level);
             }
+            lastParameter = parameter;
         }
     }
 
@@ -109,9 +141,25 @@ public class LeadingHint extends Hint {
 
     @Override
     public String getExplainString() {
+        if (!this.isSuccess()) {
+            return originalString;
+        }
         StringBuilder out = new StringBuilder();
-        out.append(originalString);
-        return out.toString();
+        int tableIndex = 0;
+        for (String parameter : parameters) {
+            if (parameter.equals("{") || parameter.equals("}") || parameter.equals("[") || parameter.equals("]")) {
+                out.append(parameter + " ");
+            } else if (parameter.equals("shuffle") || parameter.equals("broadcast")) {
+                DistributeHint distributeHint = distributeHints.get(tableIndex);
+                if (distributeHint.isSuccess()) {
+                    out.append(parameter + " ");
+                }
+            } else {
+                out.append(parameter + " ");
+                tableIndex++;
+            }
+        }
+        return "leading(" + out.toString() + ")";
     }
 
     /**
@@ -407,7 +455,7 @@ public class LeadingHint extends Hint {
      * @return plan
      */
     public Plan generateLeadingJoinPlan() {
-        Stack<Pair<Integer, LogicalPlan>> stack = new Stack<>();
+        Stack<Pair<Integer, Pair<LogicalPlan, Integer>>> stack = new Stack<>();
         int index = 0;
         LogicalPlan logicalPlan = getLogicalPlanByName(getTablelist().get(index));
         if (logicalPlan == null) {
@@ -415,27 +463,28 @@ public class LeadingHint extends Hint {
         }
         logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
         assert (logicalPlan != null);
-        stack.push(Pair.of(getLevellist().get(index), logicalPlan));
+        stack.push(Pair.of(getLevellist().get(index), Pair.of(logicalPlan, index)));
         int stackTopLevel = getLevellist().get(index++);
         while (index < getTablelist().size()) {
             int currentLevel = getLevellist().get(index);
             if (currentLevel == stackTopLevel) {
                 // should return error if can not found table
                 logicalPlan = getLogicalPlanByName(getTablelist().get(index++));
+                int distributeIndex = index - 1;
                 if (logicalPlan == null) {
                     return null;
                 }
                 logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
-                Pair<Integer, LogicalPlan> newStackTop = stack.peek();
+                Pair<Integer, Pair<LogicalPlan, Integer>> newStackTop = stack.peek();
                 while (!(stack.isEmpty() || stackTopLevel != newStackTop.first)) {
                     // check join is legal and get join type
                     newStackTop = stack.pop();
                     List<Expression> conditions = getJoinConditions(
-                            getFilters(), newStackTop.second, logicalPlan);
+                            getFilters(), newStackTop.second.first, logicalPlan);
                     Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
-                            newStackTop.second.getOutput(), logicalPlan.getOutput(), conditions);
+                            newStackTop.second.first.getOutput(), logicalPlan.getOutput(), conditions);
                     // leading hint would set status inside if not success
-                    JoinType joinType = computeJoinType(getBitmap(newStackTop.second),
+                    JoinType joinType = computeJoinType(getBitmap(newStackTop.second.first),
                             getBitmap(logicalPlan), conditions);
                     if (joinType == null) {
                         this.setStatus(HintStatus.SYNTAX_ERROR);
@@ -448,13 +497,16 @@ public class LeadingHint extends Hint {
                         return null;
                     }
                     // get joinType
+                    DistributeHint distributeHint = getJoinHint(distributeIndex);
                     LogicalJoin logicalJoin = new LogicalJoin<>(joinType, pair.first,
                             pair.second,
-                            JoinHint.NONE,
+                            distributeHint,
                             Optional.empty(),
-                            newStackTop.second,
-                            logicalPlan);
-                    logicalJoin.setBitmap(LongBitmap.or(getBitmap(newStackTop.second), getBitmap(logicalPlan)));
+                            newStackTop.second.first,
+                            logicalPlan, null);
+                    logicalJoin.getJoinReorderContext().setLeadingJoin(true);
+                    distributeIndex = newStackTop.second.second;
+                    logicalJoin.setBitmap(LongBitmap.or(getBitmap(newStackTop.second.first), getBitmap(logicalPlan)));
                     if (stackTopLevel > 0) {
                         if (index < getTablelist().size()) {
                             if (stackTopLevel > getLevellist().get(index)) {
@@ -469,7 +521,7 @@ public class LeadingHint extends Hint {
                     }
                     logicalPlan = logicalJoin;
                 }
-                stack.push(Pair.of(stackTopLevel, logicalPlan));
+                stack.push(Pair.of(stackTopLevel, Pair.of(logicalPlan, distributeIndex)));
             } else {
                 // push
                 logicalPlan = getLogicalPlanByName(getTablelist().get(index++));
@@ -477,18 +529,26 @@ public class LeadingHint extends Hint {
                     return null;
                 }
                 logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
-                stack.push(Pair.of(currentLevel, logicalPlan));
+                stack.push(Pair.of(currentLevel, Pair.of(logicalPlan, index)));
                 stackTopLevel = currentLevel;
             }
         }
 
-        LogicalJoin finalJoin = (LogicalJoin) stack.pop().second;
+        LogicalJoin finalJoin = (LogicalJoin) stack.pop().second.first;
         // we want all filters been remove
         assert (filters.isEmpty());
         if (finalJoin != null) {
             this.setStatus(HintStatus.SUCCESS);
         }
         return finalJoin;
+    }
+
+    private DistributeHint getJoinHint(Integer index) {
+        if (distributeHints.get(index) == null) {
+            return new DistributeHint(DistributeType.NONE);
+        }
+        distributeHints.get(index).setSuccessInLeading(true);
+        return distributeHints.get(index);
     }
 
     private List<Expression> getJoinConditions(List<Pair<Long, Expression>> filters,

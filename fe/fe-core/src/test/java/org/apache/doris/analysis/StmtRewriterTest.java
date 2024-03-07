@@ -264,7 +264,7 @@ public class StmtRewriterTest {
                 + subquery + ") order by a;";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("CROSS JOIN",
-                "order by: <slot 10> `$a$1`.`$c$1` ASC");
+                "order by: `$a$1`.`$c$1` ASC");
     }
 
     /**
@@ -376,7 +376,7 @@ public class StmtRewriterTest {
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("group by: `empid`",
                 "CROSS JOIN",
-                "order by: <slot 10> `$a$1`.`$c$2` ASC",
+                "order by: `$a$1`.`$c$2` ASC",
                 "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`");
     }
 
@@ -490,8 +490,8 @@ public class StmtRewriterTest {
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("group by: `empid`",
                 "CROSS JOIN",
-                "order by: <slot 10> `$a$1`.`$c$2` ASC",
-                "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`\n    <slot 10> `$a$1`.`$c$2`");
+                "order by: `$a$1`.`$c$2` ASC",
+                "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`\n    `$a$1`.`$c$2`");
     }
 
     /**
@@ -603,8 +603,8 @@ public class StmtRewriterTest {
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("group by: `empid`",
                 "CROSS JOIN",
-                "order by: <slot 10> `$a$1`.`$c$2` ASC",
-                "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`\n    <slot 10> `$a$1`.`$c$2`");
+                "order by: `$a$1`.`$c$2` ASC",
+                "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`\n    `$a$1`.`$c$2`");
     }
 
     /**

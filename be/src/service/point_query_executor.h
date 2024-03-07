@@ -109,7 +109,7 @@ private:
 };
 
 // RowCache is a LRU cache for row store
-class RowCache {
+class RowCache : public LRUCachePolicy {
 public:
     // The cache key for row lru cache
     struct RowCacheKey {
@@ -187,7 +187,6 @@ public:
 private:
     static constexpr uint32_t kDefaultNumShards = 128;
     RowCache(int64_t capacity, int num_shards = kDefaultNumShards);
-    std::unique_ptr<Cache> _cache;
 };
 
 // A cache used for prepare stmt.
@@ -204,7 +203,8 @@ private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
-                             LRUCacheType::SIZE, config::tablet_lookup_cache_clean_interval) {}
+                             LRUCacheType::SIZE, config::tablet_lookup_cache_stale_sweep_time_sec) {
+    }
 
     std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -215,34 +215,32 @@ private:
     void add(__int128_t cache_id, std::shared_ptr<Reusable> item) {
         std::string key = encode_key(cache_id);
         CacheValue* value = new CacheValue;
-        value->last_visit_time = UnixMillis();
         value->item = item;
         auto deleter = [](const doris::CacheKey& key, void* value) {
             CacheValue* cache_value = (CacheValue*)value;
             delete cache_value;
         };
         LOG(INFO) << "Add item mem size " << item->mem_size()
-                  << ", cache_capacity: " << _cache->get_total_capacity()
-                  << ", cache_usage: " << _cache->get_usage()
-                  << ", mem_consum: " << _cache->mem_consumption();
+                  << ", cache_capacity: " << cache()->get_total_capacity()
+                  << ", cache_usage: " << cache()->get_usage()
+                  << ", mem_consum: " << cache()->mem_consumption();
         auto lru_handle =
-                _cache->insert(key, value, item->mem_size(), deleter, CachePriority::NORMAL);
-        _cache->release(lru_handle);
+                cache()->insert(key, value, item->mem_size(), deleter, CachePriority::NORMAL);
+        cache()->release(lru_handle);
     }
 
     std::shared_ptr<Reusable> get(__int128_t cache_id) {
         std::string key = encode_key(cache_id);
-        auto lru_handle = _cache->lookup(key);
+        auto lru_handle = cache()->lookup(key);
         if (lru_handle) {
-            Defer release([cache = _cache.get(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)_cache->value(lru_handle);
-            value->last_visit_time = UnixMillis();
+            Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
+            auto value = (CacheValue*)cache()->value(lru_handle);
             return value->item;
         }
         return nullptr;
     }
 
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         std::shared_ptr<Reusable> item;
     };
 };
@@ -303,12 +301,14 @@ private:
     };
 
     PTabletKeyLookupResponse* _response = nullptr;
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
+    // snapshot read version
+    int64_t _version = -1;
 };
 
 } // namespace doris

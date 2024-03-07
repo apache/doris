@@ -115,18 +115,18 @@ svn co https://dist.apache.org/repos/dist/dev/doris/
 
 ```
 ./doris/
-|-- 0.11.0-rc1
-|   |-- apache-doris-0.11.0-incubating-src.tar.gz
-|   |-- apache-doris-0.11.0-incubating-src.tar.gz.asc
-|   `-- apache-doris-0.11.0-incubating-src.tar.gz.sha512
+|-- 0.9.0-rc01
+|   |-- apache-doris-0.9.0-incubating-src.tar.gz
+|   |-- apache-doris-0.9.0-incubating-src.tar.gz.asc
+|   `-- apache-doris-0.9.0-incubating-src.tar.gz.sha512
 `-- KEYS
 ```
 
 上传这些文件
 
 ```
-svn add 0.11.0-rc1
-svn commit -m "Add 0.11.0-rc1"
+svn add 0.9.0-rc01
+svn commit -m "Add 0.9.0-rc1"
 ```
 
 ### 发邮件到社区 dev@doris.apache.org 进行投票

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
@@ -84,6 +85,10 @@ public abstract class Job implements TracerSupplier {
         return once;
     }
 
+    public ConnectContext getConnectContext() {
+        return context.getCascadesContext().getConnectContext();
+    }
+
     public abstract void execute();
 
     public EventProducer getEventTracer() {
@@ -126,6 +131,6 @@ public abstract class Job implements TracerSupplier {
 
     public static Set<Integer> getDisableRules(JobContext context) {
         return context.getCascadesContext().getAndCacheSessionVariable(
-                "disableNereidsRules", ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
+                SessionVariable.DISABLE_NEREIDS_RULES, ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
     }
 }

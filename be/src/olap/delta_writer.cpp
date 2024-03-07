@@ -58,21 +58,22 @@
 namespace doris {
 using namespace ErrorCode;
 
-BaseDeltaWriter::BaseDeltaWriter(WriteRequest* req, RuntimeProfile* profile,
+BaseDeltaWriter::BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile,
                                  const UniqueId& load_id)
-        : _req(*req), _memtable_writer(new MemTableWriter(*req)) {
+        : _req(req), _memtable_writer(new MemTableWriter(req)) {
     _init_profile(profile);
 }
 
-DeltaWriter::DeltaWriter(StorageEngine& engine, WriteRequest* req, RuntimeProfile* profile,
+DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
                          const UniqueId& load_id)
         : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
-    _rowset_builder = std::make_unique<RowsetBuilder>(_engine, *req, profile);
+    _rowset_builder = std::make_unique<RowsetBuilder>(_engine, req, profile);
 }
 
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+    _wait_flush_limit_timer = ADD_TIMER(_profile, "WaitFlushLimitTime");
 }
 
 void DeltaWriter::_init_profile(RuntimeProfile* profile) {
@@ -104,7 +105,7 @@ Status BaseDeltaWriter::init() {
     RETURN_IF_ERROR(_rowset_builder->init());
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
-            _rowset_builder->get_partial_update_info(),
+            _rowset_builder->get_partial_update_info(), nullptr,
             _rowset_builder->tablet()->enable_unique_key_merge_on_write()));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
@@ -115,8 +116,8 @@ Status BaseDeltaWriter::append(const vectorized::Block* block) {
     return write(block, {}, true);
 }
 
-Status BaseDeltaWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                              bool is_append) {
+Status DeltaWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
+                          bool is_append) {
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
@@ -126,13 +127,21 @@ Status BaseDeltaWriter::write(const vectorized::Block* block, const std::vector<
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
+    {
+        SCOPED_TIMER(_wait_flush_limit_timer);
+        while (_memtable_writer->flush_running_count() >=
+               config::memtable_flush_running_count_limit) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
     return _memtable_writer->write(block, row_idxs, is_append);
 }
+
 Status BaseDeltaWriter::wait_flush() {
     return _memtable_writer->wait_flush();
 }
 
-Status BaseDeltaWriter::close() {
+Status DeltaWriter::close() {
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
@@ -148,13 +157,16 @@ Status BaseDeltaWriter::close() {
 }
 
 Status BaseDeltaWriter::build_rowset() {
-    std::lock_guard<std::mutex> l(_lock);
-    DCHECK(_is_init)
-            << "delta writer is supposed be to initialized before build_rowset() being called";
-
     SCOPED_TIMER(_close_wait_timer);
     RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
     return _rowset_builder->build_rowset();
+}
+
+Status DeltaWriter::build_rowset() {
+    std::lock_guard<std::mutex> l(_lock);
+    DCHECK(_is_init)
+            << "delta writer is supposed be to initialized before build_rowset() being called";
+    return BaseDeltaWriter::build_rowset();
 }
 
 Status BaseDeltaWriter::submit_calc_delete_bitmap_task() {
@@ -165,10 +177,14 @@ Status BaseDeltaWriter::wait_calc_delete_bitmap() {
     return _rowset_builder->wait_calc_delete_bitmap();
 }
 
+RowsetBuilder* DeltaWriter::rowset_builder() {
+    return static_cast<RowsetBuilder*>(_rowset_builder.get());
+}
+
 Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes) {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
-    RETURN_IF_ERROR(_rowset_builder->commit_txn());
+    RETURN_IF_ERROR(rowset_builder()->commit_txn());
 
     for (auto&& node_info : slave_tablet_nodes.slave_nodes()) {
         _request_slave_tablet_pull_rowset(node_info);
@@ -197,7 +213,6 @@ Status BaseDeltaWriter::cancel() {
 }
 
 Status BaseDeltaWriter::cancel_with_status(const Status& st) {
-    std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return Status::OK();
     }
@@ -206,11 +221,16 @@ Status BaseDeltaWriter::cancel_with_status(const Status& st) {
     return Status::OK();
 }
 
+Status DeltaWriter::cancel_with_status(const Status& st) {
+    std::lock_guard<std::mutex> l(_lock);
+    return BaseDeltaWriter::cancel_with_status(st);
+}
+
 int64_t BaseDeltaWriter::mem_consumption(MemType mem) {
     return _memtable_writer->mem_consumption(mem);
 }
 
-void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
+void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) {
     std::shared_ptr<PBackendService_Stub> stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                     node_info.host(), node_info.async_internal_port());
@@ -241,7 +261,15 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     }
 
     auto request = std::make_shared<PTabletWriteSlaveRequest>();
-    *(request->mutable_rowset_meta()) = cur_rowset->rowset_meta()->get_rowset_pb();
+    auto* request_mutable_rs_meta = request->mutable_rowset_meta();
+    *request_mutable_rs_meta = cur_rowset->rowset_meta()->get_rowset_pb();
+    if (request_mutable_rs_meta != nullptr && request_mutable_rs_meta->has_partition_id() &&
+        request_mutable_rs_meta->partition_id() == 0) {
+        // TODO(dx): remove log after fix partition id eq 0 bug
+        request_mutable_rs_meta->set_partition_id(_req.partition_id);
+        LOG(WARNING) << "cant get partition id from local rs pb, get from _req, partition_id="
+                     << _req.partition_id;
+    }
     request->set_host(BackendOptions::get_localhost());
     request->set_http_port(config::webserver_port);
     string tablet_path = _rowset_builder->tablet()->tablet_path();

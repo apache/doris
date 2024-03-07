@@ -100,7 +100,7 @@ Gets information about select queries for all fe nodes in the cluster.
 
 <version since="1.2">
 
-Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己发送的 Query。
+Admin 和 Root 用户可以查看所有 Query.普通用户仅能查看自己发送的 Query.
 
 </version>
 

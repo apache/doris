@@ -4,7 +4,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------hashAgg[GLOBAL]
---------PhysicalDistribute
+--------PhysicalDistribute[DistributionSpecGather]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
@@ -13,15 +13,15 @@ PhysicalResultSink
 --------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF0 t_time_sk->[ss_sold_time_sk]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
-----------------------PhysicalDistribute
+----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))
 ----------------------------PhysicalOlapScan[time_dim]
---------------------PhysicalDistribute
+--------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------filter((household_demographics.hd_dep_count = 3))
 --------------------------PhysicalOlapScan[household_demographics]
-----------------PhysicalDistribute
+----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
 --------------------filter((store.s_store_name = 'ese'))
 ----------------------PhysicalOlapScan[store]

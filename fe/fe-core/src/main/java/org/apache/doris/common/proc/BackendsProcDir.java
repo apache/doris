@@ -170,8 +170,10 @@ public class BackendsProcDir implements ProcDirInterface {
         }
 
         // backends proc node get result too slow, add log to observer.
-        LOG.debug("backends proc get tablet num cost: {}, total cost: {}", watch.elapsed(TimeUnit.MILLISECONDS),
-                (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("backends proc get tablet num cost: {}, total cost: {}", watch.elapsed(TimeUnit.MILLISECONDS),
+                    (System.currentTimeMillis() - start));
+        }
 
         // sort by host name
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1);

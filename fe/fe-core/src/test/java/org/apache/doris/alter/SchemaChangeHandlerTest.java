@@ -97,7 +97,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     public void testAggAddOrDropColumn() throws Exception {
         LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_agg", Table.TableType.OLAP);
         tbl.readLock();
         try {
@@ -246,7 +246,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_uniq", Table.TableType.OLAP);
         tbl.readLock();
         try {
@@ -302,7 +302,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_dup", Table.TableType.OLAP);
         tbl.readLock();
         try {
@@ -384,7 +384,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     public void testAggAddOrDropInvertedIndex() throws Exception {
         LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_agg", Table.TableType.OLAP);
         tbl.readLock();
         try {
@@ -444,7 +444,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_uniq", Table.TableType.OLAP);
         tbl.readLock();
         try {
@@ -503,7 +503,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_dup", Table.TableType.OLAP);
         tbl.readLock();
         try {

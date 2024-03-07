@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
@@ -29,13 +30,12 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
@@ -47,7 +47,6 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -64,7 +63,7 @@ public class PhysicalHashJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild,
@@ -83,20 +82,36 @@ public class PhysicalHashJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_HASH_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, logicalProperties, leftChild, rightChild);
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
+                markJoinSlotReference, groupExpression, logicalProperties, null, null, leftChild,
+                rightChild);
+    }
+
+    public PhysicalHashJoin(
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            List<Expression> markJoinConjuncts,
+            DistributeHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference,
+            LogicalProperties logicalProperties,
+            LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference,
+                Optional.empty(), logicalProperties, null, null, leftChild, rightChild);
     }
 
     private PhysicalHashJoin(
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            List<Expression> markJoinConjuncts,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
@@ -104,8 +119,9 @@ public class PhysicalHashJoin<
             Statistics statistics,
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_HASH_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
+        super(PlanType.PHYSICAL_HASH_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts, hint, markJoinSlotReference, groupExpression, logicalProperties,
+                physicalProperties, statistics, leftChild, rightChild);
     }
 
     /**
@@ -113,6 +129,12 @@ public class PhysicalHashJoin<
      * Return pair of left used slots and right used slots.
      */
     public Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
+        // TODO this function is only called by addShuffleJoinRequestProperty
+        //  currently standalone mark join can only allow broadcast( we can remove this limitation after implement
+        //  something like nullaware shuffle to broadcast nulls to all instances
+        //  mark join with non-empty hash join conjuncts allow shuffle join by hash join conjuncts
+        Preconditions.checkState(!(isMarkJoin() && hashJoinConjuncts.isEmpty()),
+                "shouldn't call mark join's getHashConjunctsExprIds method for standalone mark join");
         int size = hashJoinConjuncts.size();
 
         List<ExprId> exprIds1 = new ArrayList<>(size);
@@ -145,7 +167,7 @@ public class PhysicalHashJoin<
     public PhysicalHashJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         PhysicalHashJoin newJoin = new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
-                otherJoinConjuncts, hint, markJoinSlotReference,
+                otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference,
                 Optional.empty(), getLogicalProperties(), physicalProperties, statistics,
                 children.get(0), children.get(1));
         if (groupExpression.isPresent()) {
@@ -157,38 +179,41 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withGroupExpression(
             Optional<GroupExpression> groupExpression) {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, getLogicalProperties(), left(), right());
+        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
+                getLogicalProperties(), null, null, left(), right());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, logicalProperties.get(), children.get(0), children.get(1));
+        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
+                logicalProperties.get(), null, null, children.get(0), children.get(1));
     }
 
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, left(), right());
+        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, left(), right());
     }
 
     @Override
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
             AbstractPhysicalJoin<?, ?> builderNode, Expression srcExpr, Expression probeExpr,
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+        // currently, mark join doesn't support RF, so markJoinConjuncts is not processed here
         if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(getJoinType()) || isMarkJoin()) {
             if (builderNode instanceof PhysicalHashJoin) {
-                PhysicalHashJoin<?, ?> builderJion = (PhysicalHashJoin<?, ?>) builderNode;
-                if (builderJion == this) {
+                PhysicalHashJoin<?, ?> builderJoin = (PhysicalHashJoin<?, ?>) builderNode;
+                if (builderJoin == this) {
                     return false;
                 }
             }
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
 
         // if rf built between plan nodes containing cte both, for example both src slot and target slot are from cte,
         // or two sub-queries both containing cte, disable this rf since this kind of cross-cte rf will make one side
@@ -198,10 +223,10 @@ public class PhysicalHashJoin<
         AbstractPhysicalPlan builderRightNode = (AbstractPhysicalPlan) builderNode.child(1);
         Preconditions.checkState(builderLeftNode != null && builderRightNode != null,
                 "builder join node child node is null");
-        if (RuntimeFilterGenerator.hasCTEConsumerDescendant(builderLeftNode)
-                && RuntimeFilterGenerator.hasCTEConsumerDescendant(builderRightNode)) {
-            return false;
-        }
+        // if (RuntimeFilterGenerator.hasCTEConsumerDescendant(builderLeftNode)
+        //         && RuntimeFilterGenerator.hasCTEConsumerDescendant(builderRightNode)) {
+        //     return false;
+        // }
 
         boolean pushedDown = false;
         AbstractPhysicalPlan leftNode = (AbstractPhysicalPlan) child(0);
@@ -210,17 +235,33 @@ public class PhysicalHashJoin<
                 "join child node is null");
 
         Set<Expression> probExprList = Sets.newHashSet(probeExpr);
+        Pair<PhysicalRelation, Slot> srcPair = ctx.getAliasTransferMap().get(srcExpr);
+        PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
+        Pair<PhysicalRelation, Slot> targetPair = ctx.getAliasTransferMap().get(probeExpr);
+        // when probeExpr is output slot of setOperator, targetPair is null
+        PhysicalRelation target1 = (targetPair == null) ? null : targetPair.first;
+        PhysicalRelation target2 = null;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
-            if (!this.equals(builderNode) && this.getJoinType() == JoinType.INNER_JOIN) {
+            if (!this.equals(builderNode)
+                    && (this.getJoinType() == JoinType.INNER_JOIN || this.getJoinType().isSemiJoin())) {
                 for (Expression expr : this.getHashJoinConjuncts()) {
                     EqualPredicate equalTo = (EqualPredicate) expr;
                     if (probeExpr.equals(equalTo.left())) {
                         probExprList.add(equalTo.right());
+                        targetPair = ctx.getAliasTransferMap().get(equalTo.right());
+                        target2 = (targetPair == null) ? null : targetPair.first;
                     } else if (probeExpr.equals(equalTo.right())) {
                         probExprList.add(equalTo.left());
+                        targetPair = ctx.getAliasTransferMap().get(equalTo.left());
+                        target2 = (targetPair == null) ? null : targetPair.first;
+                    }
+                    if (target2 != null) {
+                        ctx.getExpandedRF().add(
+                            new RuntimeFilterContext.ExpandRF(this, srcNode, target1, target2, equalTo));
                     }
                 }
                 probExprList.remove(srcExpr);
+
             }
         }
         for (Expression prob : probExprList) {
@@ -228,20 +269,6 @@ public class PhysicalHashJoin<
                     srcExpr, prob, type, buildSideNdv, exprOrder);
             pushedDown |= rightNode.pushDownRuntimeFilter(context, generator, builderNode,
                     srcExpr, prob, type, buildSideNdv, exprOrder);
-        }
-
-        // currently, we can ensure children in the two side are corresponding to the equal_to's.
-        // so right maybe an expression and left is a slot
-        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
-        // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
-            return false;
-        }
-        PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
-            return false;
         }
 
         return pushedDown;
@@ -256,6 +283,10 @@ public class PhysicalHashJoin<
                 .sorted().collect(Collectors.joining(" and ", " hashCondition=(", ")")));
         builder.append(otherJoinConjuncts.stream().map(cond -> cond.shapeInfo())
                 .sorted().collect(Collectors.joining(" and ", " otherCondition=(", ")")));
+        if (!markJoinConjuncts.isEmpty()) {
+            builder.append(markJoinConjuncts.stream().map(cond -> cond.shapeInfo()).sorted()
+                    .collect(Collectors.joining(" and ", " markCondition=(", ")")));
+        }
         if (!runtimeFilters.isEmpty()) {
             builder.append(" build RFs:").append(runtimeFilters.stream()
                     .map(rf -> rf.shapeInfo()).collect(Collectors.joining(";")));
@@ -265,7 +296,8 @@ public class PhysicalHashJoin<
 
     @Override
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, null, physicalProperties, statistics, left(), right());
+        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts, hint, markJoinSlotReference, groupExpression, null,
+                physicalProperties, statistics, left(), right());
     }
 }

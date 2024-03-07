@@ -17,11 +17,14 @@
 
 #include "runtime/tablets_channel.h"
 
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <time.h>
 
+#include "cloud/cloud_delta_writer.h"
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 // IWYU pragma: no_include <bits/chrono.h>
@@ -41,12 +44,16 @@
 #include "olap/storage_engine.h"
 #include "olap/txn_manager.h"
 #include "runtime/load_channel.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "vec/core/block.h"
 
 namespace doris {
 class SlotDescriptor;
+
+bvar::Adder<int64_t> g_tablets_channel_send_data_allocated_size(
+        "tablets_channel_send_data_allocated_size");
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
@@ -130,7 +137,7 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
               << ", timeout(s): " << request.load_channel_timeout_s();
     _txn_id = request.txn_id();
     _index_id = request.index_id();
-    _schema = std::make_unique<OlapTableSchemaParam>();
+    _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
 
@@ -147,7 +154,7 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
 Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) {
     SCOPED_TIMER(_incremental_open_timer);
     if (_state == kInitialized) { // haven't opened
-        return open(params);
+        RETURN_IF_ERROR(open(params));
     }
     std::lock_guard<std::mutex> l(_lock);
     std::vector<SlotDescriptor*>* index_slots = nullptr;
@@ -184,16 +191,16 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
-        wrequest.table_schema_param = _schema.get();
+        wrequest.table_schema_param = _schema;
+        wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
 
-        // TODO(plat1ko): CloudDeltaWriter
-        auto delta_writer = std::make_unique<DeltaWriter>(*StorageEngine::instance(), &wrequest,
-                                                          _profile, _load_id);
-        ss << "[" << tablet.tablet_id() << "]";
+        auto delta_writer = create_delta_writer(wrequest);
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
+
+        ss << "[" << tablet.tablet_id() << "]";
     }
 
     _s_tablet_writer_count += incremental_tablet_num;
@@ -201,6 +208,10 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
 
     _state = kOpened;
     return Status::OK();
+}
+
+std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const WriteRequest& request) {
+    return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
 }
 
 Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
@@ -226,120 +237,124 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     _closed_senders.Set(sender_id, true);
     _num_remaining_senders--;
     *finished = (_num_remaining_senders == 0);
-    if (*finished) {
-        _state = kFinished;
-        // All senders are closed
-        // 1. close all delta writers
-        std::set<DeltaWriter*> need_wait_writers;
-        for (auto&& [tablet_id, writer] : _tablet_writers) {
-            if (_partition_ids.contains(writer->partition_id())) {
-                auto st = writer->close();
-                if (!st.ok()) {
-                    auto err_msg = fmt::format(
-                            "close tablet writer failed, tablet_id={}, "
-                            "transaction_id={}, err={}",
-                            tablet_id, _txn_id, st.to_string());
-                    LOG(WARNING) << err_msg;
-                    PTabletError* tablet_error = tablet_errors->Add();
-                    tablet_error->set_tablet_id(tablet_id);
-                    tablet_error->set_msg(st.to_string());
-                    // just skip this tablet(writer) and continue to close others
-                    continue;
-                }
-                // tablet writer in `_broken_tablets` should not call `build_rowset` and
-                // `commit_txn` method, after that, the publish-version task will success,
-                // which can cause the replica inconsistency.
-                if (_is_broken_tablet(writer->tablet_id())) {
-                    LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
-                                 << ", tablet_id=" << tablet_id << ", transaction_id=" << _txn_id;
-                    continue;
-                }
-                need_wait_writers.insert(static_cast<DeltaWriter*>(writer.get()));
-            } else {
-                auto st = writer->cancel();
-                if (!st.ok()) {
-                    LOG(WARNING) << "cancel tablet writer failed, tablet_id=" << tablet_id
-                                 << ", transaction_id=" << _txn_id;
-                    // just skip this tablet(writer) and continue to close others
-                    continue;
-                }
-                VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << tablet_id
-                              << ", transaction_id=" << _txn_id;
-            }
-        }
 
-        _write_single_replica = req.write_single_replica();
+    if (!*finished) {
+        return Status::OK();
+    }
 
-        // 2. wait all writer finished flush.
-        for (auto* writer : need_wait_writers) {
-            RETURN_IF_ERROR((writer->wait_flush()));
-        }
-
-        // 3. build rowset
-        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
-            Status st = (*it)->build_rowset();
+    _state = kFinished;
+    // All senders are closed
+    // 1. close all delta writers
+    std::set<DeltaWriter*> need_wait_writers;
+    for (auto&& [tablet_id, writer] : _tablet_writers) {
+        if (_partition_ids.contains(writer->partition_id())) {
+            auto st = writer->close();
             if (!st.ok()) {
-                _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
-                it = need_wait_writers.erase(it);
+                auto err_msg = fmt::format(
+                        "close tablet writer failed, tablet_id={}, "
+                        "transaction_id={}, err={}",
+                        tablet_id, _txn_id, st.to_string());
+                LOG(WARNING) << err_msg;
+                PTabletError* tablet_error = tablet_errors->Add();
+                tablet_error->set_tablet_id(tablet_id);
+                tablet_error->set_msg(st.to_string());
+                // just skip this tablet(writer) and continue to close others
                 continue;
             }
-            // 3.1 calculate delete bitmap for Unique Key MoW tables
-            st = (*it)->submit_calc_delete_bitmap_task();
-            if (!st.ok()) {
-                _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
-                it = need_wait_writers.erase(it);
+            // tablet writer in `_broken_tablets` should not call `build_rowset` and
+            // `commit_txn` method, after that, the publish-version task will success,
+            // which can cause the replica inconsistency.
+            if (_is_broken_tablet(writer->tablet_id())) {
+                LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
+                             << ", tablet_id=" << tablet_id << ", transaction_id=" << _txn_id;
                 continue;
             }
-            it++;
-        }
-
-        // 4. wait for delete bitmap calculation complete if necessary
-        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
-            Status st = (*it)->wait_calc_delete_bitmap();
+            need_wait_writers.insert(static_cast<DeltaWriter*>(writer.get()));
+        } else {
+            auto st = writer->cancel();
             if (!st.ok()) {
-                _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
-                it = need_wait_writers.erase(it);
+                LOG(WARNING) << "cancel tablet writer failed, tablet_id=" << tablet_id
+                             << ", transaction_id=" << _txn_id;
+                // just skip this tablet(writer) and continue to close others
                 continue;
             }
-            it++;
-        }
-
-        // 5. commit all writers
-
-        for (auto* writer : need_wait_writers) {
-            PSlaveTabletNodes slave_nodes;
-
-            // close may return failed, but no need to handle it here.
-            // tablet_vec will only contains success tablet, and then let FE judge it.
-            _commit_txn(writer, req, res);
-        }
-
-        if (_write_single_replica) {
-            auto* success_slave_tablet_node_ids = res->mutable_success_slave_tablet_node_ids();
-            // The operation waiting for all slave replicas to complete must end before the timeout,
-            // so that there is enough time to collect completed replica. Otherwise, the task may
-            // timeout and fail even though most of the replicas are completed. Here we set 0.9
-            // times the timeout as the maximum waiting time.
-            SCOPED_TIMER(_slave_replica_timer);
-            while (!need_wait_writers.empty() &&
-                   (time(nullptr) - parent->last_updated_time()) < (parent->timeout() * 0.9)) {
-                std::set<DeltaWriter*>::iterator it;
-                for (it = need_wait_writers.begin(); it != need_wait_writers.end();) {
-                    bool is_done = (*it)->check_slave_replicas_done(success_slave_tablet_node_ids);
-                    if (is_done) {
-                        need_wait_writers.erase(it++);
-                    } else {
-                        it++;
-                    }
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            for (auto* writer : need_wait_writers) {
-                writer->add_finished_slave_replicas(success_slave_tablet_node_ids);
-            }
-            _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
+            VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << tablet_id
+                          << ", transaction_id=" << _txn_id;
         }
     }
+
+    _write_single_replica = req.write_single_replica();
+
+    // 2. wait all writer finished flush.
+    for (auto* writer : need_wait_writers) {
+        RETURN_IF_ERROR((writer->wait_flush()));
+    }
+
+    // 3. build rowset
+    for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
+        Status st = (*it)->build_rowset();
+        if (!st.ok()) {
+            _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
+            it = need_wait_writers.erase(it);
+            continue;
+        }
+        // 3.1 calculate delete bitmap for Unique Key MoW tables
+        st = (*it)->submit_calc_delete_bitmap_task();
+        if (!st.ok()) {
+            _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
+            it = need_wait_writers.erase(it);
+            continue;
+        }
+        it++;
+    }
+
+    // 4. wait for delete bitmap calculation complete if necessary
+    for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
+        Status st = (*it)->wait_calc_delete_bitmap();
+        if (!st.ok()) {
+            _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
+            it = need_wait_writers.erase(it);
+            continue;
+        }
+        it++;
+    }
+
+    // 5. commit all writers
+
+    for (auto* writer : need_wait_writers) {
+        PSlaveTabletNodes slave_nodes;
+
+        // close may return failed, but no need to handle it here.
+        // tablet_vec will only contains success tablet, and then let FE judge it.
+        _commit_txn(writer, req, res);
+    }
+
+    if (_write_single_replica) {
+        auto* success_slave_tablet_node_ids = res->mutable_success_slave_tablet_node_ids();
+        // The operation waiting for all slave replicas to complete must end before the timeout,
+        // so that there is enough time to collect completed replica. Otherwise, the task may
+        // timeout and fail even though most of the replicas are completed. Here we set 0.9
+        // times the timeout as the maximum waiting time.
+        SCOPED_TIMER(_slave_replica_timer);
+        while (!need_wait_writers.empty() &&
+               (time(nullptr) - parent->last_updated_time()) < (parent->timeout() * 0.9)) {
+            std::set<DeltaWriter*>::iterator it;
+            for (it = need_wait_writers.begin(); it != need_wait_writers.end();) {
+                bool is_done = (*it)->check_slave_replicas_done(success_slave_tablet_node_ids);
+                if (is_done) {
+                    need_wait_writers.erase(it++);
+                } else {
+                    it++;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        for (auto* writer : need_wait_writers) {
+            writer->add_finished_slave_replicas(success_slave_tablet_node_ids);
+        }
+        _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
+    }
+
     return Status::OK();
 }
 
@@ -356,6 +371,8 @@ void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBloc
         tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
         tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+        _total_received_rows += writer->total_received_rows();
+        _num_rows_filtered += writer->num_rows_filtered();
     } else {
         _add_error_tablet(res->mutable_tablet_errors(), writer->tablet_id(), st);
     }
@@ -406,7 +423,7 @@ void BaseTabletsChannel::refresh_profile() {
 Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
-    for (auto& index : _schema->indexes()) {
+    for (const auto& index : _schema->indexes()) {
         if (index->index_id == _index_id) {
             index_slots = &index->slots;
             schema_hash = index->schema_hash;
@@ -430,7 +447,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
 #endif
 
     int tablet_cnt = 0;
-    for (auto& tablet : request.tablets()) {
+    for (const auto& tablet : request.tablets()) {
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
         }
@@ -439,22 +456,21 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .tablet_id = tablet.tablet_id(),
                 .schema_hash = schema_hash,
                 .txn_id = _txn_id,
+                .txn_expiration = request.txn_expiration(), // Required by CLOUD.
                 .index_id = request.index_id(),
                 .partition_id = tablet.partition_id(),
                 .load_id = request.id(),
                 .tuple_desc = _tuple_desc,
                 .slots = index_slots,
-                .table_schema_param = _schema.get(),
+                .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = request.write_file_cache(),
         };
 
-        // TODO(plat1ko): CloudDeltaWriter
-        auto writer = std::make_unique<DeltaWriter>(*StorageEngine::instance(), &wrequest, _profile,
-                                                    _load_id);
+        auto delta_writer = create_delta_writer(wrequest);
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            _tablet_writers.emplace(tablet.tablet_id(), std::move(writer));
+            _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
     }
     _s_tablet_writer_count += _tablet_writers.size();
@@ -494,50 +510,21 @@ std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key) {
     return os;
 }
 
-Status BaseTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
-                                     PTabletWriterAddBlockResult* response) {
-    SCOPED_TIMER(_add_batch_timer);
-    int64_t cur_seq = 0;
-    _add_batch_number_counter->update(1);
-
-    auto status = _get_current_seq(cur_seq, request);
-    if (UNLIKELY(!status.ok())) {
-        return status;
-    }
-
-    if (request.packet_seq() < cur_seq) {
-        LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
-                  << ", recept_seq=" << request.packet_seq();
-        return Status::OK();
-    }
-
-    std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>
-            tablet_to_rowidxs;
-    for (uint32_t i = 0; i < request.tablet_ids_size(); ++i) {
-        if (request.is_single_tablet_block()) {
-            break;
-        }
-        int64_t tablet_id = request.tablet_ids(i);
-        if (_is_broken_tablet(tablet_id)) {
-            // skip broken tablets
-            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
-            continue;
-        }
-        auto it = tablet_to_rowidxs.find(tablet_id);
-        if (it == tablet_to_rowidxs.end()) {
-            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<uint32_t> {i});
-        } else {
-            it->second.emplace_back(i);
-        }
-    }
-
+Status BaseTabletsChannel::_write_block_data(
+        const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
+        std::unordered_map<int64_t, std::vector<uint32_t>>& tablet_to_rowidxs,
+        PTabletWriterAddBlockResult* response) {
     vectorized::Block send_data;
     RETURN_IF_ERROR(send_data.deserialize(request.block()));
     CHECK(send_data.rows() == request.tablet_ids_size())
             << "block rows: " << send_data.rows()
             << ", tablet_ids_size: " << request.tablet_ids_size();
 
-    auto write_tablet_data = [&](uint32_t tablet_id,
+    g_tablets_channel_send_data_allocated_size << send_data.allocated_bytes();
+    Defer defer {
+            [&]() { g_tablets_channel_send_data_allocated_size << -send_data.allocated_bytes(); }};
+
+    auto write_tablet_data = [&](int64_t tablet_id,
                                  std::function<Status(BaseDeltaWriter * writer)> write_func) {
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
@@ -584,14 +571,66 @@ Status BaseTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request
     return Status::OK();
 }
 
+Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
+                                 PTabletWriterAddBlockResult* response) {
+    SCOPED_TIMER(_add_batch_timer);
+    int64_t cur_seq = 0;
+    _add_batch_number_counter->update(1);
+
+    auto status = _get_current_seq(cur_seq, request);
+    if (UNLIKELY(!status.ok())) {
+        return status;
+    }
+
+    if (request.packet_seq() < cur_seq) {
+        LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
+                  << ", recept_seq=" << request.packet_seq();
+        return Status::OK();
+    }
+
+    std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>
+            tablet_to_rowidxs;
+    _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
+
+    return _write_block_data(request, cur_seq, tablet_to_rowidxs, response);
+}
+
 void BaseTabletsChannel::_add_broken_tablet(int64_t tablet_id) {
     std::unique_lock<std::shared_mutex> wlock(_broken_tablets_lock);
     _broken_tablets.insert(tablet_id);
 }
 
-bool BaseTabletsChannel::_is_broken_tablet(int64_t tablet_id) {
-    std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+bool BaseTabletsChannel::_is_broken_tablet(int64_t tablet_id) const {
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
+}
+
+void BaseTabletsChannel::_build_tablet_to_rowidxs(
+        const PTabletWriterAddBlockRequest& request,
+        std::unordered_map<int64_t, std::vector<uint32_t>>* tablet_to_rowidxs) {
+    // just add a coarse-grained read lock here rather than each time when visiting _broken_tablets
+    // tests show that a relatively coarse-grained read lock here performs better under multicore scenario
+    // see: https://github.com/apache/doris/pull/28552
+    std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+    if (request.is_single_tablet_block()) {
+        // The cloud mode need the tablet ids to prepare rowsets.
+        int64_t tablet_id = request.tablet_ids(0);
+        tablet_to_rowidxs->emplace(tablet_id, std::initializer_list<uint32_t> {0});
+        return;
+    }
+    for (uint32_t i = 0; i < request.tablet_ids_size(); ++i) {
+        int64_t tablet_id = request.tablet_ids(i);
+        if (_is_broken_tablet(tablet_id)) {
+            // skip broken tablets
+            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
+            continue;
+        }
+        auto it = tablet_to_rowidxs->find(tablet_id);
+        if (it == tablet_to_rowidxs->end()) {
+            tablet_to_rowidxs->emplace(tablet_id, std::initializer_list<uint32_t> {i});
+        } else {
+            it->second.emplace_back(i);
+        }
+    }
 }
 
 } // namespace doris

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.nereids.types.DataType;
 
 /** IntegralLiteral */
-public abstract class IntegerLikeLiteral extends Literal {
+public abstract class IntegerLikeLiteral extends NumericLiteral {
     /**
      * Constructor for Literal.
      *

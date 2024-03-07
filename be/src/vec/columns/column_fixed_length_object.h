@@ -125,7 +125,8 @@ public:
         }
 
         if (start + length > src_col._item_count) {
-            LOG(FATAL) << fmt::format(
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
                     "Parameters start = {}, length = {} are out of bound in "
                     "ColumnFixedLengthObject::insert_range_from method (data.size() = {})",
                     start, length, src_col._item_count);
@@ -198,10 +199,6 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported";
-    }
-
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
-        LOG(FATAL) << "not support";
     }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {

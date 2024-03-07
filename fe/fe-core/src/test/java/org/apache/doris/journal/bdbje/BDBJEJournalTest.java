@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.persist.OperationType;
@@ -65,7 +66,9 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         }
         Preconditions.checkArgument(!Strings.isNullOrEmpty(dorisHome));
         File dir = Files.createTempDirectory(Paths.get(dorisHome, "fe", "mocked"), "BDBJEJournalTest").toFile();
-        LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
+        }
         tmpDirs.add(dir);
         return dir;
     }
@@ -73,7 +76,9 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
     @AfterAll
     public static void cleanUp() throws Exception {
         for (File dir : tmpDirs) {
-            LOG.debug("deleteTmpDir path {}", dir.getAbsolutePath());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("deleteTmpDir path {}", dir.getAbsolutePath());
+            }
             FileUtils.deleteDirectory(dir);
         }
     }
@@ -165,7 +170,9 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(1, journal.getMinJournalId());
         Assertions.assertEquals(0, journal.getFinalizedJournalId());
 
-        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+        }
         Assertions.assertEquals(1, journal.getDatabaseNames().size());
         Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
 
@@ -191,7 +198,9 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(1, journal.getMinJournalId());
         Assertions.assertEquals(40, journal.getFinalizedJournalId());
 
-        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+        }
         Assertions.assertEquals(5, journal.getDatabaseNames().size());
         Assertions.assertEquals(41, journal.getDatabaseNames().get(4));
 
@@ -223,9 +232,109 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
                 journal.getBDBEnvironment().getReplicatedEnvironment().getState());
         journal.deleteJournals(21);
-        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+        }
         Assertions.assertEquals(3, journal.getDatabaseNames().size());
         Assertions.assertEquals(21, journal.getDatabaseNames().get(0));
+        journal.close();
+    }
+
+    @RepeatedTest(1)
+    public void testJournalBatch() throws Exception {
+        int port = findValidPort();
+        Preconditions.checkArgument(((port > 0) && (port < 65535)));
+        String nodeName = Env.genFeNodeName("127.0.0.1", port, false);
+        long replayedJournalId = 0;
+        File tmpDir = createTmpDir();
+        new MockUp<Env>() {
+            HostInfo selfNode = new HostInfo("127.0.0.1", port);
+            @Mock
+            public String getBdbDir() {
+                return tmpDir.getAbsolutePath();
+            }
+
+            @Mock
+            public HostInfo getSelfNode() {
+                return this.selfNode;
+            }
+
+            @Mock
+            public HostInfo getHelperNode() {
+                return this.selfNode;
+            }
+
+            @Mock
+            public boolean isElectable() {
+                return true;
+            }
+
+            @Mock
+            public long getReplayedJournalId() {
+                return replayedJournalId;
+            }
+        };
+
+        LOG.info("BdbDir:{}, selfNode:{}, nodeName:{}", Env.getServingEnv().getBdbDir(),
+                Env.getServingEnv().getBdbDir(), nodeName);
+        Assertions.assertEquals(tmpDir.getAbsolutePath(), Env.getServingEnv().getBdbDir());
+        BDBJEJournal journal = new BDBJEJournal(nodeName);
+        journal.open();
+        // BDBEnvironment need several seconds election from unknown to master
+        for (int i = 0; i < 10; i++) {
+            if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
+                    .equals(ReplicatedEnvironment.State.MASTER)) {
+                break;
+            }
+            Thread.sleep(1000);
+        }
+        Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
+                journal.getBDBEnvironment().getReplicatedEnvironment().getState());
+
+        journal.rollJournal();
+        JournalBatch batch = new JournalBatch(10);
+        for (int i = 0; i < 10; i++) {
+            String data = "JournalBatch item " + i;
+            Writable writable = new Writable() {
+                @Override
+                public void write(DataOutput out) throws IOException {
+                    Text.writeString(out, data);
+                }
+            };
+            // CREATE_MTMV_JOB is deprecated, and safe to write any data.
+            batch.addJournal(OperationType.OP_CREATE_MTMV_JOB, writable);
+        }
+        long journalId = journal.write(batch);
+        Assertions.assertEquals(1, journalId);
+
+        Assertions.assertEquals(10, journal.getMaxJournalId());
+        Assertions.assertEquals(10, journal.getJournalNum());
+        Assertions.assertEquals(1, journal.getMinJournalId());
+        Assertions.assertEquals(0, journal.getFinalizedJournalId());
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+        }
+        Assertions.assertEquals(1, journal.getDatabaseNames().size());
+        Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
+
+        JournalEntity journalEntity = journal.read(1);
+        Assertions.assertEquals(OperationType.OP_CREATE_MTMV_JOB, journalEntity.getOpCode());
+
+        batch = new JournalBatch(10);
+        for (int i = 0; i < 10; i++) {
+            String data = "JournalBatch 2 item " + i;
+            Writable writable = new Writable() {
+                @Override
+                public void write(DataOutput out) throws IOException {
+                    Text.writeString(out, data);
+                }
+            };
+            batch.addJournal(OperationType.OP_CREATE_MTMV_JOB, writable);
+        }
+        journalId = journal.write(batch);
+        Assertions.assertEquals(11, journalId);
+
         journal.close();
     }
 }

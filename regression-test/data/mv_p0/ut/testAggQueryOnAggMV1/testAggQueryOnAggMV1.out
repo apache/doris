@@ -13,3 +13,19 @@
 -- !select_mv --
 7
 
+-- !select_mv --
+1	2
+2	1
+3	1
+
+-- !select_mv --
+1	2
+2	2
+3	3
+
+-- !select_mv --
+1	2
+
+-- !select_mv --
+1	2	1
+

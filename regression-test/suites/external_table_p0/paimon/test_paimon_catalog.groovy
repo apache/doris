@@ -52,111 +52,123 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         );
     """
 
+    sql """drop catalog ${file_ctl_name}""";
+    sql """drop catalog ${hms_ctl_name}""";
+
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            def all = """select * from all_table;"""
-            def c1 = """select * from all_table where c1=1;"""
-            def c2 = """select * from all_table where c2=2;"""
-            def c3 = """select * from all_table where c3=3;"""
-            def c4 = """select * from all_table where c4=4;"""
-            def c5 = """select * from all_table where c5=5;"""
-            def c6 = """select * from all_table where c6=6;"""
-            def c7 = """select * from all_table where c7=7;"""
-            def c8 = """select * from all_table where c8=8;"""
-            def c9 = """select * from all_table where c9<10;"""
-            def c10 = """select * from all_table where c10=10.1;"""
-            def c11 = """select * from all_table where c11=11.1;"""
-            def c12 = """select * from all_table where c12='2020-02-02';"""
-            def c13 = """select * from all_table where c13='13str';"""
-            def c14 = """select * from all_table where c14='14varchar';"""
-            def c15 = """select * from all_table where c15='a';"""
-            def c16 = """select * from all_table where c16=true;"""
-            def c18 = """select * from all_table where c18='2023-08-13 09:32:38.53';"""
+
+            def qt_all_type = { String table_name ->
+                qt_all """select * from ${table_name} order by c1"""
+                qt_predict_like_1 """select * from ${table_name} where c13 like '%3%' order by c1"""
+                qt_predict_like_2 """select * from ${table_name} where c13 like '13%' order by c1"""
+                qt_predict_like_3 """select * from ${table_name} where c13 like '13' order by c1"""
+                qt_predict_like_4 """select * from ${table_name} where c13 like '130str' order by c1"""
+                qt_predict_like_5 """select * from ${table_name} where c13 like '130str%' order by c1"""
+                qt_c1 """select * from ${table_name} where c1=10;"""
+                qt_c2 """select * from ${table_name} where c2=2;"""
+                qt_c3 """select * from ${table_name} where c3=3;"""
+                qt_c4 """select * from ${table_name} where c4=4;"""
+                qt_c5 """select * from ${table_name} where c5=5;"""
+                qt_c6 """select * from ${table_name} where c6=6;"""
+                qt_c7 """select * from ${table_name} where c7=7;"""
+                qt_c8 """select * from ${table_name} where c8=8;"""
+                qt_c9 """select * from ${table_name} where c9<10;"""
+                qt_c10  """select * from ${table_name} where c10=10.1;"""
+                qt_c11  """select * from ${table_name} where c11=11.1;"""
+                qt_c12  """select * from ${table_name} where c12='2020-02-02';"""
+                qt_c13  """select * from ${table_name} where c13='13str';"""
+                qt_c14  """select * from ${table_name} where c14='14varchar';"""
+                qt_c15  """select * from ${table_name} where c15='a';"""
+                qt_c16  """select * from ${table_name} where c16=true;"""
+                qt_c18  """select * from ${table_name} where c18='2023-08-13 09:32:38.53';"""
+                qt_c101 """select * from ${table_name} where c1 is not null or c2 is not null order by c1"""
+            }
+
             def c19 = """select * from auto_bucket order by user_id;"""
             def c20 = """select * from auto_bucket where dt="b";"""
             def c21 = """select * from auto_bucket where dt="b" and hh="c";"""
             def c22 = """select * from auto_bucket where dt="d";"""
             def c23 = """select * from complex_tab order by c1;"""
             def c24 = """select * from complex_tab where c1=1;"""
-            def c26 = """select array_max(c2) from complex_tab"""
-            def c25 = """select c3['a_test'], c3['b_test'], c3['bbb'], c3['ccc'] from complex_tab"""
+            def c25 = """select c3['a_test'], c3['b_test'], c3['bbb'], c3['ccc'] from complex_tab order by c3['a_test'], c3['b_test']"""
+            def c26 = """select array_max(c2) c from complex_tab order by c"""
+            def c27 = """select * from complex_all order by c1"""
+            def c28 = """select array_min(c2) c from complex_all order by c"""
+            def c29 = """select array_min(c3) c from complex_all order by c"""
+            def c30= """select array_min(c4) c from complex_all order by c"""
+            def c31= """select array_min(c5) c from complex_all order by c"""
+            def c32= """select array_min(c6) c from complex_all order by c"""
+            def c33= """select array_min(c7) c from complex_all order by c"""
+            def c34= """select array_min(c8) c from complex_all order by c"""
+            def c35= """select array_min(c9) c from complex_all order by c"""
+            def c36= """select array_min(c10) c from complex_all order by c"""
+            def c37= """select array_max(c11) c from complex_all order by c"""
+            def c38= """select array_max(c12) c from complex_all order by c"""
+            def c39= """select array_max(c13) c from complex_all order by c"""
+            def c40= """select array_size(c14) c from complex_all order by c"""
+            def c41= """select array_size(c15) c from complex_all order by c"""
+            def c42= """select array_size(c16) c from complex_all order by c"""
+            def c43= """select array_max(c17) c from complex_all order by c"""
+            def c44= """select array_size(c18) c from complex_all order by c"""
+            def c45= """select array_max(c19) c from complex_all order by c"""
 
-            def c27 = """select * from complex_all order by c1;"""
-            def c28 = """select array_min(c2) from complex_all"""
-            def c29 = """select array_min(c3) from complex_all"""
-            def c30= """select array_min(c4) from complex_all"""
-            def c31= """select array_min(c5) from complex_all"""
-            def c32= """select array_min(c6) from complex_all"""
-            def c33= """select array_min(c7) from complex_all"""
-            def c34= """select array_min(c8) from complex_all"""
-            def c35= """select array_min(c9) from complex_all"""
-            def c36= """select array_min(c10) from complex_all"""
-            def c37= """select array_max(c11) from complex_all"""
-            def c38= """select array_max(c12) from complex_all"""
-            def c39= """select array_max(c13) from complex_all"""
-            def c40= """select array_size(c14) from complex_all"""
-            def c41= """select array_size(c15) from complex_all"""
-            def c42= """select array_size(c16) from complex_all"""
-            def c43= """select array_max(c17) from complex_all"""
-            def c44= """select array_size(c18) from complex_all"""
-            def c45= """select array_max(c19) from complex_all"""
+            def c46= """select c20[0] c from complex_all order by c"""
+            def c47= """select c21[0] c from complex_all order by c"""
+            def c48= """select c22[0] c from complex_all order by c"""
+            def c49= """select c23[0] c from complex_all order by c"""
+            def c50= """select c24[1] c from complex_all order by c"""
+            def c51= """select c25[0] c from complex_all order by c"""
+            def c52= """select c26[0] c from complex_all order by c"""
+            def c53= """select c27[0] c from complex_all order by c"""
+            def c54= """select c28[0] c from complex_all order by c"""
+            def c55= """select c29[0] c from complex_all order by c"""
+            def c56= """select c30[0] c from complex_all order by c"""
+            def c57= """select c31[0] c from complex_all order by c"""
+            def c58= """select c32[0] c from complex_all order by c"""
+            def c59= """select c33[0] c from complex_all order by c"""
+            def c60= """select c34[0] c from complex_all order by c"""
+            def c61= """select c35[0] c from complex_all order by c"""
+            def c62= """select c36[0] c from complex_all order by c"""
+            def c63= """select c37[0] c from complex_all order by c"""
 
-            def c46= """select c20[0] from complex_all"""
-            def c47= """select c21[0] from complex_all"""
-            def c48= """select c22[0] from complex_all"""
-            def c49= """select c23[0] from complex_all"""
-            def c50= """select c24[1] from complex_all"""
-            def c51= """select c25[0] from complex_all"""
-            def c52= """select c26[0] from complex_all"""
-            def c53= """select c27[0] from complex_all"""
-            def c54= """select c28[0] from complex_all"""
-            def c55= """select c29[0] from complex_all"""
-            def c56= """select c30[0] from complex_all"""
-            def c57= """select c31[0] from complex_all"""
-            def c58= """select c32[0] from complex_all"""
-            def c59= """select c33[0] from complex_all"""
-            def c60= """select c34[0] from complex_all"""
-            def c61= """select c35[0] from complex_all"""
-            def c62= """select c36[0] from complex_all"""
-            def c63= """select c37[0] from complex_all"""
+            def c64= """select c38[2] c from complex_all order by c"""
+            def c65= """select c39[4] c from complex_all order by c"""
+            def c66= """select c40[5] c from complex_all order by c"""
+            def c67= """select c41[7] c from complex_all order by c"""
+            def c68= """select c42[9] c from complex_all order by c"""
+            def c69= """select c43[10] c from complex_all order by c"""
+            def c70= """select c44[12] c from complex_all order by c"""
+            def c71= """select c45[13] c from complex_all order by c"""
+            def c72= """select c46[14] c from complex_all order by c"""
+            def c73= """select c47[16] c from complex_all order by c"""
+            def c74= """select c48[17] c from complex_all order by c"""
+            def c75= """select c49[19] c from complex_all order by c"""
+            def c76= """select c50[21] c from complex_all order by c"""
+            def c77= """select c51[22] c from complex_all order by c"""
+            def c78= """select c52[25] c from complex_all order by c"""
+            def c79= """select c53[27] c from complex_all order by c"""
+            def c80= """select c54[29] c from complex_all order by c"""
+            def c81= """select c55[30] c from complex_all order by c"""
 
-            def c64= """select c38[2] from complex_all"""
-            def c65= """select c39[4] from complex_all"""
-            def c66= """select c40[5] from complex_all;"""
-            def c67= """select c41[7] from complex_all;"""
-            def c68= """select c42[9] from complex_all"""
-            def c69= """select c43[10] from complex_all"""
-            def c70= """select c44[12] from complex_all"""
-            def c71= """select c45[13] from complex_all"""
-            def c72= """select c46[14] from complex_all;"""
-            def c73= """select c47[16] from complex_all;"""
-            def c74= """select c48[17] from complex_all;"""
-            def c75= """select c49[19] from complex_all;"""
-            def c76= """select c50[21] from complex_all;"""
-            def c77= """select c51[22] from complex_all;"""
-            def c78= """select c52[25] from complex_all;"""
-            def c79= """select c53[27] from complex_all;"""
-            def c80= """select c54[29] from complex_all;"""
-            def c81= """select c55[30] from complex_all;"""
-
-            def c82= """select c56[2] from complex_all"""
-            def c83= """select c57[4] from complex_all"""
-            def c84= """select c58[5] from complex_all;"""
-            def c85= """select c59[7] from complex_all;"""
-            def c86= """select c60[9] from complex_all"""
-            def c87= """select c61[10] from complex_all"""
-            def c88= """select c62[12] from complex_all"""
-            def c89= """select c63[13] from complex_all"""
-            def c90= """select c64[14] from complex_all;"""
-            def c91= """select c65[16] from complex_all;"""
-            def c92= """select c66[17] from complex_all;"""
-            def c93= """select c67[19] from complex_all;"""
-            def c94= """select c68[21] from complex_all;"""
-            def c95= """select c69[22] from complex_all;"""
-            def c96= """select c70[25] from complex_all;"""
-            def c97= """select c71[27] from complex_all;"""
-            def c98= """select c72[29] from complex_all;"""
-            def c99= """select c73[30] from complex_all;"""
+            def c82= """select c56[2] c from complex_all order by c"""
+            def c83= """select c57[4] c from complex_all order by c"""
+            def c84= """select c58[5] c from complex_all order by c"""
+            def c85= """select c59[7] c from complex_all order by c"""
+            def c86= """select c60[9] c from complex_all order by c"""
+            def c87= """select c61[10] c from complex_all order by c"""
+            def c88= """select c62[12] c from complex_all order by c"""
+            def c89= """select c63[13] c from complex_all order by c"""
+            def c90= """select c64[14] c from complex_all order by c"""
+            def c91= """select c65[16] c from complex_all order by c"""
+            def c92= """select c66[17] c from complex_all order by c"""
+            def c93= """select c67[19] c from complex_all order by c"""
+            def c94= """select c68[21] c from complex_all order by c"""
+            def c95= """select c69[22] c from complex_all order by c"""
+            def c96= """select c70[25] c from complex_all order by c"""
+            def c97= """select c71[27] c from complex_all order by c"""
+            def c98= """select c72[29] c from complex_all order by c"""
+            def c99= """select c73[30] c from complex_all order by c"""
 
             def c100= """select * from array_nested order by c1;"""
 
@@ -172,24 +184,9 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             );"""
             sql """use `${catalog_name}`.`db1`"""
 
-            qt_all all
-            qt_c1 c1
-            qt_c2 c2
-            qt_c3 c3
-            qt_c4 c4
-            qt_c5 c5
-            qt_c6 c6
-            qt_c7 c7
-            qt_c8 c8
-            qt_c9 c9
-            qt_c10 c10
-            qt_c11 c11
-            qt_c12 c12
-            qt_c13 c13
-            qt_c14 c14
-            qt_c15 c15
-            qt_c16 c16
-            qt_c18 c18
+            qt_all_type("all_table")
+            qt_all_type("all_table_with_parquet")
+
             qt_c19 c19
             qt_c20 c20
             qt_c21 c21
@@ -272,5 +269,25 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c98 c98
             qt_c99 c99
             qt_c100 c100
+
+            // test view from jion paimon
+            sql """ switch internal """
+            String view_db = "test_view_for_paimon"
+            sql """ drop database if exists ${view_db}"""
+            sql """ create database if not exists ${view_db}"""
+            sql """use ${view_db}"""
+            sql """ create view test_tst_1 as select * from ${catalog_name}.`db1`.all_table; """
+            sql """ create view test_tst_2 as select * from ${catalog_name}.`db1`.all_table_with_parquet; """
+            sql """ create view test_tst_5 as select * from ${catalog_name}.`db1`.array_nested; """
+            sql """ create table test_tst_6 properties ("replication_num" = "1") as 
+                        select f.c2,f.c3,c.c1 from 
+                            (select a.c2,b.c3 from test_tst_1 a inner join test_tst_2 b on a.c2=b.c2) f
+                    inner join test_tst_5 c on f.c2=c.c1;
+                """
+            def view1 = """select * from test_tst_6 order by c1"""
+
+            // qt_view1 view1
         }
 }
+
+

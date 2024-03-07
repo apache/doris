@@ -388,8 +388,7 @@ public class ComputeSignatureHelper {
                 if (finalType == null) {
                     finalType = dateTimeV2Type;
                 } else {
-                    finalType = DateTimeV2Type.getWiderDatetimeV2Type(finalType,
-                            DateTimeV2Type.forType(arguments.get(i).getDataType()));
+                    finalType = DateTimeV2Type.getWiderDatetimeV2Type(finalType, dateTimeV2Type);
                 }
             }
         }

@@ -30,7 +30,7 @@ under the License.
 
 `BITMAP BITMAP_COUNT(BITMAP lhs)`
 
-Returns the number of input bitmaps。
+Returns the number of input bitmaps.
 
 ### example
 

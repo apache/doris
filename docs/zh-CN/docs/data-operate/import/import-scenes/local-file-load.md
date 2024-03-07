@@ -30,7 +30,7 @@ under the License.
 
 目前Doris支持两种从本地导入数据的模式:
 1. [Stream Load](../import-way/stream-load-manual.md)
-2. [MySql Load](../import-way/mysql-load-manual.md)
+2. [MySQL Load](../import-way/mysql-load-manual.md)
 
 ## Stream Load
 Stream Load 用于将本地文件导入到 Doris 中。
@@ -226,9 +226,9 @@ public class DorisStreamLoader {
 ></dependency>
 > ```
 
-## MySql LOAD
+## MySQL Load
 <version since="dev">
-    MySql LOAD样例
+    MySQL Load样例
 </version>
 
 ### 导入数据
@@ -248,7 +248,7 @@ public class DorisStreamLoader {
    ```
 
 2. 导入数据
-   在MySql客户端下执行以下 SQL 命令导入本地文件：
+   在MySQL客户端下执行以下 SQL 命令导入本地文件：
 
    ```sql
    LOAD DATA
@@ -261,7 +261,7 @@ public class DorisStreamLoader {
 
 3. 等待导入结果
 
-   MySql Load 命令是同步命令，返回成功即表示导入成功。如果导入数据较大，可能需要较长的等待时间。示例如下:
+   MySQL Load 命令是同步命令，返回成功即表示导入成功。如果导入数据较大，可能需要较长的等待时间。示例如下:
 
    ```text
    Query OK, 1 row affected (0.17 sec)
@@ -272,5 +272,5 @@ public class DorisStreamLoader {
    - 其他字段的详细介绍，请参阅 [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令文档。
 
 ### 导入建议
-- MySql Load 只能导入本地文件(可以是客户端本地或者连接的FE节点本地), 而且支持CSV格式。
+- MySQL Load 只能导入本地文件(可以是客户端本地或者连接的FE节点本地), 而且支持CSV格式。
 - 建议一个导入请求的数据量控制在 1 - 2 GB 以内。如果有大量本地文件，可以分批并发提交。

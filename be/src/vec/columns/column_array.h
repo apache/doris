@@ -51,10 +51,10 @@ class Arena;
 } // namespace doris
 
 //TODO: use marcos below to decouple array function calls
-#define ALL_COLUMNS_NUMBER                                                                        \
-    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32,  \
-            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128I, ColumnDecimal128, \
-            ColumnDecimal256
+#define ALL_COLUMNS_NUMBER                                                                       \
+    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32, \
+            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128V3,                 \
+            ColumnDecimal128V2, ColumnDecimal256
 #define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
 #define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
@@ -142,9 +142,6 @@ public:
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
-
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data = nullptr) const override;
 
@@ -163,11 +160,8 @@ public:
     //ColumnPtr index(const IColumn & indexes, size_t limit) const;
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
-                                int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not implemented";
-        __builtin_unreachable();
-    }
+    int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
+
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
@@ -177,7 +171,7 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+
     ColumnPtr convert_to_full_column_if_const() const override;
 
     /** More efficient methods of manipulation */

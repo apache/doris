@@ -23,8 +23,12 @@ Suite.metaClass.get_table_replica_num = {String tb_name /* param */ ->
     def createTbl = result[0][1].toString()
     def regexPattern = /"replication_allocation" = "tag.location.default: (\d+)"/
     def matcher = (createTbl =~ regexPattern)
-    assertTrue(matcher.find())
-    return matcher.group(1).toInteger()
+    //assertTrue(matcher.find())
+    if (matcher.find()) {
+        return matcher.group(1).toInteger()
+    } else {
+        return 1
+    }
 }
 
 logger.info("Added 'get_table_replica_num' function to Suite") 

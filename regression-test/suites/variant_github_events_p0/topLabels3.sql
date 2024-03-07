@@ -9,6 +9,6 @@
 --         CASE WHEN lower(label) LIKE '%feature%' THEN 1 ELSE 0 END AS feature
 --     FROM github_events
 --     LATERAL VIEW explode_split(labels, ',') t AS label
---     WHERE (cast(v:type as string) IN ('IssuesEvent', 'PullRequestEvent', 'IssueCommentEvent')) AND (action IN ('created', 'opened', 'labeled')) AND ((lower(label) LIKE '%bug%') OR (lower(label) LIKE '%feature%'))
+--     WHERE (cast(v["type"] as string) IN ('IssuesEvent', 'PullRequestEvent', 'IssueCommentEvent')) AND (action IN ('created', 'opened', 'labeled')) AND ((lower(label) LIKE '%bug%') OR (lower(label) LIKE '%feature%'))
 -- ) t
 -- LIMIT 50

@@ -17,11 +17,13 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <string.h>
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Types_types.h>
 #include <thrift/TApplicationException.h>
 #include <thrift/transport/TBufferTransports.h>
 
+#include <cstdint>
+#include <cstring>
 #include <exception>
 #include <memory>
 #include <string>
@@ -29,14 +31,10 @@
 
 #include "common/status.h"
 
-namespace apache {
-namespace thrift {
-namespace protocol {
+namespace apache::thrift::protocol {
 class TProtocol;
 class TProtocolFactory;
-} // namespace protocol
-} // namespace thrift
-} // namespace apache
+} // namespace apache::thrift::protocol
 
 namespace doris {
 
@@ -61,7 +59,7 @@ public:
         uint8_t* buffer = nullptr;
         RETURN_IF_ERROR(serialize<T>(obj, &len, &buffer));
         result->resize(len);
-        memcpy(&((*result)[0]), buffer, len);
+        memcpy(result->data(), buffer, len);
         return Status::OK();
     }
 
@@ -176,5 +174,9 @@ void t_network_address_to_string(const TNetworkAddress& address, std::string* ou
 // Compares two TNetworkAddresses alphanumerically by their host:port
 // string representation
 bool t_network_address_comparator(const TNetworkAddress& a, const TNetworkAddress& b);
+
+PURE std::string to_string(const TUniqueId& id);
+
+PURE bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
 } // namespace doris

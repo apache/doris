@@ -121,7 +121,7 @@ You can consider establishing a Bloom Filter index for a column when the followi
 
 1. First, BloomFilter is suitable for non-prefix filtering.
 2. The query will be filtered according to the high frequency of the column, and most of the query conditions are in and = filtering.
-3. Unlike Bitmap, BloomFilter is suitable for high cardinality columns. Such as UserID. Because if it is created on a low-cardinality column, such as a "gender" column, each Block will almost contain all values, causing the BloomFilter index to lose its meaning.
+3. BloomFilter is suitable for high cardinality columns. Such as UserID. Because if it is created on a low-cardinality column, such as a "gender" column, each Block will almost contain all values, causing the BloomFilter index to lose its meaning.
 
 ### **Doris BloomFilter Use Precautions**
 

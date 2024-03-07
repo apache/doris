@@ -2,35 +2,35 @@
 -- !select --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF3 d_datekey->[lo_orderdate]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF2 p_partkey->[lo_partkey]
-----------------------PhysicalDistribute
+----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
-----------------------------PhysicalDistribute
+----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2 RF3
---------------------------------PhysicalDistribute
+--------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------filter((supplier.s_region = 'AMERICA'))
 --------------------------------------PhysicalOlapScan[supplier]
-----------------------------PhysicalDistribute
+----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
 --------------------------------filter((customer.c_region = 'AMERICA'))
 ----------------------------------PhysicalOlapScan[customer]
-----------------------PhysicalDistribute
+----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------filter(p_mfgr IN ('MFGR#1', 'MFGR#2'))
 ----------------------------PhysicalOlapScan[part]
-------------------PhysicalDistribute
+------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[dates]
 

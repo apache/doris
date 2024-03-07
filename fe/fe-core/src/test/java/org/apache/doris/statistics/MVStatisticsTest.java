@@ -20,7 +20,6 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Injectable;
@@ -37,7 +36,7 @@ public class MVStatisticsTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ":" + "test");
+        connectContext.setDatabase("test");
         createTable("CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)\n"
                 + "DISTRIBUTED BY HASH(col3)\n"
                 + "BUCKETS 1\n"

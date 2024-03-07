@@ -37,7 +37,7 @@ suite("test_primary_key_partial_update_publish", "p0") {
 
         file '10000.csv'
         time 10000 // limit inflight 10s
-    }
+    } 
     streamLoad {
         table "${tableName}"
 
@@ -68,5 +68,5 @@ suite("test_primary_key_partial_update_publish", "p0") {
     """
 
     // drop drop
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    // sql """ DROP TABLE IF EXISTS ${tableName} """
 }

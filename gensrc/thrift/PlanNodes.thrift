@@ -279,6 +279,8 @@ struct TFileAttributes {
     10: optional bool trim_double_quotes;
     // csv skip line num, only used when csv header_type is not set.
     11: optional i32 skip_lines;
+    // for cloud copy into
+    1001: optional bool ignore_csv_redundant_col;
 }
 
 struct TIcebergDeleteFileDesc {
@@ -311,6 +313,21 @@ struct TPaimonFileDesc {
     8: optional i64 db_id
     9: optional i64 tbl_id
     10: optional i64 last_update_time
+    11: optional string file_format
+}
+
+struct TTrinoConnectorFileDesc {
+    1: optional string catalog_name
+    2: optional string db_name
+    3: optional string table_name
+    4: optional map<string, string> trino_connector_options
+    5: optional string trino_connector_table_handle
+    6: optional string trino_connector_column_handles
+    7: optional string trino_connector_column_metadata
+    8: optional string trino_connector_column_names
+    9: optional string trino_connector_split
+    10: optional string trino_connector_predicate
+    11: optional string trino_connector_trascation_handle
 }
 
 struct TMaxComputeFileDesc {
@@ -347,6 +364,7 @@ struct TTableFormatFileDesc {
     4: optional TPaimonFileDesc paimon_params
     5: optional TTransactionalHiveDesc transactional_hive_params
     6: optional TMaxComputeFileDesc max_compute_params
+    7: optional TTrinoConnectorFileDesc trino_connector_params
 }
 
 enum TTextSerdeType {
@@ -700,6 +718,7 @@ struct TOlapScanNode {
   15: optional set<i32> output_column_unique_ids
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
+  18: optional list<i32> topn_filter_source_node_ids
 }
 
 struct TEqJoinCondition {
@@ -728,7 +747,8 @@ enum TJoinOp {
   // on the build side. Those NULLs are considered candidate matches, and therefore could
   // be rejected (ANTI-join), based on the other join conjuncts. This is in contrast
   // to LEFT_ANTI_JOIN where NULLs are not matches and therefore always returned.
-  NULL_AWARE_LEFT_ANTI_JOIN
+  NULL_AWARE_LEFT_ANTI_JOIN,
+  NULL_AWARE_LEFT_SEMI_JOIN
 }
 
 enum TJoinDistributionType {
@@ -771,6 +791,7 @@ struct THashJoinNode {
 
   11: optional bool is_mark
   12: optional TJoinDistributionType dist_type
+  13: optional list<Exprs.TExpr> mark_join_conjuncts
 }
 
 struct TNestedLoopJoinNode {
@@ -790,6 +811,8 @@ struct TNestedLoopJoinNode {
   7: optional bool is_mark
 
   8: optional list<Exprs.TExpr> join_conjuncts
+
+  9: optional list<Exprs.TExpr> mark_join_conjuncts
 }
 
 struct TMergeJoinNode {
@@ -891,6 +914,8 @@ struct TSortNode {
   6: optional bool is_default_limit                                              
   7: optional bool use_topn_opt
   8: optional bool merge_by_exchange
+  9: optional bool is_analytic_sort
+  10: optional bool is_colocate
 }
 
 enum TopNAlgorithm {
@@ -1174,6 +1199,14 @@ struct TRuntimeFilterDesc {
   
   // for min/max rf
   13: optional TMinMaxRuntimeFilterType min_max_type;
+
+  // true, if bloom filter size is calculated by ndv
+  // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
+  // ignore bloom_filter_size_bytes
+  14: optional bool bloom_filter_size_calculated_by_ndv;
+ 
+  // true, if join type is null aware like <=>. rf should dispose the case
+  15: optional bool null_aware;
 }
 
 
@@ -1250,6 +1283,8 @@ struct TPlanNode {
   48: optional TPushAggOp push_down_agg_type_opt
 
   49: optional i64 push_down_count
+
+  50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

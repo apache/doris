@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
@@ -66,8 +65,6 @@ public class ShowBackupStmt extends ShowStmt {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         // check auth
@@ -139,13 +136,13 @@ public class ShowBackupStmt extends ShowStmt {
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        builder.append("SHOW BACKUP");
-        if (dbName != null) {
-            builder.append(" FROM `").append(dbName).append("` ");
+        builder.append("SHOW BACKUP ");
+        if (Strings.isNullOrEmpty(dbName)) {
+            builder.append("FROM `").append(dbName).append("` ");
         }
 
         if (where != null) {
-            builder.append(where.toSql());
+            builder.append("WHERE ").append(where.toSql());
         }
 
         return builder.toString();
