@@ -70,6 +70,10 @@ public:
 
     virtual void close() {}
 
+    virtual void init_profile(RuntimeProfile* profile) {}
+
+    virtual void update_counters_before_close();
+
 protected:
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 
