@@ -33,7 +33,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function Ipv4StringToNumOrDefault
+ * scalar function ipv4_string_to_num_or_default
  */
 public class Ipv4StringToNumOrDefault extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
@@ -43,13 +43,13 @@ public class Ipv4StringToNumOrDefault extends ScalarFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(StringType.INSTANCE));
 
     public Ipv4StringToNumOrDefault(Expression arg0) {
-        super("ipv4stringtonumordefault", arg0);
+        super("ipv4_string_to_num_or_default", arg0);
     }
 
     @Override
     public Ipv4StringToNumOrDefault withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "ipv4stringtonumordefault accept 1 args, but got %s (%s)",
+                "ipv4_string_to_num_or_default accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
         return new Ipv4StringToNumOrDefault(children.get(0));

@@ -17,24 +17,20 @@
 
 #pragma once
 
-#include <gen_cpp/olap_file.pb.h>
-
-#include <memory>
-#include <mutex>
-#include <unordered_map>
-
-#include "olap/tablet_schema.h"
+#include "olap/tablet_fwd.h"
 #include "runtime/exec_env.h"
-#include "util/doris_metrics.h"
+#include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
 
-class TabletSchemaCache {
+class TabletSchemaCache : public LRUCachePolicy {
 public:
-    ~TabletSchemaCache() = default;
+    TabletSchemaCache(size_t capacity)
+            : LRUCachePolicy(CachePolicy::CacheType::TABLET_SCHEMA_CACHE, capacity,
+                             LRUCacheType::NUMBER, config::tablet_schema_cache_recycle_interval) {}
 
-    static TabletSchemaCache* create_global_schema_cache() {
-        TabletSchemaCache* res = new TabletSchemaCache();
+    static TabletSchemaCache* create_global_schema_cache(size_t capacity) {
+        auto* res = new TabletSchemaCache(capacity);
         return res;
     }
 
@@ -42,23 +38,14 @@ public:
         return ExecEnv::GetInstance()->get_tablet_schema_cache();
     }
 
-    TabletSchemaSPtr insert(const std::string& key);
+    std::pair<Cache::Handle*, TabletSchemaSPtr> insert(const std::string& key);
 
-    void start();
-
-    void stop();
+    void release(Cache::Handle*);
 
 private:
-    /**
-     * @brief recycle when TabletSchemaSPtr use_count equals 1.
-     */
-    void _recycle();
-
-private:
-    std::mutex _mtx;
-    std::unordered_map<std::string, TabletSchemaSPtr> _cache;
-    std::atomic_bool _should_stop = {false};
-    std::atomic_bool _is_stopped = {false};
+    struct CacheValue {
+        TabletSchemaSPtr tablet_schema;
+    };
 };
 
 } // namespace doris

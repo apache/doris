@@ -101,6 +101,11 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
         return phase == LimitPhase.GLOBAL;
     }
 
+    public Plan withLimit(long limit) {
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, children.get(0));
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);

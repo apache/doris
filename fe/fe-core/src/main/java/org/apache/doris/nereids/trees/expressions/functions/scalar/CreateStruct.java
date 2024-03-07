@@ -22,9 +22,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableList;
@@ -66,11 +66,7 @@ public class CreateStruct extends ScalarFunction
         if (arity() == 0) {
             return SIGNATURES;
         } else {
-            ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
-            for (int i = 0; i < arity(); i++) {
-                structFields.add(new StructField(String.valueOf(i + 1), children.get(i).getDataType(), true, ""));
-            }
-            return ImmutableList.of(FunctionSignature.ret(new StructType(structFields.build()))
+            return ImmutableList.of(FunctionSignature.ret(StructLiteral.computeDataType(children))
                     .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new)));
         }
     }

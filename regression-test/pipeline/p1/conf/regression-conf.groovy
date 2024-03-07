@@ -59,3 +59,5 @@ s3Region = "ap-hongkong"
 max_failure_num=0
 
 externalEnvIp="127.0.0.1"
+
+enableBrokerLoad=true

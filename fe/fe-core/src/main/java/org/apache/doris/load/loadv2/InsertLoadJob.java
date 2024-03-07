@@ -73,6 +73,28 @@ public class InsertLoadJob extends LoadJob {
         this.userInfo = userInfo;
     }
 
+    public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
+                         long createTimestamp, String failMsg, String trackingUrl,
+                         UserIdentity userInfo, Long jobId) throws MetaNotFoundException {
+        super(EtlJobType.INSERT_JOB, dbId, label, jobId);
+        this.tableId = tableId;
+        this.transactionId = transactionId;
+        this.createTimestamp = createTimestamp;
+        this.loadStartTimestamp = createTimestamp;
+        this.finishTimestamp = System.currentTimeMillis();
+        if (Strings.isNullOrEmpty(failMsg)) {
+            this.state = JobState.FINISHED;
+            this.progress = 100;
+        } else {
+            this.state = JobState.CANCELLED;
+            this.failMsg = new FailMsg(CancelType.LOAD_RUN_FAIL, failMsg);
+            this.progress = 0;
+        }
+        this.authorizationInfo = gatherAuthInfo();
+        this.loadingStatus.setTrackingUrl(trackingUrl);
+        this.userInfo = userInfo;
+    }
+
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());

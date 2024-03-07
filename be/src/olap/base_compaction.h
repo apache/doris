@@ -17,16 +17,12 @@
 
 #pragma once
 
-#include <butil/macros.h>
-
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/compaction.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
 
 namespace doris {
 
@@ -35,28 +31,24 @@ namespace doris {
 //   1. its policy to pick rowsets
 //   2. do compaction to produce new rowset.
 
-class BaseCompaction : public Compaction {
+class BaseCompaction final : public CompactionMixin {
 public:
-    BaseCompaction(const TabletSharedPtr& tablet);
+    BaseCompaction(StorageEngine& engine, const TabletSharedPtr& tablet);
     ~BaseCompaction() override;
 
     Status prepare_compact() override;
-    Status execute_compact_impl() override;
 
-    std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
+    Status execute_compact() override;
 
-protected:
-    Status pick_rowsets_to_compact() override;
-    std::string compaction_name() const override { return "base compaction"; }
+private:
+    Status pick_rowsets_to_compact();
+    std::string_view compaction_name() const override { return "base compaction"; }
 
     ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 
-private:
     // filter input rowset in some case:
     // 1. dup key without delete predicate
     void _filter_input_rowset();
-
-    DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };
 
 } // namespace doris

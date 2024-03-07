@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -232,6 +233,15 @@ public class OneRangePartitionEvaluator
     }
 
     @Override
+    public EvaluateRangeResult visitNullLiteral(NullLiteral nullLiteral, EvaluateRangeInput context) {
+        Map<Slot, ColumnRange> emptyRanges = Maps.newHashMap();
+        for (Slot key : context.defaultColumnRanges.keySet()) {
+            emptyRanges.put(key, new ColumnRange());
+        }
+        return new EvaluateRangeResult(nullLiteral, emptyRanges, ImmutableList.of());
+    }
+
+    @Override
     public EvaluateRangeResult visitSlot(Slot slot, EvaluateRangeInput context) {
         // try to replace partition slot to literal
         PartitionSlotInput slotResult = context.slotToInput.get(slot);
@@ -386,11 +396,12 @@ public class OneRangePartitionEvaluator
         if (inPredicate.getCompareExpr() instanceof Slot
                 && inPredicate.getOptions().stream().allMatch(Literal.class::isInstance)) {
             Slot slot = (Slot) inPredicate.getCompareExpr();
-            ColumnRange unionLiteralRange = inPredicate.getOptions()
-                    .stream()
-                    .map(Literal.class::cast)
-                    .map(ColumnRange::singleton)
-                    .reduce(ColumnRange.empty(), ColumnRange::union);
+            ColumnRange unionLiteralRange = ColumnRange.empty();
+            ColumnRange slotRange = result.childrenResult.get(0).columnRanges.get(slot);
+            for (Expression expr : inPredicate.getOptions()) {
+                unionLiteralRange = unionLiteralRange.union(
+                        slotRange.intersect(ColumnRange.singleton((Literal) expr)));
+            }
             Map<Slot, ColumnRange> slotRanges = result.childrenResult.get(0).columnRanges;
             result = intersectSlotRange(result, slotRanges, slot, unionLiteralRange);
         }
@@ -447,7 +458,7 @@ public class OneRangePartitionEvaluator
     @Override
     public EvaluateRangeResult visitNot(Not not, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(not, context);
-        if (result.isRejectNot()) {
+        if (result.isRejectNot() && !result.result.equals(BooleanLiteral.TRUE)) {
             Map<Slot, ColumnRange> newRanges = Maps.newHashMap();
             for (Map.Entry<Slot, ColumnRange> entry : result.childrenResult.get(0).columnRanges.entrySet()) {
                 Slot slot = entry.getKey();

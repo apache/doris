@@ -79,7 +79,7 @@ public class LdapUserInfo {
         return passwd;
     }
 
-    public Set<Role> getPaloRoles() {
+    public Set<Role> getRoles() {
         return roles;
     }
 

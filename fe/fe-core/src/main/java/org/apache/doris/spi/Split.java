@@ -17,6 +17,10 @@
 
 package org.apache.doris.spi;
 
+import org.apache.doris.datasource.SplitWeight;
+
+import java.util.List;
+
 /**
  * Split interface. e.g. Tablet for Olap Table.
  */
@@ -25,5 +29,23 @@ public interface Split {
     String[] getHosts();
 
     Object getInfo();
+
+    default SplitWeight getSplitWeight() {
+        return SplitWeight.standard();
+    }
+
+    default boolean isRemotelyAccessible() {
+        return true;
+    }
+
+    String getPathString();
+
+    long getStart();
+
+    long getLength();
+
+    List<String> getAlternativeHosts();
+
+    void setAlternativeHosts(List<String> alternativeHosts);
 
 }

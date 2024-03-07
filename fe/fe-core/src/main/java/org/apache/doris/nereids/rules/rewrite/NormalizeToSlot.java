@@ -38,10 +38,14 @@ import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
-/** NormalizeToSlot */
+/**
+ * NormalizeToSlot
+ */
 public interface NormalizeToSlot {
 
-    /** NormalizeSlotContext */
+    /**
+     * NormalizeSlotContext
+     */
     class NormalizeToSlotContext {
         private final Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap;
 
@@ -51,11 +55,11 @@ public interface NormalizeToSlot {
 
         /**
          * build normalization context by follow step.
-         *   1. collect all exists alias by input parameters existsAliases build a reverted map: expr -> alias
-         *   2. for all input source expressions, use existsAliasMap to construct triple:
-         *     origin expr, pushed expr and alias to replace origin expr,
-         *     see more detail in {@link NormalizeToSlotTriplet}
-         *   3. construct a map: original expr -> triple constructed by step 2
+         * 1. collect all exists alias by input parameters existsAliases build a reverted map: expr -> alias
+         * 2. for all input source expressions, use existsAliasMap to construct triple:
+         * origin expr, pushed expr and alias to replace origin expr,
+         * see more detail in {@link NormalizeToSlotTriplet}
+         * 3. construct a map: original expr -> triple constructed by step 2
          */
         public static NormalizeToSlotContext buildContext(
                 Set<Alias> existsAliases, Collection<? extends Expression> sourceExpressions) {
@@ -65,7 +69,6 @@ public interface NormalizeToSlot {
             for (Alias existsAlias : existsAliases) {
                 existsAliasMap.put(existsAlias.child(), existsAlias);
             }
-
             for (Expression expression : sourceExpressions) {
                 if (normalizeToSlotMap.containsKey(expression)) {
                     continue;
@@ -182,11 +185,16 @@ public interface NormalizeToSlot {
                 }
                 newChildren.add(newChild);
             }
+            if (windowExpression.getWindowFrame().isPresent()) {
+                newChildren.add(windowExpression.getWindowFrame().get());
+            }
             return hasNewChildren ? windowExpression.withChildren(newChildren) : windowExpression;
         }
     }
 
-    /** NormalizeToSlotTriplet */
+    /**
+     * NormalizeToSlotTriplet
+     */
     class NormalizeToSlotTriplet {
         // which expression need to normalized to slot?
         // e.g. `a + 1`

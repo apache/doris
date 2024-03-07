@@ -202,7 +202,7 @@ protected:
         operator T*() const { return t; }
 
     private:
-        T* t;
+        T* t = nullptr;
     };
 
 protected:

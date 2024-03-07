@@ -168,6 +168,8 @@ CREATE CATALOG hive PROPERTIES (
 
 ### Hive With Glue
 
+> 连接Glue时，如果是在非EC2环境，需要将EC2环境里的 `~/.aws` 目录拷贝到当前环境里。也可以下载[AWS Cli](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)工具进行配置，这种方式也会在当前用户目录下创建`.aws`目录。
+
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
@@ -371,11 +373,21 @@ CREATE CATALOG hive PROPERTIES (
 "broker.name" = "test_broker"
 ```
 
-## 使用 Ranger 进行权限校验
+Doris 基于 Iceberg `FileIO` 接口实现了 Broker 查询 HMS Catalog Iceberg 的支持。如有需求，可以在创建 HMS Catalog 时增加如下配置。
+
+```sql
+"io-impl" = "org.apache.doris.datasource.iceberg.broker.IcebergBrokerIO"
+```
+
+## 集成 Apache Ranger
 
 Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以及全方位数据安全访问管理的安全框架。
 
-目前doris支持ranger的库、表、列权限，不支持加密、行权限等。
+Doris 支持为指定的 External Hive Catalog 使用 Apache Ranger 进行鉴权。
+
+目前支持 Ranger 的库、表、列的鉴权，暂不支持加密、行权限、Data Mask 等功能。
+
+如需使用 Apache Ranger 为整个 Doris 集群服务进行鉴权，请参阅 [使用 Apache Ranger 鉴权](../../admin-manual/privilege-ldap/ranger.md)
 
 ### 环境配置
 
@@ -383,10 +395,14 @@ Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以�
 
 1. 创建 Catalog 时增加：
 
-```sql
-"access_controller.properties.ranger.service.name" = "hive",
-"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
-```
+	```sql
+	"access_controller.properties.ranger.service.name" = "hive",
+	"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+	```
+
+	>注意:
+	>
+	> `access_controller.properties.ranger.service.name` 指的是 service 的类型，例如 `hive`，`hdfs` 等。并不是配置文件中 `ranger.plugin.hive.service.name` 的值。
 
 2. 配置所有 FE 环境：
 
@@ -461,6 +477,7 @@ Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以�
 
 4.在doris创建同名角色role1，并将role1分配给user1，user1将同时拥有db1.table1.col1和col2的查询权限
 
+5. Admin 和 Root 用户的权限不受Apache Ranger 的权限控制
 
 ## 使用 Kerberos 进行认证
 
@@ -526,3 +543,15 @@ CREATE CATALOG hive_krb_ha PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
+## Hive Transactional 表
+Hive transactional 表是 Hive 中支持 ACID 语义的表。详情可见：https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions
+
+### Hive Transactional 表支持情况：
+|表类型|在 Hive 中支持的操作|Hive 表属性|支持的Hive 版本|
+|---|---|---|---|
+|Full-ACID Transactional Table |支持 Insert, Update, Delete 操作|'transactional'='true', 'transactional_properties'='insert_only'|3.x，2.x，其中 2.x 需要在 Hive 中执行完 major compaction 才可以加载|
+|Insert-Only Transactional Table|只支持 Insert 操作|'transactional'='true'|3.x，2.x|
+
+### 当前限制：
+目前不支持 Original Files 的场景。
+当一个表转换成 Transactional 表之后，后续新写的数据文件会使用 Hive Transactional 表的 schema，但是已经存在的数据文件是不会转化成 Transactional 表的 schema，这样的文件称为 Original Files。

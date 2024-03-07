@@ -42,7 +42,7 @@ FE 进程启动后，会先读取 `fe.conf` 中的配置项，之后再读取 `f
 **1.** 出于简化架构的目的，目前通过```mysql协议修改Config```的方式修改配置只会修改本地FE内存中的数据，而不会把变更同步到所有FE。
 对于只会在Master FE生效的Config项，修改请求会自动转发到Master节点
 
-**2.** 需要注意```forward_to_master```选项会影响```admin show frontend config```的展示结果，如果```forward_to_master=true```，那么只会展示Master的配置（即使您此时连接的是Follower FE节点），这可能导致您无法看到对本地FE配置的修改；如果期望show config返回本地FE的配置项，那么执行命令```set forward_to_master=false```
+**2.** 需要注意```forward_to_master```选项会影响```show frontend config```的展示结果，如果```forward_to_master=true```，那么只会展示Master的配置（即使您此时连接的是Follower FE节点），这可能导致您无法看到对本地FE配置的修改；如果期望show config返回本地FE的配置项，那么执行命令```set forward_to_master=false```
 
 ## 查看配置项
 
@@ -56,7 +56,7 @@ FE 的配置项有两种方式进行查看：
 
    FE 启动后，可以在 MySQL 客户端中，通过以下命令查看 FE 的配置项：
 
-   `ADMIN SHOW FRONTEND CONFIG;`
+   `SHOW FRONTEND CONFIG;`
 
    结果中各列含义如下：
 
@@ -81,7 +81,7 @@ FE 的配置项有两种方式进行配置：
 
    `ADMIN SET FRONTEND CONFIG ("fe_config_name" = "fe_config_value");`
 
-   不是所有配置项都支持动态配置。可以通过 `ADMIN SHOW FRONTEND CONFIG;` 命令结果中的 `IsMutable` 列查看是否支持动态配置。
+   不是所有配置项都支持动态配置。可以通过 `SHOW FRONTEND CONFIG;` 命令结果中的 `IsMutable` 列查看是否支持动态配置。
 
    如果是修改 `MasterOnly` 的配置项，则该命令会直接转发给 Master FE 并且仅修改 Master FE 中对应的配置项。
 
@@ -99,7 +99,7 @@ FE 的配置项有两种方式进行配置：
 
 1. 修改 `async_pending_load_task_pool_size`
 
-   通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
+   通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
 
    `async_pending_load_task_pool_size=20`
 
@@ -107,7 +107,7 @@ FE 的配置项有两种方式进行配置：
 
 2. 修改 `dynamic_partition_enable`
 
-   通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且是 Master FE 独有配置。则首先我们可以连接到任意 FE，执行如下命令修改配置：
+   通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且是 Master FE 独有配置。则首先我们可以连接到任意 FE，执行如下命令修改配置：
 
    ```text
    ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true");`
@@ -117,14 +117,14 @@ FE 的配置项有两种方式进行配置：
 
    ```text
    set forward_to_master=true;
-   ADMIN SHOW FRONTEND CONFIG;
+   SHOW FRONTEND CONFIG;
    ```
 
    通过以上方式修改后，如果 Master FE 重启或进行了 Master 切换，则配置将失效。可以通过在 `fe.conf` 中直接添加配置项，并重启 FE 后，永久生效该配置项。
 
 3. 修改 `max_distribution_pruner_recursion_depth`
 
-   通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
+   通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
 
    同样，我们可以通过动态修改配置的命令修改该配置。因为该配置不是 Master FE 独有配置，所以需要单独连接到不同的 FE，进行动态修改配置的操作，这样才能保证所有 FE 都使用了修改后的配置值
 

@@ -59,6 +59,10 @@ public:
     void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
                                  RowsetSharedPtr _output_rowset,
                                  Version& last_delete_version) override;
+
+    void update_compaction_level(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
+                                 RowsetSharedPtr output_rowset) override;
+
     std::string_view name() override { return CUMULATIVE_TIME_SERIES_POLICY; }
 };
 

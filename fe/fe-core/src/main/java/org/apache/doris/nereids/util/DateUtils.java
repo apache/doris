@@ -20,19 +20,23 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.SignStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
+import java.time.temporal.WeekFields;
 
 /**
  * date util tools.
  */
 public class DateUtils {
+    private static final WeekFields weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
 
     /**
      * format builder.
@@ -103,7 +107,7 @@ public class DateUtils {
                         builder.appendPattern("HH:mm:ss");
                         break;
                     case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
-                        builder.appendValue(ChronoField.ALIGNED_WEEK_OF_YEAR, 2);
+                        builder.appendValue(weekFields.weekOfWeekBasedYear(), 2);
                         break;
                     case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
                         builder.appendValue(IsoFields.WEEK_OF_WEEK_BASED_YEAR, 2);
@@ -115,6 +119,8 @@ public class DateUtils {
                         builder.appendValue(IsoFields.WEEK_BASED_YEAR, 4);
                         break;
                     case 'X':
+                        builder.appendValue(weekFields.weekBasedYear(), 4, 10, SignStyle.EXCEEDS_PAD);
+                        break;
                     case 'Y': // %Y Year, numeric, four digits
                         // %X Year for the week, where Sunday is the first day of the week,
                         // numeric, four digits; used with %v

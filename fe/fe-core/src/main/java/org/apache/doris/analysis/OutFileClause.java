@@ -129,13 +129,14 @@ public class OutFileClause {
     private static final String HADOOP_FS_PROP_PREFIX = "dfs.";
     private static final String HADOOP_PROP_PREFIX = "hadoop.";
     private static final String BROKER_PROP_PREFIX = "broker.";
-    private static final String PROP_BROKER_NAME = "broker.name";
+    public static final String PROP_BROKER_NAME = "broker.name";
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
     public static final String PROP_LINE_DELIMITER = "line_delimiter";
     public static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
     public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     public static final String PROP_FILE_SUFFIX = "file_suffix";
+    public static final String PROP_WITH_BOM = "with_bom";
 
     private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String SCHEMA = "schema";
@@ -155,6 +156,7 @@ public class OutFileClause {
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
     private boolean deleteExistingFiles = false;
     private String fileSuffix = "";
+    private boolean withBom = false;
     private BrokerDesc brokerDesc = null;
     // True if result is written to local disk.
     // If set to true, the brokerDesc must be null.
@@ -325,13 +327,6 @@ public class OutFileClause {
                 break;
             case STRUCT: {
                 StructType structType = (StructType) dorisType;
-                ArrayList<StructField> fields = structType.getFields();
-                for (StructField field : fields) {
-                    if (!(field.getType() instanceof ScalarType)) {
-                        throw new AnalysisException("currently ORC outfile do not support field type: "
-                                + field.getType().toSql() + " for STRUCT");
-                    }
-                }
 
                 StringBuilder sb = new StringBuilder();
                 sb.append("struct<");
@@ -350,11 +345,6 @@ public class OutFileClause {
             }
             case MAP: {
                 MapType mapType = (MapType) dorisType;
-                if ((!(mapType.getKeyType() instanceof ScalarType)
-                        || !(mapType.getValueType() instanceof ScalarType))) {
-                    throw new AnalysisException("currently ORC outfile do not support data type: MAP<"
-                            + mapType.getKeyType().toSql() + "," + mapType.getValueType().toSql() + ">");
-                }
                 StringBuilder sb = new StringBuilder();
                 sb.append("map<")
                         .append(dorisTypeToOrcTypeMap(mapType.getKeyType()))
@@ -365,11 +355,6 @@ public class OutFileClause {
                 break;
             }
             case ARRAY: {
-                Type itemType = ((ArrayType) dorisType).getItemType();
-                if (!(itemType instanceof ScalarType)) {
-                    throw new AnalysisException("currently ORC outfile do not support data type: ARRAY<"
-                            + itemType.toSql() + ">");
-                }
                 StringBuilder sb = new StringBuilder();
                 ArrayType arrayType = (ArrayType) dorisType;
                 sb.append("array<")
@@ -583,6 +568,11 @@ public class OutFileClause {
             processedPropKeys.add(PROP_FILE_SUFFIX);
         }
 
+        if (properties.containsKey(PROP_WITH_BOM)) {
+            withBom = Boolean.valueOf(properties.get(PROP_WITH_BOM)).booleanValue();
+            processedPropKeys.add(PROP_WITH_BOM);
+        }
+
         if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
             successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
             FeNameFormat.checkOutfileSuccessFileName("file name", successFileName);
@@ -598,7 +588,9 @@ public class OutFileClause {
         }
 
         if (processedPropKeys.size() != properties.size()) {
-            LOG.debug("{} vs {}", processedPropKeys, properties);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("{} vs {}", processedPropKeys, properties);
+            }
             throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
                     .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
         }
@@ -822,6 +814,7 @@ public class OutFileClause {
         sinkOptions.setMaxFileSizeBytes(maxFileSizeBytes);
         sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         sinkOptions.setFileSuffix(fileSuffix);
+        sinkOptions.setWithBom(withBom);
 
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getProperties());

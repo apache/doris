@@ -77,6 +77,11 @@ public final class ExprSubstitutionMap {
         rhs.add(rhsExpr);
     }
 
+    public void putNoAnalyze(Expr lhsExpr, Expr rhsExpr) {
+        lhs.add(lhsExpr);
+        rhs.add(rhsExpr);
+    }
+
     /**
      * Returns the expr mapped to lhsExpr or null if no mapping to lhsExpr exists.
      */

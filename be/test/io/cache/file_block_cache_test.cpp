@@ -961,4 +961,80 @@ TEST(LRUFileCache, fd_cache_evict) {
     }
 }
 
+TEST(LRUFileCache, percents) {
+    std::string string = std::string(R"(
+        [
+        {
+            "path" : "file_cache1",
+            "total_size" : 100,
+            "query_limit" : 50,
+            "normal_percent" : 50,
+            "disposable_percent" : 45,
+            "index_percent" : 5
+        },
+        {
+            "path" : "file_cache2",
+            "total_size" : 100,
+            "query_limit" : 50,
+            "normal_percent" : 85,
+            "disposable_percent" : 10,
+            "index_percent" : 5
+        },
+        {
+            "path" : "file_cache3",
+            "total_size" : 100,
+            "query_limit" : 50
+        }
+        ]
+        )");
+
+    std::vector<CachePath> cache_paths;
+    EXPECT_TRUE(parse_conf_cache_paths(string, cache_paths));
+    EXPECT_EQ(cache_paths.size(), 3);
+    for (size_t i = 0; i < cache_paths.size(); ++i) {
+        io::FileCacheSettings settings = cache_paths[i].init_settings();
+        EXPECT_EQ(settings.total_size, 100);
+        if (i == 0) {
+            EXPECT_EQ(settings.query_queue_size, 50);
+            EXPECT_EQ(settings.disposable_queue_size, 45);
+            EXPECT_EQ(settings.index_queue_size, 5);
+        } else {
+            EXPECT_EQ(settings.query_queue_size, 85);
+            EXPECT_EQ(settings.disposable_queue_size, 10);
+            EXPECT_EQ(settings.index_queue_size, 5);
+        }
+    }
+
+    // percents number error
+    std::string err_string = std::string(R"(
+        [
+        {
+            "path" : "file_cache1",
+            "total_size" : 100,
+            "query_limit" : 50,
+            "normal_percent" : 50,
+            "disposable_percent" : 45
+        }
+        ]
+        )");
+    cache_paths.clear();
+    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
+
+    // percents value error
+    err_string = std::string(R"(
+        [
+        {
+            "path" : "file_cache1",
+            "total_size" : 100,
+            "query_limit" : 50,
+            "normal_percent" : 10,
+            "disposable_percent" : 10,
+            "index_percent" : 10
+        }
+        ]
+        )");
+    cache_paths.clear();
+    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
+}
+
 } // namespace doris::io

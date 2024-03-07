@@ -60,12 +60,19 @@ public class DeleteInfo implements Writable, GsonPostProcessable {
     @SerializedName(value = "partitionName")
     private String partitionName;
 
-    public DeleteInfo(long dbId, long tableId, String tableName, List<String> deleteConditions) {
+    public DeleteInfo(long dbId, long tableId, String tableName, List<String> deleteConditions,
+                      boolean noPartitionSpecified, List<Long> partitionIds, List<String> partitionNames) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.tableName = tableName;
         this.deleteConditions = deleteConditions;
         this.createTimeMs = System.currentTimeMillis();
+        this.noPartitionSpecified = noPartitionSpecified;
+        if (!noPartitionSpecified) {
+            Preconditions.checkState(partitionIds.size() == partitionNames.size());
+            this.partitionIds = partitionIds;
+            this.partitionNames = partitionNames;
+        }
     }
 
     public long getDbId() {
@@ -90,13 +97,6 @@ public class DeleteInfo implements Writable, GsonPostProcessable {
 
     public boolean isNoPartitionSpecified() {
         return noPartitionSpecified;
-    }
-
-    public void setPartitions(boolean noPartitionSpecified, List<Long> partitionIds, List<String> partitionNames) {
-        this.noPartitionSpecified = noPartitionSpecified;
-        Preconditions.checkState(partitionIds.size() == partitionNames.size());
-        this.partitionIds = partitionIds;
-        this.partitionNames = partitionNames;
     }
 
     public List<Long> getPartitionIds() {

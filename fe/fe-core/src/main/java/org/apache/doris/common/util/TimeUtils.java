@@ -161,24 +161,24 @@ public class TimeUtils {
         return TimeZone.getTimeZone(ZoneId.of(timeZone, timeZoneAliasMap));
     }
 
-    public static String longToTimeString(long timeStamp, DateTimeFormatter dateFormat) {
-        if (timeStamp <= 0L) {
+    public static String longToTimeString(Long timeStamp, DateTimeFormatter dateFormat) {
+        if (timeStamp == null || timeStamp <= 0L) {
             return FeConstants.null_string;
         }
         return dateFormat.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(timeStamp), ZoneId.systemDefault()));
     }
 
-    public static String longToTimeStringWithFormat(long timeStamp, DateTimeFormatter datetimeFormatTimeZone) {
+    public static String longToTimeStringWithFormat(Long timeStamp, DateTimeFormatter datetimeFormatTimeZone) {
         TimeZone timeZone = getTimeZone();
         datetimeFormatTimeZone.withZone(timeZone.toZoneId());
         return longToTimeString(timeStamp, datetimeFormatTimeZone);
     }
 
-    public static String longToTimeString(long timeStamp) {
+    public static String longToTimeString(Long timeStamp) {
         return longToTimeStringWithFormat(timeStamp, DATETIME_FORMAT);
     }
 
-    public static String longToTimeStringWithms(long timeStamp) {
+    public static String longToTimeStringWithms(Long timeStamp) {
         return longToTimeStringWithFormat(timeStamp, DATETIME_MS_FORMAT);
     }
 
@@ -334,5 +334,4 @@ public class TimeUtils {
                 parts.length > 3 ? String.format(" %02d:%02d:%02d", Integer.parseInt(parts[3]),
                         Integer.parseInt(parts[4]), Integer.parseInt(parts[5])) : "");
     }
-
 }

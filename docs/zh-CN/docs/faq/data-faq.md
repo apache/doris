@@ -167,8 +167,14 @@ FROM kafka
  "property.group.id" = "xxx"
 );
 ```
+
 ### Q12. ERROR 1105 (HY000): errCode = 2, detailMessage = (192.168.90.91)[CANCELLED][INTERNAL_ERROR]error setting certificate verify locations:  CAfile: /etc/ssl/certs/ca-certificates.crt CApath: none
+
 ```
 yum install -y ca-certificates
 ln -s /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt /etc/ssl/certs/ca-certificates.crt
 ```
+
+### Q13. create partition failed. partition numbers will exceed limit variable max_auto_partition_num
+
+对自动分区表导入数据时，为防止意外创建过多分区，我们使用了FE配置项`max_auto_partition_num`管控此类表自动创建时的最大分区数。如果确需创建更多分区，请修改FE master节点的该配置项。

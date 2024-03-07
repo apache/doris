@@ -84,7 +84,7 @@ public class CreateFunctionTest {
         dorisAssert = new DorisAssert();
         dorisAssert.useDatabase("db1");
 
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("db1");
         Assert.assertNotNull(db);
 
         // create alias function
@@ -216,7 +216,7 @@ public class CreateFunctionTest {
         dorisAssert = new DorisAssert();
         dorisAssert.useDatabase("db2");
 
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db2");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("db2");
         Assert.assertNotNull(db);
 
         // 2. create global function

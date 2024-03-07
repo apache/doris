@@ -366,8 +366,8 @@ private:
     }
 
 private:
-    JsonbDocument* document_;
-    JsonbValue* root_;
+    JsonbDocument* document_ = nullptr;
+    JsonbValue* root_ = nullptr;
     uint buffer_size_;
     // This stack store all the key path in the document. It's deserve
     // noticing that the root node is always in this stack.

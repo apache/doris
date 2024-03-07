@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <fmt/compile.h>
 #include <gen_cpp/data.pb.h>
 #include <snappy/snappy.h>
 
@@ -44,10 +45,12 @@ static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
 static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
 
-inline std::string int128_to_string(__int128_t value) {
-    fmt::memory_buffer buffer;
-    fmt::format_to(buffer, "{}", value);
-    return std::string(buffer.data(), buffer.size());
+inline std::string int128_to_string(int128_t value) {
+    return fmt::format(FMT_COMPILE("{}"), value);
+}
+
+inline std::string int128_to_string(uint128_t value) {
+    return fmt::format(FMT_COMPILE("{}"), value);
 }
 
 inline std::string int128_to_string(UInt128 value) {
@@ -297,7 +300,7 @@ bool read_date_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_tim
 template <typename T>
 bool read_ipv4_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<IPv4, T>);
-    bool res = IPv4Value::from_string(x, buf.to_string());
+    bool res = IPv4Value::from_string(x, buf.position(), buf.count());
     buf.position() = buf.end();
     return res;
 }
@@ -305,7 +308,7 @@ bool read_ipv4_text_impl(T& x, ReadBuffer& buf) {
 template <typename T>
 bool read_ipv6_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<IPv6, T>);
-    bool res = IPv6Value::from_string(x, buf.to_string());
+    bool res = IPv6Value::from_string(x, buf.position(), buf.count());
     buf.position() = buf.end();
     return res;
 }
@@ -389,7 +392,7 @@ template <PrimitiveType P, typename T>
 StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision,
                                                  UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
-    if constexpr (!std::is_same_v<Decimal128, T>) {
+    if constexpr (!std::is_same_v<Decimal128V2, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
         x.value = StringParser::string_to_decimal<P>((const char*)buf.position(), buf.count(),

@@ -56,7 +56,9 @@ suite ("test_rename_column") {
     sql """ sync """
 
     // alter and test light schema change
-    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+    if (!isCloudMode()) {
+        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+    }
 
     qt_select """ SELECT * FROM ${tableName} order by user_id ASC, last_visit_date """
 

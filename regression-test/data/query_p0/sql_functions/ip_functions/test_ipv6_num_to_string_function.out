@@ -1,0 +1,11 @@
+-- !sql --
+1	::	::
+2	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+3	ef8d:3d6a:869b:2582:7200:aa46:4dcd:2bd4	ef8d:3d6a:869b:2582:7200:aa46:4dcd:2bd4
+4	4a3e:dc26:1819:83e6:9ee5:7239:ff44:aee8	4a3e:dc26:1819:83e6:9ee5:7239:ff44:aee8
+5	b374:22dc:814a:567b:6013:78a7:32d:5c8	b374:22dc:814a:567b:6013:78a7:32d:5c8
+6	1326:d47e:2417:83c0:bd35:fc82:34dc:953a	1326:d47e:2417:83c0:bd35:fc82:34dc:953a
+7	8ffa:65cb:6554:5c3e:fb87:3f91:29da:2891	8ffa:65cb:6554:5c3e:fb87:3f91:29da:2891
+8	def7:1488:6fb7:c70:aa66:df25:6a43:5d89	def7:1488:6fb7:c70:aa66:df25:6a43:5d89
+9	d3fa:9a9:af08:c8b:44ab:8f75:b11:e997	d3fa:9a9:af08:c8b:44ab:8f75:b11:e997
+10	\N	\N

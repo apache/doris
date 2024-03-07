@@ -168,6 +168,8 @@ CREATE CATALOG hive PROPERTIES (
 
 ### Hive With Glue
 
+> When connecting Glue, if it's not on the EC2 environment, need copy the `~/.aws` from the EC2 environment to the current environment. And can also download and configure the [AWS Cli tools](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), which also creates the `.aws` directory under the current user directory.
+
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
@@ -389,11 +391,22 @@ Add following setting when creating an HMS catalog, file splitting and scanning 
 "broker.name" = "test_broker"
 ```
 
+
+Doris has implemented Broker query support for HMS Catalog Iceberg based on the Iceberg `FileIO` interface. If needed, the following configuration can be added when creating the HMS Catalog.
+
+```sql
+"io-impl" = "org.apache.doris.datasource.iceberg.broker.IcebergBrokerIO"
+```
+
 ## Integrate with Apache Ranger
 
 Apache Ranger is a security framework for monitoring, enabling services, and comprehensive data security access management on the Hadoop platform.
 
-Currently doris supports ranger library, table, and column permissions, but does not support encryption, row permissions, etc.
+Doris supports using Apache Ranger for authentication for a specified External Hive Catalog.
+
+Currently, authentication of database, table, and column is supported. Functions such as encryption, row policy, and data masks are not currently supported.
+
+To use Apache Ranger to authenticate the entire Doris cluster service, please refer to [Apache Ranger Authentication](../../admin-manual/privilege-ldap/ranger.md)
 
 ### Settings
 
@@ -401,10 +414,14 @@ To connect to the Hive Metastore with Ranger permission verification enabled, yo
 
 1. When creating a Catalog, add:
 
-```sql
-"access_controller.properties.ranger.service.name" = "hive",
-"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
-```
+	```sql
+	"access_controller.properties.ranger.service.name" = "hive",
+	"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+	```
+
+	> Note:
+	>
+	> `access_controller.properties.ranger.service.name` refers to the type of service, such as `hive`, `hdfs`, etc. It is not the value of `ranger.plugin.hive.service.name` in the configuration file.
 
 2. Configure all FE environments:
 
@@ -479,6 +496,7 @@ To connect to the Hive Metastore with Ranger permission verification enabled, yo
 
 4. Create role1 with the same name in doris, and assign role1 to user1, user1 will have the query authority of db1.table1.col1 and col2 at the same time
 
+5. The permissions of Admin and Root users are not controlled by Apache Ranger.
 
 ## Integrate with Kerberos
 
@@ -546,3 +564,17 @@ CREATE CATALOG hive PROPERTIES (
     'yarn.resourcemanager.principal' = 'your-rm-principal'
 );
 ```
+## Hive Transactional Tables
+
+Hive transactional tables are tables in Hive that support ACID (Atomicity, Consistency, Isolation, Durability) semantics. For more details, you can refer to: [Hive Transactions](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions).
+
+### Supported Operations for Hive Transactional Tables:
+|Transactional Table Type|Supported Operations in Hive|Hive Table Properties|Supported Hive Versions|
+|---|---|---|---|
+|Full-ACID Transactional Table |Supports insert, update, delete operations|'transactional'='true', 'transactional_properties'='insert_only'|3.x, 2.x (requires major compaction in Hive before loading)|
+|Insert-Only Transactional Table|Supports only Insert operations|'transactional'='true'|3.x, 2.x|
+
+### Current Limitations:
+Currently, it does not support scenarios involving Original Files.
+When a table is transformed into a transactional table, subsequent newly written data files will use the schema of the Hive transactional table. However, existing data files will not be converted to the schema of the transactional table. These existing files are referred to as Original Files.
+

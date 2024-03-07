@@ -31,6 +31,10 @@ MaxCompute (previously known as ODPS) is a data warehousing solution that can pr
 
 > [What is MaxCompute](https://www.alibabacloud.com/help/en/maxcompute/product-overview/what-is-maxcompute)
 
+## Instructions
+1. Max Compute Catalog is developed based on [Max Compute Tunnel SDK](https://www.alibabacloud.com/help/en/maxcompute/user-guide/overview-28?spm=a2c63.p38356.0.0.7d951a91knT73F), and Query performance is limited.
+2. During a query, Max Compute DownloadSession objects are created for each Scan. Therefore, performance will degrade when Max Compute is accessed in parallel. It is recommended that minimize the number of partitions and the size of the queried data when using the Max Compute Catalog.
+
 ## Connect to MaxCompute
 
 ```sql
@@ -57,4 +61,29 @@ Pay-as-you-go quota has limited concurrency and usage. For additional resources,
 
 Consistent with Hive Catalog, please refer to the **column type mapping** section in [Hive Catalog](./hive.md).
 
+## User-defined service address
+
+The region property is specified to generate a default endpoint of public network.
+
+In addition to default endpoint addresses, Max Compute Catalog also supports custom service addresses in properties.
+
+Use the following properties:
+* `mc.odps_endpoint`：Max Compute Endpoint。
+* `mc.tunnel_endpoint`: Tunnel Endpoint，Max Compute Catalog uses the Tunnel SDK to obtain data.
+
+For more information about Max Compute Endpoint and Tunnel Endpoint that are used in different regions and network connection modes, see [Endpoint](https://www.alibabacloud.com/help/en/maxcompute/user-guide/endpoints)
+
+For example:
+
+```sql
+CREATE CATALOG mc PROPERTIES (
+  "type" = "max_compute",
+  "mc.region" = "cn-beijing",
+  "mc.default.project" = "your-project",
+  "mc.access_key" = "ak",
+  "mc.secret_key" = "sk"
+  "mc.odps_endpoint" = "http://service.cn-beijing.maxcompute.aliyun-inc.com/api",
+  "mc.tunnel_endpoint" = "http://dt.cn-beijing.maxcompute.aliyun-inc.com"
+);
+```
 

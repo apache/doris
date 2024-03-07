@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.ExecuteStmt;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.QueryStmt;
@@ -75,7 +76,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             }
             printB.append(" ");
         }
-        LOG.debug("debug packet {}", printB.toString().substring(0, 200));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("debug packet {}", printB.toString().substring(0, 200));
+        }
     }
 
     // process COM_EXECUTE, parse binary row data
@@ -89,10 +92,14 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         packetBuf.get();
         // iteration_count always 1,
         packetBuf.getInt();
-        LOG.debug("execute prepared statement {}", stmtId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("execute prepared statement {}", stmtId);
+        }
         PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
         if (prepareCtx == null) {
-            LOG.debug("No such statement in context, stmtId:{}", stmtId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("No such statement in context, stmtId:{}", stmtId);
+            }
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
                     "msg: Not supported such prepared statement");
             return;
@@ -113,7 +120,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 // parse params's types
                 for (int i = 0; i < paramCount; ++i) {
                     int typeCode = packetBuf.getChar();
-                    LOG.debug("code {}", typeCode);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("code {}", typeCode);
+                    }
                     prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
                 }
             }
@@ -132,19 +141,26 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             // TODO set real origin statement
             executeStmt.setOrigStmt(new OriginStatement("null", 0));
             executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            LOG.debug("executeStmt {}", executeStmt);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("executeStmt {}", executeStmt);
+            }
             executor = new StmtExecutor(ctx, executeStmt);
             ctx.setExecutor(executor);
             executor.execute();
-            stmtStr = executeStmt.toSql();
+            PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
+            if (preparedStmtContext != null && !(preparedStmtContext.stmt.getInnerStmt() instanceof InsertStmt)) {
+                stmtStr = executeStmt.toSql();
+            }
         } catch (Throwable e) {
             // Catch all throwable.
-            // If reach here, maybe palo bug.
+            // If reach here, maybe doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
+        if (!stmtStr.isEmpty()) {
+            auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
+        }
     }
 
     // Process COM_QUERY statement,
@@ -169,7 +185,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.warn("Unknown command(" + code + ")");
             return;
         }
-        LOG.debug("handle command {}", command);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("handle command {}", command);
+        }
         ctx.setCommand(command);
         ctx.setStartTime();
 
@@ -257,5 +275,3 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
     }
 }
-
-

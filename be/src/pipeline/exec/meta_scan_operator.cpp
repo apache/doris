@@ -22,7 +22,7 @@
 namespace doris::pipeline {
 
 Status MetaScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
-    if (Base::_scan_dependency->eos()) {
+    if (Base::_eos) {
         return Status::OK();
     }
 

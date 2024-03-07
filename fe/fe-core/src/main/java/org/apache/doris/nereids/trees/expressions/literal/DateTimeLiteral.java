@@ -136,7 +136,6 @@ public class DateTimeLiteral extends DateLiteral {
         hour = DateUtils.getOrDefault(temporal, ChronoField.HOUR_OF_DAY);
         minute = DateUtils.getOrDefault(temporal, ChronoField.MINUTE_OF_HOUR);
         second = DateUtils.getOrDefault(temporal, ChronoField.SECOND_OF_MINUTE);
-        microSecond = DateUtils.getOrDefault(temporal, ChronoField.MICRO_OF_SECOND);
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
@@ -151,6 +150,21 @@ public class DateTimeLiteral extends DateLiteral {
                 this.month = result.month;
                 this.year = result.year;
             }
+        }
+
+        microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
+        // Microseconds have 7 digits.
+        long sevenDigit = microSecond % 10;
+        microSecond = microSecond / 10;
+        if (sevenDigit >= 5 && this instanceof DateTimeV2Literal) {
+            DateTimeV2Literal result = (DateTimeV2Literal) ((DateTimeV2Literal) this).plusMicroSeconds(1);
+            this.second = result.second;
+            this.minute = result.minute;
+            this.hour = result.hour;
+            this.day = result.day;
+            this.month = result.month;
+            this.year = result.year;
+            this.microSecond = result.microSecond;
         }
 
         if (checkRange() || checkDate()) {

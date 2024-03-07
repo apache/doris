@@ -482,7 +482,7 @@ TEST(function_string_test, function_to_base64_test) {
     DataSet data_set = {{{std::string("asd你好")}, {std::string("YXNk5L2g5aW9")}},
                         {{std::string("hello world")}, {std::string("aGVsbG8gd29ybGQ=")}},
                         {{std::string("HELLO,!^%")}, {std::string("SEVMTE8sIV4l")}},
-                        {{std::string("")}, {Null()}},
+                        {{std::string("")}, {std::string("")}},
                         {{std::string("MYtestSTR")}, {std::string("TVl0ZXN0U1RS")}},
                         {{std::string("ò&ø")}, {std::string("w7Imw7g=")}}};
 
@@ -496,7 +496,7 @@ TEST(function_string_test, function_from_base64_test) {
     DataSet data_set = {{{std::string("YXNk5L2g5aW9")}, {std::string("asd你好")}},
                         {{std::string("aGVsbG8gd29ybGQ=")}, {std::string("hello world")}},
                         {{std::string("SEVMTE8sIV4l")}, {std::string("HELLO,!^%")}},
-                        {{std::string("")}, {Null()}},
+                        {{std::string("")}, {std::string("")}},
                         {{std::string("TVl0ZXN0U1RS")}, {std::string("MYtestSTR")}},
                         {{std::string("w7Imw7g=")}, {std::string("ò&ø")}},
                         {{std::string("ò&ø")}, {Null()}},

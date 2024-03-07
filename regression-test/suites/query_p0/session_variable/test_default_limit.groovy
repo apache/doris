@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_default_limit') {
+suite('test_default_limit', "arrow_flight_sql") {
     sql 'drop table if exists baseall'
     sql 'drop table if exists bigtable'
 
@@ -23,7 +23,7 @@ suite('test_default_limit') {
         create table baseall (
             k0 int,
             k1 int,
-            k2 int,
+            k2 int
         )
         distributed by hash(k0) buckets 16
         properties(
@@ -35,7 +35,7 @@ suite('test_default_limit') {
         create table bigtable (
             k0 int,
             k1 int,
-            k2 int,
+            k2 int
         )
         distributed by hash(k0) buckets 16
         properties(

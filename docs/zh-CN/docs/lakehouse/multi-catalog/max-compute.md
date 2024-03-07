@@ -31,6 +31,10 @@ MaxCompute是阿里云上的企业级SaaS（Software as a Service）模式云数
 
 > [什么是 MaxCompute](https://help.aliyun.com/zh/maxcompute/product-overview/what-is-maxcompute?spm=a2c4g.11174283.0.i1)
 
+## 使用须知
+1. Max Compute Catalog基于[Max Compute Tunnel SDK](https://help.aliyun.com/zh/maxcompute/user-guide/overview-28?spm=a2c4g.11186623.0.0.376d66c2FNv6aS)开发。查询性能有一定限制。
+2. 在一次查询中，每个Scan都会创建Max Compute的DownloadSession对象，并行访问Max Compute时性能会下降，建议使用Max Compute Catalog时，尽量减少查询的分区数量和数据大小。
+
 ## 连接 Max Compute
 
 ```sql
@@ -56,5 +60,31 @@ CREATE CATALOG mc PROPERTIES (
 ## 列类型映射
 
 和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
+
+## 自定义服务地址
+
+默认情况下，Max Compute Catalog根据region去默认生成公网的endpoint。
+
+除了默认的endpoint地址外，Max Compute Catalog也支持在属性中自定义服务地址。
+
+使用以下两个属性：
+* `mc.odps_endpoint`：Max Compute Endpoint。
+* `mc.tunnel_endpoint`: Tunnel Endpoint，Max Compute Catalog使用Tunnel SDK获取数据。
+
+Max Compute Endpoint和Tunnel Endpoint的配置请参见[各地域及不同网络连接方式下的Endpoint](https://help.aliyun.com/zh/maxcompute/user-guide/endpoints)
+
+示例：
+
+```sql
+CREATE CATALOG mc PROPERTIES (
+  "type" = "max_compute",
+  "mc.region" = "cn-beijing",
+  "mc.default.project" = "your-project",
+  "mc.access_key" = "ak",
+  "mc.secret_key" = "sk"
+  "mc.odps_endpoint" = "http://service.cn-beijing.maxcompute.aliyun-inc.com/api",
+  "mc.tunnel_endpoint" = "http://dt.cn-beijing.maxcompute.aliyun-inc.com"
+);
+```
 
 

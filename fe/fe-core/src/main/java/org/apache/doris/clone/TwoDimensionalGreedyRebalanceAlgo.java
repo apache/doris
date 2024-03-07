@@ -137,7 +137,9 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             // the partition skew, partition count for all the be should be 0.
             // Keys are ordered by the natural ordering, so we can get the last(max) key to know if all keys are 0.
             NavigableSet<Long> keySet = info.beByTotalReplicaCount.keySet();
-            LOG.debug(keySet);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(keySet);
+            }
             Preconditions.checkState(keySet.isEmpty() || keySet.last() == 0L,
                     "non-zero replica count on be while no partition skew information in skewMap");
             // Nothing to balance: cluster is empty.
@@ -197,10 +199,12 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
             Long minReplicaCount = pbi.beByReplicaCount.keySet().first();
             Long maxReplicaCount = pbi.beByReplicaCount.keySet().last();
-            LOG.debug("balancing partition {}-{} with replica count skew {}"
-                            + " (min_replica_count: {}, max_replica_count: {})",
-                    pbi.partitionId, pbi.indexId, maxPartitionSkew,
-                    minReplicaCount, maxReplicaCount);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("balancing partition {}-{} with replica count skew {}"
+                                + " (min_replica_count: {}, max_replica_count: {})",
+                        pbi.partitionId, pbi.indexId, maxPartitionSkew,
+                        minReplicaCount, maxReplicaCount);
+            }
 
             // Compute the intersection of the bes most loaded for the table
             // with the bes most loaded overall, and likewise for least loaded.
@@ -209,12 +213,14 @@ public class TwoDimensionalGreedyRebalanceAlgo {
                     pbi.beByReplicaCount, beByTotalReplicaCount);
             IntersectionResult minLoaded = getIntersection(ExtremumType.MIN,
                     pbi.beByReplicaCount, beByTotalReplicaCount);
-            LOG.debug("partition-wise: min_count: {}, max_count: {}",
-                    minLoaded.replicaCountPartition, maxLoaded.replicaCountPartition);
-            LOG.debug("cluster-wise: min_count: {}, max_count: {}",
-                    minLoaded.replicaCountTotal, maxLoaded.replicaCountTotal);
-            LOG.debug("min_loaded_intersection: {}, max_loaded_intersection: {}",
-                    minLoaded.intersection.toString(), maxLoaded.intersection.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("partition-wise: min_count: {}, max_count: {}",
+                        minLoaded.replicaCountPartition, maxLoaded.replicaCountPartition);
+                LOG.debug("cluster-wise: min_count: {}, max_count: {}",
+                        minLoaded.replicaCountTotal, maxLoaded.replicaCountTotal);
+                LOG.debug("min_loaded_intersection: {}, max_loaded_intersection: {}",
+                        minLoaded.intersection.toString(), maxLoaded.intersection.toString());
+            }
 
             // Do not move replicas of a balanced table if the least (most) loaded
             // servers overall do not intersect the servers hosting the least (most)
@@ -240,7 +246,9 @@ public class TwoDimensionalGreedyRebalanceAlgo {
                         : getRandomListElement(maxLoaded.intersection);
             }
 
-            LOG.debug("min_loaded_be: {}, max_loaded_be: {}", minLoadedBe, maxLoadedBe);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("min_loaded_be: {}, max_loaded_be: {}", minLoadedBe, maxLoadedBe);
+            }
             if (minLoadedBe.equals(maxLoadedBe)) {
                 // Nothing to move.
                 continue;

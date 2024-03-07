@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
@@ -42,6 +43,8 @@ public abstract class PlanTreeRewriteJob extends Job {
         boolean isRewriteRoot = rewriteJobContext.isRewriteRoot();
         CascadesContext cascadesContext = context.getCascadesContext();
         cascadesContext.setIsRewriteRoot(isRewriteRoot);
+
+        boolean showPlanProcess = cascadesContext.showPlanProcess();
         for (Rule rule : rules) {
             if (disableRules.contains(rule.getRuleType().type())) {
                 continue;
@@ -56,17 +59,18 @@ public abstract class PlanTreeRewriteJob extends Job {
                     // don't remove this comment, it can help us to trace some bug when developing.
 
                     NereidsTracer.logRewriteEvent(rule.toString(), pattern, plan, newPlan);
-                    // String traceBefore = null;
-                    // if (traceEnable) {
-                    //     traceBefore = getCurrentPlanTreeString();
-                    // }
+                    String traceBefore = null;
+                    if (showPlanProcess) {
+                        traceBefore = getCurrentPlanTreeString();
+                    }
                     rewriteJobContext.result = newPlan;
                     context.setRewritten(true);
                     rule.acceptPlan(newPlan);
-                    // if (traceEnable) {
-                    //     String traceAfter = getCurrentPlanTreeString();
-                    //     printTraceLog(rule, traceBefore, traceAfter);
-                    // }
+                    if (showPlanProcess) {
+                        String traceAfter = getCurrentPlanTreeString();
+                        PlanProcess planProcess = new PlanProcess(rule.getRuleType().name(), traceBefore, traceAfter);
+                        cascadesContext.addPlanProcess(planProcess);
+                    }
                     return new RewriteResult(true, newPlan);
                 }
             }
@@ -94,6 +98,13 @@ public abstract class PlanTreeRewriteJob extends Job {
             }
         }
         return changed ? plan.withChildren(newChildren) : plan;
+    }
+
+    private String getCurrentPlanTreeString() {
+        return context.getCascadesContext()
+                .getCurrentRootRewriteJobContext().get()
+                .getNewestPlan()
+                .treeString();
     }
 
     static class RewriteResult {

@@ -195,8 +195,8 @@ Status VExplodeJsonArrayTableFunction::process_init(Block* block, RuntimeState* 
     return Status::OK();
 }
 
-Status VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
-    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+void VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
+    TableFunction::process_row(row_idx);
 
     StringRef text = _text_column->get_data_at(row_idx);
     if (text.data != nullptr) {
@@ -206,12 +206,10 @@ Status VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
             _cur_size = _parsed_data.set_output(_type, document);
         }
     }
-    return Status::OK();
 }
 
-Status VExplodeJsonArrayTableFunction::process_close() {
+void VExplodeJsonArrayTableFunction::process_close() {
     _text_column = nullptr;
-    return Status::OK();
 }
 
 void VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column) {

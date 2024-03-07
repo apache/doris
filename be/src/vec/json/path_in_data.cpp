@@ -46,11 +46,22 @@ PathInData::PathInData(const PathInData& other) : path(other.path) {
     build_parts(other.get_parts());
 }
 
+PathInData::PathInData(const std::string& root, const std::vector<std::string>& paths) {
+    PathInDataBuilder path_builder;
+    path_builder.append(root, false);
+    for (const std::string& path : paths) {
+        path_builder.append(path, false);
+    }
+    build_path(path_builder.get_parts());
+    build_parts(path_builder.get_parts());
+}
+
 PathInData::PathInData(const std::vector<std::string>& paths) {
     PathInDataBuilder path_builder;
     for (size_t i = 0; i < paths.size(); ++i) {
         path_builder.append(paths[i], false);
     }
+    build_path(path_builder.get_parts());
     build_parts(path_builder.get_parts());
 }
 
@@ -150,11 +161,18 @@ size_t PathInData::Hash::operator()(const PathInData& value) const {
     return hash.low ^ hash.high;
 }
 
-PathInData PathInData::pop_front() const {
+PathInData PathInData::copy_pop_front() const {
+    return copy_pop_nfront(1);
+}
+
+PathInData PathInData::copy_pop_nfront(size_t n) const {
+    if (n >= parts.size()) {
+        return {};
+    }
     PathInData new_path;
     Parts new_parts;
     if (!parts.empty()) {
-        std::copy(parts.begin() + 1, parts.end(), std::back_inserter(new_parts));
+        std::copy(parts.begin() + n, parts.end(), std::back_inserter(new_parts));
     }
     new_path.build_path(new_parts);
     new_path.build_parts(new_parts);

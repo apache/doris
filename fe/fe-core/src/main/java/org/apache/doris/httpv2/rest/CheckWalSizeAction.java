@@ -84,8 +84,7 @@ public class CheckWalSizeAction extends RestBaseController {
             List<Backend> backends = getBackends(hostInfos);
             List<String> backendsList = new ArrayList<>();
             for (Backend backend : backends) {
-                long size = Env.getCurrentEnv().getGroupCommitManager()
-                        .getAllWalQueueSize(backend);
+                long size = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
                 backendsList.add(backend.getHost() + ":" + backend.getHeartbeatPort() + ":" + size);
             }
             return ResponseEntityBuilder.ok(backendsList);

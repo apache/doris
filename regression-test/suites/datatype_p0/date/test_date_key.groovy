@@ -20,7 +20,7 @@ suite("test_date_key") {
     sql """
         create table `test_date_key` (
             `k1` datev1, `k2` int,
-            INDEX idx_k1 (`k1`) USING BITMAP,
+            INDEX idx_k1 (`k1`) USING BITMAP
         ) duplicate key(`k1`)
         distributed by hash(k2) buckets 3
         properties("replication_num" = "1");

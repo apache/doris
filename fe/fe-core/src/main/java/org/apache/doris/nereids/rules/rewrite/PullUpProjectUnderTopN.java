@@ -38,6 +38,7 @@ public class PullUpProjectUnderTopN extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalTopN(logicalProject().whenNot(p -> p.isAllSlots()))
+                .whenNot(topN -> topN.child().hasPushedDownToProjectionFunctions())
                 .then(topN -> {
                     LogicalProject<Plan> project = topN.child();
                     Set<Slot> outputSet = project.child().getOutputSet();

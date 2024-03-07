@@ -67,7 +67,7 @@ public:
         return true;
     }
     int row = 0;
-    MergeSortCursorImpl* impl;
+    MergeSortCursorImpl* impl = nullptr;
 };
 
 class PartitionSorter final : public Sorter {
@@ -94,6 +94,7 @@ public:
 
     Status partition_sort_read(Block* block, bool* eos, int batch_size);
     int64 get_output_rows() const { return _output_total_rows; }
+    void reset_sorter_state(RuntimeState* runtime_state);
 
 private:
     std::unique_ptr<MergeSorterState> _state;
@@ -103,7 +104,7 @@ private:
     bool _has_global_limit = false;
     int _partition_inner_limit = 0;
     TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::type::ROW_NUMBER;
-    SortCursorCmp* _previous_row;
+    SortCursorCmp* _previous_row = nullptr;
 };
 
 } // namespace doris::vectorized

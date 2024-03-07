@@ -103,8 +103,9 @@ IRuntimeFilter* create_runtime_filter(TRuntimeFilterType::type type, TQueryOptio
     }
 
     IRuntimeFilter* runtime_filter = nullptr;
-    Status status = IRuntimeFilter::create(_runtime_stat, _obj_pool, &desc, options,
-                                           RuntimeFilterRole::PRODUCER, -1, &runtime_filter);
+    Status status = IRuntimeFilter::create(RuntimeFilterParamsContext::create(_runtime_stat),
+                                           _obj_pool, &desc, options, RuntimeFilterRole::PRODUCER,
+                                           -1, &runtime_filter);
 
     EXPECT_TRUE(status.ok()) << status.to_string();
 

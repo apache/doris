@@ -212,6 +212,13 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveWorkloadGroups", CountingDataOutputStream.class, long.class);
                 break;
+            case "workloadSchedPolicy":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadWorkloadSchedPolicy", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveWorkloadSchedPolicy", CountingDataOutputStream.class,
+                                long.class);
+                break;
             case "binlogs":
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadBinlogs", DataInputStream.class, long.class);
@@ -232,6 +239,19 @@ public class MetaPersistMethod {
                         Env.class.getDeclaredMethod("saveAsyncJobManager", CountingDataOutputStream.class, long.class);
                 break;
             case "JobTaskManager":
+                break;
+            case "insertOverwrite":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadInsertOverwrite", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveInsertOverwrite", CountingDataOutputStream.class, long.class);
+                break;
+            case "plsql":
+                // package and stored procedure use the same method in PlsqlManager.
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadPlsqlProcedure", DataInputStream.class,
+                        long.class);
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("savePlsqlProcedure",
+                        CountingDataOutputStream.class, long.class);
                 break;
             default:
                 break;

@@ -23,18 +23,17 @@ import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.TestExternalDatabase;
-import org.apache.doris.catalog.external.TestExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.datasource.test.TestExternalDatabase;
+import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -125,10 +124,10 @@ public class RefreshDbTest extends TestWithFeService {
 
         // mock login user1
         UserIdentity user1 = new UserIdentity("user1", "%");
-        user1.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Access denied for user 'default_cluster:user1' to database 'default_cluster:db1'",
+                "Access denied for user 'user1' to database 'db1'",
                 () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
         ConnectContext.remove();
 

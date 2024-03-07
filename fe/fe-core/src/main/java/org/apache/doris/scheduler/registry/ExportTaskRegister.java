@@ -30,7 +30,7 @@ public class ExportTaskRegister implements TransientTaskRegister {
 
     @Override
     public Long registerTask(TransientTaskExecutor executor) {
-        return transientTaskManager.registerMemoryTask(executor);
+        return transientTaskManager.addMemoryTask(executor);
     }
 
     @Override

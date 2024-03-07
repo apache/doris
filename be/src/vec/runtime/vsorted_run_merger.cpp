@@ -69,12 +69,16 @@ void VSortedRunMerger::init_timers(RuntimeProfile* profile) {
 }
 
 Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
-    for (const auto& supplier : input_runs) {
-        if (_use_sort_desc) {
-            _cursors.emplace_back(supplier, _desc);
-        } else {
-            _cursors.emplace_back(supplier, _ordering_expr, _is_asc_order, _nulls_first);
+    try {
+        for (const auto& supplier : input_runs) {
+            if (_use_sort_desc) {
+                _cursors.emplace_back(supplier, _desc);
+            } else {
+                _cursors.emplace_back(supplier, _ordering_expr, _is_asc_order, _nulls_first);
+            }
         }
+    } catch (const std::exception& e) {
+        return Status::Cancelled(e.what());
     }
 
     for (auto& _cursor : _cursors) {
@@ -194,6 +198,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 break;
             }
         }
+        output_block->set_columns(std::move(merged_columns));
 
         if (merged_rows == 0) {
             *eos = true;

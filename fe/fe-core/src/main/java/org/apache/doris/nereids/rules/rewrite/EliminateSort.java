@@ -69,6 +69,8 @@ public class EliminateSort extends DefaultPlanRewriter<Boolean> implements Custo
 
     @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> sink, Boolean eliminateSort) {
+        // 1. table sink: eliminate -> true
+        // 2. sink -> tablesink -> olaptablesink
         return skipEliminateSort(sink, eliminateSort);
     }
 

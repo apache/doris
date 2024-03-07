@@ -89,9 +89,12 @@ public:
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
                                 const ColumnNumbers& arguments, size_t result) const override {
         return std::make_shared<JavaUdfPreparedFunction>(
-                std::bind<Status>(&JavaFunctionCall::execute_impl, this, std::placeholders::_1,
-                                  std::placeholders::_2, std::placeholders::_3,
-                                  std::placeholders::_4, std::placeholders::_5),
+                [this](auto&& PH1, auto&& PH2, auto&& PH3, auto&& PH4, auto&& PH5) {
+                    return JavaFunctionCall::execute_impl(
+                            std::forward<decltype(PH1)>(PH1), std::forward<decltype(PH2)>(PH2),
+                            std::forward<decltype(PH3)>(PH3), std::forward<decltype(PH4)>(PH4),
+                            std::forward<decltype(PH5)>(PH5));
+                },
                 fn_.name.function_name);
     }
 
@@ -101,10 +104,6 @@ public:
                         size_t result, size_t input_rows_count) const;
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
-
-    bool is_deterministic() const override { return false; }
-
-    bool is_deterministic_in_scope_of_query() const override { return false; }
 
     bool is_use_default_implementation_for_constants() const override { return true; }
 
@@ -123,28 +122,31 @@ private:
         jmethodID executor_close_id;
         jobject executor = nullptr;
         bool is_closed = false;
+        bool open_successes = false;
 
         JniContext() = default;
 
-        void close() {
+        Status close() {
+            if (!open_successes) {
+                LOG_WARNING("maybe open failed, need check the reason");
+                return Status::OK(); //maybe open failed, so can't call some jni
+            }
             if (is_closed) {
-                return;
+                return Status::OK();
             }
             VLOG_DEBUG << "Free resources for JniContext";
-            JNIEnv* env;
+            JNIEnv* env = nullptr;
             Status status = JniUtil::GetJNIEnv(&env);
-            if (!status.ok()) {
+            if (!status.ok() || env == nullptr) {
                 LOG(WARNING) << "errors while get jni env " << status;
-                return;
+                return status;
             }
             env->CallNonvirtualVoidMethodA(executor, executor_cl, executor_close_id, nullptr);
             env->DeleteGlobalRef(executor);
             env->DeleteGlobalRef(executor_cl);
-            Status s = JniUtil::GetJniExceptionMsg(env);
-            if (!s.ok()) {
-                LOG(WARNING) << s;
-            }
+            RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
             is_closed = true;
+            return Status::OK();
         }
     };
 };

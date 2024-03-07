@@ -43,7 +43,7 @@ public:
 
     Status init(RuntimeState* state) override;
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     bool can_sink() override;
 
@@ -52,11 +52,11 @@ public:
 private:
     void _init_profile();
 
-    BufferControlBlock* _sinker;
+    BufferControlBlock* _sinker = nullptr;
 
     const VExprContextSPtrs& _output_vexpr_ctxs;
 
-    RuntimeProfile* _parent_profile; // parent profile from result sink. not owned
+    RuntimeProfile* _parent_profile = nullptr; // parent profile from result sink. not owned
     // total time cost on append batch operation
     RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
     // tuple convert timer, child timer of _append_row_batch_timer

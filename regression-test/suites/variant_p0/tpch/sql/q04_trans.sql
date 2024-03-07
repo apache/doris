@@ -1,0 +1,21 @@
+-- TABLES: orders,lineitem
+-- ERROR: No value present
+-- SELECT
+--   CAST(var["O_ORDERPRIORITY"] AS TEXT),
+--   COUNT(*) AS ORDER_COUNT
+-- FROM orders O
+-- WHERE
+--   CAST(O.var["O_ORDERDATE"] AS DATE) >= DATE '1993-07-01'
+--   AND CAST(O.var["O_ORDERDATE"] AS DATE) < DATE '1993-07-01' + INTERVAL '3' MONTH
+-- AND EXISTS (
+-- SELECT *
+-- FROM lineitem L
+-- WHERE
+-- CAST(L.var["L_ORDERKEY"] AS INT) = CAST(O.var["O_ORDERKEY"] AS INT)
+-- AND CAST(L.var["L_COMMITDATE"] AS DATE) < CAST(L.var["L_RECEIPTDATE"] AS DATE)
+-- )
+-- GROUP BY
+-- CAST(O.var["O_ORDERPRIORITY"] AS TEXT)
+-- ORDER BY
+-- CAST(O.var["O_ORDERPRIORITY"] AS TEXT)
+-- 

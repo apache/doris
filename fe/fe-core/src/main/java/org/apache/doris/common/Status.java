@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TStatusCode;
 public class Status {
     public static final Status OK = new Status();
     public static final Status CANCELLED = new Status(TStatusCode.CANCELLED, "Cancelled");
+    public static final Status TIMEOUT = new Status(TStatusCode.TIMEOUT, "Timeout");
 
     public TStatusCode getErrorCode() {
         return errorCode;

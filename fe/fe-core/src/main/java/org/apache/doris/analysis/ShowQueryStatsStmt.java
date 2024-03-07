@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -111,8 +110,6 @@ public class ShowQueryStatsStmt extends ShowStmt {
         }
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
         String catalog = Env.getCurrentEnv().getCurrentCatalog().getName();
         if (tableName == null && StringUtils.isEmpty(dbName)) {

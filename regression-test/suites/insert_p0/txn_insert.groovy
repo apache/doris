@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -72,4 +71,24 @@ suite("txn_insert") {
     sql "rollback"
     sql "sync"
     order_qt_select4 """select * from $table"""
+
+    // write to table with mv
+    table = table + "_mv"
+    sql """ DROP TABLE IF EXISTS $table """
+    sql """
+        create table $table (
+            id int default '10', 
+            c1 int default '10'
+        ) distributed by hash(id, c1) 
+        properties('replication_num'="1");
+    """
+    createMV """ create materialized view mv_${table} as select c1 from $table; """
+    sql "begin"
+    sql """insert into $table values(1, 2), (3, 4)"""
+    sql """insert into $table values(5, 6)"""
+    sql """insert into $table values(7, 8)"""
+    sql "commit"
+    sql "sync"
+    order_qt_select5 """select * from $table"""
+    order_qt_select6 """select c1 from $table"""
 }

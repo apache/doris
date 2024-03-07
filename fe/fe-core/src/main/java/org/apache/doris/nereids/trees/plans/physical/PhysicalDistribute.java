@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
@@ -27,7 +26,6 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -42,7 +40,6 @@ import com.google.common.collect.ImmutableList;
 import org.json.JSONObject;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -52,8 +49,8 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     protected DistributionSpec distributionSpec;
 
-    public PhysicalDistribute(DistributionSpec spec, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(spec, Optional.empty(), logicalProperties, child);
+    public PhysicalDistribute(DistributionSpec spec, CHILD_TYPE child) {
+        this(spec, Optional.empty(), child.getLogicalProperties(), child);
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
@@ -73,8 +70,8 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalDistribute[" + id.asInt() + "]" + getGroupIdWithPrefix(),
-                "distributionSpec", distributionSpec,
-                "stats", statistics
+                "stats", statistics,
+                "distributionSpec", distributionSpec
         );
     }
 
@@ -134,26 +131,29 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
             AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         // currently, we can ensure children in the two side are corresponding to the equal_to's.
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-
-        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
-        // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
+        if (probeSlot == null) {
             return false;
         }
-        PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
-            return false;
+        if (RuntimeFilterGenerator.checkPushDownPreconditionsForProjectOrDistribute(ctx, probeSlot)) {
+            PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
+            if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
+                return false;
+            }
+            // TODO: global rf need merge stage which is heavy
+            // add some rule, such as bc only is allowed for
+            // pushing down through distribute, currently always pushing.
+            AbstractPhysicalPlan childPlan = (AbstractPhysicalPlan) child(0);
+            return childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
+                    type, buildSideNdv, exprOrder);
+        } else {
+            // if probe slot doesn't exist in aliasTransferMap, then try to pass it to child
+            AbstractPhysicalPlan childPlan = (AbstractPhysicalPlan) child(0);
+            return childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
+                    type, buildSideNdv, exprOrder);
         }
-        // TODO: global rf need merge stage which is heavy
-        // add some rule, such as bc only is allowed for
-        // pushing down through distribute, currently always pushing.
-        AbstractPhysicalPlan childPlan = (AbstractPhysicalPlan) child(0);
-        return childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
-                type, buildSideNdv, exprOrder);
     }
 
     @Override
@@ -165,5 +165,12 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     public PhysicalDistribute<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalDistribute<>(distributionSpec, groupExpression,
                 null, physicalProperties, statistics, child());
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder("PhysicalDistribute");
+        builder.append("[").append(getDistributionSpec().shapeInfo()).append("]");
+        return builder.toString();
     }
 }

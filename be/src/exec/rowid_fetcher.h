@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
+#include "olap/storage_engine.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
@@ -65,6 +66,11 @@ private:
 
     std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
     FetchOption _fetch_option;
+};
+
+class RowIdStorageReader {
+public:
+    static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
 };
 
 } // namespace doris

@@ -16,7 +16,7 @@
 // under the License.
 
 #pragma once
-
+#include <fmt/compile.h>
 #include <fmt/format.h>
 #include <stdint.h>
 
@@ -32,10 +32,10 @@ inline const __int128 MIN_INT128 = ((__int128)0x01 << 127);
 class LargeIntValue {
 public:
     static int32_t to_buffer(__int128 value, char* buffer) {
-        return fmt::format_to(buffer, "{}", value) - buffer;
+        return fmt::format_to(buffer, FMT_COMPILE("{}"), value) - buffer;
     }
 
-    static std::string to_string(__int128 value) { return fmt::format("{}", value); }
+    static std::string to_string(__int128 value) { return fmt::format(FMT_COMPILE("{}"), value); }
 };
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value);

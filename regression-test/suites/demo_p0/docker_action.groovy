@@ -50,4 +50,19 @@ suite('docker_action') {
     docker(options) {
         sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="5")'''
     }
+
+    def options2 = new ClusterOptions()
+    options2.beNum = 1
+    // create cloud cluster
+    options2.cloudMode = true
+    //// cloud docker only run in cloud pipeline, but enable it run in none-cloud pipeline
+    // options2.skipRunWhenPipelineDiff = false
+    // run another docker, create a cloud cluster
+    docker(options2) {
+        // cloud cluster will ignore replication_num, always set to 1. so create table succ even has 1 be.
+        sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="1000")'''
+
+        sql 'set global enable_memtable_on_sink_node = false'
+        sql 'insert into tb1 values (2)'
+    }
 }

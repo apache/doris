@@ -233,6 +233,11 @@ suite("cast") {
         sql """select cast(k5 as time) ct from test order by ct;"""
         exception "cannot cast"
     }
+    test {
+        sql "select cast(12 as decimalv3(2,1))"
+        exception "Arithmetic overflow"
+    }
+
     // date
     test {
         sql """select cast(k10 as time) ct from test order by ct;"""

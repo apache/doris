@@ -21,13 +21,11 @@
 #include <rocksdb/iterator.h>
 #include <rocksdb/status.h>
 
-#include <algorithm>
 #include <memory>
 #include <ostream>
 
 #include "common/config.h"
 #include "common/status.h"
-#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -37,12 +35,12 @@
 namespace doris {
 const std::string STREAM_LOAD_POSTFIX = "/stream_load";
 
-StreamLoadRecorder::StreamLoadRecorder(const std::string& root_path)
-        : _root_path(root_path), _db(nullptr), _last_compaction_time(UnixMillis()) {}
+StreamLoadRecorder::StreamLoadRecorder(std::string root_path)
+        : _root_path(std::move(root_path)), _last_compaction_time(UnixMillis()) {}
 
 StreamLoadRecorder::~StreamLoadRecorder() {
     if (_db != nullptr) {
-        for (auto handle : _handles) {
+        for (auto* handle : _handles) {
             _db->DestroyColumnFamilyHandle(handle);
             handle = nullptr;
         }
@@ -50,9 +48,7 @@ StreamLoadRecorder::~StreamLoadRecorder() {
         if (!s.ok()) {
             LOG(WARNING) << "rocksdb sync wal failed: " << s.ToString();
         }
-        rocksdb::CancelAllBackgroundWork(_db, true);
-        delete _db;
-        _db = nullptr;
+        // no need to Close(), will be called in destruction
         LOG(INFO) << "finish close rocksdb for ~StreamLoadRecorder";
     }
 }
@@ -68,8 +64,12 @@ Status StreamLoadRecorder::init() {
     // default column family is required
     column_families.emplace_back(DEFAULT_COLUMN_FAMILY, rocksdb::ColumnFamilyOptions());
     std::vector<int32_t> ttls = {config::stream_load_record_expire_time_secs};
+
+    rocksdb::DBWithTTL* tmp = _db.release();
     rocksdb::Status s =
-            rocksdb::DBWithTTL::Open(options, db_path, column_families, &_handles, &_db, ttls);
+            rocksdb::DBWithTTL::Open(options, db_path, column_families, &_handles, &tmp, ttls);
+    _db.reset(tmp);
+
     if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
         return Status::InternalError("Stream load record rocksdb open failed, reason: {}",
@@ -100,7 +100,7 @@ Status StreamLoadRecorder::put(const std::string& key, const std::string& value)
     return Status::OK();
 }
 
-Status StreamLoadRecorder::get_batch(const std::string& start, const int batch_size,
+Status StreamLoadRecorder::get_batch(const std::string& start, int batch_size,
                                      std::map<std::string, std::string>* stream_load_records) {
     rocksdb::ColumnFamilyHandle* handle = _handles[0];
     std::unique_ptr<rocksdb::Iterator> it(_db->NewIterator(rocksdb::ReadOptions(), handle));

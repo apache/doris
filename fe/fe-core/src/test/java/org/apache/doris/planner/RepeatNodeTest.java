@@ -62,7 +62,7 @@ public class RepeatNodeTest extends TestWithFeService {
         String explainString1 = getSQLPlanOrErrorMsg("explain " + sql1);
         System.out.println(explainString1);
         Assertions.assertTrue(explainString1.contains(
-                "output slots: `if(`c`.`id` > 0, 1, 0)`, ``p`.`name``, ``c`.`cost``, ``GROUPING_ID``"));
+                "output slots: `if((`c`.`id` > 0), 1, 0)`, ``p`.`name``, ``c`.`cost``, ``GROUPING_ID``"));
 
         String sql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ (id + 1) id_, name, sum(cost) from mycost group by grouping sets((id_, name),());";
         String explainString2 = getSQLPlanOrErrorMsg("explain " + sql2);

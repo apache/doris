@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.springframework.util.CollectionUtils;
 
@@ -43,8 +44,7 @@ public class ArrayLiteral extends Literal {
      * construct array literal
      */
     public ArrayLiteral(List<Literal> items) {
-        super(ArrayType.of(CollectionUtils.isEmpty(items) ? NullType.INSTANCE : items.get(0).getDataType()));
-        this.items = ImmutableList.copyOf(Objects.requireNonNull(items, "items should not null"));
+        this(items, ArrayType.of(CollectionUtils.isEmpty(items) ? NullType.INSTANCE : items.get(0).getDataType()));
     }
 
     /**
@@ -52,6 +52,8 @@ public class ArrayLiteral extends Literal {
      */
     public ArrayLiteral(List<Literal> items, DataType dataType) {
         super(dataType);
+        Preconditions.checkArgument(dataType instanceof ArrayType,
+                "dataType should be ArrayType, but we meet %s", dataType);
         this.items = ImmutableList.copyOf(Objects.requireNonNull(items, "items should not null"));
     }
 

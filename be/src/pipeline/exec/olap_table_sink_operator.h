@@ -19,7 +19,7 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vtablet_sink.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace doris {
 
@@ -34,12 +34,12 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class OlapTableSinkOperator final : public DataSinkOperator<OlapTableSinkOperatorBuilder> {
+class OlapTableSinkOperator final : public DataSinkOperator<vectorized::VOlapTableSink> {
 public:
     OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
 
-    bool can_write() override { return true; } // TODO: need use mem_limit
+    bool can_write() override { return _sink->can_write(); }
 };
 
 class OlapTableSinkOperatorX;
@@ -69,11 +69,10 @@ class OlapTableSinkOperatorX final : public DataSinkOperatorX<OlapTableSinkLocal
 public:
     using Base = DataSinkOperatorX<OlapTableSinkLocalState>;
     OlapTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
-                           const std::vector<TExpr>& t_output_expr, bool group_commit)
+                           const std::vector<TExpr>& t_output_expr)
             : Base(operator_id, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
-              _group_commit(group_commit),
               _pool(pool) {};
 
     Status init(const TDataSink& thrift_sink) override {
@@ -92,23 +91,22 @@ public:
         RETURN_IF_ERROR(Base::open(state));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-        return local_state.sink(state, in_block, source_state);
+        return local_state.sink(state, in_block, eos);
     }
 
 private:
     friend class OlapTableSinkLocalState;
     template <typename Writer, typename Parent>
+        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
     const RowDescriptor& _row_desc;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
-    const bool _group_commit;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 };
 
 } // namespace pipeline

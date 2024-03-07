@@ -39,7 +39,7 @@ public class TableCollector extends DefaultPlanVisitor<Void, TableCollectorConte
     public Void visit(Plan plan, TableCollectorContext context) {
         if (plan instanceof CatalogRelation) {
             TableIf table = ((CatalogRelation) plan).getTable();
-            if (context.getTargetTableTypes().contains(table.getType())) {
+            if (context.getTargetTableTypes().isEmpty() || context.getTargetTableTypes().contains(table.getType())) {
                 context.getCollectedTables().add(table);
             }
         }

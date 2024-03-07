@@ -55,7 +55,7 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = Memory limit exceeded:<consumin
 2、当进程内存超限后，BE会触发内存GC。
 
 ```
-W1127 17:23:16.372572 19896 mem_tracker_limiter.cpp:214] System Mem Exceed Limit Check Faild, Try Alloc: 1062688
+W1127 17:23:16.372572 19896 mem_tracker_limiter.cpp:214] System Mem Exceed Limit Check Failed, Try Alloc: 1062688
 Process Memory Summary:
     process memory used 2.68 GB limit 2.47 GB, sys mem available 50.95 GB min reserve 3.20 GB, tc/jemalloc allocator cache 51.97 MB
 Alloc Stacktrace:
@@ -100,7 +100,7 @@ Memory Tracker Summary:
     MemTrackerLimiter Label=SegmentCache, Type=global, Limit=-1.00 B(-1 B), Used=0(0 B), Peak=0(0 B)
     MemTrackerLimiter Label=DiskIO, Type=global, Limit=2.47 GB(2655423201 B), Used=0(0 B), Peak=0(0 B)
     MemTrackerLimiter Label=ChunkAllocator, Type=global, Limit=-1.00 B(-1 B), Used=0(0 B), Peak=0(0 B)
-    MemTrackerLimiter Label=LastestSuccessChannelCache, Type=global, Limit=-1.00 B(-1 B), Used=0(0 B), Peak=0(0 B)
+    MemTrackerLimiter Label=LastSuccessChannelCache, Type=global, Limit=-1.00 B(-1 B), Used=0(0 B), Peak=0(0 B)
     MemTrackerLimiter Label=DeleteBitmap AggCache, Type=global, Limit=-1.00 B(-1 B), Used=0(0 B), Peak=0(0 B)
 ```
 
@@ -122,7 +122,7 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = Memory limit exceeded:<consumin
 ### 错误信息分析
 错误信息分为三部分：
 1、`Memory limit exceeded:<consuming tracker:<Query#Id=f78208b15e064527-a84c5c0b04c04fcf>`：当前正在执行query `f78208b15e064527-a84c5c0b04c04fcf`的内存申请过程中发现内存超限。
-2、`failed alloc size 1.03 MB, exceeded tracker:<Query#Id=f78208b15e064527-a84c5c0b04c04fcf>, limit 100.00 MB, peak used 99.29 MB, current used 99.25 MB`：本次尝试申请 1.03MB 的内存，但此时query `f78208b15e064527-a84c5c0b04c04fcf` memory tracker 的当前 consumption 为 99.28MB 加上 1.03MB 后超过了 100MB 的limit，limit的值来自 session veriables 中的 `exec_mem_limit`，默认4G。
+2、`failed alloc size 1.03 MB, exceeded tracker:<Query#Id=f78208b15e064527-a84c5c0b04c04fcf>, limit 100.00 MB, peak used 99.29 MB, current used 99.25 MB`：本次尝试申请 1.03MB 的内存，但此时query `f78208b15e064527-a84c5c0b04c04fcf` memory tracker 的当前 consumption 为 99.28MB 加上 1.03MB 后超过了 100MB 的limit，limit的值来自 session variables 中的 `exec_mem_limit`，默认4G。
 3、`executing msg:<execute:<ExecNode:VHASH_JOIN_NODE (id=4)>>. backend 172.24.47.117 process memory used 1.13 GB, limit 98.92 GB. If query tracker exceed, `set exec_mem_limit=8G` to change limit, details mem usage see be.INFO.`：本次内存申请的位置是`VHASH_JOIN_NODE (id=4)`，并提示可通过 `set exec_mem_limit` 来调高单次查询的内存上限。
 
 ### 日志分析

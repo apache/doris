@@ -59,7 +59,7 @@ enum class RoundingMode {
 };
 
 enum class TieBreakingMode {
-    Auto,    // use banker's rounding for floating point numbers, round up otherwise
+    Auto,    // use round up
     Bankers, // use banker's rounding
 };
 
@@ -178,59 +178,16 @@ public:
     }
 };
 
-#if defined(__SSE4_1__) || defined(__aarch64__)
-
-template <typename T>
-class BaseFloatRoundingComputation;
-
-template <>
-class BaseFloatRoundingComputation<Float32> {
-public:
-    using ScalarType = Float32;
-    using VectorType = __m128;
-    static const size_t data_count = 4;
-
-    static VectorType load(const ScalarType* in) { return _mm_loadu_ps(in); }
-    static VectorType load1(const ScalarType in) { return _mm_load1_ps(&in); }
-    static void store(ScalarType* out, VectorType val) { _mm_storeu_ps(out, val); }
-    static VectorType multiply(VectorType val, VectorType scale) { return _mm_mul_ps(val, scale); }
-    static VectorType divide(VectorType val, VectorType scale) { return _mm_div_ps(val, scale); }
-    template <RoundingMode mode>
-    static VectorType apply(VectorType val) {
-        return _mm_round_ps(val, int(mode));
-    }
-
-    static VectorType prepare(size_t scale) { return load1(scale); }
-};
-
-template <>
-class BaseFloatRoundingComputation<Float64> {
-public:
-    using ScalarType = Float64;
-    using VectorType = __m128d;
-    static const size_t data_count = 2;
-
-    static VectorType load(const ScalarType* in) { return _mm_loadu_pd(in); }
-    static VectorType load1(const ScalarType in) { return _mm_load1_pd(&in); }
-    static void store(ScalarType* out, VectorType val) { _mm_storeu_pd(out, val); }
-    static VectorType multiply(VectorType val, VectorType scale) { return _mm_mul_pd(val, scale); }
-    static VectorType divide(VectorType val, VectorType scale) { return _mm_div_pd(val, scale); }
-    template <RoundingMode mode>
-    static VectorType apply(VectorType val) {
-        return _mm_round_pd(val, int(mode));
-    }
-
-    static VectorType prepare(size_t scale) { return load1(scale); }
-};
-
-#else
-
-/// Implementation for ARM. Not vectorized.
-
+template <TieBreakingMode tie_breaking_mode>
 inline float roundWithMode(float x, RoundingMode mode) {
     switch (mode) {
-    case RoundingMode::Round:
-        return nearbyintf(x);
+    case RoundingMode::Round: {
+        if constexpr (tie_breaking_mode == TieBreakingMode::Bankers) {
+            return nearbyintf(x);
+        } else {
+            return roundf(x);
+        }
+    }
     case RoundingMode::Floor:
         return floorf(x);
     case RoundingMode::Ceil:
@@ -243,10 +200,16 @@ inline float roundWithMode(float x, RoundingMode mode) {
     __builtin_unreachable();
 }
 
+template <TieBreakingMode tie_breaking_mode>
 inline double roundWithMode(double x, RoundingMode mode) {
     switch (mode) {
-    case RoundingMode::Round:
-        return nearbyint(x);
+    case RoundingMode::Round: {
+        if constexpr (tie_breaking_mode == TieBreakingMode::Bankers) {
+            return nearbyint(x);
+        } else {
+            return round(x);
+        }
+    }
     case RoundingMode::Floor:
         return floor(x);
     case RoundingMode::Ceil:
@@ -259,7 +222,7 @@ inline double roundWithMode(double x, RoundingMode mode) {
     __builtin_unreachable();
 }
 
-template <typename T>
+template <typename T, TieBreakingMode tie_breaking_mode>
 class BaseFloatRoundingComputation {
 public:
     using ScalarType = T;
@@ -273,19 +236,18 @@ public:
     static VectorType divide(VectorType val, VectorType scale) { return val / scale; }
     template <RoundingMode mode>
     static VectorType apply(VectorType val) {
-        return roundWithMode(val, mode);
+        return roundWithMode<tie_breaking_mode>(val, mode);
     }
 
     static VectorType prepare(size_t scale) { return load1(scale); }
 };
 
-#endif
-
 /** Implementation of low-level round-off functions for floating-point values.
   */
-template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode>
-class FloatRoundingComputation : public BaseFloatRoundingComputation<T> {
-    using Base = BaseFloatRoundingComputation<T>;
+template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
+          TieBreakingMode tie_breaking_mode>
+class FloatRoundingComputation : public BaseFloatRoundingComputation<T, tie_breaking_mode> {
+    using Base = BaseFloatRoundingComputation<T, tie_breaking_mode>;
 
 public:
     static inline void compute(const T* __restrict in, const typename Base::VectorType& scale,
@@ -312,12 +274,13 @@ public:
 
 /** Implementing high-level rounding functions.
   */
-template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode>
+template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
+          TieBreakingMode tie_breaking_mode>
 struct FloatRoundingImpl {
 private:
     static_assert(!IsDecimalNumber<T>);
 
-    using Op = FloatRoundingComputation<T, rounding_mode, scale_mode>;
+    using Op = FloatRoundingComputation<T, rounding_mode, scale_mode, tie_breaking_mode>;
     using Data = std::array<T, Op::data_count>;
     using ColumnType = ColumnVector<T>;
     using Container = typename ColumnType::Container;
@@ -433,7 +396,8 @@ struct Dispatcher {
     using FunctionRoundingImpl = std::conditional_t<
             IsDecimalNumber<T>, DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>,
             std::conditional_t<
-                    std::is_floating_point_v<T>, FloatRoundingImpl<T, rounding_mode, scale_mode>,
+                    std::is_floating_point_v<T>,
+                    FloatRoundingImpl<T, rounding_mode, scale_mode, tie_breaking_mode>,
                     IntegerRoundingImpl<T, rounding_mode, scale_mode, tie_breaking_mode>>>;
 
     static ColumnPtr apply(const IColumn* col_general, Int16 scale_arg) {

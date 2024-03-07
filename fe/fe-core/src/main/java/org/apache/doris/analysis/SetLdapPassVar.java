@@ -18,12 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.base.Strings;
 
 public class SetLdapPassVar extends SetVar {
     private final PassVar passVar;
@@ -39,10 +35,6 @@ public class SetLdapPassVar extends SetVar {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
-        }
-
         if (!ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(Auth.ROOT_USER)
                 && !ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(Auth.ADMIN_USER)) {
             throw new AnalysisException("Only root and admin user can set ldap admin password.");

@@ -71,4 +71,9 @@ public enum AlterOpType {
         return this == ADD_ROLLUP || this == SCHEMA_CHANGE || this == ADD_PARTITION || this == ENABLE_FEATURE;
     }
 
+    public boolean mtmvAllowOp() {
+        return this == MODIFY_TABLE_PROPERTY || this == MODIFY_DISTRIBUTION || this == MODIFY_TABLE_COMMENT
+                || this == ADD_PARTITION || this == DROP_PARTITION || this == REPLACE_PARTITION
+                || this == MODIFY_PARTITION;
+    }
 }

@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <climits>
 #include <type_traits>
 
 #include "vec/columns/column_decimal.h"
@@ -216,6 +217,72 @@ struct BinaryOperatorTraits {
     using ArrayNull = PaddedPODArray<UInt8>;
 };
 
+template <typename T>
+/// Returns the maximum ascii string length for this type.
+/// e.g. the max/min int8_t has 3 characters.
+int max_ascii_len() {
+    return 0;
+}
+
+template <>
+inline int max_ascii_len<uint8_t>() {
+    return 3;
+}
+
+template <>
+inline int max_ascii_len<uint16_t>() {
+    return 5;
+}
+
+template <>
+inline int max_ascii_len<uint32_t>() {
+    return 10;
+}
+
+template <>
+inline int max_ascii_len<uint64_t>() {
+    return 20;
+}
+
+template <>
+inline int max_ascii_len<int8_t>() {
+    return 3;
+}
+
+template <>
+inline int max_ascii_len<int16_t>() {
+    return 5;
+}
+
+template <>
+inline int max_ascii_len<int32_t>() {
+    return 10;
+}
+
+template <>
+inline int max_ascii_len<int64_t>() {
+    return 19;
+}
+
+template <>
+inline int max_ascii_len<__int128>() {
+    return 39;
+}
+
+template <>
+inline int max_ascii_len<wide::Int256>() {
+    return 77;
+}
+
+template <>
+inline int max_ascii_len<float>() {
+    return INT_MAX;
+}
+
+template <>
+inline int max_ascii_len<double>() {
+    return INT_MAX;
+}
 } // namespace NumberTraits
 
 } // namespace doris::vectorized

@@ -82,24 +82,25 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     // init runtime predicate
     _use_topn_opt = tnode.sort_node.use_topn_opt;
     if (_use_topn_opt) {
-        auto query_ctx = state->get_query_ctx();
+        auto* query_ctx = state->get_query_ctx();
         auto first_sort_expr_node = tnode.sort_node.sort_info.ordering_exprs[0].nodes[0];
         if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
             auto first_sort_slot = first_sort_expr_node.slot_ref;
-            for (auto tuple_desc : this->intermediate_row_desc().tuple_descriptors()) {
+            for (auto* tuple_desc : this->intermediate_row_desc().tuple_descriptors()) {
                 if (tuple_desc->id() != first_sort_slot.tuple_id) {
                     continue;
                 }
-                for (auto slot : tuple_desc->slots()) {
+                for (auto* slot : tuple_desc->slots()) {
                     if (slot->id() == first_sort_slot.slot_id) {
-                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate().init(slot->type().type,
-                                                                                _nulls_first[0]));
+                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_id).init(
+                                slot->type().type, _nulls_first[0], _is_asc_order[0],
+                                slot->col_name()));
                         break;
                     }
                 }
             }
         }
-        if (!query_ctx->get_runtime_predicate().inited()) {
+        if (!query_ctx->get_runtime_predicate(_id).inited()) {
             return Status::InternalError("runtime predicate is not properly initialized");
         }
     }
@@ -130,7 +131,6 @@ Status VSortNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("vsort, while open."));
 
     return Status::OK();
 }
@@ -140,18 +140,13 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
     if (input_block->rows() > 0) {
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
 
         // update runtime predicate
         if (_use_topn_opt) {
             Field new_top = _sorter->get_top_value();
-            if (!new_top.is_null() && (old_top.is_null() || new_top != old_top)) {
-                auto& sort_description = _sorter->get_sort_description();
-                auto col = input_block->get_by_position(sort_description[0].column_number);
-                bool is_reverse = sort_description[0].direction < 0;
-                auto query_ctx = state->get_query_ctx();
-                RETURN_IF_ERROR(
-                        query_ctx->get_runtime_predicate().update(new_top, col.name, is_reverse));
+            if (!new_top.is_null() && new_top != old_top) {
+                auto* query_ctx = state->get_query_ctx();
+                RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_id).update(new_top));
                 old_top = std::move(new_top);
             }
         }
@@ -193,7 +188,7 @@ Status VSortNode::open(RuntimeState* state) {
 
     } while (!eos);
 
-    static_cast<void>(child(0)->close(state));
+    RETURN_IF_ERROR(child(0)->close(state));
 
     mem_tracker()->consume(_sorter->data_size());
     COUNTER_UPDATE(_sort_blocks_memory_usage, _sorter->data_size());

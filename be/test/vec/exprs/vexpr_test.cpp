@@ -557,7 +557,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<DecimalField<Decimal128>>();
+        auto v = (*ctn.column)[0].get<DecimalField<Decimal128V2>>();
         EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
     }

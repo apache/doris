@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -137,5 +138,10 @@ public class InSubquery extends SubqueryExpr {
                 ? Optional.of(listQuery.queryPlan.getOutput().get(0))
                 : Optional.of(new Cast(listQuery.queryPlan.getOutput().get(0), dataType)),
             isNot);
+    }
+
+    @Override
+    public InSubquery withSubquery(LogicalPlan subquery) {
+        return new InSubquery(compareExpr, listQuery.withSubquery(subquery), correlateSlots, typeCoercionExpr, isNot);
     }
 }

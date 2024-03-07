@@ -18,8 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -41,8 +41,8 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
             + "COUNT(1) AS row_count, "
             + "NDV(`${colName}`) AS ndv, "
             + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
-            + "MIN(`${colName}`) AS min, "
-            + "MAX(`${colName}`) AS max, "
+            + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS min, "
+            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS max, "
             + "${dataSizeFunction} AS data_size, "
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
@@ -110,7 +110,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(sb.toString());
-        runQuery(sql, true);
+        runQuery(sql);
     }
 
     private Map<String, String> buildTableStatsParams(String partId) {
@@ -136,14 +136,5 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         }
         commonParams.put("lastAnalyzeTimeInMs", String.valueOf(System.currentTimeMillis()));
         return commonParams;
-    }
-
-    @Override
-    protected void afterExecution() {
-        // Table level task doesn't need to sync any value to sync stats, it stores the value in metadata.
-        if (isTableLevelTask) {
-            return;
-        }
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 }

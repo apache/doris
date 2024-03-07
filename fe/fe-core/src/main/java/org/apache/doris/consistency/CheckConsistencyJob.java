@@ -106,13 +106,17 @@ public class CheckConsistencyJob {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
         if (tabletMeta == null) {
-            LOG.debug("tablet[{}] has been removed", tabletId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("tablet[{}] has been removed", tabletId);
+            }
             return false;
         }
 
         Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
-            LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
+            }
             return false;
         }
 
@@ -121,7 +125,9 @@ public class CheckConsistencyJob {
         AgentBatchTask batchTask = new AgentBatchTask();
         Table table = db.getTableNullable(tabletMeta.getTableId());
         if (table == null) {
-            LOG.debug("table[{}] does not exist", tabletMeta.getTableId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("table[{}] does not exist", tabletMeta.getTableId());
+            }
             return false;
         }
 
@@ -131,7 +137,9 @@ public class CheckConsistencyJob {
 
             Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
             if (partition == null) {
-                LOG.debug("partition[{}] does not exist", tabletMeta.getPartitionId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("partition[{}] does not exist", tabletMeta.getPartitionId());
+                }
                 return false;
             }
 
@@ -139,19 +147,25 @@ public class CheckConsistencyJob {
             short replicaNum = olapTable.getPartitionInfo()
                     .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
             if (replicaNum == (short) 1) {
-                LOG.debug("partition[{}]'s replication num is 1. skip consistency check", partition.getId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("partition[{}]'s replication num is 1. skip consistency check", partition.getId());
+                }
                 return false;
             }
 
             MaterializedIndex index = partition.getIndex(tabletMeta.getIndexId());
             if (index == null) {
-                LOG.debug("index[{}] does not exist", tabletMeta.getIndexId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("index[{}] does not exist", tabletMeta.getIndexId());
+                }
                 return false;
             }
 
             tablet = index.getTablet(tabletId);
             if (tablet == null) {
-                LOG.debug("tablet[{}] does not exist", tabletId);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("tablet[{}] does not exist", tabletId);
+                }
                 return false;
             }
 
@@ -205,7 +219,9 @@ public class CheckConsistencyJob {
         if (state != JobState.RUNNING) {
             // failed to send task. set tablet's checked version and version hash to avoid choosing it again
             if (!table.writeLockIfExist()) {
-                LOG.debug("table[{}] does not exist", tabletMeta.getTableId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("table[{}] does not exist", tabletMeta.getTableId());
+                }
                 return false;
             }
             try {
@@ -222,7 +238,9 @@ public class CheckConsistencyJob {
             AgentTaskQueue.addTask(task);
         }
         AgentTaskExecutor.submit(batchTask);
-        LOG.debug("tablet[{}] send check consistency task. num: {}", tabletId, batchTask.getTaskNum());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("tablet[{}] send check consistency task. num: {}", tabletId, batchTask.getTaskNum());
+        }
 
         return true;
     }
@@ -292,15 +310,19 @@ public class CheckConsistencyJob {
                 while (iter.hasNext()) {
                     Map.Entry<Long, Long> entry = iter.next();
                     if (tablet.getReplicaByBackendId(entry.getKey()) == null) {
-                        LOG.debug("tablet[{}]'s replica in backend[{}] does not exist. remove from checksumMap",
-                                  tabletId, entry.getKey());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("tablet[{}]'s replica in backend[{}] does not exist. remove from checksumMap",
+                                      tabletId, entry.getKey());
+                        }
                         iter.remove();
                         continue;
                     }
 
                     if (entry.getValue() == -1) {
-                        LOG.debug("tablet[{}] has unfinished replica check sum task. backend[{}]",
-                                  tabletId, entry.getKey());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("tablet[{}] has unfinished replica check sum task. backend[{}]",
+                                      tabletId, entry.getKey());
+                        }
                         isFinished = false;
                     }
                 }

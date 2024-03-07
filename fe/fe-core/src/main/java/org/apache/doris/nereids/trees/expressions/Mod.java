@@ -49,11 +49,9 @@ public class Mod extends BinaryArithmetic implements AlwaysNullable {
 
     @Override
     public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
-        // TODO use max int part + max scale of two operands as result type
-        // because BE require the result and operands types are the exact the same decimalv3 type
-        int scale = Math.max(t1.getScale(), t2.getScale());
-        int precision = Math.max(t1.getRange(), t2.getRange()) + scale;
-        return DecimalV3Type.createDecimalV3Type(precision, scale);
+        int targetScale = Math.max(t1.getScale(), t2.getScale());
+        int integralPart = Math.max(t1.getRange(), t2.getRange());
+        return processDecimalV3OverFlow(integralPart, targetScale, integralPart);
     }
 
     @Override

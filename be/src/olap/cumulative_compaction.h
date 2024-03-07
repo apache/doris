@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <butil/macros.h>
-
 #include <string>
 #include <vector>
 
@@ -26,32 +24,27 @@
 #include "io/io_common.h"
 #include "olap/compaction.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
 
 namespace doris {
 
-class CumulativeCompaction : public Compaction {
+class CumulativeCompaction final : public CompactionMixin {
 public:
-    CumulativeCompaction(const TabletSharedPtr& tablet);
+    CumulativeCompaction(StorageEngine& engine, const TabletSharedPtr& tablet);
+
     ~CumulativeCompaction() override;
 
     Status prepare_compact() override;
-    Status execute_compact_impl() override;
 
-    std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
+    Status execute_compact() override;
 
-protected:
-    Status pick_rowsets_to_compact() override;
-
-    std::string compaction_name() const override { return "cumulative compaction"; }
+private:
+    std::string_view compaction_name() const override { return "cumulative compaction"; }
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
-private:
-    Version _last_delete_version {-1, -1};
+    Status pick_rowsets_to_compact();
 
-    DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
+    Version _last_delete_version {-1, -1};
 };
 
 } // namespace doris

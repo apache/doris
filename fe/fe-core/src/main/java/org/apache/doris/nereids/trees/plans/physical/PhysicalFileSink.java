@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -81,6 +83,21 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    /**
+     * if enable parallel outfile and not broker export, we should request any here.
+     * and it will add a top fragment to summary export result in PhysicalPlanTranslator.
+     */
+    public PhysicalProperties requestProperties(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().enableParallelOutfile
+                || ctx.getSessionVariable().getEnablePipelineEngine()
+                || ctx.getSessionVariable().getEnablePipelineXEngine()
+                || properties.containsKey(OutFileClause.PROP_BROKER_NAME)) {
+            return PhysicalProperties.GATHER;
+        }
+        // come here means we turn on parallel output export
+        return PhysicalProperties.ANY;
     }
 
     @Override

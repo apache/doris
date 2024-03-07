@@ -29,6 +29,7 @@ under the License.
 ## Request
 
 `GET /api/profile`
+`GET /api/profile/text`
 
 ## Description
 
@@ -119,6 +120,7 @@ Query:
            - BlockConvertTime: 97.539us
            - BlockSeekCount: 0
 ```
+如果为text接口，直接返回profile的纯文本内容  
     
 ## Path parameters
 
@@ -164,3 +166,24 @@ Query:
     	"count": 0
     }
     ```
+2. 获取指定 query_id 的 query profile 的纯文本
+    ```
+    GET /api/profile/text?query_id=f732084bc8e74f39-8313581c9c3c0b58
+    
+    Response:
+        Summary:
+        - Profile ID: 48bdf6d75dbb46c9-998b9c0368f4561f
+        - Task Type: QUERY
+        - Start Time: 2023-12-20 11:09:41
+        - End Time: 2023-12-20 11:09:45
+        - Total: 3s680ms
+        - Task State: EOF
+        - User: root
+        - Default Db: tpcds
+        - Sql Statement: with customer_total_return as
+      select sr_customer_sk as ctr_customer_sk
+      ,sr_store_sk as ctr_store_sk
+      ,sum(SR_FEE) as ctr_total_return
+      ...
+    ```
+

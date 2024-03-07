@@ -56,8 +56,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                 .when(join -> OuterJoinAssoc.VALID_TYPE_PAIR_SET.contains(
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
-                .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
+                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
                 .when(join -> OuterJoinAssoc.checkCondition(join, join.left().child().left().getOutputSet()))
                 .when(join -> join.left().isAllSlots())
                 .thenApply(ctx -> {
@@ -80,13 +79,13 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                                 .addAll(topJoin.getOtherJoinConjuncts()).build();
                         Set<Slot> notNullSlots = ExpressionUtils.inferNotNullSlots(on,
                                 ctx.cascadesContext);
-                        if (!conditionSlot.equals(notNullSlots)) {
+                        if (conditionSlot.isEmpty() || !conditionSlot.equals(notNullSlots)) {
                             return null;
                         }
                     }
 
                     /* ********** new Plan ********** */
-                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c, null);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
 
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
@@ -95,7 +94,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     Plan left = CBOUtils.newProject(topUsedExprIds, a);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
-                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     OuterJoinAssoc.setReorderContext(newTopJoin, newBottomJoin);
 

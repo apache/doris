@@ -151,6 +151,10 @@ public class PlanTranslatorContext {
         return connectContext == null ? null : connectContext.getSessionVariable();
     }
 
+    public ConnectContext getConnectContext() {
+        return connectContext;
+    }
+
     public Set<ScanNode> getScanNodeWithUnknownColumnStats() {
         return statsUnknownColumnsMap.keySet();
     }
@@ -208,9 +212,15 @@ public class PlanTranslatorContext {
         exprIdToColumnRef.put(exprId, columnRefExpr);
     }
 
+    /**
+     * merge source fragment info into target fragment.
+     * include runtime filter info and fragment attribute.
+     */
     public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
         srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
         srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
+        targetFragment.setHasColocatePlanNode(targetFragment.hasColocatePlanNode()
+                || srcFragment.hasColocatePlanNode());
         this.planFragments.remove(srcFragment);
     }
 
@@ -270,6 +280,11 @@ public class PlanTranslatorContext {
             slotDescriptor.setLabel(slotReference.getName());
         } else {
             slotRef = new SlotRef(slotDescriptor);
+            if (slotReference.hasSubColPath()) {
+                slotDescriptor.setSubColLables(slotReference.getSubColPath());
+                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName()
+                            + "." + String.join(".", slotReference.getSubColPath()));
+            }
         }
         slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());

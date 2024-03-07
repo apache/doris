@@ -29,11 +29,11 @@ SegmentLoader* SegmentLoader::instance() {
 }
 
 bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle* handle) {
-    auto lru_handle = _cache->lookup(key.encode());
+    auto lru_handle = cache()->lookup(key.encode());
     if (lru_handle == nullptr) {
         return false;
     }
-    handle->push_segment(_cache.get(), lru_handle);
+    handle->push_segment(cache(), lru_handle);
     return true;
 }
 
@@ -45,14 +45,13 @@ void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::Cache
         delete cache_value;
     };
 
-    auto lru_handle =
-            _cache->insert(key.encode(), &value, sizeof(SegmentCache::CacheValue), deleter,
-                           CachePriority::NORMAL, value.segment->meta_mem_usage());
-    handle->push_segment(_cache.get(), lru_handle);
+    auto lru_handle = cache()->insert(key.encode(), &value, 1, deleter, CachePriority::NORMAL,
+                                      value.segment->meta_mem_usage());
+    handle->push_segment(cache(), lru_handle);
 }
 
 void SegmentCache::erase(const SegmentCache::CacheKey& key) {
-    _cache->erase(key.encode());
+    cache()->erase(key.encode());
 }
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,

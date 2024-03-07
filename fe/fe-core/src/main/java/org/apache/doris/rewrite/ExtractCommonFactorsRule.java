@@ -243,7 +243,9 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                             range = range.intersection(predicateRange);
                         } catch (IllegalArgumentException | ClassCastException e) {
                             // (a >1 and a < 0) ignore this OR clause
-                            LOG.debug("The range without intersection", e);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("The range without intersection", e);
+                            }
                             continue OUT_CONJUNCTS;
                         }
                     }
@@ -353,7 +355,9 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 clause1Entry.getValue().add(clause2Value);
             } catch (ClassCastException e) {
                 // ignore a >1.0 or a <false
-                LOG.debug("Abort this range of column" + columnName.toSqlImpl());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Abort this range of column" + columnName.toSqlImpl());
+                }
                 continue;
             }
             result.put(columnName, clause1Entry.getValue());

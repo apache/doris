@@ -40,17 +40,21 @@ See query-cache.md.
 
 1. SQL can be split in parallel, Q = Q1 ∪ Q2 ... ∪ Qn, R= R1 ∪ R2 ... ∪ Rn, Q is the query statement, R is the result set
 
-2. Split into read-only partitions and updateable partitions, read-only partitions are cached, update partitions are not cached
+2. SQL only uses DATE, INT, and BIGINT types of partition field aggregation, and only scans one partition. Therefore, it does not support partitioning by day, but only supports partitioning by year and month.
 
-As above, query the number of daily users in the last 7 days. For example, if partitioned by date, the data will only be written to the partition of the current day. The data of other partitions other than the current day are fixed. Under the same query SQL, query a certain area that is not updated. The partition indicators are all fixed. As follows, the number of users in the previous 7 days is queried on 2020-03-09. The data from 2020-03-03 to 2020-03-07 comes from the cache. The first query on 2020-03-08 comes from the partition, and subsequent queries come from the cache. , 2020-03-09 because it was written continuously that day, so it comes from the partition.
-
-Therefore, to query N days of data, the data is updated for the most recent D days. Similar queries with different date ranges every day only need to query D partitions. The other parts come from the cache, which can effectively reduce the cluster load and query time.
+3. Cache the results of some dates in the query result set, and then reduce the date range scanned in SQL. In essence, PartitionCache does not reduce the number of partitions scanned, but also reduces the date range scanned, thereby reducing the amount of scanned data.
 
 In addition some restrictions:
 
 - Only supports grouping by partition fields, not by other fields. Grouping by other fields may cause the group data to be updated, which will cause the cache to become invalid.
 
-- Only the first half, second half and all hits of the result set are supported. The result set is not supported to be divided into several parts by cached data.
+- Only the first half, the second half and all hits of the result set are supported in the cache. The result set is not supported to be divided into several parts by cached data, and the dates of the result set must be continuous. If there is no data in the result set on a certain day, then only this Dates one day older will be cached.
+
+- If the predicate has columns outside the partition, you must add brackets to the partition predicate `where k1 = 1 and (key >= "2023-10-18" and key <= "2021-12-01")`
+
+- The number of days in the query must be greater than 1 and less than cache_result_max_row_count, otherwise the partition cache cannot be used.
+
+- The predicate of the partition field can only be key >= a and key <= b or key = a or key = b or key in (a,b,c).
 
 ## Usage
 
@@ -77,7 +81,15 @@ If the interval between the latest version of the partition and the present is g
 
 For detailed parameter introduction and unfinished matters, see query-cache.md.
 
-## Implementation principle example
+## Unfinished business
+
+Split into read-only partitions and updateable partitions, read-only partitions are cached, update partitions are not cached
+
+As above, query the number of daily users in the last 7 days. For example, if partitioned by date, the data will only be written to the partition of the current day. The data of other partitions other than the current day are fixed. Under the same query SQL, query a certain area that is not updated. The partition indicators are all fixed. As follows, the number of users in the previous 7 days is queried on 2020-03-09. The data from 2020-03-03 to 2020-03-07 comes from the cache. The first query on 2020-03-08 comes from the partition, and subsequent queries come from the cache. , 2020-03-09 because it was written continuously that day, so it comes from the partition.
+
+Therefore, to query N days of data, the data is updated for the most recent D days. Similar queries with different date ranges every day only need to query D partitions. The other parts come from the cache, which can effectively reduce the cluster load and query time.
+
+Implementation principle example:
 
 ```sql
 MySQL [(none)]> SELECT eventdate,count(userid) FROM testdb.appevent WHERE eventdate>="2020-03-03" AND eventdate<="2020-03-09" GROUP BY eventdate ORDER BY eventdate;

@@ -61,7 +61,7 @@ suite("test_add_drop_index", "inverted_index"){
 
     // case1: create index for int colume
     // case1.0 create index
-    sql "create index age_idx on ${indexTbName1}(age) using inverted"
+    sql "create index age_idx on ${indexTbName1}(tearchComment) using inverted"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
 
     def show_result = sql "show index from ${indexTbName1}"
@@ -71,7 +71,7 @@ suite("test_add_drop_index", "inverted_index"){
     // case1.1 create duplicate same index for one colume with same name
     def create_dup_index_result = "fail"
     try {
-        sql "create index age_idx on ${indexTbName1}(`age`) using inverted"
+        sql "create index age_idx on ${indexTbName1}(`tearchComment`) using inverted"
         create_dup_index_result = "success"
     } catch(Exception ex) {
         logger.info("create same duplicate and same name index,  result: " + ex)
@@ -79,14 +79,14 @@ suite("test_add_drop_index", "inverted_index"){
     assertEquals(create_dup_index_result, "fail")
     // case1.2 create duplicate same index for one colume with different name
     try {
-        sql "create index age_idx_diff on ${indexTbName1}(`age`) using inverted"
+        sql "create index age_idx_diff on ${indexTbName1}(`tearchComment`) using inverted"
         create_dup_index_result = "success"
     } catch(Exception ex) {
         logger.info("create same duplicate with different name index,  result: " + ex)
     }
     assertEquals(create_dup_index_result, "fail")
     // case1.3 create duplicate different index for one colume with different name
-    sql "create index age_idx_diff on ${indexTbName1}(`age`) using bitmap"
+    sql "create index age_idx_diff on ${indexTbName1}(`tearchComment`) using NGRAM_BF"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
@@ -124,10 +124,10 @@ suite("test_add_drop_index", "inverted_index"){
     // case3: create string inverted index for int colume
     def create_string_index_on_int_colume_result = "fail"
     try {
-        syntax_error = sql "create index age_idx on ${indexTbName1}(`age`) USING INVERTED PROPERTIES("parser"="standard")"
+        syntax_error = sql "create index age_idx on ${indexTbName1}(`tearchComment`) USING INVERTED PROPERTIES("parser"="standard")"
         create_string_index_on_int_colume_result = "success"
     } catch(Exception ex) {
-        logger.info("sql: create index age_idx on" + indexTbName1 + "(`age`) USING INVERTED PROPERTIES(\"parser\"=\"standard\")")
+        logger.info("sql: create index age_idx on" + indexTbName1 + "(`tearchComment`) USING INVERTED PROPERTIES(\"parser\"=\"standard\")")
         logger.info("create string inverted index for int colume, result: " + ex)
     }
     assertEquals(create_string_index_on_int_colume_result, "fail")

@@ -18,9 +18,13 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.catalog.JdbcResource;
+
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 
-public class JdbcClientConfig {
+public class JdbcClientConfig implements Cloneable {
     private String catalog;
     private String user;
     private String password;
@@ -28,9 +32,55 @@ public class JdbcClientConfig {
     private String driverUrl;
     private String driverClass;
     private String onlySpecifiedDatabase;
-    private String isLowerCaseTableNames;
+    private String isLowerCaseMetaNames;
+    private String metaNamesMapping;
+    private int connectionPoolMinSize;
+    private int connectionPoolMaxSize;
+    private int connectionPoolMaxWaitTime;
+    private int connectionPoolMaxLifeTime;
+    private boolean connectionPoolKeepAlive;
+
     private Map<String, Boolean> includeDatabaseMap;
     private Map<String, Boolean> excludeDatabaseMap;
+    private Map<String, String> customizedProperties;
+
+    public JdbcClientConfig() {
+        this.onlySpecifiedDatabase = JdbcResource.getDefaultPropertyValue(JdbcResource.ONLY_SPECIFIED_DATABASE);
+        this.isLowerCaseMetaNames = JdbcResource.getDefaultPropertyValue(JdbcResource.LOWER_CASE_META_NAMES);
+        this.metaNamesMapping = JdbcResource.getDefaultPropertyValue(JdbcResource.META_NAMES_MAPPING);
+        this.connectionPoolMinSize = Integer.parseInt(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MIN_SIZE));
+        this.connectionPoolMaxSize = Integer.parseInt(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_SIZE));
+        this.connectionPoolMaxWaitTime = Integer.parseInt(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_WAIT_TIME));
+        this.connectionPoolMaxLifeTime = Integer.parseInt(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME));
+        this.connectionPoolKeepAlive = Boolean.parseBoolean(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_KEEP_ALIVE));
+        this.includeDatabaseMap = Maps.newHashMap();
+        this.excludeDatabaseMap = Maps.newHashMap();
+        this.customizedProperties = Maps.newHashMap();
+    }
+
+    @Override
+    public JdbcClientConfig clone() {
+        try {
+            JdbcClientConfig cloned = (JdbcClientConfig) super.clone();
+
+            cloned.connectionPoolMinSize = connectionPoolMinSize;
+            cloned.connectionPoolMaxSize = connectionPoolMaxSize;
+            cloned.connectionPoolMaxLifeTime = connectionPoolMaxLifeTime;
+            cloned.connectionPoolMaxWaitTime = connectionPoolMaxWaitTime;
+            cloned.connectionPoolKeepAlive = connectionPoolKeepAlive;
+            cloned.includeDatabaseMap = Maps.newHashMap(includeDatabaseMap);
+            cloned.excludeDatabaseMap = Maps.newHashMap(excludeDatabaseMap);
+            cloned.customizedProperties = Maps.newHashMap(customizedProperties);
+            return cloned;
+        } catch (CloneNotSupportedException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     public String getCatalog() {
         return catalog;
@@ -95,12 +145,66 @@ public class JdbcClientConfig {
         return this;
     }
 
-    public String getIsLowerCaseTableNames() {
-        return isLowerCaseTableNames;
+    public String getIsLowerCaseMetaNames() {
+        return isLowerCaseMetaNames;
     }
 
-    public JdbcClientConfig setIsLowerCaseTableNames(String isLowerCaseTableNames) {
-        this.isLowerCaseTableNames = isLowerCaseTableNames;
+    public JdbcClientConfig setIsLowerCaseMetaNames(String isLowerCaseTableNames) {
+        this.isLowerCaseMetaNames = isLowerCaseTableNames;
+        return this;
+    }
+
+    public String getMetaNamesMapping() {
+        return metaNamesMapping;
+    }
+
+    public JdbcClientConfig setMetaNamesMapping(String metaNamesMapping) {
+        this.metaNamesMapping = metaNamesMapping;
+        return this;
+    }
+
+    public int getConnectionPoolMinSize() {
+        return connectionPoolMinSize;
+    }
+
+    public JdbcClientConfig setConnectionPoolMinSize(int connectionPoolMinSize) {
+        this.connectionPoolMinSize = connectionPoolMinSize;
+        return this;
+    }
+
+    public int getConnectionPoolMaxSize() {
+        return connectionPoolMaxSize;
+    }
+
+    public JdbcClientConfig setConnectionPoolMaxSize(int connectionPoolMaxSize) {
+        this.connectionPoolMaxSize = connectionPoolMaxSize;
+        return this;
+    }
+
+    public int getConnectionPoolMaxLifeTime() {
+        return connectionPoolMaxLifeTime;
+    }
+
+    public JdbcClientConfig setConnectionPoolMaxLifeTime(int connectionPoolMaxLifeTime) {
+        this.connectionPoolMaxLifeTime = connectionPoolMaxLifeTime;
+        return this;
+    }
+
+    public int getConnectionPoolMaxWaitTime() {
+        return connectionPoolMaxWaitTime;
+    }
+
+    public JdbcClientConfig setConnectionPoolMaxWaitTime(int connectionPoolMaxWaitTime) {
+        this.connectionPoolMaxWaitTime = connectionPoolMaxWaitTime;
+        return this;
+    }
+
+    public boolean isConnectionPoolKeepAlive() {
+        return connectionPoolKeepAlive;
+    }
+
+    public JdbcClientConfig setConnectionPoolKeepAlive(boolean connectionPoolKeepAlive) {
+        this.connectionPoolKeepAlive = connectionPoolKeepAlive;
         return this;
     }
 
@@ -120,5 +224,13 @@ public class JdbcClientConfig {
     public JdbcClientConfig setExcludeDatabaseMap(Map<String, Boolean> excludeDatabaseMap) {
         this.excludeDatabaseMap = excludeDatabaseMap;
         return this;
+    }
+
+    public void setCustomizedProperties(Map<String, String> customizedProperties) {
+        this.customizedProperties = customizedProperties;
+    }
+
+    public Map<String, String> getCustomizedProperties() {
+        return customizedProperties;
     }
 }

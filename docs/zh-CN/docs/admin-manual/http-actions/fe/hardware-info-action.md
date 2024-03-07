@@ -62,7 +62,7 @@ Hardware Info Action 用于获取当前FE的硬件信息。
 			"BuildInfo": "cmy@192.168.1",
 			"BuildTime": "二, 05 9月 2019 11:07:42 CST"
 		},
-		"HarewareInfo": {
+		"HardwareInfo": {
 			"NetworkParameter": "...",
 			"Processor": "...",
 			"OS": "...",
@@ -77,4 +77,4 @@ Hardware Info Action 用于获取当前FE的硬件信息。
 }
 ```
 
-* 其中 `HarewareInfo` 字段中的各个值的内容，都是以html格式展现的硬件信息文本。 
+* 其中 `HardwareInfo` 字段中的各个值的内容，都是以html格式展现的硬件信息文本。 

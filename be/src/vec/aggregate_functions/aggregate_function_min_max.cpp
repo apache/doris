@@ -68,6 +68,16 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt64>>>>(
                 argument_types, result_is_nullable);
     }
+    if (which.idx == TypeIndex::IPv4) {
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<IPv4>>>>(
+                argument_types, result_is_nullable);
+    }
+    if (which.idx == TypeIndex::IPv6) {
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<IPv6>>>>(
+                argument_types, result_is_nullable);
+    }
     return nullptr;
 }
 

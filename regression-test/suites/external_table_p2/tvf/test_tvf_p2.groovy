@@ -60,6 +60,12 @@ suite("test_tvf_p2", "p2,external,tvf,external_remote,external_remote_tvf") {
             "format" = "parquet");
         """
 
+        // test for wrong page header
+        qt_wrong_page_header """select * from hdfs(
+            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/wrong_page_header.parquet",
+            "format" = "parquet") order by ss_ticket_number,ss_item_sk limit 10;
+        """
+
         // viewfs
         qt_viewfs """select count(id), count(m1), count(m2)
             from hdfs(

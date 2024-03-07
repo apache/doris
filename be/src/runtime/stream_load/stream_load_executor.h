@@ -54,7 +54,7 @@ private:
     // return true if stat is set, otherwise, return false
     bool collect_load_stat(StreamLoadContext* ctx, TTxnCommitAttachment* attachment);
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 };
 
 } // namespace doris

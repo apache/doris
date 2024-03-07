@@ -20,9 +20,16 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
+#include "common/compiler_util.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
+#include "vec/common/hash_table/join_hash_table.h"
+
+namespace doris {
 /** NOTE HashMap could only be used for memmoveable (position independent) types.
   * Example: std::string is not position independent in libstdc++ with C++11 ABI or in libc++.
   * Also, key in hash table must be of type, that zero bytes is compared equals to zero key.
@@ -150,12 +157,6 @@ public:
 
     using HashTable<Key, Cell, Hash, Grower, Allocator>::HashTable;
 
-    /// Call func(const Key &, Mapped &) for each hash map element.
-    template <typename Func>
-    void for_each_value(Func&& func) {
-        for (auto& v : *this) func(v.get_first(), v.get_second());
-    }
-
     /// Call func(Mapped &) for each hash map element.
     template <typename Func>
     void for_each_mapped(Func&& func) {
@@ -197,6 +198,12 @@ template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
           typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
 using HashMap = HashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash, Grower, Allocator>;
 
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
+using NormalHashMap = HashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash>;
+
+template <typename Key, typename Hash = DefaultHash<Key>>
+using JoinHashMap = JoinHashTable<Key, Hash>;
+
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
           typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
 using HashMapWithSavedHash =
@@ -208,3 +215,5 @@ using HashMapWithStackMemory = HashMapTable<
         HashTableGrower<initial_size_degree>,
         HashTableAllocatorWithStackMemory<(1ULL << initial_size_degree) *
                                           sizeof(HashMapCellWithSavedHash<Key, Mapped, Hash>)>>;
+
+} // namespace doris

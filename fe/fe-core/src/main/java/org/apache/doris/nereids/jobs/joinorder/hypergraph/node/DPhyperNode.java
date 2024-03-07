@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.memo.Group;
 
 import com.google.common.base.Preconditions;
@@ -44,7 +44,7 @@ public class DPhyperNode extends AbstractNode {
     }
 
     public DPhyperNode withGroup(Group group) {
-        return new DPhyperNode(index, group, edges);
+        return new DPhyperNode(index, group, getEdges());
     }
 
     public Group getGroup() {

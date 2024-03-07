@@ -36,18 +36,17 @@ This statement is used to create an index
 grammar:
 
 ```sql
-CREATE INDEX [IF NOT EXISTS] index_name ON table_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
+CREATE INDEX [IF NOT EXISTS] index_name ON table_name (column [, ...],) [USING INVERTED] [COMMENT 'balabala'];
 ````
 Notice:
-- Currently only supports bitmap indexes
-- BITMAP indexes are only created on a single column
+- INVERTED indexes are only created on a single column
 
 ### Example
 
-1. Create a bitmap index for siteid on table1
+1. Create a inverted index for siteid on table1
 
     ```sql
-    CREATE INDEX [IF NOT EXISTS] index_name ON table1 (siteid) USING BITMAP COMMENT 'balabala';
+    CREATE INDEX [IF NOT EXISTS] index_name ON table1 (siteid) USING INVERTED COMMENT 'balabala';
     ````
 
 

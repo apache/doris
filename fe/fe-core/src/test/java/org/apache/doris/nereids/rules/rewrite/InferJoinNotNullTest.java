@@ -70,6 +70,18 @@ class InferJoinNotNullTest implements MemoPatternMatchSupported {
                                 logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#2 IS NULL)"))
                         )
                 );
+
+        LogicalPlan rightMarkSemiJoin = new LogicalPlanBuilder(scan1)
+                .markJoin(scan2, JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), rightMarkSemiJoin)
+                .applyTopDown(new InferJoinNotNull())
+                .matches(
+                        rightSemiLogicalJoin(
+                                logicalOlapScan(),
+                                logicalOlapScan()
+                        )
+                );
     }
 
     @Test

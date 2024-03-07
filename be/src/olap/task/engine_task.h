@@ -15,15 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
+#pragma once
 
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "olap/txn_manager.h"
-#include "util/doris_metrics.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -32,9 +26,7 @@ namespace doris {
 class EngineTask {
 public:
     virtual ~EngineTask() = default;
-    virtual Status execute() { return Status::OK(); }
-    virtual Status finish() { return Status::OK(); }
+    virtual Status execute() = 0;
 };
 
 } // end namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H

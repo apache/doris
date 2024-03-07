@@ -156,4 +156,3 @@ public class ShowLoadProfileStmt extends ShowStmt {
         return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
-

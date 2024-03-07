@@ -38,6 +38,7 @@ class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}
     Exception(int code, const std::string_view& msg);
+    Exception(const Status& status) : Exception(status.code(), status.msg()) {}
     // add nested exception as first param, or the template may could not find
     // the correct method for ...args
     Exception(const Exception& nested, int code, const std::string_view& msg);
@@ -53,7 +54,7 @@ public:
 
     const char* what() const noexcept override { return to_string().c_str(); }
 
-    Status to_status() const { return Status::Error<false>(code(), to_string()); }
+    Status to_status() const { return Status(code(), _err_msg->_msg, _err_msg->_stack); }
 
 private:
     int _code;

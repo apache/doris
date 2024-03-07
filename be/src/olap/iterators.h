@@ -24,6 +24,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
@@ -38,6 +39,10 @@ class ColumnPredicate;
 namespace vectorized {
 struct IteratorRowRef;
 };
+
+namespace segment_v2 {
+struct StreamReader;
+}
 
 class StorageReadOptions {
 public:
@@ -56,11 +61,11 @@ public:
                   include_upper(include_upper_) {}
 
         // the lower bound of the range, nullptr if not existed
-        const RowCursor* lower_key;
+        const RowCursor* lower_key = nullptr;
         // whether `lower_key` is included in the range
         bool include_lower;
         // the upper bound of the range, nullptr if not existed
-        const RowCursor* upper_key;
+        const RowCursor* upper_key = nullptr;
         // whether `upper_key` is included in the range
         bool include_upper;
     };
@@ -77,7 +82,7 @@ public:
     std::unordered_map<uint32_t, std::shared_ptr<roaring::Roaring>> delete_bitmap;
 
     std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates =
-            std::make_shared<AndBlockColumnPredicate>();
+            AndBlockColumnPredicate::create_shared();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
     std::vector<ColumnPredicate*> column_predicates;
@@ -95,6 +100,7 @@ public:
     bool record_rowids = false;
     // flag for enable topn opt
     bool use_topn_opt = false;
+    std::vector<int> topn_filter_source_node_ids;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
@@ -109,6 +115,9 @@ public:
     RowsetId rowset_id;
     Version version;
     int32_t tablet_id = 0;
+    // slots that cast may be eliminated in storage layer
+    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    RowRanges row_ranges;
 };
 
 class RowwiseIterator;

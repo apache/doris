@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 
 /**
@@ -41,15 +40,8 @@ public class MysqlDb extends MysqlCompatibleDatabase {
     */
     public static final long DATABASE_ID = 1L;
 
-    /**
-     * For test
-    */
     public MysqlDb() {
         super(DATABASE_ID, DATABASE_NAME);
-    }
-
-    public MysqlDb(String cluster) {
-        super(DATABASE_ID, ClusterNamespace.getFullName(cluster, DATABASE_NAME));
     }
 
     /**
@@ -60,7 +52,7 @@ public class MysqlDb extends MysqlCompatibleDatabase {
     public void initTables() {}
 
     @Override
-    public boolean createTable(Table table) {
+    public boolean registerTable(TableIf table) {
         return false;
     }
 }

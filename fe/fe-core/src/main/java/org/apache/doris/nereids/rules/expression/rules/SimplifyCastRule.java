@@ -82,14 +82,15 @@ public class SimplifyCastRule extends AbstractExpressionRewriteRule {
                                 ((VarcharType) castType).getLen());
                     }
                 } else if (castType instanceof DecimalV2Type) {
+                    DecimalV2Type decimalV2Type = (DecimalV2Type) castType;
                     if (child instanceof TinyIntLiteral) {
-                        return new DecimalLiteral(new BigDecimal(((TinyIntLiteral) child).getValue()));
+                        return new DecimalLiteral(decimalV2Type, new BigDecimal(((TinyIntLiteral) child).getValue()));
                     } else if (child instanceof SmallIntLiteral) {
-                        return new DecimalLiteral(new BigDecimal(((SmallIntLiteral) child).getValue()));
+                        return new DecimalLiteral(decimalV2Type, new BigDecimal(((SmallIntLiteral) child).getValue()));
                     } else if (child instanceof IntegerLiteral) {
-                        return new DecimalLiteral(new BigDecimal(((IntegerLiteral) child).getValue()));
+                        return new DecimalLiteral(decimalV2Type, new BigDecimal(((IntegerLiteral) child).getValue()));
                     } else if (child instanceof BigIntLiteral) {
-                        return new DecimalLiteral(new BigDecimal(((BigIntLiteral) child).getValue()));
+                        return new DecimalLiteral(decimalV2Type, new BigDecimal(((BigIntLiteral) child).getValue()));
                     }
                 } else if (castType instanceof DecimalV3Type) {
                     DecimalV3Type decimalV3Type = (DecimalV3Type) castType;

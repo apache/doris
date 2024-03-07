@@ -34,6 +34,8 @@ public:
     VLambdaFunctionCallExpr(const TExprNode& node) : VExpr(node) {}
     ~VLambdaFunctionCallExpr() override = default;
 
+    const std::string& expr_name() const override { return _expr_name; }
+
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
@@ -48,12 +50,20 @@ public:
             return Status::InternalError("Lambda Function {} is not implemented.",
                                          _fn.name.function_name);
         }
+        _prepare_finished = true;
         return Status::OK();
     }
 
-    const std::string& expr_name() const override { return _expr_name; }
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override {
+        DCHECK(_prepare_finished);
+        RETURN_IF_ERROR(VExpr::open(state, context, scope));
+        _open_finished = true;
+        return Status::OK();
+    }
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        DCHECK(_open_finished || _getting_const_col);
         return _lambda_function->execute(context, block, result_column_id, _data_type, _children);
     }
 

@@ -33,7 +33,7 @@ CREATE TABLE routine_load_dup_tbl_array
     kd13 array<DATEV2>          NOT NULL DEFAULT "[]",
     kd14 array<DATETIMEV2>      NOT NULL DEFAULT "[]",
     kd15 array<CHAR>            NOT NULL DEFAULT "[]",
-    kd16 array<VARCHAR>         NOT NULL DEFAULT "[]",
+    kd16 array<VARCHAR>         NOT NULL DEFAULT "[]"
 )
 DUPLICATE KEY(k00)
 DISTRIBUTED BY HASH(k00) BUCKETS 32

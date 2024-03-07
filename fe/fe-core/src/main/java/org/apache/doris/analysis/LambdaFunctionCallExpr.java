@@ -247,7 +247,9 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
-        LOG.debug("fn string: " + fn.signatureString() + ". return type: " + fn.getReturnType());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("fn string: " + fn.signatureString() + ". return type: " + fn.getReturnType());
+        }
         this.type = fn.getReturnType();
         if (this.type.isArrayType() && ((ArrayType) this.type).getItemType().isDecimalV3()
                 && getChild(0).getType().isArrayType()

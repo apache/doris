@@ -92,7 +92,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
         int64_t max_timeout = time(nullptr) + exec_timout + 5;
-        static_cast<void>(cancel_at_time(max_timeout, query_id));
+        cancel_at_time(max_timeout, query_id);
     }
     *sender = control_block;
     return Status::OK();
@@ -173,7 +173,7 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
     return Status::OK();
 }
 
-Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
+void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
     std::lock_guard<std::mutex> l(_timeout_lock);
     TimeoutMap::iterator iter = _timeout_map.find(cancel_time);
 
@@ -184,7 +184,6 @@ Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& quer
     }
 
     iter->second.push_back(query_id);
-    return Status::OK();
 }
 
 void ResultBufferMgr::cancel_thread() {

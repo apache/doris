@@ -70,3 +70,9 @@ After the first query, if the following three conditions are met, the query resu
 3. The query result bytes is less than cache_result_max_data_size in fe.conf.
 
 For detailed parameter introduction and unfinished matters, see query-cache.md.
+
+## Unfinished business
+
+- SQL contains functions that generate random values, such as random(). Using QueryCache will cause the query results to lose their randomness, and the same results will be obtained every time they are executed.
+
+- Similar SQL, 2 indicators were queried before, and now 3 indicators are queried. Can the cache of 2 indicators be used? Not currently supported

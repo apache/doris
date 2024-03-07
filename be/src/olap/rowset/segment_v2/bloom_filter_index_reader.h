@@ -64,8 +64,8 @@ private:
 
     io::FileReaderSPtr _file_reader;
     DorisCallOnce<Status> _load_once;
-    const TypeInfo* _type_info;
-    std::unique_ptr<BloomFilterIndexPB> _bloom_filter_index_meta;
+    const TypeInfo* _type_info = nullptr;
+    std::unique_ptr<BloomFilterIndexPB> _bloom_filter_index_meta = nullptr;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;
 };
 
@@ -80,7 +80,7 @@ public:
     size_t current_bloom_filter_index() const { return _bloom_filter_iter.get_current_ordinal(); }
 
 private:
-    BloomFilterIndexReader* _reader;
+    BloomFilterIndexReader* _reader = nullptr;
     IndexedColumnIterator _bloom_filter_iter;
 };
 

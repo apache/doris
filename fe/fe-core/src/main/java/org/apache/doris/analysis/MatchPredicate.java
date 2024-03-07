@@ -50,6 +50,9 @@ public class MatchPredicate extends Predicate {
         MATCH_ANY("MATCH_ANY", "match_any", TExprOpcode.MATCH_ANY),
         MATCH_ALL("MATCH_ALL", "match_all", TExprOpcode.MATCH_ALL),
         MATCH_PHRASE("MATCH_PHRASE", "match_phrase", TExprOpcode.MATCH_PHRASE),
+        MATCH_PHRASE_PREFIX("MATCH_PHRASE_PREFIX", "match_phrase_prefix", TExprOpcode.MATCH_PHRASE_PREFIX),
+        MATCH_REGEXP("MATCH_REGEXP", "match_regexp", TExprOpcode.MATCH_REGEXP),
+        MATCH_PHRASE_EDGE("MATCH_PHRASE_EDGE", "match_phrase_edge", TExprOpcode.MATCH_PHRASE_EDGE),
         MATCH_ELEMENT_EQ("MATCH_ELEMENT_EQ", "match_element_eq", TExprOpcode.MATCH_ELEMENT_EQ),
         MATCH_ELEMENT_LT("MATCH_ELEMENT_LT", "match_element_lt", TExprOpcode.MATCH_ELEMENT_LT),
         MATCH_ELEMENT_GT("MATCH_ELEMENT_GT", "match_element_gt", TExprOpcode.MATCH_ELEMENT_GT),
@@ -144,6 +147,36 @@ public class MatchPredicate extends Predicate {
                     Type.BOOLEAN));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.MATCH_PHRASE.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE_PREFIX.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE_PREFIX.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_REGEXP.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_REGEXP.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE_EDGE.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE_EDGE.getName(),
                     symbolNotUsed,
                     Lists.<Type>newArrayList(new ArrayType(t), t),
                     Type.BOOLEAN));
@@ -249,9 +282,10 @@ public class MatchPredicate extends Predicate {
             throw new AnalysisException("right operand of " + op.toString() + " must be of type STRING: " + toSql());
         }
 
-        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isArrayType()) {
+        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isArrayType()
+                    && !getChild(0).getType().isVariantType()) {
             throw new AnalysisException(
-                    "left operand of " + op.toString() + " must be of type STRING or ARRAY: " + toSql());
+                    "left operand of " + op.toString() + " must be of type STRING, ARRAY or VARIANT: " + toSql());
         }
 
         fn = getBuiltinFunction(op.toString(),
@@ -271,6 +305,11 @@ public class MatchPredicate extends Predicate {
             } catch (NumberFormatException nfe) {
                 throw new AnalysisException("Invalid number format literal: " + e2.getStringValue());
             }
+        }
+
+        // CAST variant to right expr type
+        if (e1.type.isVariantType()) {
+            setChild(0, e1.castTo(e2.getType()));
         }
 
         if (e1 instanceof SlotRef) {

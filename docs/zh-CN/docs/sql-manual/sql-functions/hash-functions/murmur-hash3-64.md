@@ -29,7 +29,9 @@ under the License.
 
 `BIGINT MURMUR_HASH3_64(VARCHAR input, ...)`
 
-返回输入字符串的64位murmur3 hash值
+返回输入字符串的64位murmur3 hash值。
+
+注：在计算hash值时，更推荐使用`xxhash_64`，而不是`murmur_hash3_64`。
 
 ### example
 

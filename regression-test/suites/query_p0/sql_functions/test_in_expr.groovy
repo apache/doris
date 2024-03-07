@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_in_expr", "query") {
+suite("test_in_expr", "query,arrow_flight_sql") {
     def nullTableName = "in_expr_test_null"
     def notNullTableName = "in_expr_test_not_null"
 

@@ -96,19 +96,30 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-pre_set() {
+run_sql() {
   echo $@
   mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
 }
 
-pre_set "set global parallel_fragment_exec_instance_num=8;"
-pre_set "set global exec_mem_limit=32G;"
-pre_set "set global query_timeout=900;"
+get_session_variable() {
+  k="$1"
+  v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+  echo "${v/*Value: /}"
+}
+
+_parallel_fragment_exec_instance_num="$(get_session_variable parallel_fragment_exec_instance_num)"
+_exec_mem_limit="$(get_session_variable exec_mem_limit)"
+_query_timeout="$(get_session_variable query_timeout)"
 
 echo '============================================'
-pre_set "show variables"
+echo "Optimize session variables"
+run_sql "set global parallel_fragment_exec_instance_num=16;"
+run_sql "set global exec_mem_limit=32G;"
+run_sql "set global query_timeout=900;"
 echo '============================================'
-pre_set "analyze table hits with sync;"
+run_sql "show variables"
+echo '============================================'
+run_sql "analyze table hits with sync;"
 
 TRIES=3
 QUERY_NUM=1
@@ -122,7 +133,7 @@ cat ${QUERIES_FILE} | while read query; do
   sync
   echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null
 
-  echo -n "query${QUERY_NUM}: " | tee -a result.csv
+  echo -n "query${QUERY_NUM}," | tee -a result.csv
   for i in $(seq 1 $TRIES); do
     RES=$(mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "${query}" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
 
@@ -133,3 +144,14 @@ cat ${QUERIES_FILE} | while read query; do
 
   QUERY_NUM=$((QUERY_NUM + 1))
 done
+
+cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
+best_hot_run_sum=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' result.csv)
+echo "Total cold run time: ${cold_run_sum} ms"
+echo "Total hot run time: ${best_hot_run_sum} ms"
+echo 'Finish ClickBench queries.'
+
+echo "Restore session variables"
+run_sql "set global parallel_fragment_exec_instance_num=${_parallel_fragment_exec_instance_num};"
+run_sql "set global exec_mem_limit=${_exec_mem_limit};"
+run_sql "set global query_timeout=${_query_timeout};"

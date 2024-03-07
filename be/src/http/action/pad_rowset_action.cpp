@@ -19,7 +19,6 @@
 
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
 #include <cstdlib>
 #include <memory>
@@ -41,6 +40,7 @@
 #include "util/trace.h"
 
 namespace doris {
+namespace {
 
 const std::string TABLET_ID = "tablet_id";
 const std::string START_VERSION = "start_version";
@@ -53,6 +53,15 @@ Status check_one_param(const std::string& param_val, const std::string& param_na
     return Status::OK();
 }
 
+Status check_param(HttpRequest* req) {
+    RETURN_IF_ERROR(check_one_param(req->param(TABLET_ID), TABLET_ID));
+    RETURN_IF_ERROR(check_one_param(req->param(START_VERSION), START_VERSION));
+    RETURN_IF_ERROR(check_one_param(req->param(END_VERSION), END_VERSION));
+    return Status::OK();
+}
+
+} // namespace
+
 void PadRowsetAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
     Status status = _handle(req);
@@ -63,13 +72,6 @@ void PadRowsetAction::handle(HttpRequest* req) {
     } else {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, result);
     }
-}
-
-Status PadRowsetAction::check_param(HttpRequest* req) {
-    RETURN_IF_ERROR(check_one_param(req->param(TABLET_ID), TABLET_ID));
-    RETURN_IF_ERROR(check_one_param(req->param(START_VERSION), START_VERSION));
-    RETURN_IF_ERROR(check_one_param(req->param(END_VERSION), END_VERSION));
-    return Status::OK();
 }
 
 Status PadRowsetAction::_handle(HttpRequest* req) {
@@ -87,14 +89,14 @@ Status PadRowsetAction::_handle(HttpRequest* req) {
         return Status::InternalError("Invalid input version");
     }
 
-    auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (nullptr == tablet) {
         return Status::InternalError("Unknown tablet id {}", tablet_id);
     }
-    return _pad_rowset(tablet, Version(start_version, end_version));
+    return _pad_rowset(tablet.get(), Version(start_version, end_version));
 }
 
-Status PadRowsetAction::_pad_rowset(TabletSharedPtr tablet, const Version& version) {
+Status PadRowsetAction::_pad_rowset(Tablet* tablet, const Version& version) {
     if (tablet->check_version_exist(version)) {
         return Status::InternalError("Input version {} exists", version.to_string());
     }

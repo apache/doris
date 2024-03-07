@@ -25,7 +25,7 @@
 #include <typeinfo>
 
 #include "runtime/define_primitive_type.h"
-#include "serde/data_type_fixedlengthobject_serde.h"
+#include "serde/data_type_string_serde.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -64,6 +64,7 @@ public:
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for DataTypeFixedLengthObject";
+        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }

@@ -210,9 +210,9 @@ private:
     void extend_input_buf();
     void extend_output_buf();
 
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     io::FileReaderSPtr _file_reader;
-    Decompressor* _decompressor;
+    Decompressor* _decompressor = nullptr;
     // the min length that should be read.
     // -1 means endless(for stream load)
     // and only valid if the content is uncompressed
@@ -222,13 +222,13 @@ private:
     TextLineReaderCtxPtr _line_reader_ctx;
 
     // save the data read from file reader
-    uint8_t* _input_buf;
+    uint8_t* _input_buf = nullptr;
     size_t _input_buf_size;
     size_t _input_buf_pos;
     size_t _input_buf_limit;
 
     // save the data decompressed from decompressor.
-    uint8_t* _output_buf;
+    uint8_t* _output_buf = nullptr;
     size_t _output_buf_size;
     size_t _output_buf_pos;
     size_t _output_buf_limit;
@@ -241,9 +241,9 @@ private:
     size_t _current_offset;
 
     // Profile counters
-    RuntimeProfile::Counter* _bytes_read_counter;
-    RuntimeProfile::Counter* _read_timer;
-    RuntimeProfile::Counter* _bytes_decompress_counter;
-    RuntimeProfile::Counter* _decompress_timer;
+    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _read_timer = nullptr;
+    RuntimeProfile::Counter* _bytes_decompress_counter = nullptr;
+    RuntimeProfile::Counter* _decompress_timer = nullptr;
 };
 } // namespace doris

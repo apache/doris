@@ -46,8 +46,8 @@ public:
 
     Status open() override;
     Status process_init(Block* block, RuntimeState* state) override;
-    Status process_row(size_t row_idx) override;
-    Status process_close() override;
+    void process_row(size_t row_idx) override;
+    void process_close() override;
     void get_value(MutableColumnPtr& column) override;
 
 private:

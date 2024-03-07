@@ -20,18 +20,23 @@ package org.apache.doris.statistics.util;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ResultRow;
 
+import com.google.common.collect.Lists;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Base64;
 
-public class StatisticsUtilTest {
+class StatisticsUtilTest {
     @Test
-    public void testConvertToDouble() {
+    void testConvertToDouble() {
         try {
             //test DATE
             double date1 = StatisticsUtil.convertToDouble(Type.DATE, "1990-01-01");
@@ -75,7 +80,7 @@ public class StatisticsUtilTest {
     }
 
     @Test
-    public void testInAnalyzeTime1() {
+    void testInAnalyzeTime1() {
         new MockUp<StatisticsUtil>() {
 
             @Mock
@@ -94,7 +99,7 @@ public class StatisticsUtilTest {
     }
 
     @Test
-    public void testInAnalyzeTime2() {
+    void testInAnalyzeTime2() {
         new MockUp<StatisticsUtil>() {
 
             @Mock
@@ -110,5 +115,39 @@ public class StatisticsUtilTest {
         Assertions.assertTrue(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
         now = "23:30:00";
         Assertions.assertFalse(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+    }
+
+
+    @Test
+    void testEncodeValue() throws Exception {
+        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(null, 0));
+
+        ResultRow row = new ResultRow(null);
+        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 0));
+
+        ArrayList<String> values = Lists.newArrayList();
+        values.add("a");
+        row = new ResultRow(values);
+        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 1));
+
+        values = Lists.newArrayList();
+        values.add(null);
+        row = new ResultRow(values);
+        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 0));
+
+        values.add("a");
+        row = new ResultRow(values);
+        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 0));
+        Assertions.assertEquals(Base64.getEncoder()
+                .encodeToString("a".getBytes(StandardCharsets.UTF_8)), StatisticsUtil.encodeValue(row, 1));
+        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 2));
+    }
+
+    @Test
+    void testEscape() {
+        // \'"
+        String origin = "\\'\"";
+        // \\''""
+        Assertions.assertEquals("\\\\''\"", StatisticsUtil.escapeSQL(origin));
     }
 }

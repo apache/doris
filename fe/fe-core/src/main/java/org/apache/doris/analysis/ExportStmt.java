@@ -63,6 +63,7 @@ import java.util.stream.Collectors;
 public class ExportStmt extends StatementBase {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
+    public static final String DATA_CONSISTENCY = "data_consistency";
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
@@ -72,6 +73,7 @@ public class ExportStmt extends StatementBase {
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
+            .add(DATA_CONSISTENCY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
@@ -103,6 +105,8 @@ public class ExportStmt extends StatementBase {
 
     private String maxFileSize;
     private String deleteExistingFiles;
+    private String withBom;
+    private String dataConsistency;
     private SessionVariable sessionVariables;
 
     private String qualifiedUser;
@@ -124,9 +128,12 @@ public class ExportStmt extends StatementBase {
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
         this.timeout = DEFAULT_TIMEOUT;
 
-        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
-                ConnectContext.get().getSessionVariable());
-        this.sessionVariables = optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable());
+        // ConnectionContext may not exist when in replay thread
+        if (ConnectContext.get() != null) {
+            this.sessionVariables = VariableMgr.cloneSessionVariable(ConnectContext.get().getSessionVariable());
+        } else {
+            this.sessionVariables = VariableMgr.cloneSessionVariable(VariableMgr.getDefaultSessionVariable());
+        }
     }
 
     @Override
@@ -178,7 +185,7 @@ public class ExportStmt extends StatementBase {
         }
 
         // check path is valid
-        StorageBackend.checkPath(path, brokerDesc.getStorageType());
+        StorageBackend.checkPath(path, brokerDesc.getStorageType(), null);
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             BrokerMgr brokerMgr = analyzer.getEnv().getBrokerMgr();
             if (!brokerMgr.containsBroker(brokerDesc.getName())) {
@@ -225,6 +232,8 @@ public class ExportStmt extends StatementBase {
         exportJob.setParallelism(this.parallelism);
         exportJob.setMaxFileSize(this.maxFileSize);
         exportJob.setDeleteExistingFiles(this.deleteExistingFiles);
+        exportJob.setWithBom(this.withBom);
+        exportJob.setDataConsistency(this.dataConsistency);
 
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -261,7 +270,7 @@ public class ExportStmt extends StatementBase {
         table.readLock();
         try {
             // check table
-            if (!table.isPartitioned()) {
+            if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
             }
             Table.TableType tblType = table.getType();
@@ -350,6 +359,20 @@ public class ExportStmt extends StatementBase {
         } else {
             // generate a random label
             this.label = "export_" + UUID.randomUUID();
+        }
+
+        // with bom
+        this.withBom = properties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false");
+
+        // data consistency
+        String dataConsistencyStr = properties.get(DATA_CONSISTENCY);
+        if (dataConsistencyStr != null) {
+            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_PARTITION)) {
+                throw new UserException("The value of data_consistency is invalid, only `partition` is allowed");
+            }
+            this.dataConsistency = ExportJob.CONSISTENT_PARTITION;
+        } else {
+            this.dataConsistency = ExportJob.CONSISTENT_ALL;
         }
     }
 

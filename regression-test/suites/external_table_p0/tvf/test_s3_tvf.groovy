@@ -37,7 +37,7 @@ suite("test_s3_tvf", "p0") {
         CREATE TABLE IF NOT EXISTS ${table_name} (
             `user_id` LARGEINT NOT NULL COMMENT "用户id",
             `name` STRING COMMENT "用户名称",
-            `age` INT COMMENT "用户年龄",
+            `age` INT COMMENT "用户年龄"
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """

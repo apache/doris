@@ -80,12 +80,14 @@ pg_14_port=7121
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+db2_11_port=50000
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=true
 hms_port=7141
+hive_pg_port=5432
 
 enableEsTest=true
 es_6_port="19200/"

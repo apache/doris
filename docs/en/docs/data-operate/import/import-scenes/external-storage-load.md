@@ -35,7 +35,7 @@ Upload the files to be imported to HDFS. For specific commands, please refer to 
 
 ### start import
 
-Hdfs load creates an import statement. The import method is basically the same as [Broker Load](../../../data-operate/import/import-way/broker-load-manual.md), only need to `WITH BROKER broker_name () ` statement with the following
+Hdfs load creates an import statement. The import method is basically the same as [Broker Load](../../../data-operate/import/import-way/broker-load-manual), only need to `WITH BROKER broker_name () ` statement with the following
 
 ```
   LOAD LABEL db_name.label_name 
@@ -78,11 +78,11 @@ Hdfs load creates an import statement. The import method is basically the same a
        );
    ```
 
-   For parameter introduction, please refer to [Broker Load](../../../data-operate/import/import-way/broker-load-manual.md), HA cluster creation syntax, view through `HELP BROKER LOAD`
+   For parameter introduction, please refer to [Broker Load](../../../data-operate/import/import-way/broker-load-manual), HA cluster creation syntax, view through `HELP BROKER LOAD`
 
 3. Check import status
 
-   Broker load is an asynchronous import method. The specific import results can be accessed through [SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.md) command to view
+   Broker load is an asynchronous import method. The specific import results can be accessed through [SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD) command to view
    
    ```
    mysql> show load order by createtime desc limit 1\G;
@@ -128,7 +128,7 @@ This document mainly introduces how to import data stored in AWS S3. It also sup
 Other cloud storage systems can find relevant information compatible with S3 in corresponding documents
 
 ### Start Loading
-Like [Broker Load](../../../data-operate/import/import-way/broker-load-manual.md)  just replace `WITH BROKER broker_name ()` with
+Like [Broker Load](../../../data-operate/import/import-way/broker-load-manual)  just replace `WITH BROKER broker_name ()` with
 ```
     WITH S3
     (

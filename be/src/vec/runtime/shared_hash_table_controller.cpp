@@ -105,7 +105,8 @@ Status SharedHashTableController::wait_for_signal(RuntimeState* state,
     // maybe builder signaled before other instances waiting,
     // so here need to check value of `signaled`
     while (!context->signaled) {
-        _cv.wait_for(lock, std::chrono::milliseconds(400), [&]() { return context->signaled; });
+        _cv.wait_for(lock, std::chrono::milliseconds(400),
+                     [&]() { return context->signaled.load(); });
         // return if the instances is cancelled(eg. query timeout)
         RETURN_IF_CANCELLED(state);
     }
