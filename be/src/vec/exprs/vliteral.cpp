@@ -26,7 +26,9 @@
 #include <sys/types.h>
 
 #include <algorithm>
+#include <memory>
 #include <ostream>
+#include <type_traits>
 #include <vector>
 
 #include "common/exception.h"
@@ -36,6 +38,7 @@
 #include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
+#include "udf/udf.h"
 #include "util/string_parser.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -54,6 +57,7 @@ void VLiteral::init(const TExprNode& node) {
     Field field;
     field = _data_type->get_field(node);
     _column_ptr = _data_type->create_column_const(1, field);
+    _constant_col = std::make_shared<ColumnPtrWrapper>(_column_ptr);
 }
 
 Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) {
@@ -68,10 +72,11 @@ Status VLiteral::open(RuntimeState* state, VExprContext* context,
 }
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
-    // Literal expr should return least one row.
+    // Literal expr should return at least one row.
     // sometimes we just use a VLiteral without open or prepare. so can't check it at this moment
     size_t row_size = std::max(block->rows(), _column_ptr->size());
     *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name}, row_size);
+    LOG_INFO("VLiteral::execute: result_column_id = {}", this->expr_name());
     return Status::OK();
 }
 

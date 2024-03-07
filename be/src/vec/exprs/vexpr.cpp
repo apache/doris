@@ -482,8 +482,10 @@ Status VExpr::get_const_col(VExprContext* context,
     }
 
     if (_constant_col != nullptr) {
-        DCHECK(column_wrapper != nullptr);
-        *column_wrapper = _constant_col;
+        // For VLiteral, we have already created a constant column in init/prepare phase.
+        if (column_wrapper != nullptr) {
+            *column_wrapper = _constant_col;
+        }
         return Status::OK();
     }
 

@@ -104,6 +104,11 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
                                  int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
+
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return get_result_from_const(block, _expr_name, result_column_id);
+    }
+
     // for each child call execute
     int column_id = 0;
     RETURN_IF_ERROR(_children[0]->execute(context, block, &column_id));
