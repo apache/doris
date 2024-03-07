@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -45,7 +46,7 @@ public class AlterMTMVRefreshInfo extends AlterMTMVInfo {
 
     @Override
     public void run() throws UserException {
-        throw new AnalysisException("current not support.");
+        Env.getCurrentEnv().alterMTMVRefreshInfo(this);
     }
 
     public MTMVRefreshInfo getRefreshInfo() {

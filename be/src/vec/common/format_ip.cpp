@@ -23,8 +23,6 @@
 #include <algorithm>
 #include <array>
 
-#include "vec/core/types.h"
-
 namespace doris::vectorized {
 
 /** Further we want to generate constexpr array of strings with sizes from sequence of unsigned ints [0..N)
@@ -75,4 +73,5 @@ consteval std::array<std::pair<const char*, size_t>, N> str_make_array() {
 /// This will generate static array of pair<const char *, size_t> for [0..255] at compile time
 extern constexpr std::array<std::pair<const char*, size_t>, 256> one_byte_to_string_lookup_table =
         str_make_array<256>();
+
 } // namespace doris::vectorized

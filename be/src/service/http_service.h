@@ -29,6 +29,8 @@ namespace doris {
 class ExecEnv;
 class EvHttpServer;
 class WebPageHandler;
+class StorageEngine;
+class CloudStorageEngine;
 
 // HTTP service for Doris BE
 class HttpService {
@@ -43,13 +45,17 @@ public:
     int get_real_port() const;
 
 private:
-    ExecEnv* _env;
+    void register_debug_point_handler();
+    void register_local_handler(StorageEngine& engine);
+    void register_cloud_handler(CloudStorageEngine& engine);
+
+    ExecEnv* _env = nullptr;
     ObjectPool _pool;
 
     std::unique_ptr<EvHttpServer> _ev_http_server;
     std::unique_ptr<WebPageHandler> _web_page_handler;
 
-    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group {nullptr};
+    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group;
 
     bool stopped = false;
 };

@@ -60,6 +60,8 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
             bw.write(',');
             bw.write(' ');
         }
+        std::string col_name = "\"" + elemNames[i] + "\": ";
+        bw.write(col_name.c_str(), col_name.length());
         RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(struct_column.get_column(i),
                                                                       row_num, bw, options));
     }
@@ -398,22 +400,12 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 int end,
                                                 std::vector<StringRef>& buffer_list) const {
     orc::StructVectorBatch* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
-
     const ColumnStruct& struct_col = assert_cast<const ColumnStruct&>(column);
     for (size_t row_id = start; row_id < end; row_id++) {
-        if (cur_batch->notNull[row_id] == 1) {
-            for (int i = 0; i < struct_col.tuple_size(); ++i) {
-                static_cast<void>(elemSerDeSPtrs[i]->write_column_to_orc(
-                        timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                        row_id + 1, buffer_list));
-            }
-        } else {
-            // This else is necessary
-            // because we must set notNull when cur_batch->notNull[row_id] == 0
-            for (int j = 0; j < struct_col.tuple_size(); ++j) {
-                cur_batch->fields[j]->hasNulls = true;
-                cur_batch->fields[j]->notNull[row_id] = 0;
-            }
+        for (int i = 0; i < struct_col.tuple_size(); ++i) {
+            RETURN_IF_ERROR(elemSerDeSPtrs[i]->write_column_to_orc(
+                    timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
+                    row_id + 1, buffer_list));
         }
     }
 

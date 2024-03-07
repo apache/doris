@@ -17,7 +17,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 Calculate the mean of the data within the window
 
 ```sql
-AVG([DISTINCT | ALL] *expression*) [OVER (*analytic_clause*)]
+AVG([ALL] *expression*) [OVER (*analytic_clause*)]
 ```
 
 ### example

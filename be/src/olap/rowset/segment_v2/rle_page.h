@@ -139,7 +139,7 @@ private:
     size_t _count;
     bool _finished;
     int _bit_width;
-    RleEncoder<CppType>* _rle_encoder;
+    RleEncoder<CppType>* _rle_encoder = nullptr;
     faststring _buf;
     CppType _first_value;
     CppType _last_value;

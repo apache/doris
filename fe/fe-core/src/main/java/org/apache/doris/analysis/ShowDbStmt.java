@@ -46,11 +46,6 @@ public class ShowDbStmt extends ShowStmt {
         this.pattern = pattern;
     }
 
-    public ShowDbStmt(String pattern, Expr where) {
-        this.pattern = pattern;
-        this.where = where;
-    }
-
     public ShowDbStmt(String pattern, Expr where, String catalogName) {
         this.pattern = pattern;
         this.where = where;
@@ -82,18 +77,15 @@ public class ShowDbStmt extends ShowStmt {
         // Columns
         SelectList selectList = new SelectList();
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
-        SelectListItem item = new SelectListItem(new SlotRef(TABLE_NAME, "SCHEMA_NAME"), DB_COL);
+        TableName tableName = new TableName(catalogName, InfoSchemaDb.DATABASE_NAME, "schemata");
+        SelectListItem item = new SelectListItem(new SlotRef(tableName, "SCHEMA_NAME"), DB_COL);
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, DB_COL), item.getExpr().clone(null));
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
+                new FromClause(Lists.newArrayList(new TableRef(tableName, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-        if (catalogName != null) {
-            analyzer.setSchemaInfo(null, null, null, catalogName);
-        } else {
-            analyzer.setSchemaInfo(null, null, null, analyzer.getDefaultCatalog());
-        }
+        analyzer.setSchemaInfo(null, null, catalogName);
         return selectStmt;
     }
 

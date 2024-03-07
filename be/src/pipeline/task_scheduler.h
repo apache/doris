@@ -46,16 +46,17 @@ namespace doris::pipeline {
 
 class BlockedTaskScheduler {
 public:
-    explicit BlockedTaskScheduler();
+    explicit BlockedTaskScheduler(std::string name);
 
     ~BlockedTaskScheduler() = default;
 
-    Status start(std::string sche_name);
+    Status start();
     void shutdown();
     Status add_blocked_task(PipelineTask* task);
 
 private:
     std::mutex _task_mutex;
+    std::string _name;
     std::condition_variable _task_cond;
     std::list<PipelineTask*> _blocked_tasks;
 
@@ -102,8 +103,5 @@ private:
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
     void _do_work(size_t index);
-    // after _try_close_task, task maybe destructed.
-    void _try_close_task(PipelineTask* task, PipelineTaskState state,
-                         Status exec_status = Status::OK());
 };
 } // namespace doris::pipeline

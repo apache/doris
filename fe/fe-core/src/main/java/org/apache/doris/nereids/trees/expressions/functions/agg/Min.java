@@ -22,10 +22,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -34,7 +37,7 @@ import java.util.List;
 
 /** min agg function. */
 public class Min extends NullableAggregateFunction
-        implements UnaryExpression, CustomSignature, SupportWindowAnalytic {
+        implements UnaryExpression, CustomSignature, SupportWindowAnalytic, CouldRollUp {
 
     public Min(Expression child) {
         this(false, false, child);
@@ -58,6 +61,9 @@ public class Min extends NullableAggregateFunction
     @Override
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();
+        if (dataType instanceof DecimalV2Type) {
+            dataType = DecimalV3Type.forType(dataType);
+        }
         return FunctionSignature.ret(dataType).args(dataType);
     }
 
@@ -80,5 +86,10 @@ public class Min extends NullableAggregateFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMin(this, context);
+    }
+
+    @Override
+    public Function constructRollUp(Expression param, Expression... varParams) {
+        return new Min(this.distinct, this.alwaysNullable, param);
     }
 }

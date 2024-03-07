@@ -612,3 +612,11 @@
 
 -- !sql16_1 --
 
+-- !sql_trim_double_quotes --
+1	test
+2	test
+
+-- !sql18 --
+1	test
+2	test
+

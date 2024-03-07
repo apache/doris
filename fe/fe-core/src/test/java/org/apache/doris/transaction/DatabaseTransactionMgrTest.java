@@ -81,10 +81,10 @@ public class DatabaseTransactionMgrTest {
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
-        masterTransMgr = masterEnv.getGlobalTransactionMgr();
+        masterTransMgr = (GlobalTransactionMgr) masterEnv.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterEnv.getEditLog());
 
-        slaveTransMgr = slaveEnv.getGlobalTransactionMgr();
+        slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
 
         LabelToTxnId = addTransactionToTransactionMgr();
@@ -144,8 +144,7 @@ public class DatabaseTransactionMgrTest {
     public void testNormal() throws UserException {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Assert.assertEquals(4, masterDbTransMgr.getTransactionNum());
-        Assert.assertEquals(2, masterDbTransMgr.getRunningTxnNums());
-        Assert.assertEquals(1, masterDbTransMgr.getRunningRoutineLoadTxnNums());
+        Assert.assertEquals(3, masterDbTransMgr.getRunningTxnNums());
         Assert.assertEquals(1, masterDbTransMgr.getFinishedTxnNums());
         DatabaseTransactionMgr slaveDbTransMgr = slaveTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Assert.assertEquals(1, slaveDbTransMgr.getTransactionNum());
@@ -178,14 +177,12 @@ public class DatabaseTransactionMgrTest {
         long txnId2 = LabelToTxnId.get(CatalogTestUtil.testTxnLabel2);
         masterDbTransMgr.abortTransaction(txnId2, "test abort transaction", null);
         Assert.assertEquals(2, masterDbTransMgr.getRunningTxnNums());
-        Assert.assertEquals(0, masterDbTransMgr.getRunningRoutineLoadTxnNums());
         Assert.assertEquals(2, masterDbTransMgr.getFinishedTxnNums());
         Assert.assertEquals(4, masterDbTransMgr.getTransactionNum());
 
         long txnId3 = LabelToTxnId.get(CatalogTestUtil.testTxnLabel3);
         masterDbTransMgr.abortTransaction(txnId3, "test abort transaction", null);
         Assert.assertEquals(1, masterDbTransMgr.getRunningTxnNums());
-        Assert.assertEquals(0, masterDbTransMgr.getRunningRoutineLoadTxnNums());
         Assert.assertEquals(3, masterDbTransMgr.getFinishedTxnNums());
         Assert.assertEquals(4, masterDbTransMgr.getTransactionNum());
     }
@@ -240,7 +237,17 @@ public class DatabaseTransactionMgrTest {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Config.label_keep_max_second = -1;
         long currentMillis = System.currentTimeMillis();
-        masterDbTransMgr.removeExpiredTxns(currentMillis);
+        masterDbTransMgr.removeUselessTxns(currentMillis);
+        Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
+        Assert.assertEquals(3, masterDbTransMgr.getTransactionNum());
+        Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
+    }
+
+    @Test
+    public void testRemoveOverLimitTxns() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Config.label_num_threshold = 0;
+        masterDbTransMgr.removeUselessTxns(System.currentTimeMillis());
         Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         Assert.assertEquals(3, masterDbTransMgr.getTransactionNum());
         Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
@@ -276,8 +283,7 @@ public class DatabaseTransactionMgrTest {
         long txnId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel1);
         TransactionState transactionState = masterDbTransMgr.getTransactionState(txnId);
         masterDbTransMgr.replayDeleteTransaction(transactionState);
-        Assert.assertEquals(2, masterDbTransMgr.getRunningTxnNums());
-        Assert.assertEquals(1, masterDbTransMgr.getRunningRoutineLoadTxnNums());
+        Assert.assertEquals(3, masterDbTransMgr.getRunningTxnNums());
         Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         Assert.assertEquals(3, masterDbTransMgr.getTransactionNum());
         Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));

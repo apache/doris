@@ -28,8 +28,8 @@ under the License.
 ### Description
 BITMAP
 
-The columns of the BITMAP type can be used in Aggregate tables or Unique tables.
-When used in a Unique table, they must be used as non-key columns.
+The columns of the BITMAP type can be used in Aggregate table, Unique table or Duplicate table.
+When used in a Unique table or Duplicate table, they must be used as non-key columns.
 When used in an Aggregate table, they must be used as non-key columns, and the aggregation type is BITMAP_UNION when building the table.
 The user does not need to specify the length and default value. The length is controlled within the system according to the degree of data aggregation.
 And the BITMAP column can only be queried or used by supporting functions such as bitmap_union_count, bitmap_union, bitmap_hash and bitmap_hash64.

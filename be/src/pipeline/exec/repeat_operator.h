@@ -36,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class RepeatOperator final : public StatefulOperator<RepeatOperatorBuilder> {
+class RepeatOperator final : public StatefulOperator<vectorized::VRepeatNode> {
 public:
     RepeatOperator(OperatorBuilderBase* operator_builder, ExecNode* repeat_node);
 
@@ -47,11 +47,11 @@ public:
 
 class RepeatOperatorX;
 
-class RepeatLocalState final : public PipelineXLocalState<FakeDependency> {
+class RepeatLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(RepeatLocalState);
     using Parent = RepeatOperatorX;
-    using Base = PipelineXLocalState<FakeDependency>;
+    using Base = PipelineXLocalState<FakeSharedState>;
     RepeatLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
@@ -64,10 +64,9 @@ private:
     template <typename LocalStateType>
     friend class StatefulOperatorX;
     std::unique_ptr<vectorized::Block> _child_block;
-    SourceState _child_source_state;
-    bool _child_eos;
+    bool _child_eos = false;
     int _repeat_id_idx;
-    std::unique_ptr<vectorized::Block> _intermediate_block {};
+    std::unique_ptr<vectorized::Block> _intermediate_block;
     vectorized::VExprContextSPtrs _expr_ctxs;
 };
 
@@ -82,10 +81,8 @@ public:
     Status open(RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override;
-    Status pull(RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state) const override;
-    Status push(RuntimeState* state, vectorized::Block* input_block,
-                SourceState source_state) const override;
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) const override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
 
 private:
     friend class RepeatLocalState;
@@ -98,7 +95,7 @@ private:
     std::vector<int64_t> _repeat_id_list;
     std::vector<std::vector<int64_t>> _grouping_list;
     TupleId _output_tuple_id;
-    const TupleDescriptor* _output_tuple_desc;
+    const TupleDescriptor* _output_tuple_desc = nullptr;
 
     std::vector<SlotDescriptor*> _output_slots;
 

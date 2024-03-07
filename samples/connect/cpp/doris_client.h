@@ -36,7 +36,7 @@ public:
     bool exec(const string& sql);
 private:
     // mysql handle
-    MYSQL* _client;
+    MYSQL* _client = nullptr;
     // doris result
     MYSQL_RES* _result = nullptr;
     //doris result as row

@@ -152,6 +152,11 @@ public class BackendServiceClient {
         return stub.reportStreamLoadStatus(request);
     }
 
+    public Future<InternalService.PFetchRemoteSchemaResponse> fetchRemoteTabletSchemaAsync(
+            InternalService.PFetchRemoteSchemaRequest request) {
+        return stub.fetchRemoteTabletSchema(request);
+    }
+
     public Future<InternalService.PGlobResponse> glob(InternalService.PGlobRequest request) {
         return stub.glob(request);
     }
@@ -168,6 +173,8 @@ public class BackendServiceClient {
 
 
     public void shutdown() {
+        ConnectivityState state = channel.getState(false);
+        LOG.warn("shut down backend service client: {}, channel state: {}", address, state);
         if (!channel.isShutdown()) {
             channel.shutdown();
             try {
@@ -189,7 +196,5 @@ public class BackendServiceClient {
                 return;
             }
         }
-
-        LOG.warn("shut down backend service client: {}", address);
     }
 }

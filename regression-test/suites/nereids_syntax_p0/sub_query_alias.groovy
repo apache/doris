@@ -77,7 +77,7 @@ suite("sub_query_alias") {
             select * 
             from lineorder l
         ) t on c.c_custkey = t.lo_custkey
-        order by c.c_custkey
+        order by c.c_custkey,lo_tax
     """
 }
 

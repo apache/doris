@@ -81,6 +81,7 @@ suite("test_bitmap_filter_nereids") {
         exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter"
     }
 
+    sql "set ignore_storage_data_distribution=false"
     explain{
         sql "select k1, k2 from ${tbl1} where k1 in (select k2 from ${tbl2}) order by k1;"
         contains "RF000[bitmap]"

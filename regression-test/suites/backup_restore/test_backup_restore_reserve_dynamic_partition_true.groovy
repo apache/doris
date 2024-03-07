@@ -94,7 +94,7 @@ suite("test_backup_restore_dynamic_partition_reserve_true", "backup_restore") {
         (
             "backup_timestamp" = "${snapshot}",
             "reserve_dynamic_partition_enable" = "true",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
     """
     

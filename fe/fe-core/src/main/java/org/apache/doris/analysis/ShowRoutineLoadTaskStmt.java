@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -83,8 +82,6 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
                 throw new AnalysisException("please designate a database in show stmt");
             }
             dbFullName = analyzer.getDefaultDb();
-        } else {
-            dbFullName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
         }
     }
 

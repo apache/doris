@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -72,7 +71,7 @@ public class ShowCreateFunctionStmt extends ShowStmt {
 
         // the global function does not need to fetch/check the dbName
         if (!FunctionUtil.isGlobalFunction(this.type)) {
-            dbName = FunctionUtil.reAcquireDbName(analyzer, dbName, getClusterName());
+            dbName = FunctionUtil.reAcquireDbName(analyzer, dbName);
         }
 
         // analyze function name
@@ -101,8 +100,6 @@ public class ShowCreateFunctionStmt extends ShowStmt {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
     }
 

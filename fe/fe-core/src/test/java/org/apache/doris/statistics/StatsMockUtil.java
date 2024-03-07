@@ -40,7 +40,7 @@ public class StatsMockUtil {
                 add("0");
                 add("10");
                 // 11
-                add("MTE=");
+                add("11");
                 add("12");
                 add(String.valueOf(System.currentTimeMillis()));
             }};

@@ -41,7 +41,6 @@
 #include "vec/sink/writer/vfile_result_writer.h"
 
 namespace doris {
-class QueryStatistics;
 class RowDescriptor;
 class TExpr;
 
@@ -141,7 +140,7 @@ Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
         DCHECK(_sink_type == TResultSinkType::MYSQL_PROTOCAL);
         RETURN_IF_ERROR(second_phase_fetch_data(state, block));
     }
-    RETURN_IF_ERROR(_writer->append_block(*block));
+    RETURN_IF_ERROR(_writer->write(*block));
     if (_fetch_option.use_two_phase_fetch) {
         // Block structure may be changed by calling _second_phase_fetch_data().
         // So we should clear block in case of unmatched columns
@@ -169,19 +168,14 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
     // close sender, this is normal path end
     if (_sender) {
         if (_writer) {
-            _sender->update_num_written_rows(_writer->get_written_rows());
+            _sender->update_return_rows(_writer->get_written_rows());
         }
-        _sender->update_max_peak_memory_bytes();
-        static_cast<void>(_sender->close(final_status));
+        RETURN_IF_ERROR(_sender->close(final_status));
     }
-    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+    state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id()));
+            state->fragment_instance_id());
     return DataSink::close(state, exec_status);
-}
-
-void VResultSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-    _sender->set_query_statistics(statistics);
 }
 
 } // namespace vectorized

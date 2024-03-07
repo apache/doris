@@ -56,7 +56,7 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
     default Set<Expression> getDistinctArguments() {
         return getAggregateFunctions().stream()
                 .filter(AggregateFunction::isDistinct)
-                .flatMap(aggregateExpression -> aggregateExpression.getArguments().stream())
+                .flatMap(aggregateFunction -> aggregateFunction.getDistinctArguments().stream())
                 .collect(ImmutableSet.toImmutableSet());
     }
 }

@@ -33,7 +33,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class TableSinkOperator final : public DataSinkOperator<TableSinkOperatorBuilder> {
+class TableSinkOperator final : public DataSinkOperator<DataSink> {
 public:
     TableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}

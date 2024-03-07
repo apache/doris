@@ -31,6 +31,8 @@ under the License.
 
 Return the 32 bits murmur3 hash of input string.
 
+Note: When calculating hash values, it is more recommended to use `xxhash_32` instead of `murmur_hash3_32`.
+
 ### example
 
 ```

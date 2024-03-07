@@ -48,6 +48,13 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     // currently only used for list partition
     private Map.Entry<Long, PartitionItem> defaultPartition;
 
+    // Only called in PartitionPruneV2ByShortCircuitPlan constructor
+    PartitionPrunerV2Base() {
+        this.idToPartitionItem = null;
+        this.partitionColumns = null;
+        this.columnNameToRange = null;
+    }
+
     public PartitionPrunerV2Base(Map<Long, PartitionItem> idToPartitionItem,
             List<Column> partitionColumns,
             Map<String, ColumnRange> columnNameToRange) {

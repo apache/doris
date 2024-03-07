@@ -50,9 +50,9 @@ public class InferTest extends SqlTestBase {
                 .matches(
                     logicalProject(
                         innerLogicalJoin(
+                            logicalOlapScan(),
                             logicalFilter().when(
-                                    f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))")),
-                            logicalOlapScan()
+                                    f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))"))
                         )
                     )
                 );
@@ -89,8 +89,8 @@ public class InferTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         innerLogicalJoin(
-                                leftSemiLogicalJoin(),
-                                logicalProject()
+                                logicalProject(),
+                                leftSemiLogicalJoin()
                         )
                 );
     }

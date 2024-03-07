@@ -28,7 +28,7 @@ under the License.
 
 We'd like to thank the following committers to the Apache Doris project who have helped get the project to where it is today. This list might be stale, the canonical list is located on [Apache's website](https://people.apache.org/committers-by-project.html#doris).
 
-## PMC (17)
+## PMC (22)
 
 | Apache ID                                                    | Github Username       | Public Name        |
 | :----------------------------------------------------------- | :------------------ | :------------ |
@@ -49,8 +49,13 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [dataroaring](https://people.apache.org/committer-index.html#dataroaring) | dataroaring | Yongqiang Yang   |
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 | [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93            | Zuo Wei       |
+| [diwu](https://people.apache.org/committer-index.html#diwu) | JNSimba            | Di Wu       |
+| [jakevin](https://people.apache.org/committer-index.html#jakevin) | jackwener            | Jie Wen       |
+| [kxiao](https://people.apache.org/committer-index.html#kxiao) | xiaokang            | Kang Xiao       |
+| [liulijia](https://people.apache.org/committer-index.html#liulijia) | liutang123            | Lijia Liu       |
+| [morrysnow](https://people.apache.org/committer-index.html#morrysnow) | MorrySnow            | Wenxin Zhang       |
 
-## Committers (52)
+## Committers (45)
 
 (the listing excludes PMC members above)
 
@@ -61,12 +66,10 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [zhangchen](https://people.apache.org/committer-index.html#zhangchen) | zhannngchen                | Chen Zhang     |
 | [zhaoc](https://people.apache.org/committer-index.html#zhaoc) | imay                | Chun Zhao     |
 | [adonisling](https://people.apache.org/committer-index.html#adonisling) | adonis0147             | Cong Ling   |
-| [diwu](https://people.apache.org/committer-index.html#diwu)  | JNSimba          | Di Wu          |
 | [liuhangyuan](https://people.apache.org/committer-index.html#liuhangyuan) | HangyuanLiu         | Hangyuan Liu  |
 | [huajianlan](https://people.apache.org/committer-index.html#huajianlan) | 924060929        | Huajian Lan    |
 | [huangwei](https://people.apache.org/committer-index.html#huangwei) | vagetablechicken | Huang Wei      |
 | [jianliangqi](https://people.apache.org/committer-index.html#jianliangqi) | qidaye           | Jianliang Qi   |
-| [jakevin](https://people.apache.org/committer-index.html#jakevin)    | jackwener | Jie Wen |
 | [kangkaisen](https://people.apache.org/committer-index.html#kangkaisen) | kangkaisen          | Kaisen Kang   |
 | [kangpinghuang](https://people.apache.org/committer-index.html#kangpinghuang) | kangpinghuang    | Kangping Huang |
 | [liulijia](https://people.apache.org/committer-index.html#liulijia) | liutang123       | Lijia Liu      |
@@ -76,7 +79,6 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [sijie](https://people.apache.org/committer-index.html#sijie) | sijie               | Sijie Guo     |
 | [yintao](https://people.apache.org/committer-index.html#yintao) | yinzhijian               | Tao Yin    |
 | [gabriellee](https://people.apache.org/committer-index.html#gabriellee)    | Gabriel39 | Wenqiang Li |
-| [morrysnow](https://people.apache.org/committer-index.html#morrysnow)    | morrySnow  | Wenxin Zhang |
 | [panxiaolei](https://people.apache.org/committer-index.html#panxiaolei) | BiteTheDDDDt       | Xiaolei Pan      |
 | [cambyzju](https://people.apache.org/committer-index.html#cambyzju)    | cambyzju | Xiaoli Zhu  |
 | [pengxiangyu](https://people.apache.org/committer-index.html#pengxiangyu)    | pengxiangyu | Xiangyu Peng |
@@ -91,6 +93,19 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao | Zheng Shao |
 | [luzhijing](https://people.apache.org/committer-index.html#luzhijing)    | luzhijing | Zhijing Lu |
 | [englefly](https://people.apache.org/committer-index.html#englefly)    | englefly | Zhou Minghong |
+| [yangbowen](https://people.apache.org/committer-index.html#yangbowen)    | GoGoWen | Bowen Yang |
+| [kirs](https://people.apache.org/committer-index.html#kirs)    | CalvinKirs | Calvin Kirs |
+| [plat1ko](https://people.apache.org/committer-index.html#plat1ko)    | plat1ko | 	Cheng Yuxuan |
+| [eldenmoon](https://people.apache.org/committer-index.html#eldenmoon)    | eldenmoon | 		Hangyu Li |
+| [jacktengg](https://people.apache.org/committer-index.html#jacktengg)    | jacktengg | 			Jack Teng |
+| [mrhhsg](https://people.apache.org/committer-index.html#mrhhsg)    | mrhhsg | Jerry Hu |
+| [lijibing](https://people.apache.org/committer-index.html#lijibing)    | Jibing-Li | Jibing Li |
+| [dutyu](https://people.apache.org/committer-index.html#dutyu)    | dutyu | 	Xiangyu Wang |
+| [ashingau](https://people.apache.org/committer-index.html#ashingau)    | AshinGau | 	Xin Gao |
+| [liaoxin](https://people.apache.org/committer-index.html#liaoxin)    | liaoxin01 | 	Xin Liao |
+| [nextdreamblue](https://people.apache.org/committer-index.html#nextdreamblue)    | nextdreamblue | 	Xuewei Zhang |
+| [zykkk](https://people.apache.org/committer-index.html#zykkk)    | zy-kkk | 		Yongkang Zhong |
+| [carlmartin](https://people.apache.org/committer-index.html#carlmartin)    | SaintBacchus |  Zhaowei Huang |
 
 ## Contributors
 

@@ -23,6 +23,7 @@ import com.aliyun.odps.TableSchema;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.tunnel.TunnelException;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 
@@ -39,20 +40,40 @@ public class MaxComputeTableScan {
     private volatile long readRows = 0;
     private long totalRows = 0;
 
-    public MaxComputeTableScan(String region, String project, String table,
+    public MaxComputeTableScan(String odpsUrl, String tunnelUrl, String region, String project, String table,
                                String accessKey, String secretKey, boolean enablePublicAccess) {
         this.project = project;
         this.table = table;
         odps = new Odps(new AliyunAccount(accessKey, secretKey));
-        String odpsUrl = odpsUrlTemplate.replace("{}", region);
-        String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
-        if (enablePublicAccess) {
-            odpsUrl = odpsUrl.replace("-inc", "");
-            tunnelUrl = tunnelUrl.replace("-inc", "");
-        }
-        odps.setEndpoint(odpsUrl);
+        setOdpsUrl(odpsUrl, region, enablePublicAccess);
         odps.setDefaultProject(this.project);
         tunnel = new TableTunnel(odps);
+        setTunnelUrl(tunnelUrl, region, enablePublicAccess);
+    }
+
+    private void setOdpsUrl(String defaultOdpsUrl, String region, boolean enablePublicAccess) {
+        String odpsUrl;
+        if (StringUtils.isNotEmpty(defaultOdpsUrl)) {
+            odpsUrl = defaultOdpsUrl;
+        } else {
+            odpsUrl = odpsUrlTemplate.replace("{}", region);
+            if (enablePublicAccess) {
+                odpsUrl = odpsUrl.replace("-inc", "");
+            }
+        }
+        odps.setEndpoint(odpsUrl);
+    }
+
+    private void setTunnelUrl(String defaultTunnelUrl, String region, boolean enablePublicAccess) {
+        String tunnelUrl;
+        if (StringUtils.isNotEmpty(defaultTunnelUrl)) {
+            tunnelUrl = defaultTunnelUrl;
+        } else {
+            tunnelUrl = tunnelUrlTemplate.replace("{}", region);
+            if (enablePublicAccess) {
+                tunnelUrl = tunnelUrl.replace("-inc", "");
+            }
+        }
         tunnel.setEndpoint(tunnelUrl);
     }
 

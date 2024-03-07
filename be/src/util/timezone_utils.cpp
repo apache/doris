@@ -82,6 +82,9 @@ void TimezoneUtils::load_timezone_names() {
         path = config::default_tzfiles_path + '/';
         CHECK(std::filesystem::exists(path))
                 << "Can't find system tzfiles or default tzfiles neither.";
+    } else if (config::use_doris_tzfile) {
+        path = config::default_tzfiles_path + '/';
+        LOG(INFO) << "Directly use Doris' tzfiles in " << path;
     }
 
     auto path_prefix_len = path.size();
@@ -239,12 +242,14 @@ void TimezoneUtils::load_timezones_to_cache() {
     base_str += tzdir;
     base_str += '/';
 
-    auto root_path = std::filesystem::path {base_str};
-    if (!std::filesystem::exists(root_path)) {
+    if (!std::filesystem::exists(base_str)) {
         LOG_WARNING("Cannot find system tzfile. Use default instead.");
-        root_path = config::default_tzfiles_path + '/';
-        CHECK(std::filesystem::exists(root_path))
+        base_str = config::default_tzfiles_path + '/';
+        CHECK(std::filesystem::exists(base_str))
                 << "Can't find system tzfiles or default tzfiles neither.";
+    } else if (config::use_doris_tzfile) {
+        base_str = config::default_tzfiles_path + '/';
+        LOG(INFO) << "Directly use Doris' tzfiles in " << base_str;
     }
 
     std::set<std::string> ignore_paths = {"posix", "right"}; // duplications

@@ -31,7 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 
-public class HistogramCacheLoader extends StatisticsCacheLoader<Optional<Histogram>> {
+public class HistogramCacheLoader extends BasicAsyncCacheLoader<StatisticsCacheKey, Optional<Histogram>> {
 
     private static final Logger LOG = LogManager.getLogger(HistogramCacheLoader.class);
 

@@ -26,7 +26,7 @@ under the License.
 
 # Statistics of query execution
 
-This document focuses on introducing the **Running Profile** which recorded runtime status of Doris in query execution. Using these statistical information, we can understand the execution of frgment to become a expert of Doris's **debugging and tuning**.
+This document focuses on introducing the **Running Profile** which recorded runtime status of Doris in query execution. Using these statistical information, we can understand the execution of fragment to become a expert of Doris's **debugging and tuning**.
 
 You can also refer to following statements to view profile in command line:
 
@@ -109,7 +109,7 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `BlockMgr`
   - BlocksCreated: Number of Block be created by BlockMgr
   - BlocksRecycled: Number of Block be recycled by BlockMgr
-  - BytesWritten: How many bytes be writen to spill to disk
+  - BytesWritten: How many bytes be written to spill to disk
   - MaxBlockSize: Max size of one Block
   - TotalReadBlockTime: Total time read block from disk
 
@@ -154,7 +154,7 @@ There are many statistical information collected at BE.  so we list the correspo
   - HTResizeTime: Time spent in resizing hashtable
   - HTResize: Number of times hashtable resizes
   - HashBuckets: Number of buckets in hashtable
-  - HashBucketsWithDuplicate: Number of buckets with duplicatenode in hashtable
+  - HashBucketsWithDuplicate: Number of buckets with duplicate node in hashtable
   - HashCollisions: Number of hash conflicts generated 
   - HashDuplicateNodes: Number of duplicate nodes with the same buckets in hashtable
   - HashFailedProbe: Number of failed probe operations
@@ -210,7 +210,7 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
   - RowsReturnedRate: 6.979K /sec       # RowsReturned/ActiveTime
   - TabletCount: 20                     # The number of Tablets involved in this ScanNode.
   - TotalReadThroughput: 74.70 KB/sec   # BytesRead divided by the total time spent in this node (from Open to Close). For IO bounded queries, this should be very close to the total throughput of all the disks
-  - ScannerBatchWaitTime: 426.886us     # To count the time the transfer thread waits for the scaner thread to return rowbatch. In pipeline, this value is always 0.
+  - ScannerBatchWaitTime: 426.886us     # To count the time the transfer thread waits for the scanner thread to return rowbatch. In pipeline, this value is always 0.
   - ScannerWorkerWaitTime: 17.745us     # To count the time that the scanner thread waits for the available worker threads in the thread pool.
   OlapScanner:
     - BlockConvertTime: 8.941us         # The time it takes to convert a vectorized Block into a RowBlock with a row structure. The vectorized Block is VectorizedRowBatch in V1 and RowBlockV2 in V2.
@@ -221,7 +221,7 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
     - ScanTime: 39.24us                 # The time returned from ScanNode to the upper node.
     - ShowHintsTime_V1: 0ns             # V2 has no meaning. Read part of the data in V1 to perform ScanRange segmentation.
     SegmentIterator:
-      - BitmapIndexFilterTimer: 779ns   # Use bitmap index to filter data time-consuming.
+      - InvertedIndexFilterTimer: 779ns # Use inverted index to filter data time-consuming.
       - BlockLoadTime: 415.925us        # SegmentReader(V1) or SegmentIterator(V2) gets the time of the block.
       - BlockSeekCount: 12              # The number of block seeks when reading Segment.
       - BlockSeekTime: 222.556us        # It takes time to block seek when reading Segment.
@@ -234,7 +234,7 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
       - NumSegmentFiltered: 0           # When generating Segment Iterator, the number of Segments that are completely filtered out through column statistics and query conditions.
       - NumSegmentTotal: 6              # Query the number of all segments involved.
       - RawRowsRead: 7                  # The number of raw rows read in the storage engine. See below for details.
-      - RowsBitmapIndexFiltered: 0      # Only in V2, the number of rows filtered by the Bitmap index.
+      - RowsInvertedIndexFiltered: 0    # Only in V2, the number of rows filtered by the Inverted index.
       - RowsBloomFilterFiltered: 0      # Only in V2, the number of rows filtered by BloomFilter index.
       - RowsKeyRangeFiltered: 0         # In V2 only, the number of rows filtered out by SortkeyIndex index.
       - RowsStatsFiltered: 0            # In V2, the number of rows filtered by the ZoneMap index, including the deletion condition. V1 also contains the number of rows filtered by BloomFilter.
@@ -248,8 +248,8 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
 The predicate push down and index usage can be inferred from the related indicators of the number of data rows in the profile. The following only describes the profile in the reading process of segment V2 format data. In segment V1 format, the meaning of these indicators is slightly different.
 
   - When reading a segment V2, if the query has key_ranges (the query range composed of prefix keys), first filter the data through the SortkeyIndex index, and the number of filtered rows is recorded in `RowsKeyRangeFiltered`.
-  - After that, use the Bitmap index to perform precise filtering on the columns containing the bitmap index in the query condition, and the number of filtered rows is recorded in `RowsBitmapIndexFiltered`.
-  - After that, according to the equivalent (eq, in, is) condition in the query condition, use the BloomFilter index to filter the data and record it in `RowsBloomFilterFiltered`. The value of `RowsBloomFilterFiltered` is the difference between the total number of rows of the Segment (not the number of rows filtered by the Bitmap index) and the number of remaining rows after BloomFilter, so the data filtered by BloomFilter may overlap with the data filtered by Bitmap.
+  - After that, use the Inverted index to perform precise filtering on the columns containing the inverted index in the query condition, and the number of filtered rows is recorded in `RowsInvertedIndexFiltered`.
+  - After that, according to the equivalent (eq, in, is) condition in the query condition, use the BloomFilter index to filter the data and record it in `RowsBloomFilterFiltered`. The value of `RowsBloomFilterFiltered` is the difference between the total number of rows of the Segment (not the number of rows filtered by the Inverted index) and the number of remaining rows after BloomFilter, so the data filtered by BloomFilter may overlap with the data filtered by inverted index.
   - After that, use the ZoneMap index to filter the data according to the query conditions and delete conditions and record it in `RowsStatsFiltered`.
   - `RowsConditionsFiltered` is the number of rows filtered by various indexes, including the values ​​of `RowsBloomFilterFiltered` and `RowsStatsFiltered`.
   - So far, the Init phase is completed, and the number of rows filtered by the condition to be deleted in the Next phase is recorded in `RowsDelFiltered`. Therefore, the number of rows actually filtered by the delete condition are recorded in `RowsStatsFiltered` and `RowsDelFiltered` respectively.

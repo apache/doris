@@ -16,8 +16,10 @@
 // under the License.
 
 suite("test_last_value_window") {
-    def tableName = "test_last_value_window_state"
+    sql """ set enable_nereids_planner = true; """
+    sql """ set enable_fallback_to_original_planner = false; """
 
+    def tableName = "test_last_value_window_state"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -74,5 +76,43 @@ suite("test_last_value_window") {
 
     qt_select_default """ select *,last_value(state) over(partition by myday order by time_col range between current row and unbounded following) from ${tableName1} order by myday, time_col; """
 
+    def tableNameWithNull = "test_last_value_window_state_null"
+    sql """ DROP TABLE IF EXISTS ${tableNameWithNull} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableNameWithNull} (
+                `id` INT,
+                `myday` INT,
+                `time_col` VARCHAR(40) NOT NULL,
+                `state` INT
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`,`myday`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`id`) BUCKETS 4
+            PROPERTIES (
+            "replication_num" = "1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+    """
 
+    sql """ INSERT INTO ${tableNameWithNull} VALUES 
+            (1,21,"04-21-11",1),
+            (2,21,"04-21-12",null),
+            (3,21,"04-21-13",null),
+            (4,22,"04-22-10",0),
+            (5,22,"04-22-11",8),
+            (6,22,"04-22-12",null),
+            (7,23,"04-23-13",null),
+            (8,23,"04-23-14",2),
+            (9,23,"04-23-15",null),
+            (10,23,"04-23-16",null),
+            (11,24,"02-24-10-22",null),
+            (12,24,"02-24-10-23",9),
+            (13,24,"02-24-10-24",null); """
+
+    qt_select_null """ select *
+                , last_value(state, false) over(partition by myday order by time_col rows between 1 preceding and 1 following) v1
+                , last_value(state, true) over(partition by myday order by time_col rows between 1 preceding and 1 following) v2
+            from ${tableNameWithNull} order by id, myday, time_col;
+        """
 }

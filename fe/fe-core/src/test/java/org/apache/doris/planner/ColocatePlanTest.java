@@ -169,6 +169,7 @@ public class ColocatePlanTest extends TestWithFeService {
 
     @Test
     public void checkColocatePlanFragment() throws Exception {
+        connectContext.getSessionVariable().setEnableSharedScan(false);
         String sql
                 = "select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
         StmtExecutor executor = getSqlStmtExecutor(sql);
@@ -199,8 +200,8 @@ public class ColocatePlanTest extends TestWithFeService {
 
     @Test
     public void testGlobalColocateGroup() throws Exception {
-        Database db1 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("default_cluster:db1");
-        Database db2 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("default_cluster:db2");
+        Database db1 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("db1");
+        Database db2 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("db2");
         OlapTable tbl1 = (OlapTable) db1.getTableNullable("test_global_colocate1");
         OlapTable tbl2 = (OlapTable) db2.getTableNullable("test_global_colocate2");
         OlapTable tbl3 = (OlapTable) db2.getTableNullable("test_global_colocate3");

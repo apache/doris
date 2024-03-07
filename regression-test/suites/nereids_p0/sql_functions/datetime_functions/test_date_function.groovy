@@ -375,10 +375,13 @@ suite("test_date_function") {
     // UNIX_TIMESTAMP
     def unin_timestamp_str = """ select unix_timestamp() """
     assertTrue(unin_timestamp_str[0].size() == 1)
-    qt_sql """ select unix_timestamp('2007-11-30 10:30:19') """
-    qt_sql """ select unix_timestamp('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s') """
-    qt_sql """ select unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s') """
-    qt_sql """ select unix_timestamp('1969-01-01 00:00:00') """
+    qt_sql_ustamp1 """ select unix_timestamp('2007-11-30 10:30:19') """
+    qt_sql_ustamp2 """ select unix_timestamp('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s') """
+    qt_sql_ustamp3 """ select unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s') """
+    qt_sql_ustamp4 """ select unix_timestamp('1969-01-01 00:00:00') """
+    qt_sql_ustamp5 """ select unix_timestamp('2007-11-30 10:30:19.123456') """
+    qt_sql_ustamp6 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(3))) """
+    qt_sql_ustamp7 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(4))) """
 
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """
@@ -467,6 +470,8 @@ suite("test_date_function") {
 
     sql """ drop table ${tableName} """
 
+    qt_sql """ select date_format('1999-01-01', '%X %V'); """
+    qt_sql """ select date_format('2025-01-01', '%X %V'); """
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
@@ -670,4 +675,23 @@ suite("test_date_function") {
     }
 
     qt_sql """ select date_add("2023-08-17T01:41:18Z", interval 8 hour) """
+
+    sql """ DROP TABLE IF EXISTS dt_null; """
+    sql """ CREATE TABLE IF NOT EXISTS dt_null(
+            `k1` INT NOT NULL,
+            `dtv24` datetimev2(4) NOT NULL,
+            `dtv20n` datetimev2(0) NULL,
+            `dv2` datev2 NOT NULL,
+            `dv2n` datev2 NULL,
+            `str` VARCHAR NULL
+            )
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            properties("replication_num" = "1"); """
+    sql """ insert into dt_null values ('1', '2020-12-12', '2020-12-12', '2020-12-12', '2020-12-12', '2020-12-12'),
+            ('2', '2020-12-12 12:12:12', '2020-12-12 12:12:12', '2020-12-12 12:12:12', '2020-12-12 12:12:12', '2020-12-12 12:12:12'),
+            ('3', '2020-12-12 12:12:12.0', '2020-12-12 12:12:12.0', '2020-12-12 12:12:12.0', '2020-12-12 12:12:12.0', '2020-12-12 12:12:12.0'),
+            ('4', '2020-12-12 12:12:12.123', '2020-12-12 12:12:12.123', '2020-12-12 12:12:12.123', '2020-12-12 12:12:12.123', '2020-12-12 12:12:12.123'),
+            ('5', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666'); """
+
+    qt_sql_dt_null_1 """ select unix_timestamp(dtv24), unix_timestamp(dtv20n), unix_timestamp(dv2), unix_timestamp(dv2n), unix_timestamp(str) from dt_null order by k1; """
 }

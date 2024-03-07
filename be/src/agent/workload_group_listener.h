@@ -32,6 +32,6 @@ public:
     void handle_topic_info(const std::vector<TopicInfo>& topic_info_list) override;
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 };
 } // namespace doris

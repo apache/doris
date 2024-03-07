@@ -18,10 +18,6 @@
 suite("test_alter_table_column") {
     def tbName1 = "alter_table_column_dup"
 
-    def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        return jobStateResult[0][9]
-    }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName1} (
@@ -33,7 +29,9 @@ suite("test_alter_table_column") {
         """
 
     // alter and test light schema change
-    sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+    if (!isCloudMode()) {
+        sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+    }
 
     sql """
             ALTER TABLE ${tbName1} 
@@ -42,41 +40,21 @@ suite("test_alter_table_column") {
             ADD COLUMN value3 VARCHAR(255) AFTER value2,
             MODIFY COLUMN value2 INT AFTER value3;
         """
-    int max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1"""
+        time 60
     }
-    Thread.sleep(200)
+
     sql """
             ALTER TABLE ${tbName1}   
             ORDER BY(k1,k2,value1,value2,value3),
             DROP COLUMN value3;
         """
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1"""
+        time 60
     }
 
     sql "SHOW ALTER TABLE COLUMN;"
@@ -101,20 +79,10 @@ suite("test_alter_table_column") {
             ADD COLUMN k2 INT KEY AFTER k1,
             ADD COLUMN value2 INT SUM AFTER value1;
         """
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName2)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName2}' ORDER BY createtime DESC LIMIT 1"""
+        time 60
     }
 
     sql "SHOW ALTER TABLE COLUMN"
@@ -146,22 +114,11 @@ suite("test_alter_table_column") {
             ADD COLUMN value3 ARRAY<INT> AFTER value2,
             ADD COLUMN value4 ARRAY<INT> NOT NULL DEFAULT '[]' AFTER value3;
         """
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbNameAddArray)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbNameAddArray}' ORDER BY createtime DESC LIMIT 1"""
+        time 60
     }
-    
-    Thread.sleep(200)
     qt_sql "desc ${tbNameAddArray};"
     qt_sql "select * from ${tbNameAddArray} order by k1;"
     sql "DROP TABLE ${tbNameAddArray} FORCE;"
@@ -238,21 +195,13 @@ suite("test_alter_table_column") {
     check2_doris(res1, res2)
 
     sql "alter table ${tbName3} add column v2 int sum NULL"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName3}' ORDER BY createtime DESC LIMIT 1"""
+        time 60
     }
+
     def res3 = sql "select * from ${tbName3} order by k1"
     def res4 = sql "select k1, k2, k3, null from baseall order by k1"
     check2_doris(res3, res4)

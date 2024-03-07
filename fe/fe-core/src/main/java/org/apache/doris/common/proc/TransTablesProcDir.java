@@ -20,7 +20,7 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -52,7 +52,7 @@ public class TransTablesProcDir implements ProcDirInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         // get info
-        GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<List<Comparable>> tableInfos = transactionMgr.getTableTransInfo(dbId, txnId);
         // sort by table id
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);

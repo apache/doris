@@ -29,7 +29,7 @@
 
 namespace doris::vectorized {
 
-template <typename Impl, typename Name, bool is_injective = false>
+template <typename Impl, typename Name>
 class FunctionStringToString : public IFunction {
 public:
     static constexpr auto name = Name::name;
@@ -42,8 +42,6 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool get_is_injective(const Block&) override { return is_injective; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
             LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
@@ -54,14 +52,16 @@ public:
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Impl::get_variadic_argument_types();
+        if constexpr (has_variadic_argument) {
+            return Impl::get_variadic_argument_types();
+        }
         return {};
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
+        if (const auto* col = check_and_get_column<ColumnString>(column.get())) {
             auto col_res = ColumnString::create();
             static_cast<void>(Impl::vector(col->get_chars(), col->get_offsets(),
                                            col_res->get_chars(), col_res->get_offsets()));

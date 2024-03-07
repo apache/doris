@@ -68,19 +68,22 @@ public class SinglePartitionDesc implements AllPartitionDesc {
     /**
      * for Nereids
      */
-    public SinglePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
-            ReplicaAllocation replicaAlloc, Map<String, String> properties) {
-        this.ifNotExists = ifNotExists;
-
+    public SinglePartitionDesc(boolean ifNotExists, String partName,
+            PartitionKeyDesc partitionKeyDesc, ReplicaAllocation replicaAlloc,
+            Map<String, String> properties, DataProperty partitionDataProperty, boolean isInMemory,
+            TTabletType tabletType, Long versionInfo, String storagePolicy, boolean isMutable) {
         this.isAnalyzed = true;
-
+        this.ifNotExists = ifNotExists;
         this.partName = partName;
         this.partitionKeyDesc = partitionKeyDesc;
         this.properties = properties;
-
-        this.partitionDataProperty = new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM);
+        this.partitionDataProperty = partitionDataProperty;
         this.replicaAlloc = replicaAlloc;
-        this.storagePolicy = "";
+        this.isInMemory = isInMemory;
+        this.tabletType = tabletType;
+        this.versionInfo = versionInfo;
+        this.storagePolicy = storagePolicy;
+        this.isMutable = isMutable;
     }
 
     public boolean isSetIfNotExists() {

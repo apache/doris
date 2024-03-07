@@ -51,8 +51,6 @@ l_tax, l_returnflag,l_linestatus, l_shipdate,l_commitdate,l_receiptdate,l_shipin
         log.info("Stream load result: ${result}".toString())
         def json = parseJson(result)
         assertEquals("success", json.Status.toLowerCase())
-        assertTrue(json.GroupCommit)
-        assertTrue(json.Label.startsWith("group_commit_"))
         assertEquals(total_rows, json.NumberTotalRows)
         assertEquals(loaded_rows, json.NumberLoadedRows)
         assertEquals(filtered_rows, json.NumberFilteredRows)
@@ -102,7 +100,7 @@ PROPERTIES (
 
             set 'column_separator', '|'
             set 'columns', columns + ",lo_dummy"
-            set 'group_commit', 'true'
+            set 'group_commit', 'async_mode'
             unset 'label'
             file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
 

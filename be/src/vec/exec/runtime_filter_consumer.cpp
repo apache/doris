@@ -30,43 +30,30 @@ RuntimeFilterConsumer::RuntimeFilterConsumer(const int32_t filter_id,
     _blocked_by_rf = std::make_shared<std::atomic_bool>(false);
 }
 
-Status RuntimeFilterConsumer::init(RuntimeState* state) {
+Status RuntimeFilterConsumer::init(RuntimeState* state, bool need_local_merge) {
     _state = state;
-    RETURN_IF_ERROR(_register_runtime_filter());
+    RETURN_IF_ERROR(_register_runtime_filter(need_local_merge));
     return Status::OK();
 }
 
 void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
-    std::stringstream ss;
+    fmt::memory_buffer buffer;
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(profile);
-        ss << rf_ctx.runtime_filter->get_name() << ", ";
+        fmt::format_to(buffer, "{}, ", rf_ctx.runtime_filter->get_name());
     }
-    profile->add_info_string("RuntimeFilters: ", ss.str());
+    profile->add_info_string("RuntimeFilters: ", to_string(buffer));
 }
 
-Status RuntimeFilterConsumer::_register_runtime_filter() {
+Status RuntimeFilterConsumer::_register_runtime_filter(bool need_local_merge) {
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.reserve(filter_size);
     _runtime_filter_ready_flag.reserve(filter_size);
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
-        if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
-            DCHECK(filter_desc.type == TRuntimeFilterType::BLOOM && filter_desc.has_remote_targets);
-            // Optimize merging phase iff:
-            // 1. All BE and FE has been upgraded (e.g. opt_remote_rf)
-            // 2. This filter is bloom filter (only bloom filter should be used for merging)
-            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, false));
-            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, _filter_id, &runtime_filter));
-        } else {
-            RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, false));
-            RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, _filter_id, &runtime_filter));
-        }
+        RETURN_IF_ERROR(_state->register_consumer_runtime_filter(filter_desc, need_local_merge,
+                                                                 _filter_id, &runtime_filter));
         _runtime_filter_ctxs.emplace_back(runtime_filter);
         _runtime_filter_ready_flag.emplace_back(false);
     }

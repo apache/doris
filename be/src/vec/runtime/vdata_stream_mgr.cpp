@@ -57,14 +57,13 @@ inline uint32_t VDataStreamMgr::get_hash_value(const TUniqueId& fragment_instanc
 
 std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::create_recvr(
         RuntimeState* state, const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-        PlanNodeId dest_node_id, int num_senders, RuntimeProfile* profile, bool is_merging,
-        std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr) {
+        PlanNodeId dest_node_id, int num_senders, RuntimeProfile* profile, bool is_merging) {
     DCHECK(profile != nullptr);
     VLOG_FILE << "creating receiver for fragment=" << print_id(fragment_instance_id)
               << ", node=" << dest_node_id;
-    std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(
-            this, state, row_desc, fragment_instance_id, dest_node_id, num_senders, is_merging,
-            profile, sub_plan_query_statistics_recvr));
+    std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(this, state, row_desc,
+                                                                 fragment_instance_id, dest_node_id,
+                                                                 num_senders, is_merging, profile));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
     std::lock_guard<std::mutex> l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));
@@ -93,7 +92,7 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::find_recvr(const TUniqueId& fr
         }
         ++range.first;
     }
-    return std::shared_ptr<VDataStreamRecvr>();
+    return nullptr;
 }
 
 Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
@@ -118,11 +117,14 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         return Status::EndOfFile("data stream receiver closed");
     }
 
-    // request can only be used before calling recvr's add_batch or when request
-    // is the last for the sender, because request maybe released after it's batch
-    // is consumed by ExchangeNode.
-    if (request->has_query_statistics()) {
-        recvr->add_sub_plan_statistics(request->query_statistics(), request->sender_id());
+    // Lock the fragment context to ensure the runtime state and other objects are not
+    // deconstructed
+    auto ctx_lock = recvr->task_exec_ctx();
+    if (ctx_lock == nullptr) {
+        // Do not return internal error, because when query finished, the downstream node
+        // may finish before upstream node. And the object maybe deconstructed. If return error
+        // then the upstream node may report error status to FE, the query is failed.
+        return Status::EndOfFile("data stream receiver is deconstructed");
     }
 
     bool eos = request->eos();

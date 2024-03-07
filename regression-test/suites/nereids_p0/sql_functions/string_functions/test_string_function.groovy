@@ -73,6 +73,8 @@ suite("test_string_function") {
     qt_sql "select unhex('68656C6C6F2C646F726973');"
     qt_sql "select unhex('41');"
     qt_sql "select unhex('4142');"
+    qt_sql "select unhex('');"
+    qt_sql "select unhex(NULL);"
 
     qt_sql "select instr(\"abc\", \"b\");"
     qt_sql "select instr(\"abc\", \"d\");"
@@ -102,6 +104,14 @@ suite("test_string_function") {
     qt_sql "select money_format(17014116);"
     qt_sql "select money_format(1123.456);"
     qt_sql "select money_format(1123.4);"
+    qt_sql "select money_format(1.1249);"
+    qt_sql_decimal32 "select money_format(cast(concat('1.124', repeat('9', 5)) as DECIMAL(9, 8)));"
+    qt_sql_decimal64 "select money_format(cast(concat('1.124', repeat('9', 6)) as DECIMAL(10, 9)));"
+    qt_sql_decimal64 "select money_format(cast(concat('1.124', repeat('9', 14)) as DECIMAL(18, 17)));"
+    qt_sql_decimal128 "select money_format(cast(concat('1.124', repeat('9', 15)) as DECIMAL(19, 18)));"
+    qt_sql_decimal128 "select money_format(cast(concat('1.124', repeat('9', 34)) as DECIMAL(38, 37)));"
+    qt_sql_float64 "select money_format(cast(concat('1.124', repeat('9', 35)) as DOUBLE));"
+    qt_sql_float64 "select money_format(cast(concat('1.124', repeat('9', 70)) as DOUBLE));"
 
     qt_sql "select null_or_empty(null);"
     qt_sql "select null_or_empty(\"\");"

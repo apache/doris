@@ -41,14 +41,15 @@ void faststring::GrowArray(size_t newcapacity) {
     if (len_ > 0) {
         memcpy(&newdata[0], &data_[0], len_);
     }
-    capacity_ = newcapacity;
+
     if (data_ != initial_data_) {
-        Allocator::free(data_);
+        Allocator::free(data_, capacity_);
     } else {
         ASAN_POISON_MEMORY_REGION(initial_data_, arraysize(initial_data_));
     }
 
     data_ = newdata.release();
+    capacity_ = newcapacity;
     ASAN_POISON_MEMORY_REGION(data_ + len_, capacity_ - len_);
 }
 
@@ -57,13 +58,13 @@ void faststring::ShrinkToFitInternal() {
     if (len_ <= kInitialCapacity) {
         ASAN_UNPOISON_MEMORY_REGION(initial_data_, len_);
         memcpy(initial_data_, &data_[0], len_);
-        Allocator::free(data_);
+        Allocator::free(data_, capacity_);
         data_ = initial_data_;
         capacity_ = kInitialCapacity;
     } else {
         std::unique_ptr<uint8_t[]> newdata(reinterpret_cast<uint8_t*>(Allocator::alloc(len_)));
         memcpy(&newdata[0], &data_[0], len_);
-        Allocator::free(data_);
+        Allocator::free(data_, capacity_);
         data_ = newdata.release();
         capacity_ = len_;
     }

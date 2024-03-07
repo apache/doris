@@ -168,29 +168,48 @@ def get_doris_running_containers(cluster_name):
     }
 
 
+def remove_docker_network(cluster_name):
+    client = docker.client.from_env()
+    for network in client.networks.list(
+            names=[cluster_name + "_" + with_doris_prefix(cluster_name)]):
+        network.remove()
+
+
 def is_dir_empty(dir):
     return False if os.listdir(dir) else True
 
 
-def exec_shell_command(command, ignore_errors=False):
+def exec_shell_command(command, ignore_errors=False, output_real_time=False):
     LOG.info("Exec command: {}".format(command))
     p = subprocess.Popen(command,
                          shell=True,
                          stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT)
-    out = p.communicate()[0].decode('utf-8')
+    out = ''
+    exitcode = None
+    if output_real_time:
+        while p.poll() is None:
+            s = p.stdout.readline().decode('utf-8')
+            if ENABLE_LOG and s.rstrip():
+                print(s.rstrip())
+            out += s
+        exitcode = p.wait()
+    else:
+        out = p.communicate()[0].decode('utf-8')
+        exitcode = p.returncode
+        if ENABLE_LOG and out:
+            print(out)
     if not ignore_errors:
-        assert p.returncode == 0, out
-    if ENABLE_LOG and out:
-        print(out)
-    return p.returncode, out
+        assert exitcode == 0, out
+    return exitcode, out
 
 
 def exec_docker_compose_command(compose_file,
                                 command,
                                 options=None,
                                 nodes=None,
-                                user_command=None):
+                                user_command=None,
+                                output_real_time=False):
     if nodes != None and not nodes:
         return 0, "Skip"
 
@@ -199,7 +218,7 @@ def exec_docker_compose_command(compose_file,
         " ".join([node.service_name() for node in nodes]) if nodes else "",
         user_command if user_command else "")
 
-    return exec_shell_command(compose_cmd)
+    return exec_shell_command(compose_cmd, output_real_time=output_real_time)
 
 
 def get_docker_subnets_prefix16():

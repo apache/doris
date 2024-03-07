@@ -59,7 +59,7 @@ public class TablePattern implements Writable, GsonPostProcessable {
     static {
         ALL = new TablePattern("*", "*", "*");
         try {
-            ALL.analyze("");
+            ALL.analyze();
         } catch (AnalysisException e) {
             // will not happen
         }
@@ -109,13 +109,13 @@ public class TablePattern implements Writable, GsonPostProcessable {
 
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (ctl == null) {
-            analyze(analyzer.getDefaultCatalog(), analyzer.getClusterName());
+            analyze(analyzer.getDefaultCatalog());
         } else {
-            analyze(analyzer.getClusterName());
+            analyze(ctl);
         }
     }
 
-    private void analyze(String catalogName, String clusterName) throws AnalysisException {
+    private void analyze(String catalogName) throws AnalysisException {
         if (isAnalyzed) {
             return;
         }
@@ -131,7 +131,6 @@ public class TablePattern implements Writable, GsonPostProcessable {
 
         if (!db.equals("*")) {
             FeNameFormat.checkDbName(db);
-            db = ClusterNamespace.getFullName(clusterName, db);
         }
 
         if (!tbl.equals("*")) {
@@ -140,8 +139,14 @@ public class TablePattern implements Writable, GsonPostProcessable {
         isAnalyzed = true;
     }
 
-    public void analyze(String clusterName) throws AnalysisException {
-        analyze(ctl, clusterName);
+    public void analyze() throws AnalysisException {
+        analyze(ctl);
+    }
+
+    private void removeClusterPrefix() {
+        if (db != null) {
+            db = ClusterNamespace.getNameFromFullName(db);
+        }
     }
 
     public static TablePattern read(DataInput in) throws IOException {
@@ -188,6 +193,7 @@ public class TablePattern implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
         isAnalyzed = true;
     }
 }

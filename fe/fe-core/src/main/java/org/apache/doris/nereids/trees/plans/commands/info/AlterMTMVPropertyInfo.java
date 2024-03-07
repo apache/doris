@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -40,11 +42,18 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
 
     public void analyze(ConnectContext ctx) throws AnalysisException {
         super.analyze(ctx);
+        analyzeProperties();
     }
 
     @Override
     public void run() throws UserException {
-        throw new org.apache.doris.nereids.exceptions.AnalysisException("current not support.");
+        Env.getCurrentEnv().alterMTMVProperty(this);
+    }
+
+    private void analyzeProperties() {
+        for (String key : properties.keySet()) {
+            MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
+        }
     }
 
     public Map<String, String> getProperties() {

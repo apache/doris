@@ -17,14 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -33,11 +33,15 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
-import com.google.common.collect.Sets;
-
-import java.util.Objects;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -54,8 +58,7 @@ public class PredicatePropagation {
         INTEGRAL(IntegralType.class),
         STRING(CharacterType.class),
         DATE(DateLikeType.class),
-        OTHER(DataType.class)
-        ;
+        OTHER(DataType.class);
 
         private final Class<? extends DataType> superClazz;
 
@@ -64,144 +67,156 @@ public class PredicatePropagation {
         }
     }
 
-    private class ComparisonInferInfo {
-
-        public final InferType inferType;
-        public final Optional<Expression> left;
-        public final Optional<Expression> right;
-        public final ComparisonPredicate comparisonPredicate;
-
-        public ComparisonInferInfo(InferType inferType,
-                Optional<Expression> left, Optional<Expression> right,
-                ComparisonPredicate comparisonPredicate) {
-            this.inferType = inferType;
-            this.left = left;
-            this.right = right;
-            this.comparisonPredicate = comparisonPredicate;
-        }
-    }
-
     /**
      * infer additional predicates.
      */
-    public Set<Expression> infer(Set<Expression> predicates) {
-        Set<Expression> inferred = Sets.newHashSet();
+    public static Set<Expression> infer(Set<Expression> predicates) {
+        ImmutableEqualSet.Builder<Slot> equalSetBuilder = new ImmutableEqualSet.Builder<>();
+        Map<Slot, List<Expression>> slotPredicates = new HashMap<>();
+        Set<Pair<Slot, Slot>> equalPairs = new HashSet<>();
         for (Expression predicate : predicates) {
-            if (!(predicate instanceof ComparisonPredicate)) {
+            Set<Slot> inputSlots = predicate.getInputSlots();
+            if (inputSlots.size() == 1) {
+                if (predicate instanceof ComparisonPredicate
+                        || (predicate instanceof InPredicate && ((InPredicate) predicate).isLiteralChildren())) {
+                    slotPredicates.computeIfAbsent(inputSlots.iterator().next(), k -> new ArrayList<>()).add(predicate);
+                }
                 continue;
             }
-            ComparisonInferInfo equalInfo = getEquivalentInferInfo((ComparisonPredicate) predicate);
-            if (equalInfo.inferType == InferType.NONE) {
-                continue;
+
+            if (predicate instanceof EqualTo) {
+                getEqualSlot(equalSetBuilder, equalPairs, (EqualTo) predicate);
             }
-            Set<Expression> newInferred = predicates.stream()
-                    .filter(ComparisonPredicate.class::isInstance)
-                    .filter(p -> !p.equals(predicate))
-                    .map(ComparisonPredicate.class::cast)
-                    .map(this::inferInferInfo)
-                    .filter(predicateInfo -> predicateInfo.inferType != InferType.NONE)
-                    .map(predicateInfo -> doInfer(equalInfo, predicateInfo))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
-            inferred.addAll(newInferred);
         }
-        inferred.removeAll(predicates);
+
+        ImmutableEqualSet<Slot> equalSet = equalSetBuilder.build();
+
+        Set<Expression> inferred = new HashSet<>();
+        slotPredicates.forEach((left, exprs) -> {
+            for (Slot right : equalSet.calEqualSet(left)) {
+                for (Expression expr : exprs) {
+                    Expression inferPredicate = doInferPredicate(left, right, expr);
+                    if (inferPredicate != null) {
+                        inferred.add(inferPredicate);
+                    }
+                }
+            }
+        });
+
+        // infer equal to equal like a = b & b = c -> a = c
+        // a b c | e f g
+        // get (a b) (a c) (b c) | (e f) (e g) (f g)
+        List<Set<Slot>> equalSetList = equalSet.calEqualSetList();
+        for (Set<Slot> es : equalSetList) {
+            List<Slot> el = es.stream().sorted(Comparator.comparingInt(s -> s.getExprId().asInt()))
+                    .collect(Collectors.toList());
+            for (int i = 0; i < el.size(); i++) {
+                Slot left = el.get(i);
+                for (int j = i + 1; j < el.size(); j++) {
+                    Slot right = el.get(j);
+                    if (!equalPairs.contains(Pair.of(left, right))) {
+                        inferred.add(TypeCoercionUtils.processComparisonPredicate(new EqualTo(left, right))
+                                .withInferred(true));
+                    }
+                }
+            }
+        }
+
         return inferred;
     }
 
-    /**
-     * Use the left or right child of `leftSlotEqualToRightSlot` to replace the left or right child of `expression`
-     * Now only support infer `ComparisonPredicate`.
-     * TODO: We should determine whether `expression` satisfies the condition for replacement
-     *       eg: Satisfy `expression` is non-deterministic
-     */
-    private Expression doInfer(ComparisonInferInfo equalInfo, ComparisonInferInfo predicateInfo) {
-        Expression predicateLeft = predicateInfo.left.get();
-        Expression predicateRight = predicateInfo.right.get();
-        Expression equalLeft = equalInfo.left.get();
-        Expression equalRight = equalInfo.right.get();
-        Expression newLeft = inferOneSide(predicateLeft, equalLeft, equalRight);
-        Expression newRight = inferOneSide(predicateRight, equalLeft, equalRight);
-        if (newLeft == null || newRight == null) {
-            return null;
+    private static Expression doInferPredicate(Expression equalLeft, Expression equalRight, Expression predicate) {
+        DataType leftType = predicate.child(0).getDataType();
+        InferType inferType;
+        if (leftType instanceof CharacterType) {
+            inferType = InferType.STRING;
+        } else if (leftType instanceof IntegralType) {
+            inferType = InferType.INTEGRAL;
+        } else if (leftType instanceof DateLikeType) {
+            inferType = InferType.DATE;
+        } else {
+            inferType = InferType.OTHER;
         }
-        ComparisonPredicate newPredicate = (ComparisonPredicate) predicateInfo
-                .comparisonPredicate.withChildren(newLeft, newRight);
-        return SimplifyComparisonPredicate.INSTANCE
-                .rewrite(TypeCoercionUtils.processComparisonPredicate(newPredicate), null);
-    }
+        if (predicate instanceof ComparisonPredicate) {
+            ComparisonPredicate comparisonPredicate = (ComparisonPredicate) predicate;
+            Optional<Expression> left = validForInfer(comparisonPredicate.left(), inferType);
+            Optional<Expression> right = validForInfer(comparisonPredicate.right(), inferType);
+            if (!left.isPresent() || !right.isPresent()) {
+                return null;
+            }
+        } else if (predicate instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) predicate;
+            Optional<Expression> left = validForInfer(inPredicate.getCompareExpr(), inferType);
+            if (!left.isPresent()) {
+                return null;
+            }
+        }
 
-    private Expression inferOneSide(Expression predicateOneSide, Expression equalLeft, Expression equalRight) {
-        if (predicateOneSide instanceof SlotReference) {
-            if (predicateOneSide.equals(equalLeft)) {
+        Expression newPredicate = predicate.rewriteUp(e -> {
+            if (e.equals(equalLeft)) {
                 return equalRight;
-            } else if (predicateOneSide.equals(equalRight)) {
+            } else if (e.equals(equalRight)) {
                 return equalLeft;
-            }
-        } else if (predicateOneSide.isConstant()) {
-            if (predicateOneSide instanceof IntegerLikeLiteral) {
-                return new NereidsParser().parseExpression(((IntegerLikeLiteral) predicateOneSide).toSql());
             } else {
-                return predicateOneSide;
+                return e;
             }
+        });
+        if (predicate instanceof ComparisonPredicate) {
+            return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate) newPredicate).withInferred(true);
+        } else {
+            return TypeCoercionUtils.processInPredicate((InPredicate) newPredicate).withInferred(true);
         }
-        return null;
     }
 
-    private Optional<Expression> validForInfer(Expression expression, InferType inferType) {
+    private static Optional<Expression> validForInfer(Expression expression, InferType inferType) {
         if (!inferType.superClazz.isAssignableFrom(expression.getDataType().getClass())) {
             return Optional.empty();
         }
         if (expression instanceof SlotReference || expression.isConstant()) {
             return Optional.of(expression);
         }
+        if (!(expression instanceof Cast)) {
+            return Optional.empty();
+        }
+        Cast cast = (Cast) expression;
+        Expression child = cast.child();
+        DataType dataType = cast.getDataType();
+        DataType childType = child.getDataType();
         if (inferType == InferType.INTEGRAL) {
-            if (expression instanceof Cast) {
-                // avoid cast from wider type to narrower type, such as cast(int as smallint)
-                // IntegralType dataType = (IntegralType) expression.getDataType();
-                // DataType childType = ((Cast) expression).child().getDataType();
-                // if (childType instanceof IntegralType && dataType.widerThan((IntegralType) childType)) {
-                //     return validForInfer(((Cast) expression).child(), inferType);
-                // }
-                return validForInfer(((Cast) expression).child(), inferType);
-            }
+            // avoid cast from wider type to narrower type, such as cast(int as smallint)
+            // IntegralType dataType = (IntegralType) expression.getDataType();
+            // DataType childType = ((Cast) expression).child().getDataType();
+            // if (childType instanceof IntegralType && dataType.widerThan((IntegralType) childType)) {
+            //     return validForInfer(((Cast) expression).child(), inferType);
+            // }
+            return validForInfer(child, inferType);
         } else if (inferType == InferType.DATE) {
-            if (expression instanceof Cast) {
-                DataType dataType = expression.getDataType();
-                DataType childType = ((Cast) expression).child().getDataType();
-                // avoid lost precision
-                if (dataType instanceof DateType) {
-                    if (childType instanceof DateV2Type || childType instanceof DateType) {
-                        return validForInfer(((Cast) expression).child(), inferType);
-                    }
-                } else if (dataType instanceof DateV2Type) {
-                    if (childType instanceof DateType || childType instanceof DateV2Type) {
-                        return validForInfer(((Cast) expression).child(), inferType);
-                    }
-                } else if (dataType instanceof DateTimeType) {
-                    if (!(childType instanceof DateTimeV2Type)) {
-                        return validForInfer(((Cast) expression).child(), inferType);
-                    }
-                } else if (dataType instanceof DateTimeV2Type) {
-                    return validForInfer(((Cast) expression).child(), inferType);
+            // avoid lost precision
+            if (dataType instanceof DateType) {
+                if (childType instanceof DateV2Type || childType instanceof DateType) {
+                    return validForInfer(child, inferType);
                 }
+            } else if (dataType instanceof DateV2Type) {
+                if (childType instanceof DateType || childType instanceof DateV2Type) {
+                    return validForInfer(child, inferType);
+                }
+            } else if (dataType instanceof DateTimeType) {
+                if (!(childType instanceof DateTimeV2Type)) {
+                    return validForInfer(child, inferType);
+                }
+            } else if (dataType instanceof DateTimeV2Type) {
+                return validForInfer(child, inferType);
             }
         } else if (inferType == InferType.STRING) {
-            if (expression instanceof Cast) {
-                DataType dataType = expression.getDataType();
-                DataType childType = ((Cast) expression).child().getDataType();
-                // avoid substring cast such as cast(char(3) as char(2))
-                if (dataType.width() <= 0 || (dataType.width() >= childType.width() && childType.width() >= 0)) {
-                    return validForInfer(((Cast) expression).child(), inferType);
-                }
+            // avoid substring cast such as cast(char(3) as char(2))
+            if (dataType.width() <= 0 || (dataType.width() >= childType.width() && childType.width() >= 0)) {
+                return validForInfer(child, inferType);
             }
-        } else {
-            return Optional.empty();
         }
         return Optional.empty();
     }
 
-    private ComparisonInferInfo inferInferInfo(ComparisonPredicate comparisonPredicate) {
+    private static Optional<Pair<Expression, Expression>> inferInferInfo(ComparisonPredicate comparisonPredicate) {
         DataType leftType = comparisonPredicate.left().getDataType();
         InferType inferType;
         if (leftType instanceof CharacterType) {
@@ -216,27 +231,21 @@ public class PredicatePropagation {
         Optional<Expression> left = validForInfer(comparisonPredicate.left(), inferType);
         Optional<Expression> right = validForInfer(comparisonPredicate.right(), inferType);
         if (!left.isPresent() || !right.isPresent()) {
-            inferType = InferType.NONE;
+            return Optional.empty();
         }
-        return new ComparisonInferInfo(inferType, left, right, comparisonPredicate);
+        return Optional.of(Pair.of(left.get(), right.get()));
     }
 
-    /**
-     * Currently only equivalence derivation is supported
-     * and requires that the left and right sides of an expression must be slot
-     */
-    private ComparisonInferInfo getEquivalentInferInfo(ComparisonPredicate predicate) {
-        if (!(predicate instanceof EqualTo)) {
-            return new ComparisonInferInfo(InferType.NONE,
-                    Optional.of(predicate.left()), Optional.of(predicate.right()), predicate);
-        }
-        ComparisonInferInfo info = inferInferInfo(predicate);
-        if (info.inferType == InferType.NONE) {
-            return info;
-        }
-        if (info.left.get() instanceof SlotReference && info.right.get() instanceof SlotReference) {
-            return info;
-        }
-        return new ComparisonInferInfo(InferType.NONE, info.left, info.right, info.comparisonPredicate);
+    private static void getEqualSlot(ImmutableEqualSet.Builder<Slot> equalSlots, Set<Pair<Slot, Slot>> equalPairs,
+            EqualTo predicate) {
+        inferInferInfo(predicate)
+                .filter(info -> info.first instanceof Slot && info.second instanceof Slot)
+                .ifPresent(pair -> {
+                    Slot left = (Slot) pair.first;
+                    Slot right = (Slot) pair.second;
+                    equalSlots.addEqualPair(left, right);
+                    equalPairs.add(left.getExprId().asInt() <= right.getExprId().asInt()
+                            ? Pair.of(left, right) : Pair.of(right, left));
+                });
     }
 }

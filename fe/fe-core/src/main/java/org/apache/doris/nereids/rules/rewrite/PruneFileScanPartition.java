@@ -19,10 +19,10 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
@@ -109,4 +109,3 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         return new SelectedPartitions(idToPartitionItem.size(), selectedPartitionItems, true);
     }
 }
-

@@ -221,7 +221,7 @@ suite("test_multi_partition_key", "p0") {
     test {
         sql "ALTER TABLE test_multi_col_test_partition_add ADD PARTITION partition_add VALUES LESS THAN ('30', '1000') " +
                 "DISTRIBUTED BY hash(k1) BUCKETS 5"
-        exception "Cannot assign hash distribution with different distribution cols. new is: [`k1` TINYINT NOT NULL] default is: [`k1` TINYINT NOT NULL]"
+        exception "Cannot assign hash distribution with different distribution cols. new is: [`k1` TINYINT NOT NULL] default is: [`k1` TINYINT NOT NULL, `k2` SMALLINT NOT NULL, `k3` INT NOT NULL]"
     }
 
     sql "ALTER TABLE test_multi_col_test_partition_add ADD PARTITION partition_add VALUES LESS THAN ('30', '1000') "
@@ -366,7 +366,9 @@ suite("test_multi_partition_key", "p0") {
     assertEquals(12, table_schema.size())
     qt_sql12 "select * from test_multi_col_test_rollup order by k1, k2"
     // test partition modify, check partition replication_num
-    sql "ALTER TABLE test_multi_col_test_rollup MODIFY PARTITION partition_a SET( 'replication_num' = '1')"
+    if (!isCloudMode()) {
+        sql "ALTER TABLE test_multi_col_test_rollup MODIFY PARTITION partition_a SET( 'replication_num' = '1')"
+    }
     ret = sql "SHOW PARTITIONS FROM test_multi_col_test_rollup WHERE PartitionName='partition_a'"
     assertEquals('1', ret[0][9])
     // create table with range partition
@@ -392,20 +394,6 @@ suite("test_multi_partition_key", "p0") {
             """,
             false
     )
-    test {
-        sql """
-            CREATE TABLE IF NOT EXISTS test_multi_col_ddd (
-                k1 TINYINT NOT NULL, 
-                k2 SMALLINT NOT NULL) 
-            PARTITION BY RANGE(k1,k2) ( 
-                  PARTITION partition_a VALUES [("-127","-127"), ("10", MAXVALUE)), 
-                  PARTITION partition_b VALUES [("10","100"), ("40","0")), 
-                  PARTITION partition_c VALUES [("126","126"), ("127")) )
-            DISTRIBUTED BY HASH(k1,k2) BUCKETS 1
-            PROPERTIES("replication_allocation" = "tag.location.default: 1")
-        """
-        exception "Not support MAXVALUE in multi partition range values"
-    }
     // add partition with range
     sql "ALTER TABLE test_multi_column_fixed_range_1 ADD PARTITION partition_add VALUES LESS THAN ('50','1000') "
     ret = sql "SHOW PARTITIONS FROM test_multi_column_fixed_range_1 WHERE PartitionName='partition_add'"
@@ -463,5 +451,21 @@ suite("test_multi_partition_key", "p0") {
     try_sql "drop table if exists test_multi_column_drop_partition_column"
     try_sql "drop table if exists test_multi_column_fixed_range_1"
     try_sql "drop table if exists test_multi_partition_key_2"
+
+    sql """set enable_nereids_planner=false"""
+    test {
+        sql """
+            CREATE TABLE IF NOT EXISTS test_multi_col_ddd (
+                k1 TINYINT NOT NULL, 
+                k2 SMALLINT NOT NULL) 
+            PARTITION BY RANGE(k1,k2) ( 
+                  PARTITION partition_a VALUES [("-127","-127"), ("10", MAXVALUE)), 
+                  PARTITION partition_b VALUES [("10","100"), ("40","0")), 
+                  PARTITION partition_c VALUES [("126","126"), ("127")) )
+            DISTRIBUTED BY HASH(k1,k2) BUCKETS 1
+            PROPERTIES("replication_allocation" = "tag.location.default: 1")
+        """
+        exception "Not support MAXVALUE in multi partition range values"
+    }
 
 }

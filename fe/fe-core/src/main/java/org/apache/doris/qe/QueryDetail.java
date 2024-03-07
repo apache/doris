@@ -54,12 +54,7 @@ public class QueryDetail {
         this.endTime = endTime;
         this.latency = latency;
         this.state = state;
-        if (database.equals("")) {
-            this.database = "";
-        } else {
-            String[] stringPieces = database.split(":", -1);
-            this.database = stringPieces[1]; // eliminate cluster name
-        }
+        this.database = database;
         this.sql = sql;
     }
 

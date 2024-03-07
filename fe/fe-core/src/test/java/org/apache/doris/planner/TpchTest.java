@@ -220,6 +220,6 @@ public class TpchTest extends TestWithFeService {
                 + "ORDER BY\n"
                 + "  o_year");
 
-        Assert.assertTrue(explain.contains("default_cluster:db1.lineitem(lineitem)"));
+        Assert.assertTrue(explain.contains("db1.lineitem(lineitem)"));
     }
 }

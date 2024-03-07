@@ -56,7 +56,7 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionHistogramData {
     using ColVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnVector<T>>;
 
     void set_parameters(int input_max_num_buckets) {
         if (input_max_num_buckets > 0) {
@@ -184,7 +184,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         if (columns[0]->is_null_at(row_num)) {
             return;

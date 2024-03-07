@@ -1,0 +1,148 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.iceberg;
+
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.DorisTypeVisitor;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.operations.ExternalMetadataOps;
+
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SupportsNamespaces;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+public class IcebergMetadataOps implements ExternalMetadataOps {
+
+    private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
+    protected Catalog catalog;
+    protected IcebergExternalCatalog dorisCatalog;
+    protected SupportsNamespaces nsCatalog;
+
+    public IcebergMetadataOps(IcebergExternalCatalog dorisCatalog, Catalog catalog) {
+        this.dorisCatalog = dorisCatalog;
+        this.catalog = catalog;
+        nsCatalog = (SupportsNamespaces) catalog;
+    }
+
+    public Catalog getCatalog() {
+        return catalog;
+    }
+
+    @Override
+    public boolean tableExist(String dbName, String tblName) {
+        return catalog.tableExists(TableIdentifier.of(dbName, tblName));
+    }
+
+    public List<String> listDatabaseNames() {
+        return nsCatalog.listNamespaces().stream()
+                .map(e -> {
+                    String dbName = e.toString();
+                    try {
+                        FeNameFormat.checkDbName(dbName);
+                    } catch (AnalysisException ex) {
+                        Util.logAndThrowRuntimeException(LOG,
+                                String.format("Not a supported namespace name format: %s", dbName), ex);
+                    }
+                    return dbName;
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<String> listTableNames(String dbName) {
+        List<TableIdentifier> tableIdentifiers = catalog.listTables(Namespace.of(dbName));
+        return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
+    }
+
+    @Override
+    public void createDb(CreateDbStmt stmt) throws DdlException {
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
+        String dbName = stmt.getFullDbName();
+        Map<String, String> properties = stmt.getProperties();
+        nsCatalog.createNamespace(Namespace.of(dbName), properties);
+        dorisCatalog.onRefresh(true);
+    }
+
+    @Override
+    public void dropDb(DropDbStmt stmt) throws DdlException {
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
+        String dbName = stmt.getDbName();
+        if (dorisCatalog.getDbNameToId().containsKey(dbName)) {
+            Long aLong = dorisCatalog.getDbNameToId().get(dbName);
+            dorisCatalog.getIdToDb().remove(aLong);
+            dorisCatalog.getDbNameToId().remove(dbName);
+        }
+        nsCatalog.dropNamespace(Namespace.of(dbName));
+        dorisCatalog.onRefresh(true);
+    }
+
+    @Override
+    public void createTable(CreateTableStmt stmt) throws UserException {
+        String dbName = stmt.getDbName();
+        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
+        }
+        String tableName = stmt.getTableName();
+        List<Column> columns = stmt.getColumns();
+        List<StructField> collect = columns.stream()
+                .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
+                .collect(Collectors.toList());
+        StructType structType = new StructType(new ArrayList<>(collect));
+        org.apache.iceberg.types.Type visit =
+                DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
+        Schema schema = new Schema(visit.asNestedType().asStructType().fields());
+        Map<String, String> properties = stmt.getProperties();
+        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(properties, schema);
+        catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
+        db.setUnInitialized(true);
+    }
+
+    @Override
+    public void dropTable(DropTableStmt stmt) throws DdlException {
+        String dbName = stmt.getDbName();
+        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
+        }
+        String tableName = stmt.getTableName();
+        catalog.dropTable(TableIdentifier.of(dbName, tableName));
+        db.setUnInitialized(true);
+    }
+}

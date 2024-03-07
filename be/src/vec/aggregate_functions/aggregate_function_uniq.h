@@ -115,7 +115,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         detail::OneAdder<T, Data>::add(this->data(place), *columns[0], row_num);
     }

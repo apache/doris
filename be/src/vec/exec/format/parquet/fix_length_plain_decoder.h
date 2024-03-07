@@ -103,14 +103,27 @@ Status FixLengthPlainDecoder<PhysicalType>::_decode_string(MutableColumnPtr& dor
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            std::vector<StringRef> string_values;
-            string_values.reserve(run_length);
-            for (size_t i = 0; i < run_length; ++i) {
-                char* buf_start = _data->data + _offset;
-                string_values.emplace_back(buf_start, _type_length);
-                _offset += _type_length;
+            auto* column_string = assert_cast<ColumnString*>(doris_column.get());
+            auto& chars = column_string->get_chars();
+            auto& offsets = column_string->get_offsets();
+            size_t bytes_size = chars.size();
+
+            // copy chars
+            size_t data_size = run_length * _type_length;
+            size_t old_size = chars.size();
+            chars.resize(old_size + data_size);
+            memcpy(chars.data() + old_size, _data->data + _offset, data_size);
+
+            // copy offsets
+            offsets.resize(offsets.size() + run_length);
+            auto* offsets_data = offsets.data() + offsets.size() - run_length;
+
+            for (int i = 0; i < run_length; i++) {
+                bytes_size += _type_length;
+                *(offsets_data++) = bytes_size;
             }
-            doris_column->insert_many_strings(&string_values[0], run_length);
+
+            _offset += data_size;
             break;
         }
         case ColumnSelectVector::NULL_DATA: {

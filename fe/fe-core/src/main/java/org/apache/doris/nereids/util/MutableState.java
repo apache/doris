@@ -25,6 +25,8 @@ import java.util.Optional;
 public interface MutableState {
     String KEY_GROUP = "group";
     String KEY_FRAGMENT = "fragment";
+    String KEY_PARENT = "parent";
+    String KEY_RF_JUMP = "rf-jump";
 
     <T> Optional<T> get(String key);
 

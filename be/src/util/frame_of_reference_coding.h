@@ -117,7 +117,7 @@ private:
     static const uint8_t FRAME_VALUE_NUM = 128;
     T _buffered_values[FRAME_VALUE_NUM];
 
-    faststring* _buffer;
+    faststring* _buffer = nullptr;
     std::vector<uint8_t> _storage_formats;
     std::vector<uint8_t> _bit_widths;
 };

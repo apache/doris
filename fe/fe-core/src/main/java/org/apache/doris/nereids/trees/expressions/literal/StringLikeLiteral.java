@@ -21,8 +21,11 @@ import org.apache.doris.nereids.types.DataType;
 
 import java.util.Objects;
 
-/** StringLikeLiteral. */
+/**
+ * StringLikeLiteral.
+ */
 public abstract class StringLikeLiteral extends Literal {
+    public static final int CHINESE_CHAR_BYTE_LENGTH = 4;
     public final String value;
 
     public StringLikeLiteral(String value, DataType dataType) {

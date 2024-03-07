@@ -1,6 +1,6 @@
 ---
 {
-    "title": "MySql Load",
+    "title": "MySQL Load",
     "language": "zh-CN"
 }
 ---
@@ -24,20 +24,20 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# MySql load
+# MySQL Load
 <version since="dev">
 
 该语句兼容MySQL标准的[LOAD DATA](https://dev.mysql.com/doc/refman/8.0/en/load-data.html)语法，方便用户导入本地数据，并降低学习成本。
 
-MySql load 同步执行导入并返回导入结果。用户可直接通过SQL返回信息判断本次导入是否成功。
+MySQL Load 同步执行导入并返回导入结果。用户可直接通过SQL返回信息判断本次导入是否成功。
 
-MySql load 主要适用于导入客户端本地文件，或通过程序导入数据流中的数据。
+MySQL Load 主要适用于导入客户端本地文件，或通过程序导入数据流中的数据。
 
 </version>
 
 ## 基本原理
 
-MySql Load和Stream Load功能相似, 都是导入本地文件到Doris集群中, 因此MySQL Load实现复用了StreamLoad的基础导入能力:
+MySQL Load和Stream Load功能相似, 都是导入本地文件到Doris集群中, 因此MySQL Load实现复用了StreamLoad的基础导入能力:
 
 1. FE接收到客户端执行的MySQL Load请求, 完成SQL解析工作
 
@@ -70,7 +70,7 @@ CREATE TABLE testdb.t1 (pk INT, v1 INT SUM) AGGREGATE KEY (pk) DISTRIBUTED BY ha
 ```
 
 ### 导入客户端文件
-假设在客户端本地当前路径上有一个CSV文件, 名为`client_local.csv`, 使用MySQL LOAD语法将表导入到测试表`testdb.t1`中.
+假设在客户端本地当前路径上有一个CSV文件, 名为`client_local.csv`, 使用MySQL Load语法将表导入到测试表`testdb.t1`中.
 
 ```sql
 LOAD DATA LOCAL
@@ -115,7 +115,7 @@ PROPERTIES ("strict_mode"="true")
 
 ### 返回结果
 
-由于 MySQL load 是一种同步的导入方式，所以导入的结果会通过SQL语法返回给用户。
+由于 MySQL Load 是一种同步的导入方式，所以导入的结果会通过SQL语法返回给用户。
 如果导入执行失败, 会展示具体的报错信息. 如果导入成功, 则会显示导入的行数.
 
 ```text

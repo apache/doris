@@ -34,7 +34,6 @@ public class FeConstants {
     public static int shortkey_max_column_count = 3;
     public static int shortkey_maxsize_bytes = 36;
 
-    public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
 
     // dpp version
@@ -64,21 +63,21 @@ public class FeConstants {
     // use \N to indicate NULL
     public static String null_string = "\\N";
 
-    public static String FS_PREFIX_S3 = "s3";
-    public static String FS_PREFIX_S3A = "s3a";
-    public static String FS_PREFIX_S3N = "s3n";
-    public static String FS_PREFIX_OSS = "oss";
-    public static String FS_PREFIX_GCS = "gs";
-    public static String FS_PREFIX_BOS = "bos";
-    public static String FS_PREFIX_COS = "cos";
-    public static String FS_PREFIX_COSN = "cosn";
-    public static String FS_PREFIX_OBS = "obs";
-    public static String FS_PREFIX_OFS = "ofs";
-    public static String FS_PREFIX_GFS = "gfs";
-    public static String FS_PREFIX_JFS = "jfs";
-    public static String FS_PREFIX_HDFS = "hdfs";
-    public static String FS_PREFIX_VIEWFS = "viewfs";
-    public static String FS_PREFIX_FILE = "file";
+    public static final String FS_PREFIX_S3 = "s3";
+    public static final String FS_PREFIX_S3A = "s3a";
+    public static final String FS_PREFIX_S3N = "s3n";
+    public static final String FS_PREFIX_OSS = "oss";
+    public static final String FS_PREFIX_GCS = "gs";
+    public static final String FS_PREFIX_BOS = "bos";
+    public static final String FS_PREFIX_COS = "cos";
+    public static final String FS_PREFIX_COSN = "cosn";
+    public static final String FS_PREFIX_OBS = "obs";
+    public static final String FS_PREFIX_OFS = "ofs";
+    public static final String FS_PREFIX_GFS = "gfs";
+    public static final String FS_PREFIX_JFS = "jfs";
+    public static final String FS_PREFIX_HDFS = "hdfs";
+    public static final String FS_PREFIX_VIEWFS = "viewfs";
+    public static final String FS_PREFIX_FILE = "file";
 
     public static final String INTERNAL_DB_NAME = "__internal_schema";
     public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";

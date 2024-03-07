@@ -107,6 +107,11 @@ suite("test_decimal256_outfile_csv") {
 
     def uuid = UUID.randomUUID().toString()
     def outFilePath = """/tmp/test_decimal256_outfile_csv_${uuid}"""
+    List<List<Object>> backends =  sql """ show backends """
+    assertTrue(backends.size() > 0)
+    if (backends.size() > 1) {
+        outFilePath = "/tmp"
+    }
     try {
         logger.info("outfile: " + outFilePath)
         // check outfile

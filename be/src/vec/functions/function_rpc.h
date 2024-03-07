@@ -52,9 +52,9 @@ public:
     bool available() { return _client != nullptr; }
 
 private:
-    void _convert_block_to_proto(vectorized::Block& block,
-                                 const vectorized::ColumnNumbers& arguments,
-                                 size_t input_rows_count, PFunctionCallRequest* request);
+    Status _convert_block_to_proto(vectorized::Block& block,
+                                   const vectorized::ColumnNumbers& arguments,
+                                   size_t input_rows_count, PFunctionCallRequest* request);
     void _convert_to_block(vectorized::Block& block, const PValues& result, size_t pos);
 
     std::shared_ptr<PFunctionService_Stub> _client;
@@ -95,11 +95,7 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) override;
-
-    bool is_deterministic() const override { return false; }
-
-    bool is_deterministic_in_scope_of_query() const override { return false; }
+                   size_t result, size_t input_rows_count, bool dry_run = false) const override;
 
     bool is_use_default_implementation_for_constants() const override { return true; }
 

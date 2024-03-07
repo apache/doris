@@ -33,6 +33,7 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
                                   TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
+    request->partition_id = 30002;
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 3;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -80,36 +81,38 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
-        static_cast<void>(io::global_local_filesystem()->delete_and_create_directory(
-                config::storage_root_path));
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        _engine = std::make_unique<StorageEngine>(options);
-        Status st = _engine->open();
+        auto engine = std::make_unique<StorageEngine>(options);
+        _engine_ref = engine.get();
+        st = engine->open();
         EXPECT_TRUE(st.ok()) << st.to_string();
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         // ExecEnv's storage_engine will be read by storage_engine's other operations.
         // So we must do this before storage engine's other operation.
-        exec_env->set_storage_engine(_engine.get());
+        exec_env->set_storage_engine(std::move(engine));
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-        static_cast<void>(_engine->start_bg_threads());
     }
 
     void TearDown() override {
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(nullptr);
-        _engine.reset();
+        _engine_ref = nullptr;
         exec_env->set_storage_engine(nullptr);
         EXPECT_EQ(system("rm -rf ./data_test"), 0);
         static_cast<void>(io::global_local_filesystem()->delete_directory(
                 std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX));
     }
 
-    std::unique_ptr<StorageEngine> _engine;
+    StorageEngine* _engine_ref = nullptr;
 };
 
 TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
@@ -117,7 +120,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10000, 270068372, &request);
-    Status res = _engine->create_tablet(request, profile.get());
+    Status res = _engine_ref->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -125,7 +128,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     DescriptorTbl* desc_tbl = nullptr;
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -139,10 +142,10 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = &param;
-    DeltaWriter* delta_writer = nullptr;
+    write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
-    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId()));
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*_engine_ref, write_req, profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
     auto mem_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
 
@@ -174,10 +177,9 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    res = delta_writer->commit_txn(PSlaveTabletNodes());
     EXPECT_EQ(Status::OK(), res);
-    res = _engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
+    res = _engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
-    delete delta_writer;
 }
 } // namespace doris

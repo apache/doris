@@ -79,7 +79,7 @@ suite("test_restore_mix_exists_and_new_table", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
     """
 

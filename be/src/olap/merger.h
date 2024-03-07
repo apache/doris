@@ -17,15 +17,12 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <vector>
 
 #include "common/status.h"
 #include "io/io_common.h"
-#include "olap/rowset/rowset_reader.h"
-#include "olap/tablet.h"
-#include "olap/tablet_schema.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 class KeyBoundsPB;
@@ -55,31 +52,30 @@ public:
     // return OK and set statistics into `*stats_output`.
     // return others on error
 
-    static Status vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                                 TabletSchemaSPtr cur_tablet_schema,
+    static Status vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
+                                 const TabletSchema& cur_tablet_schema,
                                  const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                                  RowsetWriter* dst_rowset_writer, Statistics* stats_output);
     static Status vertical_merge_rowsets(
-            TabletSharedPtr tablet, ReaderType reader_type, TabletSchemaSPtr tablet_schema,
+            BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
             Statistics* stats_output);
 
-public:
     // for vertical compaction
-    static void vertical_split_columns(TabletSchemaSPtr tablet_schema,
+    static void vertical_split_columns(const TabletSchema& tablet_schema,
                                        std::vector<std::vector<uint32_t>>* column_groups);
     static Status vertical_compact_one_group(
-            TabletSharedPtr tablet, ReaderType reader_type, TabletSchemaSPtr tablet_schema,
+            BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
             bool is_key, const std::vector<uint32_t>& column_group,
             vectorized::RowSourcesBuffer* row_source_buf,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
-            Statistics* stats_output);
+            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, Statistics* stats_output,
+            std::vector<uint32_t> key_group_cluster_key_idxes);
 
     // for segcompaction
-    static Status vertical_compact_one_group(TabletSharedPtr tablet, ReaderType reader_type,
-                                             TabletSchemaSPtr tablet_schema, bool is_key,
+    static Status vertical_compact_one_group(int64_t tablet_id, ReaderType reader_type,
+                                             const TabletSchema& tablet_schema, bool is_key,
                                              const std::vector<uint32_t>& column_group,
                                              vectorized::RowSourcesBuffer* row_source_buf,
                                              vectorized::VerticalBlockReader& src_block_reader,

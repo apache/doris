@@ -15,12 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <string>
-#include <vector>
 
-#include "common/status.h"
 #include "function_test_util.h"
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
@@ -34,44 +31,53 @@ namespace doris::vectorized {
 TEST(FunctionLikeTest, like) {
     std::string func_name = "like";
 
-    DataSet data_set = {// sub_string
-                        {{std::string("abc"), std::string("%b%")}, uint8_t(1)},
-                        {{std::string("abc"), std::string("%ad%")}, uint8_t(0)},
-                        // end with
-                        {{std::string("abc"), std::string("%c")}, uint8_t(1)},
-                        {{std::string("ab"), std::string("%c")}, uint8_t(0)},
-                        // start with
-                        {{std::string("abc"), std::string("a%")}, uint8_t(1)},
-                        {{std::string("bc"), std::string("a%")}, uint8_t(0)},
-                        // equals
-                        {{std::string(""), std::string("")}, uint8_t(1)},
-                        {{std::string(""), std::string(" ")}, uint8_t(0)},
-                        {{std::string(" "), std::string(" ")}, uint8_t(1)},
-                        {{std::string(" "), std::string("")}, uint8_t(0)},
-                        {{std::string("abc"), std::string("")}, uint8_t(0)},
-                        {{std::string("abc"), std::string(" ")}, uint8_t(0)},
-                        {{std::string("abc"), std::string("abc")}, uint8_t(1)},
-                        {{std::string("abc"), std::string("ab")}, uint8_t(0)},
-                        // full regexp match
-                        {{std::string("abcd"), std::string("a_c%")}, uint8_t(1)},
-                        {{std::string("abcd"), std::string("a_d%")}, uint8_t(0)},
-                        {{std::string("abc"), std::string("__c")}, uint8_t(1)},
-                        {{std::string("abc"), std::string("_c")}, uint8_t(0)},
-                        {{std::string("abc"), std::string("_b_")}, uint8_t(1)},
-                        {{std::string("abc"), std::string("_a_")}, uint8_t(0)},
-                        {{std::string("abc"), std::string("a__")}, uint8_t(1)},
-                        {{std::string("abc"), std::string("a_")}, uint8_t(0)},
-                        // null
-                        {{std::string("abc"), Null()}, Null()},
-                        {{Null(), std::string("_x__ab%")}, Null()}};
+    DataSet data_set = {
+            // sub_string
+            {{std::string("abc"), std::string("%b%")}, uint8_t(1)},
+            {{std::string("abc"), std::string("%ad%")}, uint8_t(0)},
+            // end with
+            {{std::string("abc"), std::string("%c")}, uint8_t(1)},
+            {{std::string("ab"), std::string("%c")}, uint8_t(0)},
+            // start with
+            {{std::string("abc"), std::string("a%")}, uint8_t(1)},
+            {{std::string("bc"), std::string("a%")}, uint8_t(0)},
+            // equals
+            {{std::string(""), std::string("")}, uint8_t(1)},
+            {{std::string(""), std::string(" ")}, uint8_t(0)},
+            {{std::string(" "), std::string(" ")}, uint8_t(1)},
+            {{std::string(" "), std::string("")}, uint8_t(0)},
+            {{std::string("abc"), std::string("")}, uint8_t(0)},
+            {{std::string("abc"), std::string(" ")}, uint8_t(0)},
+            {{std::string("abc"), std::string("abc")}, uint8_t(1)},
+            {{std::string("abc"), std::string("ab")}, uint8_t(0)},
+            // full regexp match
+            {{std::string("abcd"), std::string("a_c%")}, uint8_t(1)},
+            {{std::string("abcd"), std::string("a_d%")}, uint8_t(0)},
+            {{std::string("abc"), std::string("__c")}, uint8_t(1)},
+            {{std::string("abc"), std::string("_c")}, uint8_t(0)},
+            {{std::string("abc"), std::string("_b_")}, uint8_t(1)},
+            {{std::string("abc"), std::string("_a_")}, uint8_t(0)},
+            {{std::string("abc"), std::string("a__")}, uint8_t(1)},
+            {{std::string("abc"), std::string("a_")}, uint8_t(0)},
+            // null
+            {{std::string("abc"), Null()}, Null()},
+            {{Null(), std::string("_x__ab%")}, Null()},
+            // escape chars
+            {{std::string("facebook_10008_T1+T2-ALL_AAA-VO_LowestCost_20230830_HSJ"),
+              std::string("%facebook_10008_T1+T2%")},
+             uint8_t(1)},
+            {{std::string("!z23]"), std::string("_[z]%")}, uint8_t(0)},
+            {{std::string("[123]"), std::string("%[1.*]%")}, uint8_t(0)},
+            {{std::string("1\\b\\b"), std::string("%_\\b\\b%")}, uint8_t(1)},
+            {{std::string("1\\d\\d"), std::string("%_\\d\\d%")}, uint8_t(1)},
+            {{std::string("1dd"), std::string("%_dd%")},
+             uint8_t(1)} // this case can't be same as regression-test because of FE's string escape operation
+    };
 
     // pattern is constant value
-    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String}};
-    for (const auto& line : data_set) {
-        DataSet const_pattern_dataset = {line};
-        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
-                                                              const_pattern_dataset));
-    }
+    InputTypeSet const_pattern_input_types = {TypeIndex::String, TypeIndex::String};
+    static_cast<void>(
+            check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types, data_set));
 }
 
 TEST(FunctionLikeTest, regexp) {

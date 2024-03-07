@@ -215,7 +215,7 @@ public:
         this->data(place).insert_result_into(to);
     }
 
-    void add(AggregateDataPtr place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         this->data(place).add(row_num, columns);
     }

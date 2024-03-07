@@ -108,9 +108,9 @@ public final class RuntimeFilter {
 
     private boolean bitmapFilterNotIn = false;
 
-    private boolean useRemoteRfOpt = true;
-
     private TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType;
+
+    private boolean bloomFilterSizeCalculatedByNdv = false;
 
     /**
      * Internal representation of a runtime filter target.
@@ -205,17 +205,6 @@ public final class RuntimeFilter {
         this.bitmapFilterNotIn = bitmapFilterNotIn;
     }
 
-    public void computeUseRemoteRfOpt() {
-        for (RuntimeFilterTarget target : targets) {
-            useRemoteRfOpt = useRemoteRfOpt && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
-                    && target.expr instanceof SlotRef;
-        }
-    }
-
-    public boolean getUseRemoteRfOpt() {
-        return useRemoteRfOpt;
-    }
-
     /**
      * Serializes a runtime filter to Thrift.
      */
@@ -227,12 +216,8 @@ public final class RuntimeFilter {
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
         tFilter.setHasRemoteTargets(hasRemoteTargets);
-        boolean optRemoteRf = true;
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
-            // TODO: now only support SlotRef
-            optRemoteRf = optRemoteRf && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
-                    && target.expr instanceof SlotRef;
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
@@ -243,7 +228,17 @@ public final class RuntimeFilter {
         if (runtimeFilterType.equals(TRuntimeFilterType.MIN_MAX)) {
             tFilter.setMinMaxType(tMinMaxRuntimeFilterType);
         }
-        tFilter.setOptRemoteRf(optRemoteRf);
+        tFilter.setOptRemoteRf(hasRemoteTargets);
+        tFilter.setBloomFilterSizeCalculatedByNdv(bloomFilterSizeCalculatedByNdv);
+        if (builderNode instanceof HashJoinNode) {
+            HashJoinNode join = (HashJoinNode) builderNode;
+            BinaryPredicate eq = join.getEqJoinConjuncts().get(exprOrder);
+            if (eq.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
+                tFilter.setNullAware(true);
+            } else {
+                tFilter.setNullAware(false);
+            }
+        }
         return tFilter;
     }
 
@@ -604,6 +599,10 @@ public final class RuntimeFilter {
         isBroadcastJoin = isBroadcast;
     }
 
+    public boolean isBroadcast() {
+        return isBroadcastJoin;
+    }
+
     public void computeNdvEstimate() {
         if (ndvEstimate < 0) {
             ndvEstimate = builderNode.getChild(1).getCardinalityAfterFilter();
@@ -736,5 +735,14 @@ public final class RuntimeFilter {
             }
         }
         return filterStr.toString();
+    }
+
+
+    public boolean isBloomFilterSizeCalculatedByNdv() {
+        return bloomFilterSizeCalculatedByNdv;
+    }
+
+    public void setBloomFilterSizeCalculatedByNdv(boolean bloomFilterSizeCalculatedByNdv) {
+        this.bloomFilterSizeCalculatedByNdv = bloomFilterSizeCalculatedByNdv;
     }
 }

@@ -43,8 +43,10 @@ class SuiteContext implements Closeable {
     public final String group
     public final String dbName
     public final ThreadLocal<ConnectionInfo> threadLocalConn = new ThreadLocal<>()
+    public final ThreadLocal<ConnectionInfo> threadArrowFlightSqlConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveDockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadDB2DockerConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
@@ -128,6 +130,14 @@ class SuiteContext implements Closeable {
         return getConnection()
     }
 
+    boolean useArrowFlightSql() {
+        if (group.contains("arrow_flight_sql") && config.groups.contains("arrow_flight_sql")) {
+            return true
+        }
+        return false
+    }
+
+    // jdbc:mysql
     Connection getConnection() {
         def threadConnInfo = threadLocalConn.get()
         if (threadConnInfo == null) {
@@ -137,6 +147,19 @@ class SuiteContext implements Closeable {
             threadConnInfo.password = config.jdbcPassword
             threadLocalConn.set(threadConnInfo)
         }
+        return threadConnInfo.conn
+    }
+
+    Connection getArrowFlightSqlConnection(){
+        def threadConnInfo = threadArrowFlightSqlConn.get()
+        if (threadConnInfo == null) {
+            threadConnInfo = new ConnectionInfo()
+            threadConnInfo.conn = config.getConnectionByArrowFlightSql(dbName)
+            threadConnInfo.username = config.jdbcUser
+            threadConnInfo.password = config.jdbcPassword
+            threadArrowFlightSqlConn.set(threadConnInfo)
+        }
+        println("Use arrow flight sql connection")
         return threadConnInfo.conn
     }
 
@@ -154,6 +177,15 @@ class SuiteContext implements Closeable {
         if (threadConn == null) {
             threadConn = getConnectionByHiveRemoteConfig()
             threadHiveRemoteConn.set(threadConn)
+        }
+        return threadConn
+    }
+
+    Connection getDB2DockerConnection(){
+        def threadConn = threadDB2DockerConn.get()
+        if (threadConn == null) {
+            threadConn = getConnectionByDB2DockerConfig()
+            threadDB2DockerConn.set(threadConn)
         }
         return threadConn
     }
@@ -209,6 +241,16 @@ class SuiteContext implements Closeable {
         String hiveJdbcUser =  "hadoop"
         String hiveJdbcPassword = "hadoop"
         return DriverManager.getConnection(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword)
+    }
+
+    Connection getConnectionByDB2DockerConfig() {
+        Class.forName("com.ibm.db2.jcc.DB2Driver");
+        String db2Host = config.otherConfigs.get("externalEnvIp")
+        String db2Port = config.otherConfigs.get("db2_11_port")
+        String db2JdbcUrl = "jdbc:db2://${db2Host}:${db2Port}/doris"
+        String db2JdbcUser =  "db2inst1"
+        String db2JdbcPassword = "123456"
+        return DriverManager.getConnection(db2JdbcUrl, db2JdbcUser, db2JdbcPassword)
     }
 
     Connection getTargetConnection(Suite suite) {
@@ -371,7 +413,17 @@ class SuiteContext implements Closeable {
                 log.warn("Close connection failed", t)
             }
         }
-        
+
+        ConnectionInfo arrow_flight_sql_conn = threadArrowFlightSqlConn.get()
+        if (arrow_flight_sql_conn != null) {
+            threadArrowFlightSqlConn.remove()
+            try {
+                arrow_flight_sql_conn.conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+
         Connection hive_docker_conn = threadHiveDockerConn.get()
         if (hive_docker_conn != null) {
             threadHiveDockerConn.remove()

@@ -227,12 +227,12 @@ private:
         } else if (which_type.is_decimal64()) {
             res = _execute_number_expanded<Decimal64, Decimal64>(offsets, *nested_column,
                                                                  nested_null_map);
-        } else if (which_type.is_decimal128i()) {
-            res = _execute_number_expanded<Decimal128I, Decimal128I>(offsets, *nested_column,
-                                                                     nested_null_map);
-        } else if (which_type.is_decimal128()) {
-            res = _execute_number_expanded<Decimal128, Decimal128>(offsets, *nested_column,
-                                                                   nested_null_map);
+        } else if (which_type.is_decimal128v3()) {
+            res = _execute_number_expanded<Decimal128V3, Decimal128V3>(offsets, *nested_column,
+                                                                       nested_null_map);
+        } else if (which_type.is_decimal128v2()) {
+            res = _execute_number_expanded<Decimal128V2, Decimal128V2>(offsets, *nested_column,
+                                                                       nested_null_map);
         } else if (which_type.is_decimal256()) {
             res = _execute_number_expanded<Decimal256, Decimal256>(offsets, *nested_column,
                                                                    nested_null_map);

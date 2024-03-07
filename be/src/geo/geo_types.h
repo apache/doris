@@ -46,7 +46,7 @@ public:
     virtual GeoShapeType type() const = 0;
 
     // decode from serialized data
-    static GeoShape* from_encoded(const void* data, size_t size);
+    static std::unique_ptr<GeoShape> from_encoded(const void* data, size_t size);
     // try to construct a GeoShape from a WKT. If construct successfully, a GeoShape will
     // be returned, and the client should delete it when don't need it.
     // return nullptr if convert failed, and reason will be set in status

@@ -70,6 +70,8 @@ class DateTimeFormatterUtilsTest {
         assertDatePart(dateTime);
         dateTime = formatter.parse("20200219T010101.1");
         assertDatePart(dateTime);
+        dateTime = formatter.parse("20200219T010101.0000001");
+        assertDatePart(dateTime);
 
         // failed case
         DateTimeFormatter withT = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER;
@@ -77,11 +79,9 @@ class DateTimeFormatterUtilsTest {
         Assertions.assertThrows(DateTimeParseException.class, () -> withT.parse("20200219010101."));
         Assertions.assertThrows(DateTimeParseException.class, () -> withT.parse("20200219010101.0000001"));
         Assertions.assertThrows(DateTimeParseException.class, () -> withT.parse("20200219T010101."));
-        Assertions.assertThrows(DateTimeParseException.class, () -> withT.parse("20200219T010101.0000001"));
         DateTimeFormatter withoutT = DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T;
         Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219 010101"));
         Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219010101."));
-        Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219010101.0000001"));
         Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219T010101."));
         Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219T010101.0000001"));
     }

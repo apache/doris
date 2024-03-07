@@ -285,25 +285,6 @@ suite("test_list_partition_datatype", "p0") {
             """
         exception "Invalid list value format: errCode = 2, detailMessage = Invalid number format: -10.01"
     }
-    test {
-        sql """
-            CREATE TABLE test_list_partition_err_tbl_6 ( 
-              k1 INT NULL, 
-              v1 INT SUM NULL, 
-              v2 INT MAX NULL, 
-              v3 INT MIN NULL, 
-              v4 INT REPLACE NULL ) 
-            AGGREGATE KEY(k1) 
-            PARTITION BY LIST(k1) ( 
-              PARTITION p1 VALUES IN ("1","2","3"), 
-              PARTITION p2 VALUES IN ("10"), 
-              PARTITION p3 VALUES IN ("100","-10"), 
-              PARTITION p4 VALUES IN ("-100","0") )
-            DISTRIBUTED BY HASH(k1) BUCKETS 5
-            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
-            """
-        exception "The list partition column must be NOT NULL"
-    }
     // date/datetime list partition errors like: conflict, invalid format
     test {
         sql """

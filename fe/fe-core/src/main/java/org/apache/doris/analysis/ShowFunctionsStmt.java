@@ -103,7 +103,7 @@ public class ShowFunctionsStmt extends ShowStmt {
         super.analyze(analyzer);
 
         if (!FunctionUtil.isGlobalFunction(this.type)) {
-            this.dbName = FunctionUtil.reAcquireDbName(analyzer, dbName, getClusterName());
+            this.dbName = FunctionUtil.reAcquireDbName(analyzer, dbName);
         }
 
         if (!FunctionUtil.isGlobalFunction(this.type) && !Env.getCurrentEnv().getAccessManager()

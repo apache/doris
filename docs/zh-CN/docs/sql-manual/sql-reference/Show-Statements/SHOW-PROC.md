@@ -97,7 +97,7 @@ mysql> show proc "/";
 11. current_query_stmts : 返回当前正在执行的 query。
 12. dbs ： 主要用于查看 Doris 集群中各个数据库以及其中的表的元数据信息。这些信息包括表结构、分区、物化视图、数据分片和副本等等。通过这个目录和其子目录，可以清楚的展示集群中的表元数据情况，以及定位一些如数据倾斜、副本故障等问题
 13. diagnose : 报告和诊断集群中的常见管控问题，主要包括副本均衡和迁移、事务异常等
-14. frontends ：显示集群中所有的 FE 节点信息，包括IP地址、角色、状态、是否是mater等，等同于 [SHOW FRONTENDS](./SHOW-FRONTENDS.md)
+14. frontends ：显示集群中所有的 FE 节点信息，包括IP地址、角色、状态、是否是master等，等同于 [SHOW FRONTENDS](./SHOW-FRONTENDS.md)
 15. jobs ：各类任务的统计信息，可查看指定数据库的 Job 的统计信息，如果 `dbId` = -1, 则返回所有库的汇总信息
 16. load_error_hub ：Doris 支持将 load 作业产生的错误信息集中存储到一个 error hub 中。然后直接通过 <code>SHOW LOAD WARNINGS;</code> 语句查看错误信息。这里展示的就是 error hub 的配置信息。
 17. monitor : 显示的是 FE JVM 的资源使用情况

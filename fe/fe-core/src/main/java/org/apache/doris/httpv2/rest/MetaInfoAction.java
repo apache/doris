@@ -75,9 +75,9 @@ public class MetaInfoAction extends RestBaseController {
      *   "msg": "success",
      *   "code": 0,
      *   "data": [
-     *     "default_cluster:db1",
-     *     "default_cluster:doris_audit_db__",
-     *     "default_cluster:information_schema"
+     *     "db1",
+     *     "doris_audit_db__",
+     *     "information_schema"
      *   ],
      *   "count": 0
      * }
@@ -141,7 +141,6 @@ public class MetaInfoAction extends RestBaseController {
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
-
 
         String fullDbName = getFullDbName(dbName);
         Database db;

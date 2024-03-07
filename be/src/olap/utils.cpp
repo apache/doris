@@ -19,6 +19,7 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
+#include <stdarg.h>
 #include <time.h>
 #include <unistd.h>
 #include <zconf.h>
@@ -33,21 +34,13 @@
 #include <string>
 #include <vector>
 
-#include "util/sse_util.hpp"
-
-#ifdef DORIS_WITH_LZO
-#include <lzo/lzo1c.h>
-#include <lzo/lzo1x.h>
-#endif
-
-#include <stdarg.h>
-
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
+#include "util/sse_util.hpp"
 #include "util/string_parser.hpp"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
@@ -624,9 +617,10 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale) {
                     LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str() << "]";
                     return false;
                 }
-
-                long ms = strtol(what[9].str().c_str(), nullptr, 10);
-                if (ms % ((long)std::pow(10, 6 - scale)) != 0) {
+                auto s9 = what[9].str();
+                s9.resize(6, '0');
+                if (const long ms = strtol(s9.c_str(), nullptr, 10);
+                    ms % static_cast<long>(std::pow(10, 6 - scale)) != 0) {
                     LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str()
                                  << ", scale = " << scale << "]";
                     return false;
@@ -651,21 +645,11 @@ bool valid_bool(const std::string& value_str) {
 }
 
 bool valid_ipv4(const std::string& value_str) {
-    if (value_str.size() == 0) {
-        return false;
-    }
-
-    vectorized::IPv4 value = 0;
-    return IPv4Value::from_string(value, value_str);
+    return IPv4Value::is_valid_string(value_str.c_str(), value_str.size());
 }
 
 bool valid_ipv6(const std::string& value_str) {
-    if (value_str.size() == 0) {
-        return false;
-    }
-
-    vectorized::IPv6 value;
-    return IPv6Value::from_string(value, value_str);
+    return IPv6Value::is_valid_string(value_str.c_str(), value_str.size());
 }
 
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...) {

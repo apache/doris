@@ -303,6 +303,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
+            stmt.setIsReplay(true);
             if (analyzer != null) {
                 try {
                     stmt.analyze(analyzer);
@@ -312,7 +313,6 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 }
             }
 
-            stmt.setIsReplay(true);
             setWhereClause(stmt.getWhereClause());
             stmt.rewriteToBitmapWithCheck();
             try {
@@ -345,8 +345,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
         this.schema.forEach(column -> {
             column.setUniqueId(incAndGetMaxColUniqueId());
-            LOG.debug("indexId: {},  column:{}, uniqueId:{}",
-                    indexId, column, column.getUniqueId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("indexId: {},  column:{}, uniqueId:{}",
+                        indexId, column, column.getUniqueId());
+            }
         });
     }
 

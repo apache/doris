@@ -275,6 +275,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("s_suppkey", "lo_partkey"),
                 Pair.of("p_partkey", "lo_partkey")));
+        connectContext.getSessionVariable().enableRuntimeFilterPrune = false;
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
         filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(2, filters.size());
@@ -294,7 +295,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 .rewrite()
                 .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();
-        new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         System.out.println(plan.treeString());
         new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
         RuntimeFilterContext context = checker.getCascadesContext().getRuntimeFilterContext();
@@ -308,7 +309,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         for (RuntimeFilter filter : filters) {
             Assertions.assertTrue(colNames.contains(Pair.of(
                     filter.getSrcExpr().toSql(),
-                    filter.getTargetExprs().get(0).getName())));
+                    filter.getTargetSlots().get(0).getName())));
         }
     }
 
@@ -317,7 +318,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         for (RuntimeFilter filter : filters) {
             srcTargets.contains(Pair.of(
                     filter.getSrcExpr().toSql(),
-                    filter.getTargetExprs().stream().collect(Collectors.toSet())
+                    filter.getTargetSlots().stream().collect(Collectors.toSet())
             ));
         }
     }

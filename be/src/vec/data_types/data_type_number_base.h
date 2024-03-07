@@ -99,6 +99,10 @@ public:
     }
 
     doris::FieldType get_storage_field_type() const override {
+        // Doris does not support uint8 at present, use uint8 as boolean type
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<UInt8>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_BOOL;
+        }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_TINYINT;
         }
@@ -120,6 +124,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DOUBLE;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 

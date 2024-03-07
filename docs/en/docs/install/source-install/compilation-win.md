@@ -91,4 +91,4 @@ This topic is about how to compile Doris from source with Windows.
     ```
 ## Note
 
-The default data storage drive letter of WSL2 distribution is the C drive. If neccessary, you can change that to prevent the system drive letter from getting full.
+The default data storage drive letter of WSL2 distribution is the C drive. If necessary, you can change that to prevent the system drive letter from getting full.

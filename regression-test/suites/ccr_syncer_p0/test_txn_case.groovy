@@ -91,8 +91,9 @@ suite("test_txn_case") {
     assertTrue(syncer.ingestBinlog())
     assertTrue(syncer.commitTxn())
     assertTrue(syncer.checkTargetVersion())
+    target_sql " sync "
     def res = target_sql """SELECT * FROM ${txnTableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == 1)
+    assertEquals(res.size(), 1)
 
 
 
@@ -189,8 +190,9 @@ suite("test_txn_case") {
     assertTrue(syncer.ingestBinlog())
     assertTrue(syncer.commitTxn())
     assertTrue(syncer.checkTargetVersion())
+    target_sql " sync "
     res = target_sql """SELECT * FROM ${txnTableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == 1)
+    assertEquals(res.size(), 1)
 
     // End Test 3
     syncer.context.user = context.config.feSyncerUser
@@ -235,8 +237,9 @@ suite("test_txn_case") {
     // def lastCommitInfo = syncer.copyCommitInfos()
     assertTrue(syncer.commitTxn())
     assertTrue(syncer.checkTargetVersion())
+    target_sql " sync "
     res = target_sql """SELECT * FROM ${txnTableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == 1)
+    assertEquals(res.size(), 1)
     // syncer.context.commitInfos = lastCommitInfo
     // assertTrue(syncer.commitTxn() == false)
 
@@ -288,8 +291,9 @@ suite("test_txn_case") {
     syncer.context.passwd = "123456"
     assertTrue(syncer.commitTxn())
     assertTrue(syncer.checkTargetVersion())
+    target_sql " sync "
     res = target_sql """SELECT * FROM ${txnTableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == 1)
+    assertEquals(res.size(), 1)
 
     // End Test 5
     syncer.context.user = context.config.feSyncerUser

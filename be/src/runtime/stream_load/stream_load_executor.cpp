@@ -68,7 +68,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 // submit this params
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
-    LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
+    LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     Status st;
     auto exec_fragment = [ctx, this](RuntimeState* state, Status* status) {
@@ -101,6 +101,15 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                         ctx->number_loaded_rows);
             }
         } else {
+            if (ctx->group_commit) {
+                ctx->number_total_rows = state->num_rows_load_total();
+                ctx->number_loaded_rows = state->num_rows_load_success();
+                ctx->number_filtered_rows = state->num_rows_load_filtered();
+                ctx->number_unselected_rows = state->num_rows_load_unselected();
+                if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
+                    ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
+                }
+            }
             LOG(WARNING) << "fragment execute failed"
                          << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
@@ -139,6 +148,14 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                 static_cast<void>(this->commit_txn(ctx.get()));
             }
         }
+
+        LOG(INFO) << "finished to execute stream load. label=" << ctx->label
+                  << ", txn_id=" << ctx->txn_id
+                  << ", query_id=" << print_id(ctx->put_result.params.params.query_id)
+                  << ", receive_data_cost_ms="
+                  << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
+                  << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
+                  << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
     };
 
     if (ctx->put_result.__isset.params) {

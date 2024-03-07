@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/rowset/vertical_beta_rowset_writer_helper.h"
 
 namespace doris {
 namespace vectorized {
@@ -33,10 +34,11 @@ class Block;
 } // namespace vectorized
 
 // for vertical compaction
-class VerticalBetaRowsetWriter : public BetaRowsetWriter {
+// TODO(plat1ko): Inherited from template type `T`, `T` is `BetaRowsetWriter` or `CloudBetaRowsetWriter`
+class VerticalBetaRowsetWriter final : public BetaRowsetWriter {
 public:
-    VerticalBetaRowsetWriter() : BetaRowsetWriter() {}
-    ~VerticalBetaRowsetWriter();
+    VerticalBetaRowsetWriter(StorageEngine& engine);
+    ~VerticalBetaRowsetWriter() override;
 
     Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
                        bool is_key, uint32_t max_rows_per_segment) override;
@@ -49,20 +51,10 @@ public:
 
     int64_t num_rows() const override { return _total_key_group_rows; }
 
-    virtual const RowsetWriterContext& context() const override { LOG(FATAL) << "Not implemented"; }
-
-private:
-    // only key group will create segment writer
-    Status _create_segment_writer(const std::vector<uint32_t>& column_ids, bool is_key,
-                                  std::unique_ptr<segment_v2::SegmentWriter>* writer);
-
-    Status _flush_columns(std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
-                          bool is_key = false);
-
 private:
     std::vector<std::unique_ptr<segment_v2::SegmentWriter>> _segment_writers;
-    size_t _cur_writer_idx = 0;
     size_t _total_key_group_rows = 0;
+    std::shared_ptr<VerticalBetaRowsetWriterHelper> _helper;
 };
 
 } // namespace doris

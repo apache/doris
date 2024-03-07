@@ -47,7 +47,10 @@ public:
 
     const std::string kTestDir = "./ut_dir/bitmap_filter_column_predicate_test";
     void SetUp() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
@@ -133,7 +136,7 @@ TEST_F(BitmapFilterColumnPredicateTest, evaluate_column) {
         sel[i] = i;
     }
     uint16_t size = column->size();
-    size = predicate.evaluate(*column, sel, size);
+    size = predicate.ColumnPredicate::evaluate(*column, sel, size);
     EXPECT_EQ(size, 8);
     EXPECT_EQ(sel[0], 0);
     EXPECT_EQ(sel[1], 1);
@@ -175,7 +178,7 @@ TEST_F(BitmapFilterColumnPredicateTest, evaluate_column_nullable) {
     }
 
     uint16_t size = column_nullable->size();
-    size = predicate.evaluate(*column_nullable, sel, size);
+    size = predicate.ColumnPredicate::evaluate(*column_nullable, sel, size);
 
     EXPECT_EQ(size, 6);
     EXPECT_EQ(sel[0], 1);

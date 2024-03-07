@@ -49,6 +49,9 @@ public class JsonObject extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if ((arity() & 1) == 1) {
+            throw new AnalysisException("json_object can't be odd parameters, need even parameters: " + this.toSql());
+        }
         for (int i = 0; i < arity(); i++) {
             if ((i & 1) == 0 && getArgumentType(i).isNullType()) {
                 throw new AnalysisException("json_object key can't be NULL: " + this.toSql());

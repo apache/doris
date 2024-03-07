@@ -185,7 +185,7 @@ private:
     }
 
 private:
-    char* head_;
+    char* head_ = nullptr;
     uint32_t size_;
     uint32_t capacity_;
     bool alloc_;

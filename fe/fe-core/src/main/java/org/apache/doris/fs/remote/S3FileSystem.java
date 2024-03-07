@@ -112,4 +112,3 @@ public class S3FileSystem extends ObjFileSystem {
         return ((S3ObjStorage) objStorage).deleteObjects(absolutePath);
     }
 }
-

@@ -55,11 +55,10 @@ Status JdbcTableSinkOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status JdbcTableSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
-                                    SourceState source_state) {
+Status JdbcTableSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    RETURN_IF_ERROR(local_state.sink(state, block, source_state));
+    RETURN_IF_ERROR(local_state.sink(state, block, eos));
     return Status::OK();
 }
 

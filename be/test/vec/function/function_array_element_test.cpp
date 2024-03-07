@@ -130,9 +130,9 @@ TEST(function_array_element_test, element_at) {
         static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
     }
 
-    // element_at(Array<Decimal128>, Int64)
+    // element_at(Array<Decimal128V2>, Int64)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128, TypeIndex::Int64};
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2, TypeIndex::Int64};
 
         Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
                      ut_type::DECIMALFIELD(0.0)};
@@ -146,8 +146,8 @@ TEST(function_array_element_test, element_at) {
                             {{empty_arr, Int64(0)}, Null()},
                             {{empty_arr, Int64(1)}, Null()}};
 
-        static_cast<void>(check_function<DataTypeDecimal<Decimal128>, true>(func_name, input_types,
-                                                                            data_set));
+        static_cast<void>(check_function<DataTypeDecimal<Decimal128V2>, true>(
+                func_name, input_types, data_set));
     }
 
     // element_at(Array<String>, Int32)

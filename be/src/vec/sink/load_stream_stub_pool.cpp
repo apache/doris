@@ -17,24 +17,24 @@
 
 #include "vec/sink/load_stream_stub_pool.h"
 
+#include "util/debug_points.h"
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 class TExpr;
-
-namespace stream_load {
 
 LoadStreams::LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStreamStubPool* pool)
         : _load_id(load_id), _dst_id(dst_id), _use_cnt(num_use), _pool(pool) {}
 
 void LoadStreams::release() {
     int num_use = --_use_cnt;
+    DBUG_EXECUTE_IF("LoadStreams.release.keeping_streams", { num_use = 1; });
     if (num_use == 0) {
-        LOG(INFO) << "releasing streams for load_id = " << _load_id << ", dst_id = " << _dst_id;
+        LOG(INFO) << "releasing streams, load_id=" << _load_id << ", dst_id=" << _dst_id;
         _pool->erase(_load_id, _dst_id);
     } else {
-        LOG(INFO) << "no releasing streams for load_id = " << _load_id << ", dst_id = " << _dst_id
-                  << ", use_cnt = " << num_use;
+        LOG(INFO) << "keeping streams, load_id=" << _load_id << ", dst_id=" << _dst_id
+                  << ", use_cnt=" << num_use;
     }
 }
 
@@ -69,5 +69,4 @@ void LoadStreamStubPool::erase(UniqueId load_id, int64_t dst_id) {
     _template_stubs.erase(load_id);
 }
 
-} // namespace stream_load
 } // namespace doris

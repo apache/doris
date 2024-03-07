@@ -74,7 +74,7 @@ public:
     ~VAnalyticEvalNode() override = default;
     VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -98,7 +98,7 @@ private:
     void _execute_for_win_func(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                int64_t frame_end);
 
-    Status _reset_agg_status();
+    void _reset_agg_status();
     Status _init_result_columns();
     Status _create_agg_status();
     Status _destroy_agg_status();

@@ -32,7 +32,7 @@ public abstract class SSBTestBase extends AnalyzeCheckTestBase {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         SSBUtils.createTables(this);
     }
 }

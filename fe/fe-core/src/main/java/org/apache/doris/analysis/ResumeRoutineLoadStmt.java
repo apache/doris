@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -61,7 +60,7 @@ public class ResumeRoutineLoadStmt extends DdlStmt {
             if (Strings.isNullOrEmpty(analyzer.getDefaultDb())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), analyzer.getDefaultDb());
+            db = analyzer.getDefaultDb();
         }
     }
 }

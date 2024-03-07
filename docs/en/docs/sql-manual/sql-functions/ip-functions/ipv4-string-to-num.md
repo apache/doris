@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv4StringToNum
+## IPV4_STRING_TO_NUM
 
 <version since="dev">
 
-IPv4StringToNum
+IPV4_STRING_TO_NUM
 
 </version>
 
@@ -34,28 +34,31 @@ IPv4StringToNum
 
 #### Syntax
 
-`BIGINT IPv4StringToNum(VARCHAR ipv4_string)`
+`BIGINT IPV4_STRING_TO_NUM(VARCHAR ipv4_string)`
 
 Takes a string containing an IPv4 address in the format A.B.C.D (dot-separated numbers in decimal form). Returns a BIGINT number representing the corresponding IPv4 address in big endian.
 
 ### notice
 
-`will return an error if the input string is not a valid IPv4 address`
+`will return an error if the input string is not a valid IPv4 address or NULL`
 
 ### example
 ```
-mysql> select ipv4stringtonum('192.168.0.1'); 
-+--------------------------------+ 
-| ipv4stringtonum('192.168.0.1') | 
-+--------------------------------+ 
-| 3232235521                     | 
-+--------------------------------+ 
+mysql> select ipv4_string_to_num('192.168.0.1'); 
++-----------------------------------+ 
+| ipv4_string_to_num('192.168.0.1') | 
++-----------------------------------+ 
+| 3232235521                        | 
++-----------------------------------+ 
 1 row in set (0.01 sec)
 
-mysql> select ipv4stringtonum('invalid'); 
+mysql> select ipv4_string_to_num('invalid'); 
 ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][INVALID_ARGUMENT][E33] Invalid IPv4 value
+
+mysql> select addr_src, ipv4_string_to_num(addr_src) from ipv4_string_test where addr_src is null;
+ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][E33] Null Input, you may consider convert it to a valid default IPv4 value like '0.0.0.0' first
 ```
 
 ### keywords
 
-IPV4STRINGTONUM, IP
+IPV4_STRING_TO_NUM, IP

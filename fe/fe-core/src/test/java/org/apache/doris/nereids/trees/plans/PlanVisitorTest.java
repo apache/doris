@@ -21,6 +21,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -140,6 +142,22 @@ public class PlanVisitorTest extends TestWithFeService {
                                             .map(TableIf::getName)
                                             .collect(Collectors.toList()),
                                     expectedTables);
+                        });
+    }
+
+    @Test
+    public void testTimeFunction() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT *, now() FROM table1 "
+                                + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
+                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR CURDATE() < '2023-01-01'",
+                        nereidsPlanner -> {
+                            List<TreeNode<Expression>> collectResult = new ArrayList<>();
+                            // Check nondeterministic collect
+                            nereidsPlanner.getAnalyzedPlan().accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
+                            Assertions.assertEquals(2, collectResult.size());
+                            Assertions.assertTrue(collectResult.get(0) instanceof Now);
+                            Assertions.assertTrue(collectResult.get(1) instanceof CurrentDate);
                         });
     }
 }

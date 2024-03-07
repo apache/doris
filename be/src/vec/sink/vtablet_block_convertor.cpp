@@ -83,7 +83,7 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         if (stop_processing) {
             // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
             // because of "data unqualified"
-            return Status::EndOfFile("Encountered unqualified data, stop processing");
+            return Status::DataQualityError("Encountered unqualified data, stop processing");
         }
         _convert_to_dest_desc_block(block.get());
     }
@@ -137,7 +137,7 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
         pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
     } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal64>) {
         pmap = IsMin ? &_min_decimal64_val : &_max_decimal64_val;
-    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal128I>) {
+    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal128V3>) {
         pmap = IsMin ? &_min_decimal128_val : &_max_decimal128_val;
     } else {
         pmap = IsMin ? &_min_decimal256_val : &_max_decimal256_val;
@@ -256,8 +256,8 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         break;
     }
     case TYPE_DECIMALV2: {
-        auto* column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(
-                assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
+        auto* column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
+                assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
                         real_column_ptr.get()));
         const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
         const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
@@ -335,7 +335,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         break;
     }
     case TYPE_DECIMAL128I: {
-        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal128I);
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal128V3);
         break;
     }
     case TYPE_DECIMAL256: {

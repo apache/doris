@@ -19,7 +19,9 @@
 
 #include <aws/core/Aws.h>
 #include <aws/core/client/ClientConfiguration.h>
+#include <bvar/bvar.h>
 #include <fmt/format.h>
+#include <gen_cpp/cloud.pb.h>
 #include <stdint.h>
 
 #include <map>
@@ -44,15 +46,15 @@ class Adder;
 namespace doris {
 
 namespace s3_bvar {
-extern bvar::Adder<uint64_t> s3_get_total;
-extern bvar::Adder<uint64_t> s3_put_total;
-extern bvar::Adder<uint64_t> s3_delete_total;
-extern bvar::Adder<uint64_t> s3_head_total;
-extern bvar::Adder<uint64_t> s3_multi_part_upload_total;
-extern bvar::Adder<uint64_t> s3_list_total;
-extern bvar::Adder<uint64_t> s3_list_object_versions_total;
-extern bvar::Adder<uint64_t> s3_get_bucket_version_total;
-extern bvar::Adder<uint64_t> s3_copy_object_total;
+extern bvar::LatencyRecorder s3_get_latency;
+extern bvar::LatencyRecorder s3_put_latency;
+extern bvar::LatencyRecorder s3_delete_latency;
+extern bvar::LatencyRecorder s3_head_latency;
+extern bvar::LatencyRecorder s3_multi_part_upload_latency;
+extern bvar::LatencyRecorder s3_list_latency;
+extern bvar::LatencyRecorder s3_list_object_versions_latency;
+extern bvar::LatencyRecorder s3_get_bucket_version_latency;
+extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 class S3URI;
@@ -77,6 +79,10 @@ struct S3Conf {
     int max_connections = -1;
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
+
+    bool sse_enabled = false;
+    cloud::ObjectStoreInfoPB::Provider provider;
+
     bool use_virtual_addressing = true;
 
     std::string to_string() const {

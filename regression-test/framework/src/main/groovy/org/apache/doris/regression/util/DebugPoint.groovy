@@ -18,6 +18,8 @@ package org.apache.doris.regression.util
 import org.apache.doris.regression.util.Http
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.suite.Suite
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 enum NodeType {
     FE,
@@ -25,6 +27,8 @@ enum NodeType {
 }
 
 class DebugPoint {
+    final static Logger logger = LoggerFactory.getLogger(this.class)
+
     Suite suite
 
     DebugPoint(Suite suite) {
@@ -45,8 +49,8 @@ class DebugPoint {
         if (params != null && params.size() > 0) {
             url += '?' + params.collect((k, v) -> k + '=' + v).join('&')
         }
-        def result = Http.http_post(url, null, true)
-        checkHttpResult(result, type)
+        def result = Http.POST(url, null, true)
+        Http.checkHttpResult(result, type)
     }
 
     /* Disable debug point in regression
@@ -58,8 +62,8 @@ class DebugPoint {
      */
     static def disableDebugPoint(String host, int httpPort, NodeType type, String name) {
         def url = 'http://' + host + ':' + httpPort + '/api/debug_point/remove/' + name
-        def result = Http.http_post(url, null, true)
-        checkHttpResult(result, type)
+        def result = Http.POST(url, null, true)
+        Http.checkHttpResult(result, type)
     }
 
     /* Disable all debug points in regression
@@ -70,8 +74,17 @@ class DebugPoint {
      */
     static def clearDebugPoints(String host, int httpPort, NodeType type) {
         def url = 'http://' + host + ':' + httpPort + '/api/debug_point/clear'
-        def result = Http.http_post(url, null, true)
-        checkHttpResult(result, type)
+        def result = Http.POST(url, null, true)
+        Http.checkHttpResult(result, type)
+    }
+
+    def operateDebugPointForAllFEs(Closure closure) {
+        getFEHostAndHTTPPort().each { httpAddr ->
+            def pos = httpAddr.indexOf(':')
+            def ip = httpAddr.substring(0, pos)
+            def port = httpAddr.substring(pos + 1) as int
+            closure.call(ip, port)
+        }
     }
 
     def operateDebugPointForAllBEs(Closure closure) {
@@ -86,7 +99,7 @@ class DebugPoint {
     /* Enable specific debug point for all BE node in cluster */
     def enableDebugPointForAllBEs(String name, Map<String, String> params = null) {
         operateDebugPointForAllBEs({ host, port ->
-            println "enable debug point $name for BE $host:$port"
+            logger.info("enable debug point ${name} with params ${params} for BE $host:$port")
             enableDebugPoint(host, port, NodeType.BE, name, params)
         })
     }
@@ -94,6 +107,7 @@ class DebugPoint {
     /* Disable specific debug point for all BE node in cluster */
     def disableDebugPointForAllBEs(String name) {
         operateDebugPointForAllBEs { host, port ->
+            logger.info("disable debug point ${name} for BE $host:$port")
             disableDebugPoint(host, port, NodeType.BE, name)
         }
     }
@@ -101,6 +115,7 @@ class DebugPoint {
     /* Disable all debug points for all BE node in cluster */
     def clearDebugPointsForAllBEs() {
         operateDebugPointForAllBEs { host, port ->
+            logger.info("clear debug point for BE $host:$port")
             clearDebugPoints(host, port, NodeType.BE)
         }
     }
@@ -113,26 +128,27 @@ class DebugPoint {
     }
 
     def getFEHostAndHTTPPort() {
-        assert false : 'not implemented yet'
+        return suite.getFrontendIpHttpPort()
     }
 
     def enableDebugPointForAllFEs(String name, Map<String, String> params = null) {
-        assert false : 'not implemented yet'
+        operateDebugPointForAllFEs({ host, port ->
+            logger.info("enable debug point ${name} with params ${params} for FE $host:$port")
+            enableDebugPoint(host, port, NodeType.FE, name, params)
+        })
     }
 
     def disableDebugPointForAllFEs(String name) {
-        assert false : 'not implemented yet'
+        operateDebugPointForAllFEs { host, port ->
+            logger.info("disable debug point ${name} for FE $host:$port")
+            disableDebugPoint(host, port, NodeType.FE, name)
+        }
     }
 
     def clearDebugPointsForAllFEs() {
-        assert false : 'not implemented yet'
-    }
-
-    static void checkHttpResult(Object result, NodeType type) {
-        if (type == NodeType.FE) {
-            assert result.code == 0 : result.toString()
-        } else if (type == NodeType.BE) {
-            assert result.status == 'OK' : result.toString()
+        operateDebugPointForAllFEs { host, port ->
+            logger.info("clear debug point for FE $host:$port")
+            clearDebugPoints(host, port, NodeType.FE)
         }
     }
 }

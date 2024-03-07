@@ -95,11 +95,6 @@ Status split_string(const std::string& base, const T separator, std::vector<std:
     return Status::OK();
 }
 
-template <typename T>
-void _destruct_object(const void* obj, void*) {
-    delete ((const T*)obj);
-}
-
 uint32_t olap_adler32_init();
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 

@@ -47,4 +47,11 @@ suite("test_query_like", "query,p0") {
     qt_like22 """select "abcd%%1" like "abcd__1", "abcd%%1" not like "abcd__1" """
     qt_like23 """select "abcd%%1" like "abcd_%_", "abcd%%1" not like "abcd_%_" """
     qt_like24 """select "abcd%%1" like "abcd\\_%1", "abcd%%1" not like "abcd\\_%1" """
+
+    qt_escape1 """select 'facebook_10008_T1+T2-ALL_AAA-VO_LowestCost_20230830_HSJ' LIKE '%facebook_10008_T1+T2%' """
+    qt_escape2 """select '!z23]' like '_[z]%' """
+    qt_escape3 """select '[123]' like '%[1.*]%' """
+    qt_escape4 """select '1\\b\\b' like '%_\\b\\b%' """
+    qt_escape5 """select '1\\d\\d' like '%_\\d\\d%' """
+    qt_escape6 """select '1dd' like '%_\\d\\d%' """
 }

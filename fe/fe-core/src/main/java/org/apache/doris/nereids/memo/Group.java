@@ -19,9 +19,9 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -48,7 +48,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 /**
  * Representation for group in cascades optimizer.
@@ -75,6 +74,10 @@ public class Group {
     private PhysicalProperties chosenProperties;
 
     private int chosenGroupExpressionId = -1;
+
+    private List<StructInfo> structInfos = new ArrayList<>();
+
+    private StructInfoMap structInfoMap = new StructInfoMap();
 
     /**
      * Constructor for Group.
@@ -416,8 +419,8 @@ public class Group {
         return false;
     }
 
-    public @Nullable HyperGraph getHyperGraph() {
-        return null;
+    public StructInfoMap getstructInfoMap() {
+        return structInfoMap;
     }
 
     public boolean isProjectGroup() {
@@ -537,5 +540,17 @@ public class Group {
         };
 
         return TreeStringUtils.treeString(this, toString, getChildren, getExtraPlans, displayExtraPlan);
+    }
+
+    public List<StructInfo> getStructInfos() {
+        return structInfos;
+    }
+
+    public void addStructInfo(StructInfo structInfo) {
+        this.structInfos.add(structInfo);
+    }
+
+    public void addStructInfo(List<StructInfo> structInfos) {
+        this.structInfos.addAll(structInfos);
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 
 import com.google.common.collect.ImmutableList;
@@ -43,12 +44,22 @@ import java.util.List;
  *     /  |  \
  * scan1 scan2 scan3
  * </pre>
+ * Notice: this rule ignore Except.
+ * Relational Algebra: Union (R U S), Intersect Syntax: (R ∩ S), Except Syntax: (R - S)
+ * TODO: Except need other Rewrite.
+ * <ul> (R - S) U T = (R U T) - S </ul>
+ * <ul> (R - S) U (T - U) = (R U T) - (S U U) </ul>
+ * <ul> R - (S U T) = (R - S) - T </ul>
+ * <ul> R - (S - T) = (R - S) U T </ul>
+ * <ul> ...... and so on </ul>
  */
-public class MergeSetOperations implements RewriteRuleFactory {
+public class MergeSetOperations extends OneRewriteRuleFactory {
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                logicalSetOperation(any(), any()).when(MergeSetOperations::canMerge).then(parentSetOperation -> {
+    public Rule build() {
+        return logicalSetOperation(any(), any())
+                .whenNot(LogicalExcept.class::isInstance)
+                .when(MergeSetOperations::canMerge)
+                .then(parentSetOperation -> {
                     ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
                     ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
                     for (int i = 0; i < parentSetOperation.arity(); i++) {
@@ -64,8 +75,7 @@ public class MergeSetOperations implements RewriteRuleFactory {
                     }
                     return parentSetOperation.withChildrenAndTheirOutputs(
                             newChildren.build(), newChildrenOutputs.build());
-                }).toRule(RuleType.MERGE_SET_OPERATION)
-        );
+                }).toRule(RuleType.MERGE_SET_OPERATION);
     }
 
     /** canMerge */

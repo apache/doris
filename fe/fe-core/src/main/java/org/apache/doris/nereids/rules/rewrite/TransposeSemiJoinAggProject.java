@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -35,7 +34,6 @@ public class TransposeSemiJoinAggProject extends OneRewriteRuleFactory {
                 .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                 .when(join -> join.getJoinType().isLeftSemiOrAntiJoin())
                 .when(join -> join.left().isAllSlots())
-                .when(join -> join.left().getProjects().stream().allMatch(n -> n instanceof Slot))
                 .then(join -> {
                     LogicalProject<LogicalAggregate<Plan>> project = join.left();
                     LogicalAggregate<Plan> aggregate = project.child();

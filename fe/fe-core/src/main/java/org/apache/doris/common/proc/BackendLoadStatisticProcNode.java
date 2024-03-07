@@ -27,7 +27,7 @@ public class BackendLoadStatisticProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("RootPath").add("PathHash").add("StorageMedium")
             .add("DataUsedCapacity").add("TotalCapacity").add("TotalUsedPct")
-            .add("Class").add("State")
+            .add("ClassInOneBE").add("ClassInAllBE").add("State")
             .build();
 
     private final LoadStatisticForTag statistic;

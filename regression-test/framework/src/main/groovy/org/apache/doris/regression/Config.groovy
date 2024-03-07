@@ -535,6 +535,21 @@ class Config {
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
     }
 
+    Connection getConnectionByArrowFlightSql(String dbName) {
+        Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
+        String arrowFlightSqlHost = otherConfigs.get("extArrowFlightSqlHost")
+        String arrowFlightSqlPort = otherConfigs.get("extArrowFlightSqlPort")
+        String arrowFlightSqlUrl = "jdbc:arrow-flight-sql://${arrowFlightSqlHost}:${arrowFlightSqlPort}" +
+                "/?useServerPrepStmts=false&useSSL=false&useEncryption=false"
+        // TODO jdbc:arrow-flight-sql not support connect db
+        String dbUrl = buildUrlWithDbImpl(arrowFlightSqlUrl, dbName)
+        tryCreateDbIfNotExist(dbName)
+        log.info("connect to ${dbUrl}".toString())
+        String arrowFlightSqlJdbcUser = otherConfigs.get("extArrowFlightSqlUser")
+        String arrowFlightSqlJdbcPassword = otherConfigs.get("extArrowFlightSqlPassword")
+        return DriverManager.getConnection(dbUrl, arrowFlightSqlJdbcUser, arrowFlightSqlJdbcPassword)
+    }
+
     String getDbNameByFile(File suiteFile) {
         String dir = new File(suitePath).relativePath(suiteFile.parentFile)
         // We put sql files under sql dir, so dbs and tables used by cases
@@ -588,7 +603,7 @@ class Config {
         log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
     }
 
-    public static String buildUrlWithDb(String jdbcUrl, String dbName) {
+    public static String buildUrlWithDbImpl(String jdbcUrl, String dbName) {
         String urlWithDb = jdbcUrl
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
@@ -605,6 +620,12 @@ class Config {
             // e.g: jdbc:mysql://locahost:8080
             urlWithDb += ("/" + dbName)
         }
+
+        return urlWithDb
+    }
+
+    public static String buildUrlWithDb(String jdbcUrl, String dbName) {
+        String urlWithDb = buildUrlWithDbImpl(jdbcUrl, dbName);
         urlWithDb = addSslUrl(urlWithDb);
         urlWithDb = addTimeoutUrl(urlWithDb);
 

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -53,21 +51,19 @@ class Block;
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
-class RowsetBuilder {
+class BaseRowsetBuilder {
 public:
-    RowsetBuilder(const WriteRequest& req, RuntimeProfile* profile);
+    BaseRowsetBuilder(const WriteRequest& req, RuntimeProfile* profile);
 
-    ~RowsetBuilder();
+    virtual ~BaseRowsetBuilder();
 
-    Status init();
+    virtual Status init() = 0;
 
     Status build_rowset();
 
     Status submit_calc_delete_bitmap_task();
 
     Status wait_calc_delete_bitmap();
-
-    Status commit_txn();
 
     Status cancel();
 
@@ -82,28 +78,21 @@ public:
     // For UT
     const DeleteBitmapPtr& get_delete_bitmap() { return _delete_bitmap; }
 
-    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() const {
+    const std::shared_ptr<PartialUpdateInfo>& get_partial_update_info() const {
         return _partial_update_info;
     }
 
-private:
-    void _garbage_collection();
+    Status init_mow_context(std::shared_ptr<MowContext>& mow_context);
 
+protected:
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
                                       const TabletSchema& ori_tablet_schema);
 
-    void _init_profile(RuntimeProfile* profile);
-
-    Status init_mow_context(std::shared_ptr<MowContext>& mow_context);
-
-    Status check_tablet_version_count();
-
-    Status prepare_txn();
+    virtual void _init_profile(RuntimeProfile* profile);
 
     bool _is_init = false;
     bool _is_cancelled = false;
-    bool _is_committed = false;
     WriteRequest _req;
     BaseTabletSPtr _tablet;
     RowsetSharedPtr _rowset;
@@ -124,7 +113,35 @@ private:
     RuntimeProfile::Counter* _build_rowset_timer = nullptr;
     RuntimeProfile::Counter* _submit_delete_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _wait_delete_bitmap_timer = nullptr;
+};
+
+// `StorageEngine` mixin for `BaseRowsetBuilder`
+class RowsetBuilder final : public BaseRowsetBuilder {
+public:
+    RowsetBuilder(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile);
+
+    ~RowsetBuilder() override;
+
+    Status init() override;
+
+    Status commit_txn();
+
+private:
+    void _init_profile(RuntimeProfile* profile) override;
+
+    Status check_tablet_version_count();
+
+    Status prepare_txn();
+
+    void _garbage_collection();
+
+    // Cast `BaseTablet` to `Tablet`
+    Tablet* tablet();
+    TabletSharedPtr tablet_sptr();
+
+    StorageEngine& _engine;
     RuntimeProfile::Counter* _commit_txn_timer = nullptr;
+    bool _is_committed = false;
 };
 
 } // namespace doris

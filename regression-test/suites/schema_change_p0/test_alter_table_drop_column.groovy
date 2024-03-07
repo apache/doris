@@ -33,9 +33,11 @@ suite("test_alter_table_drop_column") {
         DISTRIBUTED BY HASH(siteid) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "bloom_filter_columns" = "pv"
+            "bloom_filter_columns" = "pv",
+            "enable_unique_key_merge_on_write" = "false"
         );
     """
+    // only mor table can use roll up
 
     sql "ALTER TABLE ${uniqueTableName} ADD ROLLUP ${uniqueTableRollupName}(`citycode`,`siteid`,`username`,`pv`);"
     def waitRollupJob = { String tableName /* param */ ->
@@ -157,7 +159,7 @@ suite("test_alter_table_drop_column") {
             `siteid` INT DEFAULT '10',
             `citycode` SMALLINT,
             `username` VARCHAR(32) DEFAULT 'test',
-            `pv` BIGINT SUM DEFAULT '0'
+            `pv` BIGINT DEFAULT '0'
         )
         DUPLICATE KEY(`siteid`, `citycode`, `username`)
         DISTRIBUTED BY HASH(siteid) BUCKETS 1

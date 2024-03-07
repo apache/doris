@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv4StringToNumOrNull
+## IPV4_STRING_TO_NUM_OR_NULL
 
 <version since="dev">
 
-IPv4StringToNumOrNull
+IPV4_STRING_TO_NUM_OR_NULL
 
 </version>
 
@@ -34,7 +34,7 @@ IPv4StringToNumOrNull
 
 #### Syntax
 
-`BIGINT IPv4StringToNumOrNull(VARCHAR ipv4_string)`
+`BIGINT IPV4_STRING_TO_NUM_OR_NULL(VARCHAR ipv4_string)`
 
 获取包含 IPv4 地址的字符串，格式为 A.B.C.D（点分隔的十进制数字）。返回一个 BIGINT 数字，表示相应的大端 IPv4 地址。
 
@@ -44,26 +44,26 @@ IPv4StringToNumOrNull
 
 ### example
 ```
-mysql> select ipv4stringtonumornull('192.168.0.1'); 
-+--------------------------------------+ 
-| ipv4stringtonumornull('192.168.0.1') | 
-+--------------------------------------+ 
-| 3232235521                           | 
-+--------------------------------------+ 
+mysql> select ipv4_string_to_num_or_null('192.168.0.1'); 
++-------------------------------------------+ 
+| ipv4_string_to_num_or_null('192.168.0.1') | 
++-------------------------------------------+ 
+| 3232235521                                | 
++-------------------------------------------+ 
 1 row in set (0.01 sec)
 
-mysql> select str, ipv4stringtonumornull(str) from ipv4_str; 
-+-----------------+----------------------------+ 
-|str              | ipv4stringtonumornull(str) | 
-+-----------------+----------------------------+ 
-| 0.0.0.0         | 0                          | 
-| 127.0.0.1       | 2130706433                 | 
-| 255.255.255.255 | 4294967295                 | 
-| invalid         | NULL                       | 
-+-----------------+----------------------------+ 
+mysql> select str, ipv4_string_to_num_or_null(str) from ipv4_str; 
++-----------------+---------------------------------+ 
+|str              | ipv4_string_to_num_or_null(str) | 
++-----------------+---------------------------------+ 
+| 0.0.0.0         | 0                               | 
+| 127.0.0.1       | 2130706433                      | 
+| 255.255.255.255 | 4294967295                      | 
+| invalid         | NULL                            | 
++-----------------+---------------------------------+ 
 4 rows in set (0.01 sec)
 ```
 
 ### keywords
 
-IPV4STRINGTONUMORNULL, IP
+IPV4_STRING_TO_NUM_OR_NULL, IP

@@ -685,8 +685,8 @@ suite("test_stream_load_move_memtable", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(9, json.NumberTotalRows)
-            assertEquals(9, json.NumberLoadedRows)
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(10, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -791,8 +791,8 @@ suite("test_stream_load_move_memtable", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(13, json.NumberTotalRows)
-            assertEquals(13, json.NumberLoadedRows)
+            assertEquals(14, json.NumberTotalRows)
+            assertEquals(14, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }

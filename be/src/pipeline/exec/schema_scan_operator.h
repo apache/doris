@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SchemaScanOperator : public SourceOperator<SchemaScanOperatorBuilder> {
+class SchemaScanOperator : public SourceOperator<vectorized::VSchemaScanNode> {
 public:
     SchemaScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
 
@@ -66,7 +66,7 @@ private:
     friend class SchemaScanOperatorX;
 
     SchemaScannerParam _scanner_param;
-    std::unique_ptr<SchemaScanner> _schema_scanner = nullptr;
+    std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
 class SchemaScanOperatorX final : public OperatorX<SchemaScanLocalState> {
@@ -79,8 +79,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
 
@@ -94,13 +93,13 @@ private:
     TupleId _tuple_id;
 
     // Descriptor of dest tuples
-    const TupleDescriptor* _dest_tuple_desc;
+    const TupleDescriptor* _dest_tuple_desc = nullptr;
     // Tuple index in tuple row.
     int _tuple_idx;
     // slot num need to fill in and return
     int _slot_num;
 
-    std::unique_ptr<SchemaScanner> _schema_scanner = nullptr;
+    std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
 } // namespace doris::pipeline

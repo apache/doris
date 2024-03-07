@@ -17,11 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.types.DataType;
@@ -94,13 +93,13 @@ public class FunctionRegistry {
         if (StringUtils.isEmpty(dbName)) {
             // search internal function only if dbName is empty
             functionBuilders = name2InternalBuiltinBuilders.get(name.toLowerCase());
-            if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
-                String nestedName = AggStateFunctionBuilder.getNestedName(name);
-                String combinatorSuffix = AggStateFunctionBuilder.getCombinatorSuffix(name);
+            if (CollectionUtils.isEmpty(functionBuilders) && AggCombinerFunctionBuilder.isAggStateCombinator(name)) {
+                String nestedName = AggCombinerFunctionBuilder.getNestedName(name);
+                String combinatorSuffix = AggCombinerFunctionBuilder.getCombinatorSuffix(name);
                 functionBuilders = name2InternalBuiltinBuilders.get(nestedName.toLowerCase());
                 if (functionBuilders != null) {
                     functionBuilders = functionBuilders.stream()
-                            .map(builder -> new AggStateFunctionBuilder(combinatorSuffix, builder))
+                            .map(builder -> new AggCombinerFunctionBuilder(combinatorSuffix, builder))
                             .filter(functionBuilder -> functionBuilder.canApply(arguments))
                             .collect(Collectors.toList());
                 }
@@ -139,8 +138,7 @@ public class FunctionRegistry {
     public List<FunctionBuilder> findUdfBuilder(String dbName, String name) {
         List<String> scopes = ImmutableList.of(GLOBAL_FUNCTION);
         if (ConnectContext.get() != null) {
-            dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
-                    dbName == null ? ConnectContext.get().getDatabase() : dbName);
+            dbName = dbName == null ? ConnectContext.get().getDatabase() : dbName;
             if (dbName == null || !Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                 scopes = ImmutableList.of(GLOBAL_FUNCTION);

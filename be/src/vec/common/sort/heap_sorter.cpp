@@ -83,12 +83,11 @@ Status HeapSorter::append_block(Block* block) {
     }
     Block tmp_block = block->clone_empty();
     tmp_block.swap(*block);
+    size_t num_rows = tmp_block.rows();
     HeapSortCursorBlockView block_view_val(std::move(tmp_block), _sort_description);
-    SharedHeapSortCursorBlockView* block_view =
-            new SharedHeapSortCursorBlockView(std::move(block_view_val));
+    auto* block_view = new SharedHeapSortCursorBlockView(std::move(block_view_val));
     block_view->ref();
     Defer defer([&] { block_view->unref(); });
-    size_t num_rows = tmp_block.rows();
     if (_heap_size == _heap->size()) {
         {
             SCOPED_TIMER(_topn_filter_timer);
@@ -147,8 +146,9 @@ Status HeapSorter::prepare_for_read() {
         for (int i = capacity - 1; i >= 0; i--) {
             auto rid = vector_to_reverse[i].row_id();
             const auto cur_block = vector_to_reverse[i].block();
+            Columns columns = cur_block->get_columns();
             for (size_t j = 0; j < num_columns; ++j) {
-                result_columns[j]->insert_from(*(cur_block->get_columns()[j]), rid);
+                result_columns[j]->insert_from(*(columns[j]), rid);
             }
         }
         _return_block = vector_to_reverse[0].block()->clone_with_columns(std::move(result_columns));

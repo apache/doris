@@ -25,5 +25,7 @@ public enum EtlJobType {
     DELETE,
     SPARK,
     LOCAL_FILE,
+    // create by job scheduler,inner use
+    INSERT_JOB,
     UNKNOWN
 }

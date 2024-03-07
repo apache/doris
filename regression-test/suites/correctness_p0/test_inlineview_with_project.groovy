@@ -455,4 +455,69 @@ suite("test_inlineview_with_project") {
                             `t1`.`plate_id` = `t2`.`material_id`) t5 ON
                         1 = 1
                         )res;"""
+
+    sql """DROP TABLE IF EXISTS `dr_user_test_t1`;"""
+    sql """CREATE TABLE `dr_user_test_t1` (
+            `caseId` varchar(500) NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`caseId`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`caseId`) BUCKETS 16
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+    sql """DROP TABLE IF EXISTS `dr_user_test_t2`;"""
+    sql """CREATE TABLE `dr_user_test_t2` (
+            `id` varchar(500) NULL COMMENT 'id',
+            `caseId` varchar(500) NULL,
+            `content` text NULL,
+            `timestamp` datetime NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`id`) BUCKETS 16
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+    sql """insert into dr_user_test_t1 values('1'),('2'),('3');"""
+    sql """insert into dr_user_test_t2 values('1','1','1','2020-02-02 22:22:22'), ('2','2','2','2020-02-02 22:22:22'), ('3','3','3','2020-02-02 22:22:22');"""
+
+    qt_select5 """
+    SELECT COUNT(*)
+        FROM (WITH test_01 AS 
+            (SELECT caseId,
+                count(judgementDate_labelObject)
+            FROM 
+                (SELECT CASE_COLUMN_TABLE.caseId AS caseId ,
+                `judgementDate_labelObject`
+                FROM 
+                    (SELECT CASE_ID_TABLE.caseId ,
+                JSON_OBJECT('id', `judgementDate_TABLE`.`judgementDateId`, 'content', `judgementDate_TABLE`.`judgementDate`) AS `judgementDate_labelObject`
+                    FROM 
+                        (SELECT DISTINCT caseId
+                        FROM dr_user_test_t1) CASE_ID_TABLE
+                        LEFT JOIN 
+                            (SELECT caseId,
+                id AS `judgementDateId`,
+                (CASE
+                                WHEN `timestamp` IS NOT NULL THEN
+                                to_date(`timestamp`)
+                                ELSE content END) AS `judgementDate`
+                            FROM dr_user_test_t2) `judgementDate_TABLE`
+                                ON CASE_ID_TABLE.caseId = `judgementDate_TABLE`.caseId
+                            LEFT JOIN 
+                                (SELECT caseId,
+                id AS `xx`,
+                content AS `xxx`
+                                FROM dr_user_test_t2) `xxxx`
+                                    ON CASE_ID_TABLE.caseId = `xxxx`.caseId) CASE_COLUMN_TABLE) AGG_RESULT
+                                GROUP BY  caseId)
+                                SELECT caseId
+                                FROM test_01 ) TOTAL;
+    """
+
+    sql """DROP TABLE IF EXISTS `dr_user_test_t1`;"""
+    sql """DROP TABLE IF EXISTS `dr_user_test_t2`;"""
 }

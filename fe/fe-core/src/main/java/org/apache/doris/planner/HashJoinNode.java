@@ -42,6 +42,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
+import org.apache.doris.thrift.TJoinDistributionType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
@@ -75,6 +76,8 @@ public class HashJoinNode extends JoinNodeBase {
     // join conjuncts from the JOIN clause that aren't equi-join predicates
     private List<Expr> otherJoinConjuncts;
 
+    private List<Expr> markJoinConjuncts;
+
     private DistributionMode distrMode;
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
@@ -94,12 +97,12 @@ public class HashJoinNode extends JoinNodeBase {
 
         if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
                 || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-            tupleIds.addAll(outer.getTupleIds());
+            tupleIds.addAll(outer.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-            tupleIds.addAll(inner.getTupleIds());
+            tupleIds.addAll(inner.getOutputTupleIds());
         } else {
-            tupleIds.addAll(outer.getTupleIds());
-            tupleIds.addAll(inner.getTupleIds());
+            tupleIds.addAll(outer.getOutputTupleIds());
+            tupleIds.addAll(inner.getOutputTupleIds());
         }
 
         for (Expr eqJoinPredicate : eqJoinConjuncts) {
@@ -152,6 +155,55 @@ public class HashJoinNode extends JoinNodeBase {
         }
         this.distrMode = DistributionMode.NONE;
         this.otherJoinConjuncts = otherJoinConjuncts;
+        children.add(outer);
+        children.add(inner);
+
+        // Inherits all the nullable tuple from the children
+        // Mark tuples that form the "nullable" side of the outer join as nullable.
+        nullableTupleIds.addAll(inner.getNullableTupleIds());
+        nullableTupleIds.addAll(outer.getNullableTupleIds());
+        if (joinOp.equals(JoinOperator.FULL_OUTER_JOIN)) {
+            nullableTupleIds.addAll(outer.getTupleIds());
+            nullableTupleIds.addAll(inner.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.LEFT_OUTER_JOIN)) {
+            nullableTupleIds.addAll(inner.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
+            nullableTupleIds.addAll(outer.getTupleIds());
+        }
+        vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
+        vOutputTupleDesc = outputTuple;
+        vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
+    }
+
+    public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp,
+            List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts, List<Expr> markJoinConjuncts,
+            List<Expr> srcToOutputList, TupleDescriptor intermediateTuple,
+            TupleDescriptor outputTuple, boolean isMarkJoin) {
+        super(id, "HASH JOIN", StatisticalType.HASH_JOIN_NODE, joinOp, isMarkJoin);
+        Preconditions.checkArgument((eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty())
+                || (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()));
+        Preconditions.checkArgument(otherJoinConjuncts != null);
+        tblRefIds.addAll(outer.getTblRefIds());
+        tblRefIds.addAll(inner.getTblRefIds());
+
+        if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
+                || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
+            tupleIds.addAll(outer.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
+            tupleIds.addAll(inner.getTupleIds());
+        } else {
+            tupleIds.addAll(outer.getTupleIds());
+            tupleIds.addAll(inner.getTupleIds());
+        }
+
+        for (Expr eqJoinPredicate : eqJoinConjuncts) {
+            Preconditions.checkArgument(eqJoinPredicate instanceof BinaryPredicate);
+            BinaryPredicate eqJoin = (BinaryPredicate) eqJoinPredicate;
+            this.eqJoinConjuncts.add(eqJoin);
+        }
+        this.distrMode = DistributionMode.NONE;
+        this.otherJoinConjuncts = otherJoinConjuncts;
+        this.markJoinConjuncts = markJoinConjuncts;
         children.add(outer);
         children.add(inner);
 
@@ -276,7 +328,17 @@ public class HashJoinNode extends JoinNodeBase {
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
         List<Expr> newEqJoinConjuncts = Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
         eqJoinConjuncts =
-                newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
+                newEqJoinConjuncts.stream().map(entity -> {
+                            BinaryPredicate predicate = (BinaryPredicate) entity;
+                            if (predicate.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
+                                Preconditions.checkArgument(predicate.getChildren().size() == 2);
+                                if (!predicate.getChild(0).isNullable() || !predicate.getChild(1).isNullable()) {
+                                    predicate.setOp(BinaryPredicate.Operator.EQ);
+                                }
+                            }
+                            return predicate;
+                        }
+                ).collect(Collectors.toList());
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
         computeOutputTuple(analyzer);
@@ -542,7 +604,9 @@ public class HashJoinNode extends JoinNodeBase {
             // numDistinct = Math.min(numDistinct, rhsTbl.getNumRows());
             // }
             maxNumDistinct = Math.max(maxNumDistinct, numDistinct);
-            LOG.debug("min slotref: {}, #distinct: {}", rhsSlotRef.toSql(), numDistinct);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("min slotref: {}, #distinct: {}", rhsSlotRef.toSql(), numDistinct);
+            }
         }
 
         if (maxNumDistinct == 0) {
@@ -553,9 +617,13 @@ public class HashJoinNode extends JoinNodeBase {
         } else {
             cardinality = Math.round(
                     (double) getChild(0).cardinality * (double) getChild(1).cardinality / (double) maxNumDistinct);
-            LOG.debug("lhs card: {}, rhs card: {}", getChild(0).cardinality, getChild(1).cardinality);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("lhs card: {}, rhs card: {}", getChild(0).cardinality, getChild(1).cardinality);
+            }
         }
-        LOG.debug("stats HashJoin: cardinality {}", cardinality);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats HashJoin: cardinality {}", cardinality);
+        }
     }
 
     /**
@@ -706,6 +774,27 @@ public class HashJoinNode extends JoinNodeBase {
             msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
         }
 
+        if (markJoinConjuncts != null) {
+            if (eqJoinConjuncts.isEmpty()) {
+                Preconditions.checkState(joinOp == JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN
+                        || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN);
+                // because eqJoinConjuncts mustn't be empty in thrift
+                // we have to use markJoinConjuncts instead
+                for (Expr e : markJoinConjuncts) {
+                    Preconditions.checkState(e instanceof BinaryPredicate,
+                            "mark join conjunct must be BinaryPredicate");
+                    TEqJoinCondition eqJoinCondition = new TEqJoinCondition(
+                            e.getChild(0).treeToThrift(), e.getChild(1).treeToThrift());
+                    eqJoinCondition.setOpcode(((BinaryPredicate) e).getOp().getOpcode());
+                    msg.hash_join_node.addToEqJoinConjuncts(eqJoinCondition);
+                }
+            } else {
+                for (Expr e : markJoinConjuncts) {
+                    msg.hash_join_node.addToMarkJoinConjuncts(e.treeToThrift());
+                }
+            }
+        }
+
         if (hashOutputSlotIds != null) {
             for (SlotId slotId : hashOutputSlotIds) {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
@@ -730,6 +819,7 @@ public class HashJoinNode extends JoinNodeBase {
                 msg.hash_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
             }
         }
+        msg.hash_join_node.setDistType(isColocate ? TJoinDistributionType.COLOCATE : distrMode.toThrift());
     }
 
     @Override
@@ -759,6 +849,10 @@ public class HashJoinNode extends JoinNodeBase {
         if (!otherJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("other join predicates: ")
                     .append(getExplainString(otherJoinConjuncts)).append("\n");
+        }
+        if (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()) {
+            output.append(detailPrefix).append("mark join predicates: ")
+                    .append(getExplainString(markJoinConjuncts)).append("\n");
         }
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");
@@ -812,6 +906,22 @@ public class HashJoinNode extends JoinNodeBase {
         public String toString() {
             return description;
         }
+
+        public TJoinDistributionType toThrift() {
+            switch (this) {
+                case NONE:
+                    return TJoinDistributionType.NONE;
+                case BROADCAST:
+                    return TJoinDistributionType.BROADCAST;
+                case PARTITIONED:
+                    return TJoinDistributionType.PARTITIONED;
+                case BUCKET_SHUFFLE:
+                    return TJoinDistributionType.BUCKET_SHUFFLE;
+                default:
+                    Preconditions.checkArgument(false, "Unknown DistributionMode: " + toString());
+            }
+            return TJoinDistributionType.NONE;
+        }
     }
 
     /**
@@ -821,8 +931,16 @@ public class HashJoinNode extends JoinNodeBase {
         this.otherJoinConjuncts = otherJoinConjuncts;
     }
 
+    public void setMarkJoinConjuncts(List<Expr> markJoinConjuncts) {
+        this.markJoinConjuncts = markJoinConjuncts;
+    }
+
     public List<Expr> getOtherJoinConjuncts() {
         return otherJoinConjuncts;
+    }
+
+    public List<Expr> getMarkJoinConjuncts() {
+        return markJoinConjuncts;
     }
 
     SlotRef getMappedInputSlotRef(SlotRef slotRef) {
@@ -840,5 +958,13 @@ public class HashJoinNode extends JoinNodeBase {
         } else {
             return slotRef;
         }
+    }
+
+    @Override
+    public boolean isNullAwareLeftAntiJoin() {
+        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            return true;
+        }
+        return children.stream().anyMatch(PlanNode::isNullAwareLeftAntiJoin);
     }
 }

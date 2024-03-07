@@ -68,7 +68,7 @@ suite("test_bitmap_int") {
 
     test {
         sql """SELECT case id_bitmap when 1 then 1 else 0 FROM test_bitmap;"""
-        exception "errCode"
+        exception "ParseException"
     }
 
     qt_sql64_4 """SELECT id_bitmap  FROM test_bitmap  WHERE id_bitmap is null LIMIT 20;"""

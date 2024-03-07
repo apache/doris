@@ -301,7 +301,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeBitMap>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& column = assert_cast<const ColVecType&>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
@@ -361,7 +361,7 @@ public:
     String get_name() const override { return "count"; }
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (arg_is_nullable) {
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);

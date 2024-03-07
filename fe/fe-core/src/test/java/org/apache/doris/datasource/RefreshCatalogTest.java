@@ -21,10 +21,14 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -73,15 +77,28 @@ public class RefreshCatalogTest extends TestWithFeService {
     public void testRefreshCatalog() throws Exception {
         CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
         List<String> dbNames1 = test1.getDbNames();
-        // there are test1.db1 , test1.db2
-        Assertions.assertEquals(2, dbNames1.size());
+        // there are test1.db1 , test1.db2, information_schema
+        Assertions.assertEquals(3, dbNames1.size());
         // 1.simulate ExternalCatalog adds a new table
         RefreshCatalogProvider.addData();
         // 2.wait for the refresh time of the catalog
         Thread.sleep(5000);
-        // there are test1.db1 , test1.db2 , test1.db3
+        // there are test1.db1 , test1.db2 , test1.db3, information_schema
         List<String> dbNames2 = test1.getDbNames();
-        Assertions.assertEquals(3, dbNames2.size());
+        Assertions.assertEquals(4, dbNames2.size());
+        ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
+        Assertions.assertEquals(27, infoDb.getTables().size());
+        TestExternalDatabase testDb = (TestExternalDatabase) test1.getDb("db1").get();
+        Assertions.assertEquals(2, testDb.getTables().size());
+
+        String json = GsonUtils.GSON.toJson(env.getCatalogMgr());
+        System.out.println(json);
+        CatalogMgr mgr2 = GsonUtils.GSON.fromJson(json, CatalogMgr.class);
+        test1 = mgr2.getCatalog("test1");
+        infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
+        Assertions.assertEquals(27, infoDb.getTables().size());
+        testDb = (TestExternalDatabase) test1.getDb("db1").get();
+        Assertions.assertEquals(2, testDb.getTables().size());
     }
 
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {

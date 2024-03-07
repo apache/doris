@@ -21,15 +21,14 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
-import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
@@ -44,10 +43,12 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
+    protected void initCatalog() {
         icebergCatalogType = ICEBERG_GLUE;
         GlueCatalog glueCatalog = new GlueCatalog();
-        glueCatalog.setConf(getConfiguration());
+        Configuration conf = getConfiguration();
+        initS3Param(conf);
+        glueCatalog.setConf(conf);
         // initialize glue catalog
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         String warehouse = catalogProperty.getOrDefault(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
@@ -55,7 +56,7 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
         // read from converted s3 endpoint or default by BE s3 endpoint
         String endpoint = catalogProperties.getOrDefault(Constants.ENDPOINT,
                 catalogProperties.get(S3Properties.Env.ENDPOINT));
-        catalogProperties.putIfAbsent(AwsProperties.S3FILEIO_ENDPOINT, endpoint);
+        catalogProperties.putIfAbsent(S3FileIOProperties.ENDPOINT, endpoint);
 
         glueCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = glueCatalog;
@@ -63,8 +64,6 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
     @Override
     protected List<String> listDatabaseNames() {
-        return nsCatalog.listNamespaces().stream()
-            .map(Namespace::toString)
-            .collect(Collectors.toList());
+        return metadataOps.listDatabaseNames();
     }
 }

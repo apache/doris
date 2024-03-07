@@ -83,6 +83,8 @@ suite("test_schema_change_cold_heat", "p0") {
     def resource_name = "test_sc_resource"
     def policy_name= "test_sc_policy"
 
+    sql """ DROP TABLE IF EXISTS ${tableName3} """
+
     if (check_storage_policy_exist(policy_name)) {
         sql """
             DROP STORAGE POLICY ${policy_name}
@@ -122,8 +124,6 @@ suite("test_schema_change_cold_heat", "p0") {
             "cooldown_ttl" = "0"
         )
     """
-
-    sql """ DROP TABLE IF EXISTS ${tableName3} """
 
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (

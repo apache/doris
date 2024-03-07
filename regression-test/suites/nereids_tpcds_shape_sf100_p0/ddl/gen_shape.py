@@ -20,7 +20,7 @@ if __name__ == '__main__':
         for i in range(1,100):
             with open('../../../../tools/tpcds-tools/queries/sf100/query'+str(i)+'.sql', 'r') as fi:
                 casei = tmpl.replace('{--}', str(i))
-                casei = casei.replace('{query}', fi.read())
+                casei = casei.replace('{query}', fi.read().split(";")[0])
 
                 with open('../shape/query'+str(i)+'.groovy', 'w') as out:
                     out.write(casei)

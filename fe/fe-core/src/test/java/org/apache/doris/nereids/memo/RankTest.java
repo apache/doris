@@ -55,7 +55,7 @@ class RankTest extends TestWithFeService {
             shape.add(memo.unrank(memo.rank(i + 1).first).shape(""));
         }
         System.out.println(shape);
-        Assertions.assertEquals(1, shape.size());
+        Assertions.assertEquals(2, shape.size());
         Assertions.assertEquals(bestPlan.shape(""), memo.unrank(memo.rank(1).first).shape(""));
     }
 }

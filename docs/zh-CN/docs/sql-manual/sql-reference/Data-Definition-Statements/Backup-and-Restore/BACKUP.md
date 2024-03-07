@@ -90,6 +90,13 @@ TO example_repo
 EXCLUDE (example_tbl);
 ```
 
+4. 全量备份 example_db 下的表到仓库 example_repo 中：
+
+```sql
+BACKUP SNAPSHOT example_db.snapshot_label3
+TO example_repo;
+```
+
 ### Keywords
 
 ```text

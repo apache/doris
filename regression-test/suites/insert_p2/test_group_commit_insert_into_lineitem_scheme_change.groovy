@@ -52,33 +52,37 @@ String[] getFiles(String dirName, int num) {
     if (num != datas.length) {
         throw new Exception("num not equals,expect:" + num + " vs real:" + datas.length)
     }
-    String[] array = new String[datas.length];
+    String[] tmp_array = new String[datas.length];
     for (int i = 0; i < datas.length; i++) {
-        array[i] = datas[i].getPath();
+        tmp_array[i] = datas[i].getPath();
     }
-    Arrays.sort(array);
+    Arrays.sort(tmp_array);
+    String[] array = new String[5];
+    for (int i = 0; i < 5; i++) {
+        array[i] = tmp_array[i];
+    }
     return array;
 }
 
 suite("test_group_commit_insert_into_lineitem_scheme_change") {
     String[] file_array;
     def prepare = {
-        def dataDir = "${context.config.cacheDataPath}/lineitem/"
+        def dataDir = "${context.config.cacheDataPath}/insert_into_lineitem_scheme_change"
         File dir = new File(dataDir)
         if (!dir.exists()) {
-            new File("${context.config.cacheDataPath}/lineitem/").mkdir()
-            for (int i = 1; i <= 10; i++) {
-                logger.info("download lineitem.tbl.${i}")
-                def download_file = """/usr/bin/curl ${getS3Url()}/regression/tpch/sf1/lineitem.tbl.${i}
---output ${context.config.cacheDataPath}/lineitem/lineitem.tbl.${i}""".execute().getText()
-            }
+            new File(dataDir).mkdir()
+            logger.info("download lineitem")
+            def download_file = """/usr/bin/curl ${getS3Url()}/regression/tpch/sf1/lineitem.tbl.1
+--output ${dataDir}/lineitem.tbl.1""".execute().getText()
+            def split_file = """split -l 60000 ${dataDir}/lineitem.tbl.1 ${dataDir}/""".execute().getText()
+            def rm_file = """rm ${dataDir}/lineitem.tbl.1""".execute().getText()
         }
-        file_array = getFiles(dataDir, 10)
+        file_array = getFiles(dataDir, 11)
         for (String s : file_array) {
             logger.info(s)
         }
     }
-    def insert_table = "test_lineitem_scheme_change_sf1"
+    def insert_table = "test_lineitem_scheme_change"
     def batch = 100;
     def count = 0;
     def total = 0;
@@ -130,7 +134,7 @@ PROPERTIES (
     "replication_num" = "1"
 );
         """
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
     }
 
@@ -163,9 +167,30 @@ PROPERTIES (
     "replication_num" = "1"
 );
         """
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
 
+    }
+
+    def do_insert_into = { exp_str, num ->
+        def i = 0;
+        while (true) {
+            try {
+                def result = insert_into_sql(exp_str, num);
+                logger.info("result:" + result);
+                break
+            } catch (Exception e) {
+                logger.info("msg:" + e.getMessage())
+                logger.info("got exception:" + e)
+                if (e.getMessage().contains("is blocked on schema change")) {
+                    Thread.sleep(10000)
+                }
+            }
+            i++;
+            if (i >= 30) {
+                throw new Exception("""fail to much time""")
+            }
+        }
     }
 
     def insert_data = { file_name, table_name, index ->
@@ -184,15 +209,7 @@ PROPERTIES (
                 if (count == batch) {
                     sb.append(";");
                     String exp = sb.toString();
-                    while (true) {
-                        try {
-                            def result = insert_into_sql(exp, count);
-                            logger.info("result:" + result);
-                            break
-                        } catch (Exception e) {
-                            logger.info("got exception:" + e)
-                        }
-                    }
+                    do_insert_into(exp, count)
                     count = 0;
                 }
                 s = reader.readLine();
@@ -229,15 +246,7 @@ PROPERTIES (
                 } else if (count > 0) {
                     sb.append(";");
                     String exp = sb.toString();
-                    while (true) {
-                        try {
-                            def result = insert_into_sql(exp, count);
-                            logger.info("result:" + result);
-                            break
-                        } catch (Exception e) {
-                            logger.info("got exception:" + e)
-                        }
-                    }
+                    do_insert_into(exp, count)
                     break;
                 } else {
                     break;
@@ -275,7 +284,7 @@ PROPERTIES (
         for (int i = 0; i < file_array.length; i++) {
             String fileName = file_array[i]
             logger.info("process file:" + fileName)
-            if (i == 5) {
+            if (i == (int) (file_array.length / 2)) {
                 getRowCount(total, table_name)
                 def retry = 0
                 while (retry < 10) {
@@ -303,13 +312,13 @@ PROPERTIES (
         for (int i = 0; i < file_array.length; i++) {
             String fileName = file_array[i]
             logger.info("process file:" + fileName)
-            if (i == 5) {
+            if (i == (int) (file_array.length / 2)) {
                 def retry = 0
                 while (retry < 10) {
                     try {
-                        def rowCount = sql """select count(*) from ${table_name} where l_orderkey >=1000000 and l_orderkey <=5000000;"""
+                        def rowCount = sql """select count(*) from ${table_name} where l_orderkey >=10000;"""
                         log.info("rowCount:" + rowCount[0][0])
-                        sql """ delete from ${table_name} where l_orderkey >=1000000 and l_orderkey <=5000000; """
+                        sql """ delete from ${table_name} where l_orderkey >=10000; """
                         total -= rowCount[0][0]
                         break
                     } catch (Exception e) {
@@ -332,7 +341,7 @@ PROPERTIES (
         for (int i = 0; i < file_array.length; i++) {
             String fileName = file_array[i]
             logger.info("process file:" + fileName)
-            if (i == 5) {
+            if (i == (int) (file_array.length / 2)) {
                 def retry = 0
                 while (retry < 10) {
                     try {
@@ -345,7 +354,7 @@ PROPERTIES (
                     Thread.sleep(2000)
                 }
             }
-            if (i < 5) {
+            if (i < (int) (file_array.length / 2)) {
                 insert_data(fileName, table_name, STATE.NORMAL.value)
             } else {
                 insert_data(fileName, table_name, STATE.DROP_COLUMN.value)
@@ -363,7 +372,7 @@ PROPERTIES (
         for (int i = 0; i < file_array.length; i++) {
             String fileName = file_array[i]
             logger.info("process file:" + fileName)
-            if (i == 5) {
+            if (i == (int) (file_array.length / 2)) {
                 def retry = 0
                 while (retry < 10) {
                     try {
@@ -394,7 +403,7 @@ PROPERTIES (
         for (int i = 0; i < file_array.length; i++) {
             String fileName = file_array[i]
             logger.info("process file:" + fileName)
-            if (i == 5) {
+            if (i == (int) (file_array.length / 2)) {
                 def retry = 0
                 while (retry < 10) {
                     try {

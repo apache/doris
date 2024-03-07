@@ -107,7 +107,7 @@ public class AnotherDemoTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Env.getCurrentEnv().createTable(createTableStmt);
         // 4. get and test the created db and table
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {

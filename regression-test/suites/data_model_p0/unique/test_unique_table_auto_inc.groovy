@@ -294,8 +294,21 @@ suite("test_unique_table_auto_inc") {
     }
     sql "sync"
     qt_partial_update_value "select * from ${table7} order by id;"
-    sql "drop table if exists ${table7};"
 
+    streamLoad {
+        table "${table7}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'name, value'
+        set 'partial_columns', 'true'
+
+        file 'auto_inc_partial_update3.csv'
+        time 10000
+    }
+    sql "sync"
+    qt_partial_update_value "select * from ${table7} order by id;"
+    sql "drop table if exists ${table7};"
 
     def table8 = "test_auto_inc_col_create_as_select1"
     def table9 = "test_auto_inc_col_create_as_select2"
@@ -304,7 +317,7 @@ suite("test_unique_table_auto_inc") {
     sql """
         CREATE TABLE IF NOT EXISTS `${table8}` (
           `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "用户 ID",
-          `name` varchar(65533) NOT NULL COMMENT "用户姓名",
+          `name` varchar(65533) NOT NULL COMMENT "用户姓名"
         ) ENGINE=OLAP
         UNIQUE KEY(`id`)
         COMMENT "OLAP"

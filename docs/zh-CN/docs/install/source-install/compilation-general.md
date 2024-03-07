@@ -63,7 +63,7 @@ under the License.
 | apache/doris:build-env-for-2.0| | 2.0.x |
 | apache/doris:build-env-for-2.0-no-avx2| | 2.0.x |
 | apache/doris:build-env-ldb-toolchain-latest | | master |
-| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | mater |
+| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | master |
 
 **注意**：
 
@@ -73,22 +73,20 @@ under the License.
 
 > 3. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，0.14.x 版本的代码将使用apache/incubator-doris:build-env-1.3.1。
 
-> 4. 从 build-env-1.3.1 的docker镜像起，同时包含了 OpenJDK 8 和 OpenJDK 11，请通过 `java -version` 确认默认 JDK 版本。也可以通过以下方式切换版本（建议默认使用 JDK8）
+> 4. 最新版本的 `apache/doris:build-env-ldb-toolchain-latest` 镜像中同时包含 JDK 8 和 JDK 17。
     >
     >   切换到 JDK 8：
     >
     >   ```
-    >   alternatives --set java java-1.8.0-openjdk.x86_64
-    >   alternatives --set javac java-1.8.0-openjdk.x86_64
     >   export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+    >   export PATH=$JAVA_HOME/bin/:$PATH
     >   ```
     >
-    >   切换到 JDK 11：
+    >   切换到 JDK 17：
     >
     >   ```
-    >   alternatives --set java java-11-openjdk.x86_64
-    >   alternatives --set javac java-11-openjdk.x86_64
-    >   export JAVA_HOME=/usr/lib/jvm/java-11
+    >   export JAVA_HOME=/usr/lib/jvm/jdk-17.0.2/
+    >   export PATH=$JAVA_HOME/bin/:$PATH
     >   ```
 
 2. 运行镜像
