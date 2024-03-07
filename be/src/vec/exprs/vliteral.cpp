@@ -76,7 +76,6 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* r
     // sometimes we just use a VLiteral without open or prepare. so can't check it at this moment
     size_t row_size = std::max(block->rows(), _column_ptr->size());
     *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name}, row_size);
-    LOG_INFO("VLiteral::execute: result_column_id = {}", this->expr_name());
     return Status::OK();
 }
 
