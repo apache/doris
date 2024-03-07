@@ -166,8 +166,8 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     }
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchemaSPtr tablet_schema;
-    tablet_schema =
-            TabletSchemaCache::instance()->insert(new_tablet_meta_pb.schema().SerializeAsString());
+    tablet_schema = TabletSchemaCache::instance()->insert(
+            TabletSchema::deterministic_string_serialize(new_tablet_meta_pb.schema()));
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
     std::unordered_map<RowsetId, RowsetId, HashOfRowsetId> rowset_id_mapping;

@@ -208,6 +208,9 @@ public:
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
+    // Notice: Use deterministic way to serialize protobuf,
+    // since serialize Map in protobuf may could lead to un-deterministic by default
+    static std::string deterministic_string_serialize(const TabletSchemaPB& schema_pb);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, bool is_dropped_column = false);
     void append_index(TabletIndex index);
@@ -310,6 +313,27 @@ public:
         str += "]";
         return str;
     }
+
+    // Dump [(name, type, is_nullable), ...]
+    string dump_structure() const {
+        string str = "[";
+        for (auto p : _cols) {
+            if (str.size() > 1) {
+                str += ", ";
+            }
+            str += "(";
+            str += p.name();
+            str += ", ";
+            str += TabletColumn::get_string_by_field_type(p.type());
+            str += ", ";
+            str += "is_nullable:";
+            str += (p.is_nullable() ? "true" : "false");
+            str += ")";
+        }
+        str += "]";
+        return str;
+    }
+
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
 private:
