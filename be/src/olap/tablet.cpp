@@ -2715,17 +2715,12 @@ void Tablet::gc_binlogs(int64_t version) {
 
         // add binlog segment files and index files
         for (int64_t i = 0; i < num_segments; ++i) {
-            auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
-            wait_for_deleted_binlog_files.emplace_back(
-                    fmt::format("{}/_binlog/{}", tablet_path, segment_file));
+            wait_for_deleted_binlog_files.emplace_back(get_segment_filepath(rowset_id, i));
             for (const auto& index : this->tablet_schema()->indexes()) {
                 if (index.index_type() != IndexType::INVERTED) {
                     continue;
                 }
-                auto segment_index_file =
-                        fmt::format("{}_{}_{}.idx", rowset_id, i, index.index_id());
-                wait_for_deleted_binlog_files.emplace_back(
-                        fmt::format("{}/_binlog/{}", tablet_path, segment_index_file));
+                wait_for_deleted_binlog_files.emplace_back(get_segment_index_filepath(rowset_id, i, index.index_id()));
             }
         }
     };
