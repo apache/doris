@@ -1593,7 +1593,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean materializedViewRewriteEnableContainExternalTable = false;
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
             description = {"透明改写成功的结果集合，参与到CBO候选的最大数量",
-                    "the max candidate num which participate in "})
+                    "the max candidate num which participate in CBO"})
     public int materializedViewRewriteSuccessCandidateNum = 3;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,

@@ -77,7 +77,7 @@ public class MaterializationContext {
         this.baseTables = baseTables;
         this.baseViews = baseViews;
         StatementBase parsedStatement = cascadesContext.getStatementContext().getParsedStatement();
-        this.enableRecordFailureDetail = parsedStatement.isExplain()
+        this.enableRecordFailureDetail = parsedStatement != null && parsedStatement.isExplain()
                 && ExplainLevel.MEMO_PLAN == parsedStatement.getExplainOptions().getExplainLevel();
         MTMVCache mtmvCache = null;
         try {
