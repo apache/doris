@@ -246,7 +246,7 @@ Status SegmentFlusher::_create_segment_writer(
     }
 
     VLOG_DEBUG << "create new segment writer, tablet_id:" << _context->tablet_id
-               << ", segment id: " << segment_id << " filename: " << writer->data_dir_path()
+               << " segment id: " << segment_id << " filename: " << writer->data_dir_path()
                << " rowset_id:" << _context->rowset_id;
     return Status::OK();
 }
