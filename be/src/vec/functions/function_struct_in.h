@@ -177,7 +177,6 @@ public:
         }
         return Status::OK();
     }
-
 };
 
 } // namespace doris::vectorized
