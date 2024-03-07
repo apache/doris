@@ -115,6 +115,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
+    public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
@@ -733,6 +734,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, fuzzy = true)
+    public boolean enableDistinctStreamingAggregation = true;
 
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
@@ -2882,6 +2886,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
+        tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
 
         if (maxScanKeyNum > -1) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);

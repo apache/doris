@@ -969,7 +969,9 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
-        if (tnode.agg_node.aggregate_functions.empty()) {
+        if (tnode.agg_node.aggregate_functions.empty() &&
+            request.query_options.__isset.enable_distinct_streaming_aggregation &&
+            request.query_options.enable_distinct_streaming_aggregation) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
