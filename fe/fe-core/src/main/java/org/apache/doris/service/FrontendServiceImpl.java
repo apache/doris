@@ -2024,7 +2024,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             ctx.setExecutor(executor);
-            httpStreamParams = executor.generateStreamLoadPlan(ctx.queryId());
+            httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
 
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());

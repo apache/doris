@@ -3048,7 +3048,7 @@ public class StmtExecutor {
         return httpStreamParams;
     }
 
-    public HttpStreamParams generateStreamLoadPlan(TUniqueId queryId) throws Exception {
+    public HttpStreamParams generateHttpStreamPlan(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
         HttpStreamParams httpStreamParams = null;
         try {

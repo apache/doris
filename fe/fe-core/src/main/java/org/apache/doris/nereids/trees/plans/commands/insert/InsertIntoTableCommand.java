@@ -121,9 +121,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
-                    targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
-                    PrivPredicate.LOAD)) {
+            .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
+                targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
+                PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
@@ -161,9 +161,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
                 boolean isEnableMemtableOnSinkNode =
-                        olapTable.getTableProperty().getUseSchemaLightChange()
-                            ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode()
-                            : false;
+                    olapTable.getTableProperty().getUseSchemaLightChange()
+                        ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode()
+                        : false;
                 insertExecutor.getCoordinator().getQueryOptions()
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else {
