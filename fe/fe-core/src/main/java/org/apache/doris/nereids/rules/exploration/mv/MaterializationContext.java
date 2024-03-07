@@ -40,6 +40,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -151,7 +152,7 @@ public class MaterializationContext {
     /**
      * recordFailReason
      */
-    public void recordFailReason(StructInfo structInfo, Pair<String, String> summaryAndReason) {
+    public void recordFailReason(StructInfo structInfo, String summary, Supplier<String> reasonSupplier) {
         // record it's rewritten
         if (structInfo.getTopPlan().getGroupExpression().isPresent()) {
             this.addMatchedGroup(structInfo.getTopPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
@@ -161,7 +162,7 @@ public class MaterializationContext {
             return;
         }
         this.success = false;
-        this.failReason.put(structInfo.getOriginalPlanId(), summaryAndReason);
+        this.failReason.put(structInfo.getOriginalPlanId(), Pair.of(summary, reasonSupplier.get()));
     }
 
     public boolean isSuccess() {

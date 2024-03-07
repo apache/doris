@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -53,13 +52,12 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
         // Can not rewrite, bail out
         if (expressionsRewritten.isEmpty()) {
             materializationContext.recordFailReason(queryStructInfo,
-                    Pair.of("Rewrite expressions by view in join fail",
-                            materializationContext.isEnableRecordFailureDetail()
-                                    ? String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
-                                                    + "targetToSourceMapping = %s",
-                                            queryStructInfo.getExpressions(),
-                                            materializationContext.getMvExprToMvScanExprMapping(),
-                                            targetToSourceMapping) : ""));
+                    "Rewrite expressions by view in join fail",
+                    () -> materializationContext.isEnableRecordFailureDetail()
+                            ? String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
+                                    + "targetToSourceMapping = %s", queryStructInfo.getExpressions(),
+                            materializationContext.getMvExprToMvScanExprMapping(),
+                            targetToSourceMapping) : "");
             return null;
         }
         return new LogicalProject<>(
