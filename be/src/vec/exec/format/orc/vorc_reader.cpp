@@ -174,13 +174,12 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
 }
 
 OrcReader::~OrcReader() {
-    _collect_profile_on_close();
     if (_obj_pool && _obj_pool.get()) {
         _obj_pool->clear();
     }
 }
 
-void OrcReader::_collect_profile_on_close() {
+void OrcReader::_collect_profile_before_close() {
     if (_profile != nullptr) {
         COUNTER_UPDATE(_orc_profile.read_time, _statistics.fs_read_time);
         COUNTER_UPDATE(_orc_profile.read_calls, _statistics.fs_read_calls);
@@ -192,6 +191,10 @@ void OrcReader::_collect_profile_on_close() {
         COUNTER_UPDATE(_orc_profile.set_fill_column_time, _statistics.set_fill_column_time);
         COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
         COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
+
+        if (_file_input_stream != nullptr) {
+            _file_input_stream->collect_profile_before_close();
+        }
     }
 }
 
@@ -2242,6 +2245,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
 void ORCFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
         std::vector<bool> selected_columns) {
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
+    }
     // Generate prefetch ranges, build stripe file reader.
     uint64_t offset = current_strip_information->getOffset();
     std::vector<io::PrefetchRange> prefetch_ranges;
@@ -2266,6 +2272,12 @@ void ORCFileInputStream::beforeReadStripe(
         _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
     } else {
         _file_reader = _inner_reader;
+    }
+}
+
+void ORCFileInputStream::_collect_profile_before_close() {
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
     }
 }
 
