@@ -73,7 +73,8 @@ TabletMetaSharedPtr TabletMeta::create(
             request.time_series_compaction_goal_size_mbytes,
             request.time_series_compaction_file_count_threshold,
             request.time_series_compaction_time_threshold_seconds,
-            request.time_series_compaction_empty_rowsets_threshold);
+            request.time_series_compaction_empty_rowsets_threshold,
+            request.time_series_compaction_level_threshold);
 }
 
 TabletMeta::TabletMeta()
@@ -92,7 +93,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int64_t time_series_compaction_goal_size_mbytes,
                        int64_t time_series_compaction_file_count_threshold,
                        int64_t time_series_compaction_time_threshold_seconds,
-                       int64_t time_series_compaction_empty_rowsets_threshold)
+                       int64_t time_series_compaction_empty_rowsets_threshold,
+                       int64_t time_series_compaction_level_threshold)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -122,6 +124,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             time_series_compaction_time_threshold_seconds);
     tablet_meta_pb.set_time_series_compaction_empty_rowsets_threshold(
             time_series_compaction_empty_rowsets_threshold);
+    tablet_meta_pb.set_time_series_compaction_level_threshold(
+            time_series_compaction_level_threshold);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -324,13 +328,15 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _time_series_compaction_time_threshold_seconds(
                   b._time_series_compaction_time_threshold_seconds),
           _time_series_compaction_empty_rowsets_threshold(
-                  b._time_series_compaction_empty_rowsets_threshold) {};
+                  b._time_series_compaction_empty_rowsets_threshold),
+          _time_series_compaction_level_threshold(b._time_series_compaction_level_threshold) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
     column->set_unique_id(unique_id);
     column->set_name(tcolumn.column_name);
     column->set_has_bitmap_index(tcolumn.has_bitmap_index);
+    column->set_is_auto_increment(tcolumn.is_auto_increment);
     string data_type;
     EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
     column->set_type(data_type);
@@ -613,6 +619,8 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             tablet_meta_pb.time_series_compaction_time_threshold_seconds();
     _time_series_compaction_empty_rowsets_threshold =
             tablet_meta_pb.time_series_compaction_empty_rowsets_threshold();
+    _time_series_compaction_level_threshold =
+            tablet_meta_pb.time_series_compaction_level_threshold();
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -701,6 +709,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_time_threshold_seconds());
     tablet_meta_pb->set_time_series_compaction_empty_rowsets_threshold(
             time_series_compaction_empty_rowsets_threshold());
+    tablet_meta_pb->set_time_series_compaction_level_threshold(
+            time_series_compaction_level_threshold());
 }
 
 int64_t TabletMeta::mem_size() const {
@@ -895,6 +905,8 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
         return false;
     if (a._time_series_compaction_empty_rowsets_threshold !=
         b._time_series_compaction_empty_rowsets_threshold)
+        return false;
+    if (a._time_series_compaction_level_threshold != b._time_series_compaction_level_threshold)
         return false;
     return true;
 }

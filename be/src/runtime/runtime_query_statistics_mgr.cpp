@@ -199,4 +199,54 @@ void RuntimeQueryStatiticsMgr::set_workload_group_id(std::string query_id, int64
     }
 }
 
+std::vector<TRow> RuntimeQueryStatiticsMgr::get_active_be_tasks_statistics(
+        std::vector<std::string> filter_columns) {
+    std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+    std::vector<TRow> table_rows;
+    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+
+    for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
+        TRow trow;
+
+        TQueryStatistics tqs;
+        qs_ctx_ptr->collect_query_statistics(&tqs);
+
+        for (auto iter = filter_columns.begin(); iter != filter_columns.end(); iter++) {
+            std::string col_name = *iter;
+
+            TCell tcell;
+            if (col_name == "beid") {
+                tcell.longVal = be_id;
+            } else if (col_name == "fehost") {
+                tcell.stringVal = qs_ctx_ptr->_fe_addr.hostname;
+            } else if (col_name == "queryid") {
+                tcell.stringVal = query_id;
+            } else if (col_name == "tasktimems") {
+                if (qs_ctx_ptr->_is_query_finished) {
+                    tcell.longVal = qs_ctx_ptr->_query_finish_time - qs_ctx_ptr->_query_start_time;
+                } else {
+                    tcell.longVal = MonotonicMillis() - qs_ctx_ptr->_query_start_time;
+                }
+            } else if (col_name == "taskcputimems") {
+                tcell.longVal = tqs.cpu_ms;
+            } else if (col_name == "scanrows") {
+                tcell.longVal = tqs.scan_rows;
+            } else if (col_name == "scanbytes") {
+                tcell.longVal = tqs.scan_bytes;
+            } else if (col_name == "bepeakmemorybytes") {
+                tcell.longVal = tqs.max_peak_memory_bytes;
+            } else if (col_name == "currentusedmemorybytes") {
+                tcell.longVal = tqs.current_used_memory_bytes;
+            } else if (col_name == "shufflesendbytes") {
+                tcell.longVal = tqs.shuffle_send_bytes;
+            } else if (col_name == "shufflesendRows") {
+                tcell.longVal = tqs.shuffle_send_rows;
+            }
+            trow.column_value.push_back(tcell);
+        }
+        table_rows.push_back(trow);
+    }
+    return table_rows;
+}
+
 } // namespace doris

@@ -112,6 +112,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
             if (!column.isVisible() && !column.isSequenceColumn()) {
@@ -119,12 +120,21 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             }
             if (colNameToExpression.containsKey(column.getName())) {
                 Expression expr = colNameToExpression.get(column.getName());
+                // when updating the sequence map column, the real sequence column need to set with the same value.
+                boolean isSequenceMapColumn = targetTable.hasSequenceCol()
+                        && targetTable.getSequenceMapCol() != null
+                        && column.getName().equalsIgnoreCase(targetTable.getSequenceMapCol());
+                if (setExpr == null && isSequenceMapColumn) {
+                    setExpr = expr;
+                }
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
                         : new UnboundAlias(expr));
                 colNameToExpression.remove(column.getName());
             } else {
-                if (column.hasOnUpdateDefaultValue()) {
+                if (column.isSequenceColumn() && setExpr != null) {
+                    selectItems.add(new UnboundAlias(setExpr, column.getName()));
+                } else if (column.hasOnUpdateDefaultValue()) {
                     Expression defualtValueExpression =
                             new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
                                     .toSqlWithoutTbl());
@@ -143,7 +153,6 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         if (cte.isPresent()) {
             logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }
-
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
                 && selectItems.size() < targetTable.getColumns().size()
                 && !targetTable.hasVariantColumns();
