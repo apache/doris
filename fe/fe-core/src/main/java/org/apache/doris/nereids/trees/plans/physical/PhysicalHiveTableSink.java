@@ -132,4 +132,8 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         return new PhysicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
+
+    public PhysicalProperties getRequirePhysicalProperties() {
+        return PhysicalProperties.ANY;
+    }
 }

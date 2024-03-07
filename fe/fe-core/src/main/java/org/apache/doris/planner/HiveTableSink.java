@@ -41,9 +41,9 @@ import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 public class HiveTableSink extends DataSink {
 
@@ -87,25 +87,27 @@ public class HiveTableSink extends DataSink {
         tSink.setTableName(targetTable.getName());
         List<FieldSchema> partitionKeys = targetTable.getRemoteTable().getPartitionKeys();
 
-        Map<String, FieldSchema> nameToPartitions = new HashMap<>();
+        Set<String> nameToPartitions = new HashSet<>();
         for (FieldSchema partitionKey : partitionKeys) {
-            nameToPartitions.put(partitionKey.getName(), partitionKey);
+            nameToPartitions.add(partitionKey.getName());
         }
         List<FieldSchema> hmsColumns = targetTable.getRemoteTable().getSd().getCols();
-        Map<String, FieldSchema> nameToColumns = new HashMap<>();
+        Set<String> nameToColumns = new HashSet<>();
         for (FieldSchema column : hmsColumns) {
-            nameToColumns.put(column.getName(), column);
+            nameToColumns.add(column.getName());
         }
         List<THiveColumn> targetColumns = new ArrayList<>();
         for (Column col : insertCols) {
-            if (nameToPartitions.containsKey(col.getName())) {
+            if (nameToPartitions.contains(col.getName())) {
                 THiveColumn tHiveColumn = new THiveColumn();
                 tHiveColumn.setName(col.getName());
+                tHiveColumn.setDataType(col.getType().toThrift());
                 tHiveColumn.setColumnType(THiveColumnType.PARTITION_KEY);
                 targetColumns.add(tHiveColumn);
-            } else if (nameToColumns.containsKey(col.getName())) {
+            } else if (nameToColumns.contains(col.getName())) {
                 THiveColumn tHiveColumn = new THiveColumn();
                 tHiveColumn.setName(col.getName());
+                tHiveColumn.setDataType(col.getType().toThrift());
                 tHiveColumn.setColumnType(THiveColumnType.REGULAR);
                 targetColumns.add(tHiveColumn);
             }
