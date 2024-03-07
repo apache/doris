@@ -711,11 +711,11 @@ public class CreateTableInfo {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
         } else if (!engineName.equals("olap")) {
-            if (!engineName.equals("hms") && distributionDesc != null) {
+            if (!engineName.equals("hive") && distributionDesc != null) {
                 throw new AnalysisException("Create " + engineName
                     + " table should not contain distribution desc");
             }
-            if (!engineName.equals("hms") && !engineName.equals("iceberg") && partitionDesc != null) {
+            if (!engineName.equals("hive") && !engineName.equals("iceberg") && partitionDesc != null) {
                 throw new AnalysisException("Create " + engineName
                         + " table should not contain partition desc");
             }
