@@ -278,7 +278,7 @@ public:
         auto& col = assert_cast<const ColumnMap&>(*assert_cast<const IColumn*>(column));
         for (size_t i = 0; i != num_rows; ++i) {
             auto map = doris::vectorized::get<Map>(col[i]);
-            this->data(places[i]).add(map[0], map[1]);
+            this->data(places[i] + offset).add(map[0], map[1]);
         }
     }
 
@@ -289,7 +289,7 @@ public:
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
                 auto map = doris::vectorized::get<Map>(col[i]);
-                this->data(places[i]).add(map[0], map[1]);
+                this->data(places[i] + offset).add(map[0], map[1]);
             }
         }
     }
