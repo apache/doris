@@ -19,6 +19,10 @@
     "message": "Docker 部署",
     "description": "Make docker image and quickly start Doris's Docker cluster"
   },
+  "sidebar.docs.category.Deploy Doris on Kubernetes": {
+    "message": "基于 Kubernetes 部署",
+    "description": "The label for category Deploy Doris on Kubernetes in sidebar docs"
+  },
   "sidebar.docs.category.Source Code Compilation": {
     "message": "源码编译",
     "description": "The label for category Compile in sidebar docs"

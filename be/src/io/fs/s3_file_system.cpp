@@ -131,7 +131,7 @@ Status S3FileSystem::connect_impl() {
 Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                       const FileWriterOptions* opts) {
     GET_KEY(key, file);
-    *writer = std::make_unique<S3FileWriter>(key, get_client(), _s3_conf, getSPtr());
+    *writer = std::make_unique<S3FileWriter>(key, get_client(), _s3_conf, getSPtr(), opts);
     return Status::OK();
 }
 
@@ -369,11 +369,10 @@ Status S3FileSystem::upload_impl(const Path& local_file, const Path& remote_file
                                error_msg(key, handle->GetLastError().GetMessage()));
     }
 
-    auto file_size = std::filesystem::file_size(local_file);
+    auto size = handle->GetBytesTransferred();
     LOG(INFO) << "Upload " << local_file.native() << " to s3, endpoint=" << _s3_conf.endpoint
               << ", bucket=" << _s3_conf.bucket << ", key=" << key
-              << ", duration=" << duration.count() << ", capacity=" << file_size
-              << ", tp=" << (file_size) / duration.count();
+              << ", duration=" << duration.count() << ", bytes=" << size;
 
     return Status::OK();
 }

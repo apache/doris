@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property;
 
-import org.apache.doris.common.util.S3Util;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InitCatalogLog.Type;
@@ -301,7 +301,7 @@ public class PropertyConverter {
         ossProperties.put("fs.oss.impl.disable.cache", "true");
         ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
         boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
-        if (S3Util.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
+        if (LocationPath.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
             // use endpoint or enable hdfs
             rewriteHdfsOnOssProperties(ossProperties, endpoint);
         }
@@ -321,7 +321,7 @@ public class PropertyConverter {
     }
 
     private static void rewriteHdfsOnOssProperties(Map<String, String> ossProperties, String endpoint) {
-        if (!S3Util.isHdfsOnOssEndpoint(endpoint)) {
+        if (!LocationPath.isHdfsOnOssEndpoint(endpoint)) {
             // just for robustness here, avoid wrong endpoint when oss-hdfs is enabled.
             // convert "oss-cn-beijing.aliyuncs.com" to "cn-beijing.oss-dls.aliyuncs.com"
             // reference link: https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
@@ -550,7 +550,11 @@ public class PropertyConverter {
         String region = S3Properties.getRegionOfEndpoint(endpoint);
         if (!Strings.isNullOrEmpty(region)) {
             props.put(S3Properties.REGION, region);
-            String s3Endpoint = "s3." + region + ".amazonaws.com";
+            String suffix = ".amazonaws.com";
+            if (endpoint.endsWith(".amazonaws.com.cn")) {
+                suffix = ".amazonaws.com.cn";
+            }
+            String s3Endpoint = "s3." + region + suffix;
             if (isGlueIceberg) {
                 s3Endpoint = "https://" + s3Endpoint;
             }

@@ -24,27 +24,66 @@ import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.collect.ImmutableList;
 
 /**
  * topN opt
  * refer to:
  * <a href="https://github.com/apache/doris/pull/15558">...</a>
  * <a href="https://github.com/apache/doris/pull/15663">...</a>
+ *
+ * // only support simple case: select ... from tbl [where ...] order by ... limit ...
  */
 
 public class TopNScanOpt extends PlanPostProcessor {
 
     @Override
+    public Plan visit(Plan plan, CascadesContext context) {
+        return plan;
+    }
+
+    @Override
+    public Plan visitPhysicalSink(PhysicalSink<? extends Plan> physicalSink, CascadesContext context) {
+        if (physicalSink.child() instanceof TopN) {
+            return super.visit(physicalSink, context);
+        } else if (physicalSink.child() instanceof Project && physicalSink.child().child(0) instanceof TopN) {
+            PhysicalTopN<?> oldTopN = (PhysicalTopN<?>) physicalSink.child().child(0);
+            PhysicalTopN<?> newTopN = (PhysicalTopN<?>) oldTopN.accept(this, context);
+            if (newTopN == oldTopN) {
+                return physicalSink;
+            } else {
+                return physicalSink.withChildren(physicalSink.child().withChildren(newTopN));
+            }
+        }
+        return physicalSink;
+    }
+
+    @Override
+    public Plan visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute, CascadesContext context) {
+        if (distribute.child() instanceof TopN && distribute.child() instanceof AbstractPhysicalSort
+                && ((AbstractPhysicalSort<?>) distribute.child()).getSortPhase() == SortPhase.LOCAL_SORT) {
+            return super.visit(distribute, context);
+        }
+        return distribute;
+    }
+
+    @Override
     public PhysicalTopN<? extends Plan> visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
-        Plan child = topN.child().accept(this, ctx);
-        topN = rewriteTopN(topN);
-        if (child != topN.child()) {
-            topN = ((PhysicalTopN) topN.withChildren(child)).copyStatsAndGroupIdFrom(topN);
+        if (topN.getSortPhase() == SortPhase.LOCAL_SORT) {
+            Plan child = topN.child();
+            topN = rewriteTopN(topN);
+            if (child != topN.child()) {
+                topN = ((PhysicalTopN<? extends Plan>) topN.withChildren(child)).copyStatsAndGroupIdFrom(topN);
+            }
+            return topN;
+        } else if (topN.getSortPhase() == SortPhase.MERGE_SORT) {
+            return (PhysicalTopN<? extends Plan>) super.visit(topN, ctx);
         }
         return topN;
     }
@@ -52,13 +91,14 @@ public class TopNScanOpt extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
             CascadesContext context) {
-        Plan child = topN.child().accept(this, context);
-        if (child != topN.child()) {
-            topN = topN.withChildren(ImmutableList.of(child)).copyStatsAndGroupIdFrom(topN);
-        }
-        PhysicalTopN<? extends Plan> rewrittenTopN = rewriteTopN(topN.getPhysicalTopN());
-        if (topN.getPhysicalTopN() != rewrittenTopN) {
-            topN = topN.withPhysicalTopN(rewrittenTopN).copyStatsAndGroupIdFrom(topN);
+        if (topN.getSortPhase() == SortPhase.LOCAL_SORT) {
+            PhysicalTopN<? extends Plan> rewrittenTopN = rewriteTopN(topN.getPhysicalTopN());
+            if (topN.getPhysicalTopN() != rewrittenTopN) {
+                topN = topN.withPhysicalTopN(rewrittenTopN).copyStatsAndGroupIdFrom(topN);
+            }
+            return topN;
+        } else if (topN.getSortPhase() == SortPhase.MERGE_SORT) {
+            return super.visit(topN, context);
         }
         return topN;
     }
@@ -87,8 +127,7 @@ public class TopNScanOpt extends PlanPostProcessor {
         if (!firstKey.isColumnFromTable()) {
             return topN;
         }
-        if (firstKey.getDataType().isStringLikeType()
-                || firstKey.getDataType().isFloatType()
+        if (firstKey.getDataType().isFloatType()
                 || firstKey.getDataType().isDoubleType()) {
             return topN;
         }

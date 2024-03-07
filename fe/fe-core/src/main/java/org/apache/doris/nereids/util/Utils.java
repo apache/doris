@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
@@ -159,21 +157,8 @@ public class Utils {
      */
     public static List<Expression> getCorrelatedSlots(List<Expression> correlatedPredicates,
             List<Expression> correlatedSlots) {
-        List<Expression> slots = new ArrayList<>();
-        correlatedPredicates.forEach(predicate -> {
-            if (!(predicate instanceof BinaryExpression) && !(predicate instanceof Not)) {
-                throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
-            }
-
-            BinaryExpression binaryExpression;
-            if (predicate instanceof Not) {
-                binaryExpression = (BinaryExpression) ((Not) predicate).child();
-            } else {
-                binaryExpression = (BinaryExpression) predicate;
-            }
-            slots.addAll(collectCorrelatedSlotsFromChildren(binaryExpression, correlatedSlots));
-        });
-        return slots;
+        return ExpressionUtils.getInputSlotSet(correlatedPredicates).stream()
+                .filter(slot -> !correlatedSlots.contains(slot)).collect(Collectors.toList());
     }
 
     private static List<Expression> collectCorrelatedSlotsFromChildren(
@@ -255,5 +240,17 @@ public class Utils {
 
     public static <T> List<T> copyRequiredList(List<T> list) {
         return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
+    }
+
+    /**
+     * Check the content if contains chinese or not, if true when contains chinese or false
+     */
+    public static boolean containChinese(String text) {
+        for (char textChar : text.toCharArray()) {
+            if (Character.UnicodeScript.of(textChar) == Character.UnicodeScript.HAN) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -53,19 +53,23 @@ public class EliminateNotNull implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalFilter()
-                        .when(filter -> filter.getConjuncts().stream().anyMatch(expr -> expr.isGeneratedIsNotNull))
                         .thenApply(ctx -> {
                             LogicalFilter<Plan> filter = ctx.root;
                             List<Expression> predicates = removeGeneratedNotNull(filter.getConjuncts(),
                                     ctx.cascadesContext);
+                            if (predicates.size() == filter.getConjuncts().size()) {
+                                return null;
+                            }
                             return PlanUtils.filterOrSelf(ImmutableSet.copyOf(predicates), filter.child());
                         }).toRule(RuleType.ELIMINATE_NOT_NULL),
                 innerLogicalJoin()
-                        .when(join -> join.getOtherJoinConjuncts().stream().anyMatch(expr -> expr.isGeneratedIsNotNull))
                         .thenApply(ctx -> {
                             LogicalJoin<Plan, Plan> join = ctx.root;
                             List<Expression> newOtherJoinConjuncts = removeGeneratedNotNull(
                                     join.getOtherJoinConjuncts(), ctx.cascadesContext);
+                            if (newOtherJoinConjuncts.size() == join.getOtherJoinConjuncts().size()) {
+                                return null;
+                            }
                             return join.withJoinConjuncts(join.getHashJoinConjuncts(), newOtherJoinConjuncts);
                         })
                         .toRule(RuleType.ELIMINATE_NOT_NULL)
@@ -81,7 +85,8 @@ public class EliminateNotNull implements RewriteRuleFactory {
         Set<Expression> predicatesNotContainIsNotNull = Sets.newHashSet();
         List<Slot> slotsFromIsNotNull = Lists.newArrayList();
         exprs.stream()
-                .filter(expr -> !expr.isGeneratedIsNotNull) // remove generated `is not null`
+                .filter(expr -> !(expr instanceof Not)
+                        || !((Not) expr).isGeneratedIsNotNull()) // remove generated `is not null`
                 .forEach(expr -> {
                     Optional<Slot> notNullSlot = TypeUtils.isNotNull(expr);
                     if (notNullSlot.isPresent()) {

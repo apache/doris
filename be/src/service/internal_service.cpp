@@ -518,7 +518,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
 
         Status st = Status::OK();
         if (request->has_cancel_reason()) {
-            LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
+            LOG(INFO) << "Cancel fragment, fragment_instance_id=" << print_id(tid)
                       << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
             _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
         } else {
@@ -1216,7 +1216,6 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
 constexpr char HttpProtocol[] = "http://";
 constexpr char DownloadApiPath[] = "/api/_tablet/_download?token=";
 constexpr char FileParam[] = "&file=";
-constexpr auto Permissions = S_IRUSR | S_IWUSR;
 
 std::string construct_url(const std::string& host_port, const std::string& token,
                           const std::string& path) {
@@ -1248,8 +1247,9 @@ static Status download_file_action(std::string& remote_file_url, std::string& lo
                 return Status::InternalError("downloaded file size is not equal");
             }
         }
-        chmod(local_file_path.c_str(), Permissions);
-        return Status::OK();
+
+        return io::global_local_filesystem()->permission(local_file_path,
+                                                         io::LocalFileSystem::PERMS_OWNER_RW);
     };
     return HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
 }

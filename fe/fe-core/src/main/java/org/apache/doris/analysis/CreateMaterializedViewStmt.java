@@ -29,9 +29,13 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
 
@@ -146,10 +150,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return dbName;
     }
 
-    public void setMVKeysType(KeysType type) {
-        mvKeysType = type;
-    }
-
     public KeysType getMVKeysType() {
         return mvKeysType;
     }
@@ -200,6 +200,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         rewriteToBitmapWithCheck();
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
+        if (isReplay) {
+            analyzer.setReplay();
+        }
         selectStmt.analyze(analyzer);
 
         ExprRewriter rewriter = analyzer.getExprRewriter();
@@ -207,13 +210,16 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         selectStmt.rewriteExprs(rewriter);
         selectStmt.reset();
         analyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+        if (isReplay) {
+            analyzer.setReplay();
+        }
         selectStmt.analyze(analyzer);
 
+        analyzeSelectClause(analyzer);
+        analyzeFromClause();
         if (selectStmt.getAggInfo() != null) {
             mvKeysType = KeysType.AGG_KEYS;
         }
-        analyzeSelectClause(analyzer);
-        analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot()) {
                 throw new AnalysisException(
@@ -231,6 +237,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (selectStmt.getLimit() != -1) {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
                     + " limit " + selectStmt.getLimit());
+        }
+    }
+
+    @Override
+    public void checkPriv() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, baseIndexName,
+                PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
         }
     }
 
@@ -300,6 +314,15 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (tableRefList.size() != 1) {
             throw new AnalysisException("The materialized view only support one table in from clause.");
         }
+        if (!isReplay && tableRefList.get(0).hasExplicitAlias()) {
+            throw new AnalysisException("The materialized view not support table with alias.");
+        }
+        if (!isReplay && !(tableRefList.get(0).getTable() instanceof OlapTable)) {
+            throw new AnalysisException("The materialized view only support olap table.");
+        }
+        OlapTable olapTable = (OlapTable) tableRefList.get(0).getTable();
+        mvKeysType = olapTable.getKeysType();
+
         TableName tableName = tableRefList.get(0).getName();
         if (tableName == null) {
             throw new AnalysisException("table in from clause is invalid, please check if it's single table "
@@ -409,14 +432,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
          * The keys type of Materialized view is aggregation.
          * All of group by columns are keys of materialized view.
          */
-        if (mvKeysType == KeysType.AGG_KEYS) {
-            for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                if (mvColumnItem.getAggregationType() != null) {
-                    break;
-                }
-                mvColumnItem.setIsKey(true);
-            }
-        } else if (mvKeysType == KeysType.DUP_KEYS) {
+        if (mvKeysType == KeysType.DUP_KEYS) {
             /**
              * There is no aggregation function in materialized view.
              * Supplement key of MV columns
@@ -459,6 +475,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
                 MVColumnItem mvColumnItem = mvColumnItemList.get(theBeginIndexOfValue);
                 mvColumnItem.setAggregationType(AggregateType.NONE, true);
+            }
+        } else {
+            for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                if (mvColumnItem.getAggregationType() != null) {
+                    break;
+                }
+                mvColumnItem.setIsKey(true);
             }
         }
     }
@@ -627,7 +650,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public static String mvColumnBuilder(Optional<String> functionName, String sourceColumnName) {
         return functionName.map(s -> mvAggregateColumnBuilder(s, sourceColumnName))
-                    .orElseGet(() -> mvColumnBuilder(sourceColumnName));
+                .orElseGet(() -> mvColumnBuilder(sourceColumnName));
     }
 
     public static String mvColumnBreaker(String name) {

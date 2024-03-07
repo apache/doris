@@ -40,6 +40,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TConfiguration;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
@@ -88,7 +89,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String COLLATION_CONNECTION = "collation_connection";
     public static final String COLLATION_DATABASE = "collation_database";
     public static final String COLLATION_SERVER = "collation_server";
-    public static final String SQL_AUTO_IS_NULL = "SQL_AUTO_IS_NULL";
+    public static final String SQL_AUTO_IS_NULL = "sql_auto_is_null";
     public static final String SQL_SELECT_LIMIT = "sql_select_limit";
     public static final String MAX_ALLOWED_PACKET = "max_allowed_packet";
     public static final String AUTO_INCREMENT_INCREMENT = "auto_increment_increment";
@@ -210,6 +211,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
+    public static final String ENABLE_BUCKET_SHUFFLE_DOWNGRADE = "enable_bucket_shuffle_downgrade";
+
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
@@ -240,6 +243,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+    public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
@@ -404,6 +408,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
+    public static final String INVERTED_INDEX_SKIP_THRESHOLD = "inverted_index_skip_threshold";
+
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
     public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
@@ -425,6 +431,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
 
+    public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
+
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
             = "huge_table_auto_analyze_interval_in_millis";
 
@@ -433,6 +441,16 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TABLE_STATS_HEALTH_THRESHOLD
             = "table_stats_health_threshold";
+
+    public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
+
+    public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
+
+    public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
+    public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
+
+    public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -629,6 +647,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_DOWNGRADE, needForward = true)
+    public boolean enableBucketShuffleDownGrade = false;
+
+    /**
+     * explode function row count enlarge factor.
+     */
+    @VariableMgr.VarAttr(name = GENERATE_STATS_FACTOR, checker = "checkGenerateStatsFactor",
+            setter = "setGenerateStatsFactor")
+    public int generateStatsFactor = 5;
+
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
 
@@ -726,7 +754,8 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     private boolean enableSharedScan = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL,
+            needForward = true)
     public boolean enableAggState = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
@@ -761,7 +790,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterSize = 2097152;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
-    private int runtimeBloomFilterMinSize = 1048576;
+    private int runtimeBloomFilterMinSize = 2048;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
     private int runtimeBloomFilterMaxSize = 16777216;
@@ -964,6 +993,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
     public boolean enableNewShuffleHashMethod = true;
 
+    @VariableMgr.VarAttr(name = "nereids_timeout_second", needForward = true)
+    public int nereidsTimeoutSecond = 5;
+
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
 
@@ -1016,6 +1048,17 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkExternalAggBytesThreshold", fuzzy = true)
     public long externalAggBytesThreshold = 0;
 
+    public boolean isEnableLeftZigZag() {
+        return enableLeftZigZag;
+    }
+
+    public void setEnableLeftZigZag(boolean enableLeftZigZag) {
+        this.enableLeftZigZag = enableLeftZigZag;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_LEFT_ZIG_ZAG)
+    private boolean enableLeftZigZag = false;
+
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 8;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
@@ -1059,6 +1102,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
+
+    // Whether enable pushdown minmax to scan node of unique table.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
+        "是否启用pushdown minmax on unique table。", "Set whether to pushdown minmax on unique table."})
+    public boolean enablePushDownMinMaxOnUnique = false;
+
+    // Whether enable push down string type minmax to scan node.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = {
+        "是否启用string类型min max下推。", "Set whether to enable push down string type minmax."})
+    public boolean enablePushDownStringMinMax = false;
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -1199,6 +1252,13 @@ public class SessionVariable implements Serializable, Writable {
                     + " thereby controlling query performance"})
     public int invertedIndexMaxExpansions = 50;
 
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_SKIP_THRESHOLD,
+                description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
+                        "In the inverted index,"
+                        + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
+                        + " then skip the index and proceed directly to matching."})
+    public int invertedIndexSkipThreshold = 50;
+
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
@@ -1219,7 +1279,7 @@ public class SessionVariable implements Serializable, Writable {
                 "Maximum table width to enable auto analyze, "
                     + "table with more columns than this value will not be auto analyzed."},
             flag = VariableMgr.GLOBAL)
-    public int autoAnalyzeTableWidthThreshold = 70;
+    public int autoAnalyzeTableWidthThreshold = 100;
 
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的开始时间",
@@ -1259,7 +1319,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "When enable_auto_sample is enabled, tables"
                             + "larger than this value will automatically collect "
                             + "statistics through sampling"})
-    public long hugeTableLowerBoundSizeInBytes = 5L * 1024 * 1024 * 1024;
+    public long hugeTableLowerBoundSizeInBytes = 0;
 
     @VariableMgr.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对大表的自动ANALYZE的最小时间间隔，"
@@ -1267,7 +1327,7 @@ public class SessionVariable implements Serializable, Writable {
                     "This controls the minimum time interval for automatic ANALYZE on large tables."
                             + "Within this interval,"
                             + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
-    public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(12);
+    public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(0);
 
     @VariableMgr.VarAttr(name = EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对外表的自动ANALYZE的最小时间间隔，在该时间间隔内的外表仅ANALYZE一次",
@@ -1284,7 +1344,16 @@ public class SessionVariable implements Serializable, Writable {
                             + "considered outdated."})
     public int tableStatsHealthThreshold = 60;
 
+    @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
+            description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
+    private boolean forceJniScanner = false;
+
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
+
+    @VariableMgr.VarAttr(name = SHOW_ALL_FE_CONNECTION,
+            description = {"when it's true show processlist statement list all fe's connection",
+                    "当变量为true时，show processlist命令展示所有fe的连接"})
+    public boolean showAllFeConnection = false;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         return Arrays.stream(ignoreRuntimeFilterIds.split(",[\\s]*"))
@@ -1317,6 +1386,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"'explain shape plan' 命令中忽略的PlanNode 类型",
                     "the plan node type which is ignored in 'explain shape plan' command"})
     public String ignoreShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = MAX_MSG_SIZE_OF_RESULT_RECEIVER,
+            description = {"Max message size during result deserialization, change this if you meet error"
+                    + " like \"MaxMessageSize reached\"",
+                    "用于控制结果反序列化时 thrift 字段的最大值，当遇到类似\"MaxMessageSize reached\"这样的错误时可以考虑修改该参数"})
+    public int maxMsgSizeOfResultReceiver = TConfiguration.DEFAULT_MAX_MESSAGE_SIZE;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1730,6 +1805,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableBucketShuffleJoin;
     }
 
+    public boolean isEnableBucketShuffleDownGrade() {
+        return enableBucketShuffleDownGrade;
+    }
+
     public boolean isEnableOdbcTransaction() {
         return enableOdbcTransaction;
     }
@@ -2000,7 +2079,7 @@ public class SessionVariable implements Serializable, Writable {
         return forbidUnknownColStats;
     }
 
-    public void setForbidUnownColStats(boolean forbid) {
+    public void setForbidUnknownColStats(boolean forbid) {
         forbidUnknownColStats = forbid;
     }
 
@@ -2175,6 +2254,18 @@ public class SessionVariable implements Serializable, Writable {
         this.disableJoinReorder = disableJoinReorder;
     }
 
+    public boolean isEnablePushDownMinMaxOnUnique() {
+        return enablePushDownMinMaxOnUnique;
+    }
+
+    public void setEnablePushDownMinMaxOnUnique(boolean enablePushDownMinMaxOnUnique) {
+        this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
+    }
+
+    public boolean isEnablePushDownStringMinMax() {
+        return enablePushDownStringMinMax;
+    }
+
     /**
      * Nereids only support vectorized engine.
      *
@@ -2279,6 +2370,31 @@ public class SessionVariable implements Serializable, Writable {
                     + MAX_EXTERNAL_AGG_PARTITION_BITS);
         }
     }
+
+    public void checkGenerateStatsFactor(String generateStatsFactor) {
+        int value = Integer.valueOf(generateStatsFactor);
+        if (value <= 0) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException("Generate stats factor " + value + " should greater than 0");
+            LOG.warn("Check generate stats factor failed", exception);
+            throw exception;
+        }
+    }
+
+    public void setGenerateStatsFactor(int factor) {
+        this.generateStatsFactor = factor;
+        if (factor <= 0) {
+            LOG.warn("Invalid generate stats factor: {}", factor, new RuntimeException(""));
+        }
+    }
+
+    public void setGenerateStatsFactor(String factor) {
+        this.generateStatsFactor = Integer.valueOf(factor);
+        if (generateStatsFactor <= 0) {
+            LOG.warn("Invalid generate stats factor: {}", generateStatsFactor, new RuntimeException(""));
+        }
+    }
+
 
     public boolean isEnableFileCache() {
         return enableFileCache;
@@ -2445,6 +2561,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
         tResult.setFasterFloatConvert(fasterFloatConvert);
+
+        tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
 
         return tResult;
     }
@@ -2715,6 +2833,14 @@ public class SessionVariable implements Serializable, Writable {
         VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 
+    public void disableNereidsJoinReorderOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("true")));
+    }
+
     // return number of variables by given experimental type
     public int getVariableNumByExperimentalType(ExperimentalType type) {
         int num = 0;
@@ -2772,5 +2898,22 @@ public class SessionVariable implements Serializable, Writable {
             throw new UnsupportedOperationException("Expect format: HH:mm:ss");
         }
     }
+
+    public boolean isForceJniScanner() {
+        return forceJniScanner;
+    }
+
+    public void setForceJniScanner(boolean force) {
+        forceJniScanner = force;
+    }
+
+    public boolean getShowAllFeConnection() {
+        return this.showAllFeConnection;
+    }
+
+    public int getMaxMsgSizeOfResultReceiver() {
+        return this.maxMsgSizeOfResultReceiver;
+    }
+
 }
 

@@ -193,14 +193,12 @@ DEFINE_mInt32(max_download_speed_kbps, "50000");
 DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
-// sleep time for one second
-DEFINE_Int32(sleep_one_second, "1");
 
 // log dir
 DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
 // INFO, WARNING, ERROR, FATAL
-DEFINE_String(sys_log_level, "INFO");
+DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
 DEFINE_String(sys_log_roll_mode, "SIZE-MB-1024");
 // log roll num
@@ -765,6 +763,9 @@ DEFINE_mInt32(segment_compression_threshold_kb, "256");
 // The connection timeout when connecting to external table such as odbc table.
 DEFINE_mInt32(external_table_connect_timeout_sec, "30");
 
+// Time to clean up useless JDBC connection pool cache
+DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
+
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 
@@ -996,6 +997,9 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
+// -1 indicates not working.
+// Normally we should not change this, it's useful for testing.
+DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 DEFINE_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
@@ -1003,7 +1007,9 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_Bool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
+// index by RAM directory
+DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
@@ -1044,6 +1050,7 @@ DEFINE_Bool(enable_feature_binlog, "false");
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 // Apply delete pred in cumu compaction
 DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
@@ -1052,7 +1059,8 @@ DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
-DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
+DEFINE_mString(kerberos_ccache_path, "");
+DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1096,6 +1104,7 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
+DEFINE_Bool(use_doris_tzfile, "false");
 
 // the max package bytes be thrift server can receive
 // avoid accepting error or too large package causing OOM,default 20000000(20M)
@@ -1112,6 +1121,17 @@ DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
 DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout_second, "60");
+
+DEFINE_mBool(enable_column_type_check, "true");
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
+
+DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
+// 30s
+DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
+
+DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1473,6 +1493,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         if (PERSIST) {                                                                            \
             RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                    \
         }                                                                                         \
+        update_config(std::string((FIELD).name), VALUE);                                           \
         return Status::OK();                                                                      \
     }
 
@@ -1519,6 +1540,13 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     // The other types are not thread safe to change dynamically.
     return Status::NotSupported("'{}' is type of '{}' which is not support to modify", field,
                                 it->second.type);
+}
+
+void update_config(const std::string& field, const std::string& value) {
+    if ("sys_log_level" == field) {
+        // update log level
+        update_logging(field, value);
+    }
 }
 
 Status set_fuzzy_config(const std::string& field, const std::string& value) {

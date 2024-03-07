@@ -70,3 +70,8 @@ PhysicalResultSink
 
 -- !except_empty_data --
 
+-- !join_with_empty_child --
+2	8	e	v	3
+4	7		at	2
+9	3		q	0
+

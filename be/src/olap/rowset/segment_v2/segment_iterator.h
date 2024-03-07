@@ -183,8 +183,6 @@ private:
             std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
             bool* continue_apply);
     [[nodiscard]] Status _apply_index_except_leafnode_of_andnode();
-    [[nodiscard]] Status _apply_bitmap_index_except_leafnode_of_andnode(
-            ColumnPredicate* pred, roaring::Roaring* output_result);
     [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
             ColumnPredicate* pred, roaring::Roaring* output_result);
     bool _column_has_fulltext_index(int32_t cid);
@@ -251,9 +249,6 @@ private:
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
-    void _update_max_row(const vectorized::Block* block);
-
-    bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
     bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
 
     std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
@@ -385,9 +380,6 @@ private:
     // the actual init process is delayed to the first call to next_batch()
     bool _lazy_inited;
     bool _inited;
-    bool _estimate_row_size;
-    // Read up to 100 rows at a time while waiting for the estimated row size.
-    int _wait_times_estimate_row_size;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes

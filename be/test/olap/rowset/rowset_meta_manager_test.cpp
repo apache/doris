@@ -103,7 +103,7 @@ TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
     EXPECT_EQ(rowset_meta.rowset_id(), rowset_id);
     RowsetMetaPB rowset_meta_pb;
     rowset_meta.to_rowset_pb(&rowset_meta_pb);
-    Status status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, rowset_meta_pb);
+    Status status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, rowset_meta_pb, false);
     EXPECT_TRUE(status == Status::OK());
     EXPECT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     std::string json_rowset_meta_read;

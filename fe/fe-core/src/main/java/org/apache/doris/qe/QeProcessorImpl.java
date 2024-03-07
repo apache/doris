@@ -128,9 +128,7 @@ public final class QeProcessorImpl implements QeProcessor {
     public void unregisterQuery(TUniqueId queryId) {
         QueryInfo queryInfo = coordinatorMap.remove(queryId);
         if (queryInfo != null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("deregister query id {}", DebugUtil.printId(queryId));
-            }
+            LOG.info("deregister query id {}", DebugUtil.printId(queryId));
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {
@@ -139,7 +137,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     String user = queryInfo.getConnectContext().getQualifiedUser();
                     AtomicInteger instancesNum = userToInstancesCount.get(user);
                     if (instancesNum == null) {
-                        LOG.warn("WTF?? query {} in queryToInstancesNum but not in userToInstancesCount",
+                        LOG.warn("Query {} in queryToInstancesNum but not in userToInstancesCount",
                                 DebugUtil.printId(queryId)
                         );
                     } else {
@@ -148,9 +146,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 }
             }
         } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
-            }
+            LOG.info("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
         }
 
         // commit hive tranaction if needed
@@ -188,6 +184,15 @@ public final class QeProcessorImpl implements QeProcessor {
             LOG.debug("params: {}", params);
         }
         final TReportExecStatusResult result = new TReportExecStatusResult();
+
+        if (params.isSetReportWorkloadRuntimeStatus()) {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().updateBeQueryStats(params.report_workload_runtime_status);
+            if (!params.isSetQueryId()) {
+                result.setStatus(new TStatus(TStatusCode.OK));
+                return result;
+            }
+        }
+
         final QueryInfo info = coordinatorMap.get(params.query_id);
 
         if (info == null) {

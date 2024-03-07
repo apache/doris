@@ -124,7 +124,7 @@ If you are using the Flink Connector, you need to add the following configuratio
 'sink.properties.partial_columns' = 'true',
 ```
 
-Also, specify the columns to be loaded in `sink.properties.column` (it must include all key columns, or else updates cannot be performed).
+Also, specify the columns to be loaded in `sink.properties.columns` (it must include all key columns, or else updates cannot be performed).
 
 #### INSERT INTO
 

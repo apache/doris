@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -48,6 +49,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -96,6 +98,17 @@ public class LogicalPlanBuilder {
         }
         LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
         return from(project);
+    }
+
+    public LogicalPlanBuilder markJoin(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
+        ImmutableList<EqualTo> hashConjuncts = ImmutableList.of(
+                new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
+
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
+                Collections.emptyList(),
+                JoinHint.NONE, Optional.of(new MarkJoinSlotReference("fake")),
+                this.plan, right);
+        return from(join);
     }
 
     public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {

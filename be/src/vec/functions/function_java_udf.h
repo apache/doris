@@ -149,26 +149,26 @@ private:
         JniContext(int64_t num_args, jclass executor_cl, jmethodID executor_close_id)
                 : executor_cl_(executor_cl), executor_close_id_(executor_close_id) {}
 
-        void close() {
+        Status close() {
             if (!open_successes) {
                 LOG_WARNING("maybe open failed, need check the reason");
-                return; //maybe open failed, so can't call some jni
+                return Status::OK(); //maybe open failed, so can't call some jni
             }
             if (is_closed) {
-                return;
+                return Status::OK();
             }
             VLOG_DEBUG << "Free resources for JniContext";
-            JNIEnv* env;
+            JNIEnv* env = nullptr;
             Status status = JniUtil::GetJNIEnv(&env);
-            if (!status.ok()) {
+            if (!status.ok() || env == nullptr) {
                 LOG(WARNING) << "errors while get jni env " << status;
-                return;
+                return status;
             }
             env->CallNonvirtualVoidMethodA(executor, executor_cl_, executor_close_id_, NULL);
-            Status s = JniUtil::GetJniExceptionMsg(env);
-            if (!s.ok()) LOG(WARNING) << s;
             env->DeleteGlobalRef(executor);
+            RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
             is_closed = true;
+            return Status::OK();
         }
     };
 };

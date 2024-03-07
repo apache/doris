@@ -38,6 +38,7 @@ import java.util.List;
 public class JoinCommute extends OneExplorationRuleFactory {
 
     public static final JoinCommute LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP, false);
+    public static final JoinCommute LEFT_ZIG_ZAG = new JoinCommute(SwapType.LEFT_ZIG_ZAG, false);
     public static final JoinCommute ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG, false);
     public static final JoinCommute BUSHY = new JoinCommute(SwapType.BUSHY, false);
     public static final JoinCommute NON_INNER = new JoinCommute(SwapType.BUSHY, true);
@@ -72,7 +73,8 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     enum SwapType {
-        LEFT_DEEP, ZIG_ZAG, BUSHY
+        LEFT_DEEP, ZIG_ZAG, BUSHY,
+        LEFT_ZIG_ZAG
     }
 
     /**
@@ -87,12 +89,22 @@ public class JoinCommute extends OneExplorationRuleFactory {
             return false;
         }
 
+        if (swapType == SwapType.LEFT_ZIG_ZAG) {
+            double leftRows = join.left().getGroup().getStatistics().getRowCount();
+            double rightRows = join.right().getGroup().getStatistics().getRowCount();
+            return leftRows <= rightRows && isZigZagJoin(join);
+        }
+
         return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
     }
 
     public static boolean isNotBottomJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
         // TODO: tmp way to judge bottomJoin
         return containJoin(join.left()) || containJoin(join.right());
+    }
+
+    public static boolean isZigZagJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
+        return !containJoin(join.left()) || !containJoin(join.right());
     }
 
     private static boolean containJoin(GroupPlan groupPlan) {

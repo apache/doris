@@ -239,6 +239,7 @@ public:
         storage_policy->name = "TabletCooldownTest";
         storage_policy->version = 1;
         storage_policy->resource_id = kResourceId;
+        storage_policy->cooldown_datetime = UnixSeconds() - 1;
         put_storage_policy(kStoragePolicyId, storage_policy);
 
         constexpr uint32_t MAX_PATH_LEN = 1024;

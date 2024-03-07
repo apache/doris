@@ -74,5 +74,5 @@ limit 100;
     //File file = new File(outFile)
     //file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF1[d_date_sk->[ss_sold_date_sk],RF0[i_item_sk->[ss_item_sk],RF3[d_date_sk->[ws_sold_date_sk],RF2[i_item_sk->[ws_item_sk],RF5[d_date_sk->[cs_sold_date_sk],RF4[i_item_sk->[cs_item_sk]", getRuntimeFilters(plan))
+    assertEquals("RF1[ss_item_sk->[i_item_sk],RF0[ss_sold_date_sk->[d_date_sk],RF3[ws_item_sk->[i_item_sk],RF2[ws_sold_date_sk->[d_date_sk],RF5[cs_item_sk->[i_item_sk],RF4[cs_sold_date_sk->[d_date_sk]", getRuntimeFilters(plan))
 }

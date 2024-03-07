@@ -276,6 +276,15 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
     @Override
     public long getMaxJournalId() {
+        return getMaxJournalIdInternal(true);
+    }
+
+    // get max journal id but do not check whether the txn is matched.
+    private long getMaxJournalIdWithoutCheck() {
+        return getMaxJournalIdInternal(false);
+    }
+
+    private long getMaxJournalIdInternal(boolean checkTxnMatched) {
         long ret = -1;
         if (bdbEnvironment == null) {
             return ret;
@@ -292,7 +301,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         String dbName = dbNames.get(index).toString();
         long dbNumberName = dbNames.get(index);
         Database database = bdbEnvironment.openDatabase(dbName);
-        if (!isReplicaTxnAreMatched(database, dbNumberName)) {
+        if (checkTxnMatched && !isReplicaTxnAreMatched(database, dbNumberName)) {
             LOG.warn("The current replica hasn't synced up with the master, current db name: {}", dbNumberName);
             if (index != 0) {
                 // Because roll journal occurs after write, the previous write must have
@@ -423,7 +432,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 }
 
                 // set next journal id
-                nextJournalId.set(getMaxJournalId() + 1);
+                nextJournalId.set(getMaxJournalIdWithoutCheck() + 1);
 
                 break;
             } catch (InsufficientLogException insufficientLogEx) {

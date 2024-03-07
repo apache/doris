@@ -150,25 +150,25 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     }
 
     for (auto& t_index : tschema.indexes) {
-        std::unordered_map<std::string, SlotDescriptor*> index_slots_map;
+        std::unordered_map<std::string, int32_t> index_slots_map;
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (auto& tcolumn_desc : t_index.columns_desc) {
-            TPrimitiveType::type col_type =
-                    has_invalid_type ? TPrimitiveType::INVALID_TYPE : tcolumn_desc.column_type.type;
-            auto it = slots_map.find(
-                    std::make_pair(to_lower(tcolumn_desc.column_name), thrift_to_type(col_type)));
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(tcolumn_desc.column_name) > 0) {
+                TPrimitiveType::type col_type = has_invalid_type ? TPrimitiveType::INVALID_TYPE
+                                                                 : tcolumn_desc.column_type.type;
+                auto it = slots_map.find(std::make_pair(to_lower(tcolumn_desc.column_name),
+                                                        thrift_to_type(col_type)));
                 if (it == slots_map.end()) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  tcolumn_desc.column_name,
                                                  tcolumn_desc.column_type.type);
                 }
-                index_slots_map.emplace(to_lower(tcolumn_desc.column_name), it->second);
                 index->slots.emplace_back(it->second);
             }
+            index_slots_map.emplace(to_lower(tcolumn_desc.column_name), tcolumn_desc.col_unique_id);
             TabletColumn* tc = _obj_pool.add(new TabletColumn());
             tc->init_from_thrift(tcolumn_desc);
             index->columns.emplace_back(tc);
@@ -179,7 +179,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 for (size_t i = 0; i < tindex_desc.columns.size(); i++) {
                     auto it = index_slots_map.find(to_lower(tindex_desc.columns[i]));
                     if (it != index_slots_map.end()) {
-                        column_unique_ids[i] = it->second->col_unique_id();
+                        column_unique_ids[i] = it->second;
                     }
                 }
                 TabletIndex* ti = _obj_pool.add(new TabletIndex());

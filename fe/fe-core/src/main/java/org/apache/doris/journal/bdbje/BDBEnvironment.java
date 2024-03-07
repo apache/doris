@@ -92,7 +92,8 @@ public class BDBEnvironment {
     // The setup() method opens the environment and database
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort, boolean isElectable) {
-        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY)
+                || Config.metadata_failure_recovery.equals("true");
         // Almost never used, just in case the master can not restart
         if (metadataFailureRecovery) {
             if (!isElectable) {

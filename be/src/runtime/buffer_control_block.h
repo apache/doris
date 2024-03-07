@@ -80,23 +80,12 @@ public:
 
     const TUniqueId& fragment_id() const { return _fragment_id; }
 
-    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-        _query_statistics = statistics;
-    }
-
-    void update_num_written_rows(int64_t num_rows) {
+    void update_return_rows(int64_t num_rows) {
         // _query_statistics may be null when the result sink init failed
         // or some other failure.
         // and the number of written rows is only needed when all things go well.
         if (_query_statistics != nullptr) {
             _query_statistics->set_returned_rows(num_rows);
-        }
-    }
-
-    void update_max_peak_memory_bytes() {
-        if (_query_statistics != nullptr) {
-            int64_t max_peak_memory_bytes = _query_statistics->calculate_max_peak_memory_bytes();
-            _query_statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
         }
     }
 
@@ -126,10 +115,8 @@ protected:
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 
-    // It is shared with PlanFragmentExecutor and will be called in two different
-    // threads. But their calls are all at different time, there is no problem of
-    // multithreading access.
-    std::shared_ptr<QueryStatistics> _query_statistics;
+    // only used for FE using return rows to check limit
+    std::unique_ptr<QueryStatistics> _query_statistics;
 };
 
 class PipBufferControlBlock : public BufferControlBlock {

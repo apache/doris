@@ -58,7 +58,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -150,6 +149,10 @@ public class ExportJob implements Writable {
     private ExportFailMsg failMsg;
     @SerializedName("outfileInfo")
     private String outfileInfo;
+    @SerializedName("tabletsNum")
+    private Integer tabletsNum;
+    @SerializedName("withBom")
+    private String withBom;
     // progress has two functions at EXPORTING stage:
     // 1. when progress < 100, it indicates exporting
     // 2. set progress = 100 ONLY when exporting progress is completely done
@@ -163,9 +166,7 @@ public class ExportJob implements Writable {
 
     private Integer parallelNum;
 
-    public Map<String, Long> getPartitionToVersion() {
-        return partitionToVersion;
-    }
+    private Collection<Partition> partitionList = new ArrayList<Partition>();
 
     private Map<String, Long> partitionToVersion = Maps.newHashMap();
 
@@ -188,7 +189,6 @@ public class ExportJob implements Writable {
 
     private ExportExportingTask task;
 
-    private List<TScanRangeLocations> tabletLocations = Lists.newArrayList();
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
@@ -208,6 +208,7 @@ public class ExportJob implements Writable {
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
         this.columns = "";
+        this.withBom = "false";
     }
 
     public ExportJob(long jobId) {
@@ -239,6 +240,7 @@ public class ExportJob implements Writable {
         this.maxFileSize = stmt.getMaxFileSize();
         this.deleteExistingFiles = stmt.getDeleteExistingFiles();
         this.partitionNames = stmt.getPartitions();
+        this.withBom = stmt.getWithBom();
 
         this.exportTable = db.getTableOrDdlException(stmt.getTblName().getTbl());
         this.columns = stmt.getColumns();
@@ -314,7 +316,6 @@ public class ExportJob implements Writable {
         List<Long> tabletIdList = Lists.newArrayList();
         table.readLock();
         try {
-            Collection<Partition> partitions = new ArrayList<Partition>();
             // get partitions
             // user specifies partitions, already checked in ExportStmt
             if (this.partitionNames != null) {
@@ -323,19 +324,18 @@ public class ExportJob implements Writable {
                             + " of partitions allowed by a export job");
                 }
                 for (String partName : this.partitionNames) {
-                    partitions.add(table.getPartition(partName));
+                    partitionList.add(table.getPartition(partName));
                 }
             } else {
                 if (table.getPartitions().size() > Config.maximum_number_of_export_partitions) {
                     throw new UserException("The partitions number of this export job is larger than the maximum number"
                             + " of partitions allowed by a export job");
                 }
-                partitions = table.getPartitions();
+                partitionList = table.getPartitions();
             }
 
             // get tablets
-            for (Partition partition : partitions) {
-                partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
+            for (Partition partition : partitionList) {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     tabletIdList.addAll(index.getTabletIdsInOrder());
                 }
@@ -345,6 +345,7 @@ public class ExportJob implements Writable {
         }
 
         Integer tabletsAllNum = tabletIdList.size();
+        this.tabletsNum = tabletsAllNum;
         Integer tabletsNumPerQuery = tabletsAllNum / this.parallelNum;
         Integer tabletsNumPerQueryRemainder = tabletsAllNum - tabletsNumPerQuery * this.parallelNum;
 
@@ -359,13 +360,13 @@ public class ExportJob implements Writable {
                         + "set parallelism to tablets num.", id, tabletsAllNum, this.parallelNum);
         }
         for (int i = 0; i < outfileNum; ++i) {
-            Integer tabletsNum = tabletsNumPerQuery;
+            Integer realTabletsNum = tabletsNumPerQuery;
             if (tabletsNumPerQueryRemainder > 0) {
-                tabletsNum = tabletsNum + 1;
+                realTabletsNum = realTabletsNum + 1;
                 --tabletsNumPerQueryRemainder;
             }
-            ArrayList<Long> tablets = new ArrayList<>(tabletIdList.subList(start, start + tabletsNum));
-            start += tabletsNum;
+            ArrayList<Long> tablets = new ArrayList<>(tabletIdList.subList(start, start + realTabletsNum));
+            start += realTabletsNum;
             // Since export does not support the alias, here we pass the null value.
             // we can not use this.tableRef.getAlias(),
             // because the constructor of `Tableref` will convert this.tableRef.getAlias()
@@ -393,6 +394,7 @@ public class ExportJob implements Writable {
         if (!deleteExistingFiles.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_DELETE_EXISTING_FILES, deleteExistingFiles);
         }
+        outfileProperties.put(OutFileClause.PROP_WITH_BOM, withBom);
 
         // broker properties
         // outfile clause's broker properties need 'broker.' prefix
@@ -525,6 +527,15 @@ public class ExportJob implements Writable {
         this.outfileInfo = outfileInfo;
     }
 
+    public synchronized Map<String, Long> getPartitionToVersion() {
+        if (partitionToVersion.isEmpty()) {
+            // get version of partitions
+            for (Partition partition : partitionList) {
+                partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
+            }
+        }
+        return partitionToVersion;
+    }
 
     public synchronized Thread getDoExportingThread() {
         return doExportingThread;
@@ -542,8 +553,8 @@ public class ExportJob implements Writable {
         return this.stmtExecutorList.get(idx);
     }
 
-    public List<TScanRangeLocations> getTabletLocations() {
-        return tabletLocations;
+    public Integer getTabletsNum() {
+        return this.tabletsNum;
     }
 
     public List<Pair<TNetworkAddress, String>> getSnapshotPaths() {
@@ -570,6 +581,10 @@ public class ExportJob implements Writable {
         return tableName;
     }
 
+    public String getWithBom() {
+        return withBom;
+    }
+
     public SessionVariable getSessionVariables() {
         return sessionVariables;
     }
@@ -582,7 +597,11 @@ public class ExportJob implements Writable {
         // maybe user cancel this job
         if (task != null && state == JobState.EXPORTING && stmtExecutorList != null) {
             for (int idx = 0; idx < stmtExecutorList.size(); ++idx) {
-                stmtExecutorList.get(idx).cancel();
+                // because a exporting task may be cancelled due to a load operation,
+                // then it's StmtExecutor is null
+                if (stmtExecutorList.get(idx) != null) {
+                    stmtExecutorList.get(idx).cancel();
+                }
             }
         }
 

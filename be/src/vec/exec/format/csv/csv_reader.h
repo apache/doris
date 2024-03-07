@@ -231,6 +231,11 @@ private:
     // and the line is skipped as unqualified row, and the process should continue.
     Status _validate_line(const Slice& line, bool* success);
 
+    // If the CSV file is an UTF8 encoding with BOM,
+    // then remove the first 3 bytes at the beginning of this file
+    // and set size = size - 3.
+    const uint8_t* _remove_bom(const uint8_t* ptr, size_t& size);
+
     RuntimeState* _state;
     RuntimeProfile* _profile;
     ScannerCounter* _counter;

@@ -122,7 +122,7 @@ public class PropertyAnalyzerTest {
         try {
             PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Bloom filter index only used in"));
+            Assert.assertTrue(e.getMessage().contains("Bloom filter index should only be used"));
         }
 
         // reduplicated column

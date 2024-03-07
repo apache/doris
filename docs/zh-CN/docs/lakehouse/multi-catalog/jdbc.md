@@ -113,8 +113,8 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 ### 谓词下推
 
 1. 当执行类似于 `where dt = '2022-01-01'` 这样的查询时，Doris 能够将这些过滤条件下推到外部数据源，从而直接在数据源层面排除不符合条件的数据，减少了不必要的数据获取和传输。这大大提高了查询性能，同时也降低了对外部数据源的负载。
-   
-2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL，如遇到 MySQL 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数进行下推条件过滤，可通过 explain sql 查看。
+
+2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL、ClickHouse、Oracle，如遇到 MySQL、ClickHouse、Oracle 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数以及 ClickHouse、Oracle 支持的函数进行下推条件过滤，可通过 explain sql 查看。
 
 目前不会下推的函数有：
 
@@ -122,6 +122,17 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 |:------------:|
 |  DATE_TRUNC  |
 | MONEY_FORMAT |
+
+目前会下推的函数有：
+
+|   ClickHouse   |
+|:--------------:|
+| FROM_UNIXTIME  |
+| UNIX_TIMESTAMP |
+
+| Oracle |
+|:------:|
+|  NVL   |
 
 ### 行数限制
 
@@ -365,7 +376,6 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 | date                                   | DATE          |                                                              |
 | datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                              |
 | char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                              |
-| binary/varbinary                       | STRING        |                                                              |
 | time/datetimeoffset                    | STRING        |                                                              |
 | Other                                  | UNSUPPORTED   |                                                              |
 

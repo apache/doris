@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -24,7 +25,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,7 +33,6 @@ import org.apache.logging.log4j.core.util.CronExpression;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.lang.reflect.Type;
 import java.text.ParseException;
 import java.util.List;
 import java.util.Map;
@@ -180,11 +179,6 @@ public class AnalysisInfo implements Writable {
     @SerializedName("usingSqlForPartitionColumn")
     public final boolean usingSqlForPartitionColumn;
 
-    /**
-     * Used to store the newest partition version of tbl when creating this job.
-     */
-    public final long tblUpdateTime;
-
     @SerializedName("createTime")
     public final long createTime = System.currentTimeMillis();
 
@@ -194,6 +188,17 @@ public class AnalysisInfo implements Writable {
     @SerializedName("endTime")
     public long endTime;
 
+    @SerializedName("emptyJob")
+    public final boolean emptyJob;
+    /**
+     *
+     * Used to store the newest partition version of tbl when creating this job.
+     * This variables would be saved by table stats meta.
+     */
+    public final long tblUpdateTime;
+
+    public final boolean userInject;
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
@@ -201,7 +206,7 @@ public class AnalysisInfo implements Writable {
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime) {
+            boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob, boolean userInject) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -237,6 +242,8 @@ public class AnalysisInfo implements Writable {
         this.forceFull = forceFull;
         this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
         this.tblUpdateTime = tblUpdateTime;
+        this.emptyJob = emptyJob;
+        this.userInject = userInject;
     }
 
     @Override
@@ -278,6 +285,7 @@ public class AnalysisInfo implements Writable {
         }
         sj.add("forceFull: " + forceFull);
         sj.add("usingSqlForPartitionColumn: " + usingSqlForPartitionColumn);
+        sj.add("emptyJob: " + emptyJob);
         return sj.toString();
     }
 
@@ -299,16 +307,6 @@ public class AnalysisInfo implements Writable {
         }
         Gson gson = new Gson();
         return gson.toJson(colToPartitions);
-    }
-
-    private static Map<String, Set<String>> getColToPartition(String colToPartitionStr) {
-        if (colToPartitionStr == null || colToPartitionStr.isEmpty()) {
-            return null;
-        }
-        Gson gson = new Gson();
-        Type type = new TypeToken<Map<String, Set<String>>>() {
-        }.getType();
-        return gson.fromJson(colToPartitionStr, type);
     }
 
     @Override
@@ -342,5 +340,9 @@ public class AnalysisInfo implements Writable {
     public void markFailed() {
         state = AnalysisState.FAILED;
         endTime = System.currentTimeMillis();
+    }
+
+    public TableIf getTable() {
+        return StatisticsUtil.findTable(catalogId, dbId, tblId);
     }
 }

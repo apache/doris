@@ -199,7 +199,7 @@ public class LateralViewRef extends TableRef {
 
     @Override
     public String toSql() {
-        return "lateral view " + expr.toSql() + " " + viewName + " as " + columnName;
+        return "lateral view " + expr.toSql() + " `" + viewName + "` as `" + columnName + "`";
     }
 
     @Override

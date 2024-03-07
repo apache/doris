@@ -36,6 +36,9 @@ public:
 
     DISALLOW_COPY_AND_ASSIGN(FileWriter);
 
+    // Open the file for writing.
+    virtual Status open() { return Status::OK(); }
+
     // Normal close. Wait for all data to persist before returning.
     virtual Status close() = 0;
 
@@ -64,6 +67,7 @@ protected:
     FileSystemSPtr _fs;
     bool _closed = false;
     bool _opened = false;
+    bool _create_empty_file = true;
 };
 
 } // namespace io

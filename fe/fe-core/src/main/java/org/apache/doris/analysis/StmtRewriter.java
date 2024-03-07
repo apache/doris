@@ -1338,7 +1338,17 @@ public class StmtRewriter {
                     null,
                     null,
                     LimitElement.NO_LIMIT);
-            selectStmt.fromClause.set(i, new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt));
+            InlineViewRef inlineViewRef = new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt);
+            inlineViewRef.setJoinOp(tableRef.joinOp);
+            inlineViewRef.setLeftTblRef(tableRef.leftTblRef);
+            inlineViewRef.setOnClause(tableRef.onClause);
+            tableRef.joinOp = null;
+            tableRef.leftTblRef = null;
+            tableRef.onClause = null;
+            if (selectStmt.fromClause.size() > i + 1) {
+                selectStmt.fromClause.get(i + 1).setLeftTblRef(inlineViewRef);
+            }
+            selectStmt.fromClause.set(i, inlineViewRef);
             selectStmt.analyze(analyzer);
             reAnalyze = true;
         }

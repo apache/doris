@@ -465,8 +465,10 @@ Status MemTable::_generate_delete_bitmap(int32_t segment_id) {
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
     }
-    auto rowset = _rowset_writer->build_tmp();
-    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+
+    RowsetSharedPtr rowset_ptr;
+    RETURN_IF_ERROR(_rowset_writer->build_tmp(rowset_ptr));
+    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(segment_id, segment_id + 1, &segments));
     std::vector<RowsetSharedPtr> specified_rowsets;
@@ -475,7 +477,7 @@ Status MemTable::_generate_delete_bitmap(int32_t segment_id) {
         specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
     }
     OlapStopWatch watch;
-    RETURN_IF_ERROR(_tablet->calc_delete_bitmap(rowset, segments, specified_rowsets,
+    RETURN_IF_ERROR(_tablet->calc_delete_bitmap(rowset_ptr, segments, specified_rowsets,
                                                 _mow_context->delete_bitmap,
                                                 _mow_context->max_version, nullptr));
     size_t total_rows = std::accumulate(

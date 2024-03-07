@@ -72,7 +72,7 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
     public void testSimpleUpdate() throws AnalysisException {
         String sql = "update t1 set v1 = v1 + 2, v2 = v1 * 2 where k1 = 3";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(parsed instanceof UpdateCommand);
+        Assertions.assertInstanceOf(UpdateCommand.class, parsed);
         UpdateCommand command = ((UpdateCommand) parsed);
         LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
         PlanChecker.from(connectContext, plan)
@@ -94,29 +94,23 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
         String sql = "update t1 a set v1 = t2.v1 + 2, v2 = a.v1 * 2 "
                 + "from src join t2 on src.k1 = t2.k1 where t2.k1 = a.k1";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(parsed instanceof UpdateCommand);
+        Assertions.assertInstanceOf(UpdateCommand.class, parsed);
         UpdateCommand command = ((UpdateCommand) parsed);
         LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
         PlanChecker.from(connectContext, plan)
                 .analyze(plan)
-                .rewrite()
                 .matches(
-                        logicalOlapTableSink(
-                                logicalProject(
+                        logicalFilter(
+                                logicalJoin(
+                                        logicalSubQueryAlias(
+                                                logicalFilter(
+                                                        logicalOlapScan()
+                                                )
+                                        ),
                                         logicalJoin(
-                                                logicalJoin(
-                                                        logicalProject(
-                                                                logicalFilter(
-                                                                        logicalOlapScan()
-                                                                )
-                                                        ),
-                                                        logicalProject(
-                                                                logicalOlapScan())
-                                                ),
-                                                logicalProject(
-                                                        logicalFilter(
-                                                                logicalOlapScan()
-                                                        )
+                                                logicalOlapScan(),
+                                                logicalFilter(
+                                                        logicalOlapScan()
                                                 )
                                         )
                                 )

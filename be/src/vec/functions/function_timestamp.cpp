@@ -216,12 +216,13 @@ private:
         auto& ts_val = *reinterpret_cast<DateValueType*>(&res[index]);
         if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
             null_map[index] = 1;
-        }
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
-                ts_val.to_datetime();
-            } else {
-                ts_val.cast_to_date();
+        } else {
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
+                    ts_val.to_datetime();
+                } else {
+                    ts_val.cast_to_date();
+                }
             }
         }
     }

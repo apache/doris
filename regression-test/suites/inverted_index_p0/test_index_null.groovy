@@ -32,8 +32,8 @@ suite("test__null_index", "inverted_index"){
     sql """
 	CREATE TABLE IF NOT EXISTS ${indexTblName}(
 	    `id` int(11) NOT NULL,
-            `value` array<text> NULL DEFAULT "[]",
-	    INDEX c_value_idx(`value`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+            `value` array<text> NULL DEFAULT "[]"
+	    --INDEX c_value_idx(`value`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'

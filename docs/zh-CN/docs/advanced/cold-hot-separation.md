@@ -167,7 +167,6 @@ ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="te
 - 修改列类型
 - 调整列顺序
 - 增加、修改 Bloom Filter
-- 增加、删除 bitmap index
 
 ## 冷数据的垃圾回收
 冷数据的垃圾数据是指没有被任何Replica使用的数据，对象存储上可能会有如下情况产生的垃圾数据：

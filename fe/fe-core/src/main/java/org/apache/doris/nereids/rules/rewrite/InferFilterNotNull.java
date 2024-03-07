@@ -20,13 +20,14 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
+import com.google.common.collect.Streams;
 
 import java.util.Set;
 
@@ -43,18 +44,27 @@ public class InferFilterNotNull extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter()
-            .when(filter -> filter.getConjuncts().stream().noneMatch(expr -> expr.isGeneratedIsNotNull))
+            .when(filter -> filter.getConjuncts().stream()
+                    .filter(Not.class::isInstance)
+                    .map(Not.class::cast)
+                    .noneMatch(Not::isGeneratedIsNotNull))
             .thenApply(ctx -> {
                 LogicalFilter<Plan> filter = ctx.root;
                 Set<Expression> predicates = filter.getConjuncts();
-                Set<Expression> isNotNull = ExpressionUtils.inferNotNull(predicates, ctx.cascadesContext);
-                if (isNotNull.isEmpty() || predicates.containsAll(isNotNull)) {
+                Set<Expression> isNotNulls = ExpressionUtils.inferNotNull(predicates, ctx.cascadesContext);
+                ImmutableSet.Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
+                for (Expression isNotNull : isNotNulls) {
+                    if (!predicates.contains(isNotNull)) {
+                        needGenerateNotNullsBuilder.add(((Not) isNotNull).withGeneratedIsNotNull(true));
+                    }
+                }
+                Set<Expression> needGenerateNotNulls = needGenerateNotNullsBuilder.build();
+                if (needGenerateNotNulls.isEmpty()) {
                     return null;
                 }
-                Builder<Expression> builder = ImmutableSet.<Expression>builder()
-                        .addAll(predicates)
-                        .addAll(isNotNull);
-                return PlanUtils.filter(builder.build(), filter.child()).get();
+                Set<Expression> conjuncts = Streams.concat(predicates.stream(), needGenerateNotNulls.stream())
+                        .collect(ImmutableSet.toImmutableSet());
+                return PlanUtils.filter(conjuncts, filter.child()).get();
             }).toRule(RuleType.INFER_FILTER_NOT_NULL);
     }
 }

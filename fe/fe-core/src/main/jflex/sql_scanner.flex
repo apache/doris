@@ -114,6 +114,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("backends", new Integer(SqlParserSymbols.KW_BACKENDS));
         keywordMap.put("backup", new Integer(SqlParserSymbols.KW_BACKUP));
         keywordMap.put("begin", new Integer(SqlParserSymbols.KW_BEGIN));
+        keywordMap.put("belong", new Integer(SqlParserSymbols.KW_BELONG));
         keywordMap.put("between", new Integer(SqlParserSymbols.KW_BETWEEN));
         keywordMap.put("bigint", new Integer(SqlParserSymbols.KW_BIGINT));
         keywordMap.put("bin", new Integer(SqlParserSymbols.KW_BIN));
@@ -738,7 +739,7 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 
 {SingleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-      escapeBackSlash(yytext().substring(1, yytext().length()-1), sql_mode).replaceAll("''", "'"));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1), sql_mode));
 }
 
 {DoubleQuoteStringLiteral} {

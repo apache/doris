@@ -33,7 +33,6 @@
 namespace doris {
 class BufferControlBlock;
 class ObjectPool;
-class QueryStatistics;
 class RuntimeProfile;
 class RuntimeState;
 class TDataSink;
@@ -47,13 +46,12 @@ class VExprContext;
 class VResultFileSink : public DataSink {
 public:
     VResultFileSink(ObjectPool* pool, const RowDescriptor& row_desc, const TResultFileSink& sink,
-                    int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
-                    const std::vector<TExpr>& t_output_expr);
+                    int per_channel_buffer_size, const std::vector<TExpr>& t_output_expr);
     VResultFileSink(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                     const TResultFileSink& sink,
                     const std::vector<TPlanFragmentDestination>& destinations,
-                    int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
-                    const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
+                    int per_channel_buffer_size, const std::vector<TExpr>& t_output_expr,
+                    DescriptorTbl& descs);
     ~VResultFileSink() override = default;
     Status init(const TDataSink& thrift_sink) override;
     Status prepare(RuntimeState* state) override;
@@ -66,7 +64,6 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
     RuntimeProfile* profile() override { return _profile; }
 
-    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
     const RowDescriptor& row_desc() const { return _row_desc; }
 
 private:

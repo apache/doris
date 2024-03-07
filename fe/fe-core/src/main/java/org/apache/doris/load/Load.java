@@ -761,6 +761,9 @@ public class Load {
         Map<String, Expr> mvDefineExpr = Maps.newHashMap();
         for (Column column : tbl.getFullSchema()) {
             if (column.getDefineExpr() != null) {
+                if (column.getDefineExpr().getType().isInvalid()) {
+                    column.getDefineExpr().setType(column.getType());
+                }
                 mvDefineExpr.put(column.getName(), column.getDefineExpr());
             }
         }

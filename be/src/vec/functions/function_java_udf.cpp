@@ -424,7 +424,7 @@ Status JavaFunctionCall::close(FunctionContext* context,
     // JNIContext own some resource and its release method depend on JavaFunctionCall
     // has to release the resource before JavaFunctionCall is deconstructed.
     if (jni_ctx) {
-        jni_ctx->close();
+        RETURN_IF_ERROR(jni_ctx->close());
     }
     return Status::OK();
 }

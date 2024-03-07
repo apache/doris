@@ -54,6 +54,7 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
+import org.apache.doris.rewrite.FunctionAlias;
 import org.apache.doris.rewrite.InferFiltersRule;
 import org.apache.doris.rewrite.MatchPredicateRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
@@ -180,6 +181,8 @@ public class Analyzer {
 
     private boolean isReAnalyze = false;
 
+    private boolean isReplay = false;
+
     public void setIsSubquery() {
         isSubquery = true;
         isFirstScopeInSubquery = true;
@@ -252,6 +255,14 @@ public class Analyzer {
 
     public long getAutoBroadcastJoinThreshold() {
         return globalState.autoBroadcastJoinThreshold;
+    }
+
+    public void setReplay() {
+        isReplay = true;
+    }
+
+    public boolean isReplay() {
+        return isReplay;
     }
 
     private static class InferPredicateState {
@@ -443,6 +454,7 @@ public class Analyzer {
             rules.add(RewriteIsNullIsNotNullRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
+            rules.add(FunctionAlias.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);

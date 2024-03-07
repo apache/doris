@@ -79,7 +79,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "ipv4numtostring";
+    static constexpr auto name = "ipv4_num_to_string";
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv4NumToString<mask_tail_octets, Name>>();
     }

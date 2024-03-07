@@ -43,6 +43,7 @@ public enum ErrorCode {
     ERR_NO_SUCH_THREAD(1094, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown thread id: %d"),
     ERR_KILL_DENIED_ERROR(1095, new byte[]{'H', 'Y', '0', '0', '0'}, "You are not owner of thread %d"),
     ERR_NO_TABLES_USED(1096, new byte[]{'H', 'Y', '0', '0', '0'}, "No tables used"),
+    ERR_NO_SUCH_QUERY(1097, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown query id: %s"),
     ERR_WRONG_DB_NAME(1102, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect database name '%s'"),
     ERR_WRONG_TABLE_NAME(1103, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect table name '%s'. Table name regex is '%s'"),
     ERR_TOO_BIG_SELECT(1104, new byte[]{'4', '2', '0', '0', '0'}, "The SELECT would examine more than MAX_JOIN_SIZE "
@@ -1229,6 +1230,10 @@ public enum ErrorCode {
 
     public byte[] getSqlState() {
         return sqlState;
+    }
+
+    public String getErrorMsg() {
+        return errorMsg;
     }
 
     public String formatErrorMsg(Object... args) {

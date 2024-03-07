@@ -74,15 +74,14 @@ public:
     VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
                       const RowDescriptor& row_desc, const TDataStreamSink& sink,
                       const std::vector<TPlanFragmentDestination>& destinations,
-                      int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
+                      int per_channel_buffer_size);
 
     VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                       PlanNodeId dest_node_id,
                       const std::vector<TPlanFragmentDestination>& destinations,
-                      int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
+                      int per_channel_buffer_size);
 
-    VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc, int per_channel_buffer_size,
-                      bool send_query_statistics_with_every_batch);
+    VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc, int per_channel_buffer_size);
 
     ~VDataStreamSender() override;
 
@@ -105,9 +104,6 @@ public:
     bool channel_all_can_write();
 
     const RowDescriptor& row_desc() { return _row_desc; }
-
-    QueryStatistics* query_statistics() { return _query_statistics.get(); }
-    QueryStatisticsPtr query_statisticsPtr() { return _query_statistics; }
 
 protected:
     friend class Channel;
@@ -215,8 +211,7 @@ public:
     // when data is added via add_row() and not sent directly via send_batch().
     Channel(VDataStreamSender* parent, const RowDescriptor& row_desc,
             const TNetworkAddress& brpc_dest, const TUniqueId& fragment_instance_id,
-            PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain,
-            bool send_query_statistics_with_every_batch)
+            PlanNodeId dest_node_id, int buffer_size)
             : _parent(parent),
               _row_desc(row_desc),
               _fragment_instance_id(fragment_instance_id),
@@ -225,9 +220,7 @@ public:
               _packet_seq(0),
               _need_close(false),
               _closed(false),
-              _brpc_dest_addr(brpc_dest),
-              _is_transfer_chain(is_transfer_chain),
-              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
+              _brpc_dest_addr(brpc_dest) {
         std::string localhost = BackendOptions::get_localhost();
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
@@ -254,24 +247,25 @@ public:
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
-    virtual Status send_block(PBlock* block, bool eos = false);
+    virtual Status send_remote_block(PBlock* block, bool eos = false,
+                                     const Status& st = Status::OK());
 
-    virtual Status send_block(BroadcastPBlockHolder* block, bool eos = false) {
+    virtual Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) {
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
     Status add_rows(Block* block, const std::vector<int>& row);
 
-    virtual Status send_current_block(bool eos);
+    virtual Status send_current_block(bool eos, const Status& exec_status = Status::OK());
 
-    Status send_local_block(bool eos = false);
+    Status send_local_block(bool eos = false, const Status& exec_status = Status::OK());
 
-    Status send_local_block(Block* block);
+    Status send_local_block(Block* block, const Status& exec_status = Status::OK());
     // Flush buffered rows and close channel. This function don't wait the response
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
     // can run parallel.
-    Status close(RuntimeState* state);
+    Status close(RuntimeState* state, const Status& exec_status = Status::OK());
 
     // Get close wait's response, to finish channel close operation.
     Status close_wait(RuntimeState* state);
@@ -337,7 +331,7 @@ protected:
     // Serialize _batch into _thrift_batch and send via send_batch().
     // Returns send_batch() status.
     Status send_current_batch(bool eos = false);
-    Status close_internal();
+    Status close_internal(const Status& exec_status = Status::OK());
 
     VDataStreamSender* _parent;
 
@@ -366,9 +360,6 @@ protected:
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
-    // whether the dest can be treated as query statistics transfer chain.
-    bool _is_transfer_chain;
-    bool _send_query_statistics_with_every_batch;
     RuntimeState* _state;
 
     bool _is_local;
@@ -416,10 +407,9 @@ class PipChannel final : public Channel {
 public:
     PipChannel(VDataStreamSender* parent, const RowDescriptor& row_desc,
                const TNetworkAddress& brpc_dest, const TUniqueId& fragment_instance_id,
-               PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain,
-               bool send_query_statistics_with_every_batch)
-            : Channel(parent, row_desc, brpc_dest, fragment_instance_id, dest_node_id, buffer_size,
-                      is_transfer_chain, send_query_statistics_with_every_batch) {
+               PlanNodeId dest_node_id, int buffer_size)
+            : Channel(parent, row_desc, brpc_dest, fragment_instance_id, dest_node_id,
+                      buffer_size) {
         ch_roll_pb_block();
     }
 
@@ -443,7 +433,8 @@ public:
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
-    Status send_block(PBlock* block, bool eos = false) override {
+    Status send_remote_block(PBlock* block, bool eos = false,
+                             const Status& st = Status::OK()) override {
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         std::unique_ptr<PBlock> pblock_ptr;
         pblock_ptr.reset(block);
@@ -456,12 +447,12 @@ public:
             }
         }
         if (eos || block->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos, st}));
         }
         return Status::OK();
     }
 
-    Status send_block(BroadcastPBlockHolder* block, bool eos = false) override {
+    Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) override {
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         if (eos) {
             if (_eos_send) {
@@ -477,9 +468,9 @@ public:
     }
 
     // send _mutable_block
-    Status send_current_block(bool eos) override {
+    Status send_current_block(bool eos, const Status& st) override {
         if (is_local()) {
-            return send_local_block(eos);
+            return send_local_block(eos, st);
         }
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         auto block_ptr = std::make_unique<PBlock>();
@@ -489,7 +480,7 @@ public:
             block.clear_column_data();
             _mutable_block->set_muatable_columns(block.mutate_columns());
         }
-        RETURN_IF_ERROR(send_block(block_ptr.release(), eos));
+        RETURN_IF_ERROR(send_remote_block(block_ptr.release(), eos, st));
         return Status::OK();
     }
 

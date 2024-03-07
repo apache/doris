@@ -100,6 +100,8 @@ public class AuditEvent {
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
 
+    public long pushToAuditLogQueueTime;
+
     public static class AuditEventBuilder {
 
         private AuditEvent auditEvent = new AuditEvent();

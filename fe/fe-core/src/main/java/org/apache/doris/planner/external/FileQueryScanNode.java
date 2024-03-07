@@ -29,22 +29,14 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
-import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.external.hudi.HudiScanNode;
-import org.apache.doris.planner.external.hudi.HudiSplit;
-import org.apache.doris.planner.external.iceberg.IcebergScanNode;
-import org.apache.doris.planner.external.iceberg.IcebergSplit;
-import org.apache.doris.planner.external.paimon.PaimonScanNode;
-import org.apache.doris.planner.external.paimon.PaimonSplit;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -81,7 +73,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -261,6 +252,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return params;
     }
 
+    // Set some parameters of scan to support different types of file data sources
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+    }
+
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
@@ -330,17 +325,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 rangeDesc.setTableFormatParams(tableFormatFileDesc);
             }
 
-            // external data lake table
-            if (fileSplit instanceof IcebergSplit) {
-                // TODO: extract all data lake split to factory
-                IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
-            } else if (fileSplit instanceof PaimonSplit) {
-                PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
-            } else if (fileSplit instanceof HudiSplit) {
-                HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
-            } else if (fileSplit instanceof MaxComputeSplit) {
-                MaxComputeScanNode.setScanParams(rangeDesc, (MaxComputeSplit) fileSplit);
-            }
+            setScanParams(rangeDesc, fileSplit);
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             TScanRangeLocation location = new TScanRangeLocation();
@@ -450,6 +435,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected abstract TFileFormatType getFileFormatType() throws UserException;
 
+
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
         return Util.inferFileCompressTypeByPath(fileSplit.getPath().toString());
     }
@@ -463,33 +449,4 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TableIf getTargetTable() throws UserException;
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
-
-    protected static Optional<TFileType> getTFileType(String location) {
-        if (location != null && !location.isEmpty()) {
-            if (S3Util.isObjStorage(location)) {
-                if (S3Util.isHdfsOnOssEndpoint(location)) {
-                    // if hdfs service is enabled on oss, use hdfs lib to access oss.
-                    return Optional.of(TFileType.FILE_HDFS);
-                }
-                return Optional.of(TFileType.FILE_S3);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
-                return Optional.of(TFileType.FILE_HDFS);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_VIEWFS)) {
-                return Optional.of(TFileType.FILE_HDFS);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_COSN)) {
-                return Optional.of(TFileType.FILE_HDFS);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
-                return Optional.of(TFileType.FILE_LOCAL);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
-                return Optional.of(TFileType.FILE_BROKER);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
-                return Optional.of(TFileType.FILE_BROKER);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
-                return Optional.of(TFileType.FILE_BROKER);
-            }
-        }
-        return Optional.empty();
-    }
 }
-
-

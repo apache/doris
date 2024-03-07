@@ -320,7 +320,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     if (_json_doc->IsArray()) {
         if (_json_doc->Size() == 0) {
             // may be passing an empty json, such as "[]"
-            return Status::InternalError("Empty first json line");
+            return Status::InternalError<false>("Empty first json line");
         }
         objectValue = &(*_json_doc)[0];
     } else {
@@ -351,7 +351,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
 
 Status NewJsonReader::_get_range_params() {
     if (!_params.__isset.file_attributes) {
-        return Status::InternalError("BE cat get file_attributes");
+        return Status::InternalError<false>("BE cat get file_attributes");
     }
 
     // get line_delimiter
@@ -426,12 +426,12 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
         rapidjson::Document jsonpaths_doc;
         if (!jsonpaths_doc.Parse(_jsonpaths.c_str(), _jsonpaths.length()).HasParseError()) {
             if (!jsonpaths_doc.IsArray()) {
-                return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+                return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
             } else {
                 for (int i = 0; i < jsonpaths_doc.Size(); i++) {
                     const rapidjson::Value& path = jsonpaths_doc[i];
                     if (!path.IsString()) {
-                        return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+                        return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
                     }
                     std::vector<JsonPath> parsed_paths;
                     JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
@@ -439,7 +439,7 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
                 }
             }
         } else {
-            return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+            return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
         }
     }
 
@@ -918,7 +918,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
             auto end = fmt::format_to(tmp_buf, "{}", value->GetDouble());
             wbytes = end - tmp_buf;
         } else {
-            return Status::InternalError("It should not here.");
+            return Status::InternalError<false>("It should not here.");
         }
         str_value = tmp_buf;
         break;
@@ -1069,7 +1069,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         break;
     }
     default: {
-        return Status::NotSupported("no supported file reader type: {}", _params.file_type);
+        return Status::NotSupported<false>("no supported file reader type: {}", _params.file_type);
     }
     }
     return Status::OK();
@@ -1253,7 +1253,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
-                    if (st.is<DATA_QUALITY_ERROR>()) {
+                    if (st.is_not_found()) {
                         RETURN_IF_ERROR(_append_error_msg(nullptr, st.to_string(), "", nullptr));
                         ADVANCE_ROW();
                         continue;
@@ -1698,11 +1698,11 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Status st;
         if (i < _parsed_jsonpaths.size()) {
             st = JsonFunctions::extract_from_object(*value, _parsed_jsonpaths[i], &json_value);
-            if (!st.ok() && !st.is<DATA_QUALITY_ERROR>()) {
+            if (!st.ok() && !st.is_not_found()) {
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<DATA_QUALITY_ERROR>()) {
+        if (i >= _parsed_jsonpaths.size() || st.is_not_found()) {
             // not match in jsondata, filling with default value
             RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
             if (!(*valid)) {

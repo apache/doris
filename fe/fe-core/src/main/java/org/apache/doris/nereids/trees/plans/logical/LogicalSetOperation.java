@@ -139,8 +139,8 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             Slot left = child(0).getOutput().get(i);
             Slot right = child(1).getOutput().get(i);
             DataType compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
-            Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, compatibleType);
-            Expression newRight = TypeCoercionUtils.castIfNotSameType(right, compatibleType);
+            Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
+            Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
             if (newLeft instanceof Cast) {
                 newLeft = new Alias(newLeft, left.getName());
             }

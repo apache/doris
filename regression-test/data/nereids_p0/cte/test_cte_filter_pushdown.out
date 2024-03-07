@@ -41,3 +41,21 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------filter((m2.k1 = 1))
 ----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
+-- !cte_filter_pushdown_3 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN](tmp2.k3 = dd.k3)
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((tmp2.k3 = 0))
+--------------PhysicalWindow
+----------------PhysicalQuickSort
+------------------PhysicalProject
+--------------------filter((tmp.k1 = 1))
+----------------------PhysicalOlapScan[test]
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((dd.k3 = 0))
+--------------PhysicalOlapScan[baseall]
+

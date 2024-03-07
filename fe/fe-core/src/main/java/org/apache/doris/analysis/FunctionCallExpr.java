@@ -81,6 +81,9 @@ public class FunctionCallExpr extends Expr {
             String.CASE_INSENSITIVE_ORDER)
             .add("round").add("round_bankers").add("ceil").add("floor")
             .add("truncate").add("dround").add("dceil").add("dfloor").build();
+    public static final ImmutableSet<String> STRING_SEARCH_FUNCTION_SET = new ImmutableSortedSet.Builder(
+            String.CASE_INSENSITIVE_ORDER)
+            .add("multi_search_all_positions").add("multi_match_any").build();
 
     private final AtomicBoolean addOnce = new AtomicBoolean(false);
 
@@ -829,12 +832,6 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(
                         "COUNT must have DISTINCT for multiple arguments: " + this.toSql());
             }
-
-            for (Expr child : children) {
-                if (child.type.isOnlyMetricType() && !child.type.isComplexType()) {
-                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-                }
-            }
             return;
         }
 
@@ -960,8 +957,14 @@ public class FunctionCallExpr extends Expr {
         // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
         if (fnName.getFunction().equalsIgnoreCase("avg") && arg.type.isDecimalV3()
                 && arg.type.getDecimalDigits() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
-            Type t = ScalarType.createDecimalType(arg.type.getPrimitiveType(), arg.type.getPrecision(),
-                    ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE);
+            int precision = arg.type.getPrecision();
+            int scale = arg.type.getDecimalDigits();
+            precision = precision - scale + ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE;
+            scale = ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE;
+            if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                precision = ScalarType.MAX_DECIMAL128_PRECISION;
+            }
+            Type t = ScalarType.createDecimalType(arg.type.getPrimitiveType(), precision, scale);
             Expr e = getChild(0).castTo(t);
             setChild(0, e);
         }
@@ -1514,6 +1517,8 @@ public class FunctionCallExpr extends Expr {
 
         } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
                 || fnName.getFunction().equalsIgnoreCase("nvl")) {
+            Preconditions.checkArgument(children != null && children.size() == 2,
+                    "The " + fnName + " function must have two params");
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
             if (assignmentCompatibleType != Type.INVALID) {
@@ -1614,8 +1619,25 @@ public class FunctionCallExpr extends Expr {
                 // now first find function in built-in functions
                 if (Strings.isNullOrEmpty(fnName.getDb())) {
                     Type[] childTypes = collectChildReturnTypes();
-                    fn = getBuiltinFunction(fnName.getFunction(), childTypes,
-                            Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    // when we call count<Array<T>> with nested type is not null type which is defined in FunctionSet
+                    // so here aim to make function signature to match builtln func we defined in fe code
+                    if (fnName.getFunction().equalsIgnoreCase("count") && childTypes.length > 0
+                            && childTypes[0].isComplexType()) {
+                        // get origin type to match builtln func
+                        Type[] matchFuncChildTypes = new Type[1];
+                        if (childTypes[0].isArrayType()) {
+                            matchFuncChildTypes[0] = Type.ARRAY;
+                        } else if (childTypes[0].isMapType()) {
+                            matchFuncChildTypes[0] = Type.MAP;
+                        } else if (childTypes[0].isStructType()) {
+                            matchFuncChildTypes[0] = Type.GENERIC_STRUCT;
+                        }
+                        fn = getBuiltinFunction(fnName.getFunction(), matchFuncChildTypes,
+                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    } else {
+                        fn = getBuiltinFunction(fnName.getFunction(), childTypes,
+                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    }
                 }
 
                 // find user defined functions
@@ -1822,10 +1844,20 @@ public class FunctionCallExpr extends Expr {
                     ix = i % 2 == 0 ? 0 : 1;
                 }
 
+                // array_zip varargs special case array_zip(array1, array2, ...)
+                // we only specialize array_zip with first array type, next type we same with custom type
+                if (i >= args.length && (fnName.getFunction().equalsIgnoreCase("array_zip"))) {
+                    if (argTypes[i].isNull()) {
+                        uncheckedCastChild(args[i - 1], i);
+                    }
+                    continue;
+                }
                 if (i == 0 && (fnName.getFunction().equalsIgnoreCase("char"))) {
                     continue;
                 }
-
+                if (fnName.getFunction().equalsIgnoreCase("count") && args[i].isComplexType()) {
+                    continue;
+                }
                 if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
                         .equalsIgnoreCase("histogram")
                         || fnName.getFunction().equalsIgnoreCase("hist"))
@@ -2372,8 +2404,8 @@ public class FunctionCallExpr extends Expr {
         String dbName = fnName.analyzeDb(analyzer);
         if (!Strings.isNullOrEmpty(dbName)) {
             // check operation privilege
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+            if (!analyzer.isReplay() && !Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    dbName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
             }
             // TODO(gaoxin): ExternalDatabase not implement udf yet.

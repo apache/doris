@@ -72,6 +72,8 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
                 (5, 5, '5', 5.0, '2000-01-05');"""
             sql """insert into ${tbName3} values(1), (3), (5);"""
 
+            sql "sync;"
+
             qt_tbl1 "select * from ${tbName1} order by id;"
             qt_tbl2 "select * from ${tbName2} order by id;"
             qt_tbl3 "select * from ${tbName3} order by id;"
@@ -111,6 +113,8 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
                 (5, 5, '5', 5.0, '2000-01-05');"""
             sql """insert into ${tbName3} values(1), (3), (5);"""
 
+            sql "sync;"
+            
             qt_select_result "select ${tbName2}.id,1 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id order by ${tbName2}.id;"
 
             sql "set enable_unique_key_partial_update=true;"

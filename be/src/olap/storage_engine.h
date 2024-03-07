@@ -139,7 +139,7 @@ public:
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
     void notify_listeners();
-    void notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type);
+    bool notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type);
 
     Status execute_task(EngineTask* task);
 
@@ -185,18 +185,6 @@ public:
     void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response);
 
-    void create_cumulative_compaction(TabletSharedPtr best_tablet,
-                                      std::shared_ptr<CumulativeCompaction>& cumulative_compaction);
-    void create_base_compaction(TabletSharedPtr best_tablet,
-                                std::shared_ptr<BaseCompaction>& base_compaction);
-
-    void create_full_compaction(TabletSharedPtr best_tablet,
-                                std::shared_ptr<FullCompaction>& full_compaction);
-
-    void create_single_replica_compaction(
-            TabletSharedPtr best_tablet,
-            std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
-            CompactionType compaction_type);
     bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
 
     bool should_fetch_from_peer(int64_t tablet_id);

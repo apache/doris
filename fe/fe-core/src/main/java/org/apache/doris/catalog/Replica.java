@@ -66,7 +66,8 @@ public class Replica implements Writable {
         VERSION_ERROR, // missing version
         MISSING, // replica does not exist
         SCHEMA_ERROR, // replica's schema hash does not equal to index's schema hash
-        BAD // replica is broken.
+        BAD, // replica is broken.
+        DROP,  // user force drop replica on this backend
     }
 
     @SerializedName(value = "id")
@@ -147,6 +148,8 @@ public class Replica implements Writable {
     private long preWatermarkTxnId = -1;
     private long postWatermarkTxnId = -1;
 
+    private long userDropTime = -1;
+
     public Replica() {
     }
 
@@ -207,6 +210,11 @@ public class Replica implements Writable {
 
     public long getBackendId() {
         return this.backendId;
+    }
+
+    // just for ut
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
     }
 
     public long getDataSize() {
@@ -686,9 +694,33 @@ public class Replica implements Writable {
         return postWatermarkTxnId;
     }
 
+    public void setUserDrop(boolean isDrop) {
+        if (isDrop) {
+            userDropTime = System.currentTimeMillis();
+        } else {
+            userDropTime = -1;
+        }
+    }
+
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE
                 && getState() != ReplicaState.DECOMMISSION
                 && !isBad();
+    }
+
+    public boolean isUserDrop() {
+        if (userDropTime > 0) {
+            if (System.currentTimeMillis() - userDropTime < Config.manual_drop_replica_valid_second * 1000L) {
+                return true;
+            }
+            userDropTime = -1;
+        }
+
+        return false;
+    }
+
+    public boolean isScheduleAvailable() {
+        return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(backendId)
+            && !isUserDrop();
     }
 }

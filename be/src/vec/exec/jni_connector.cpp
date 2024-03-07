@@ -207,8 +207,10 @@ Status JniConnector::close() {
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_IF_ERROR(
             JniUtil::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
-    if (_jni_scanner_cls == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
+    if (_jni_scanner_cls == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
         return Status::InternalError("Fail to get JniScanner class.");
     }
     RETURN_ERROR_IF_EXC(env);
@@ -379,15 +381,19 @@ Status JniConnector::_fill_struct_column(MutableColumnPtr& doris_column, DataTyp
 }
 
 Status JniConnector::_fill_string_column(MutableColumnPtr& doris_column, size_t num_rows) {
-    if (num_rows == 0) {
-        return Status::OK();
-    }
     auto& string_col = static_cast<const ColumnString&>(*doris_column);
     ColumnString::Chars& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
     ColumnString::Offsets& string_offsets =
             const_cast<ColumnString::Offsets&>(string_col.get_offsets());
     int* offsets = reinterpret_cast<int*>(_next_meta_as_ptr());
     char* chars = reinterpret_cast<char*>(_next_meta_as_ptr());
+
+    // This judgment is necessary, otherwise the following statement `offsets[num_rows - 1]` out of bounds
+    // What's more, This judgment must be placed after `address.next_meta_as_ptr()`
+    // because `address.next_meta_as_ptr` will make `address._meta_index` plus 1
+    if (num_rows == 0) {
+        return Status::OK();
+    }
 
     size_t origin_chars_size = string_chars.size();
     string_chars.resize(origin_chars_size + offsets[num_rows - 1]);
@@ -447,8 +453,10 @@ std::string JniConnector::get_hive_type(const TypeDescriptor& desc) {
         [[fallthrough]];
     case TYPE_TIME:
         [[fallthrough]];
-    case TYPE_TIMEV2:
-        return "timestamp";
+    case TYPE_TIMEV2: {
+        buffer << "timestamp(" << desc.scale << ")";
+        return buffer.str();
+    }
     case TYPE_BINARY:
         return "binary";
     case TYPE_CHAR: {

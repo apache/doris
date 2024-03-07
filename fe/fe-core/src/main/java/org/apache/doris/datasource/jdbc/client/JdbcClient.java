@@ -108,17 +108,16 @@ public abstract class JdbcClient {
                 Optional.ofNullable(jdbcClientConfig.getExcludeDatabaseMap()).orElse(Collections.emptyMap());
         String jdbcUrl = jdbcClientConfig.getJdbcUrl();
         this.dbType = parseDbType(jdbcUrl);
-        initializeDataSource(jdbcClientConfig.getPassword(), jdbcUrl, jdbcClientConfig.getDriverUrl(),
-                jdbcClientConfig.getDriverClass());
+        initializeDataSource(jdbcClientConfig);
     }
 
     // Initialize DruidDataSource
-    private void initializeDataSource(String password, String jdbcUrl, String driverUrl, String driverClass) {
+    private void initializeDataSource(JdbcClientConfig config) {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
             //  and URLClassLoader may load the jar package directly into memory
-            URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
+            URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
             // set parent ClassLoader to null, we can achieve class loading isolation.
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
@@ -127,23 +126,29 @@ public abstract class JdbcClient {
             Thread.currentThread().setContextClassLoader(classLoader);
             dataSource = new DruidDataSource();
             dataSource.setDriverClassLoader(classLoader);
-            dataSource.setDriverClassName(driverClass);
-            dataSource.setUrl(jdbcUrl);
-            dataSource.setUsername(jdbcUser);
-            dataSource.setPassword(password);
-            dataSource.setMinIdle(1);
-            dataSource.setInitialSize(1);
-            dataSource.setMaxActive(100);
-            dataSource.setTimeBetweenEvictionRunsMillis(600000);
-            dataSource.setMinEvictableIdleTimeMillis(300000);
+            dataSource.setDriverClassName(config.getDriverClass());
+            dataSource.setUrl(config.getJdbcUrl());
+            dataSource.setUsername(config.getUser());
+            dataSource.setPassword(config.getPassword());
+            dataSource.setMinIdle(config.getConnectionPoolMinSize()); // default 1
+            dataSource.setInitialSize(config.getConnectionPoolMinSize()); // default 1
+            dataSource.setMaxActive(config.getConnectionPoolMaxSize()); // default 10
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
-            dataSource.setMaxWait(5000);
+            dataSource.setMaxWait(config.getConnectionPoolMaxWaitTime()); // default 5000
+            dataSource.setTimeBetweenEvictionRunsMillis(config.getConnectionPoolMaxLifeTime() / 10L); // default 3 min
+            dataSource.setMinEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
+            dataSource.setMaxEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime()); // default 30 min
+            LOG.info("JdbcClient set"
+                    + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
+                    + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
+                    + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
+                    + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime());
         } catch (MalformedURLException e) {
-            throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
+            throw new JdbcClientException("MalformedURLException to load class about " + config.getDriverUrl(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -468,7 +473,7 @@ public abstract class JdbcClient {
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);
 
     protected Type createDecimalOrStringType(int precision, int scale) {
-        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION && precision > 0) {
             return ScalarType.createDecimalV3Type(precision, scale);
         }
         return ScalarType.createStringType();

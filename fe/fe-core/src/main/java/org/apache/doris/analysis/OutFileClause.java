@@ -140,6 +140,7 @@ public class OutFileClause {
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
     public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     public static final String PROP_FILE_SUFFIX = "file_suffix";
+    public static final String PROP_WITH_BOM = "with_bom";
 
     private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String SCHEMA = "schema";
@@ -159,6 +160,7 @@ public class OutFileClause {
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
     private boolean deleteExistingFiles = false;
     private String fileSuffix = "";
+    private boolean withBom = false;
     private BrokerDesc brokerDesc = null;
     // True if result is written to local disk.
     // If set to true, the brokerDesc must be null.
@@ -651,6 +653,11 @@ public class OutFileClause {
             processedPropKeys.add(PROP_FILE_SUFFIX);
         }
 
+        if (properties.containsKey(PROP_WITH_BOM)) {
+            withBom = Boolean.valueOf(properties.get(PROP_WITH_BOM)).booleanValue();
+            processedPropKeys.add(PROP_WITH_BOM);
+        }
+
         if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
             successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
             FeNameFormat.checkOutfileSuccessFileName("file name", successFileName);
@@ -889,6 +896,7 @@ public class OutFileClause {
         sinkOptions.setMaxFileSizeBytes(maxFileSizeBytes);
         sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         sinkOptions.setFileSuffix(fileSuffix);
+        sinkOptions.setWithBom(withBom);
 
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getProperties());

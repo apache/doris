@@ -28,11 +28,11 @@ under the License.
 
 Beginning with version 0.9.0, Doris introduced an optimized replica management strategy and supported a richer replica status viewing tool. This document focuses on Doris data replica balancing, repair scheduling strategies, and replica management operations and maintenance methods. Help users to more easily master and manage the replica status in the cluster.
 
-> Repairing and balancing copies of tables with Collocation attributes can be referred to [HERE](../../query-acceleration/join-optimization/colocation-join.md)
+> Repairing and balancing copies of tables with Colocation attributes can be referred to [HERE](../../query-acceleration/join-optimization/colocation-join.md)
 
 ## Noun Interpretation
 
-1. Tablet: The logical fragmentation of a Doris table, where a table has multiple fragmentations.
+1. Tablet: The logical fragmentation of a Doris table, where a table has multiple fragments.
 2. Replica: A sliced copy, defaulting to three copies of a slice.
 3. Healthy Replica: A healthy copy that survives at Backend and has a complete version.
 4. Tablet Checker (TC): A resident background thread that scans all Tablets regularly, checks the status of these Tablets, and decides whether to send them to Tablet Scheduler based on the results.
@@ -133,7 +133,7 @@ For different states, we adopt different repair methods:
 
 3. REPLICA\_MISSING\_IN\_CLUSTER
 
-	This state processing method is the same as REPLICAMISSING.
+	This state processing method is the same as REPLICA\_MISSING.
 
 4. REDUNDANT
 
@@ -405,7 +405,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	* TabletId: The ID of the Tablet waiting to be scheduled. A scheduling task is for only one Tablet
 	* Type: Task type, which can be REPAIR (repair) or BALANCE (balance)
-	* Status: The current status of the Tablet, such as REPLICAMISSING (copy missing)
+	* Status: The current status of the Tablet, such as REPLICA\_MISSING (copy missing)
 	* State: The status of the scheduling task may be PENDING/RUNNING/FINISHED/CANCELLED/TIMEOUT/UNEXPECTED
 	* OrigPrio: Initial Priority
 	* DynmPrio: Current dynamically adjusted priority
@@ -605,7 +605,7 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 
 * use\_new\_tablet\_scheduler
 
-	* Description: Whether to enable the new replica scheduling mode. The new replica scheduling method is the replica scheduling method introduced in this document. If turned on, `disable_colocate_join` must be `true`. Because the new scheduling strategy does not support data fragmentation scheduling of co-locotion tables for the time being.
+	* Description: Whether to enable the new replica scheduling mode. The new replica scheduling method is the replica scheduling method introduced in this document. If turned on, `disable_colocate_join` must be `true`. Because the new scheduling strategy does not support data fragmentation scheduling of co-location tables for the time being.
 	* Default value:true
 	* Importance: High
 

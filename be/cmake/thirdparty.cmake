@@ -76,11 +76,6 @@ set_target_properties(thrift PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/
 add_library(thriftnb STATIC IMPORTED)
 set_target_properties(thriftnb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthriftnb.a)
 
-if(WITH_LZO)
-    add_library(lzo STATIC IMPORTED)
-    set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
-endif()
-
 if (WITH_MYSQL)
     add_library(mysql STATIC IMPORTED)
     set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
@@ -211,6 +206,9 @@ set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DI
 
 add_library(aws-c-s3 STATIC IMPORTED)
 set_target_properties(aws-c-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-s3.a)
+
+add_library(aws-c-sdkutils STATIC IMPORTED)
+set_target_properties(aws-c-sdkutils PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-sdkutils.a)
 
 if (NOT OS_MACOSX)
     add_library(aws-s2n STATIC IMPORTED)

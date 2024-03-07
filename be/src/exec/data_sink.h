@@ -38,7 +38,6 @@ class RuntimeState;
 class TPlanFragmentExecParams;
 class RowDescriptor;
 class DescriptorTbl;
-class QueryStatistics;
 class TDataSink;
 class TExpr;
 class TPipelineFragmentParams;
@@ -101,18 +100,11 @@ public:
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;
 
-    virtual void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-        _query_statistics = statistics;
-    }
-
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed;
     std::string _name;
-
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
 
     OpentelemetrySpan _span {};
 };

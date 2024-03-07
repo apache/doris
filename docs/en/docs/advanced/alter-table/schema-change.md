@@ -31,8 +31,7 @@ Users can modify the schema of existing tables through the Schema Change operati
 * Add and delete columns
 * Modify column type
 * Adjust column order
-* Add and modify Bloom Filter
-* Add and delete bitmap index
+* Add and delete index
 
 This document mainly describes how to create a Schema Change job, as well as some considerations and frequently asked questions about Schema Change.
 ## Glossary
@@ -211,7 +210,7 @@ When done, the Schema becomes:
 +-----------+-------+-------------+------+------+---------+-------+
 ```
 
-Because the Schema Chanage job is an asynchronous operation, only one Schema chanage job can be performed on the same table at the same time. To check the operation status of the job, you can use the following command
+Because the Schema Change job is an asynchronous operation, only one Schema change job can be performed on the same table at the same time. To check the operation status of the job, you can use the following command
 
 ```sql
 SHOW ALTER TABLE COLUMN\G;

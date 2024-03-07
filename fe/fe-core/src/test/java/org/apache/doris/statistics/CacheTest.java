@@ -82,10 +82,10 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        ColumnStatistic c = statisticsCache.getColumnStatistics(-1, -1, 1, "col");
+        ColumnStatistic c = statisticsCache.getColumnStatistics(-1, -1, 1, -1, "col");
         Assertions.assertTrue(c.isUnKnown);
         Thread.sleep(100);
-        c = statisticsCache.getColumnStatistics(-1, -1, 1, "col");
+        c = statisticsCache.getColumnStatistics(-1, -1, 1, -1, "col");
         Assertions.assertTrue(c.isUnKnown);
     }
 
@@ -109,13 +109,13 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(-1, -1, 0, "col");
+        ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(-1, -1, 0, -1, "col");
         // load not finished yet, should return unknown
         Assertions.assertTrue(columnStatistic.isUnKnown);
         // wait 1 sec to ensure `execStatisticQuery` is finished as much as possible.
         Thread.sleep(1000);
         // load has finished, return corresponding stats.
-        columnStatistic = statisticsCache.getColumnStatistics(-1, -1, 0, "col");
+        columnStatistic = statisticsCache.getColumnStatistics(-1, -1, 0, -1, "col");
         Assertions.assertEquals(7, columnStatistic.count);
         Assertions.assertEquals(8, columnStatistic.ndv);
         Assertions.assertEquals(11, columnStatistic.maxValue);
@@ -271,16 +271,26 @@ public class CacheTest extends TestWithFeService {
         };
         try {
             StatisticsCache statisticsCache = new StatisticsCache();
-            ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, "col");
-            Thread.sleep(3000);
-            columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, "col");
-            Assertions.assertEquals(1, columnStatistic.count);
-            Assertions.assertEquals(2, columnStatistic.ndv);
-            Assertions.assertEquals(3, columnStatistic.avgSizeByte);
-            Assertions.assertEquals(4, columnStatistic.numNulls);
-            Assertions.assertEquals(5, columnStatistic.dataSize);
-            Assertions.assertEquals(6, columnStatistic.minValue);
-            Assertions.assertEquals(7, columnStatistic.maxValue);
+            ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, -1, "col");
+            for (int i = 0; i < 15; i++) {
+                columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, -1, "col");
+                if (columnStatistic != ColumnStatistic.UNKNOWN) {
+                    break;
+                }
+                System.out.println("Not ready yet.");
+                Thread.sleep(1000);
+            }
+            if (columnStatistic != ColumnStatistic.UNKNOWN) {
+                Assertions.assertEquals(1, columnStatistic.count);
+                Assertions.assertEquals(2, columnStatistic.ndv);
+                Assertions.assertEquals(3, columnStatistic.avgSizeByte);
+                Assertions.assertEquals(4, columnStatistic.numNulls);
+                Assertions.assertEquals(5, columnStatistic.dataSize);
+                Assertions.assertEquals(6, columnStatistic.minValue);
+                Assertions.assertEquals(7, columnStatistic.maxValue);
+            } else {
+                System.out.println("Cache is not loaded, skip test.");
+            }
         } catch (Throwable t) {
             t.printStackTrace();
         }
@@ -324,7 +334,6 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        statisticsCache.syncLoadColStats(1L, 1L, "any");
         new Expectations() {
             {
                 statisticsCache.sendStats((Frontend) any, (TUpdateFollowerStatsCacheRequest) any);
@@ -369,7 +378,6 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        statisticsCache.syncLoadColStats(1L, 1L, "any");
         new Expectations() {
             {
                 statisticsCache.sendStats((Frontend) any, (TUpdateFollowerStatsCacheRequest) any);

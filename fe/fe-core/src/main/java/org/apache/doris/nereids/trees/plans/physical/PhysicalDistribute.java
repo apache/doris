@@ -43,8 +43,8 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     protected DistributionSpec distributionSpec;
 
-    public PhysicalDistribute(DistributionSpec spec, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(spec, Optional.empty(), logicalProperties, child);
+    public PhysicalDistribute(DistributionSpec spec, CHILD_TYPE child) {
+        this(spec, Optional.empty(), child.getLogicalProperties(), child);
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,

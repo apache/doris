@@ -30,7 +30,7 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 
 using doris::segment_v2::DorisCompoundReader;
-using doris::segment_v2::DorisCompoundDirectory;
+using doris::segment_v2::DorisCompoundDirectoryFactory;
 using doris::io::FileInfo;
 using namespace lucene::analysis;
 using namespace lucene::index;
@@ -150,7 +150,7 @@ int main(int argc, char** argv) {
         auto fs = doris::io::global_local_filesystem();
         try {
             lucene::store::Directory* dir =
-                    DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
+                    DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str());
             auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
             std::vector<std::string> files;
             std::cout << "Nested files for " << file_str << std::endl;
@@ -173,7 +173,7 @@ int main(int argc, char** argv) {
         auto fs = doris::io::global_local_filesystem();
         try {
             lucene::store::Directory* dir =
-                    DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
+                    DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str());
             auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
             std::cout << "Term statistics for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
@@ -190,7 +190,7 @@ int main(int argc, char** argv) {
         auto fs = doris::io::global_local_filesystem();
         try {
             lucene::store::Directory* dir =
-                    DorisCompoundDirectory::getDirectory(fs, FLAGS_directory.c_str());
+                    DorisCompoundDirectoryFactory::getDirectory(fs, FLAGS_directory.c_str());
             if (FLAGS_idx_file_name == "") {
                 //try to search from directory's all files
                 std::vector<FileInfo> files;

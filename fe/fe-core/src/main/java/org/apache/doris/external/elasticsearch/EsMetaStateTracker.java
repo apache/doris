@@ -18,6 +18,10 @@
 package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.common.UserException;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.LinkedList;
 import java.util.List;
@@ -32,6 +36,8 @@ import java.util.List;
  */
 public class EsMetaStateTracker {
 
+    private static final Logger LOG = LogManager.getLogger(EsMetaStateTracker.class);
+
     private List<SearchPhase> builtinSearchPhase = new LinkedList<>();
     private SearchContext searchContext;
 
@@ -41,7 +47,11 @@ public class EsMetaStateTracker {
         searchContext = new SearchContext(esTable);
     }
 
-    public SearchContext searchContext() {
+    public SearchContext searchContext() throws UserException {
+        if (searchContext == null) {
+            LOG.warn("ES meta state track failed, please check ES health status.");
+            throw new UserException("ES meta state track failed, please check ES health status.");
+        }
         return searchContext;
     }
 

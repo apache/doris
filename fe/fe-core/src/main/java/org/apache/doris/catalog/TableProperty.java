@@ -97,6 +97,12 @@ public class TableProperty implements Writable {
     private long timeSeriesCompactionTimeThresholdSeconds
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
 
+    private long timeSeriesCompactionEmptyRowsetsThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
+
+    private long timeSeriesCompactionLevelThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -130,6 +136,8 @@ public class TableProperty implements Writable {
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
+                buildTimeSeriesCompactionEmptyRowsetsThreshold();
+                buildTimeSeriesCompactionLevelThreshold();
                 break;
             default:
                 break;
@@ -274,6 +282,28 @@ public class TableProperty implements Writable {
 
     public long timeSeriesCompactionTimeThresholdSeconds() {
         return timeSeriesCompactionTimeThresholdSeconds;
+    }
+
+    public TableProperty buildTimeSeriesCompactionEmptyRowsetsThreshold() {
+        timeSeriesCompactionEmptyRowsetsThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long timeSeriesCompactionEmptyRowsetsThreshold() {
+        return timeSeriesCompactionEmptyRowsetsThreshold;
+    }
+
+    public TableProperty buildTimeSeriesCompactionLevelThreshold() {
+        timeSeriesCompactionLevelThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long timeSeriesCompactionLevelThreshold() {
+        return timeSeriesCompactionLevelThreshold;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -513,7 +543,9 @@ public class TableProperty implements Writable {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildDisableAutoCompaction()
-                .buildEnableSingleReplicaCompaction();
+                .buildEnableSingleReplicaCompaction()
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold()
+                .buildTimeSeriesCompactionLevelThreshold();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

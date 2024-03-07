@@ -77,7 +77,12 @@ import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.ColStatsData;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.InvalidateStatsTarget;
 import org.apache.doris.statistics.StatisticsCacheKey;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -167,6 +172,8 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TShowProcessListRequest;
+import org.apache.doris.thrift.TShowProcessListResult;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
 import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
@@ -1082,7 +1089,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // add this log so that we can track this stmt
         LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
-        ConnectContext context = new ConnectContext();
+        ConnectContext context = new ConnectContext(null, true);
         // Set current connected FE to the client address, so that we can know where this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
         ConnectProcessor processor = new ConnectProcessor(context);
@@ -1519,9 +1526,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
                 .getDatabaseTransactionMgr(database.getId());
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
-        LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         }
         List<Long> tableIdList = transactionState.getTableIdList();
         String txnOperation = request.getOperation().trim();
@@ -2026,7 +2035,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         List planFragmentParamsList = new ArrayList<>(tableNames.size());
-        List<Long> tableIds = olapTables.stream().map(OlapTable::getId).collect(Collectors.toList());
         // todo: if is multi table, we need consider the lock time and the timeout
         boolean enablePipelineLoad = Config.enable_pipeline_load;
         try {
@@ -2044,9 +2052,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
                 multiTableFragmentInstanceIdIndexMap.put(request.getTxnId(), ++index);
             }
-            Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
-                    .putTransactionTableNames(request.getTxnId(),
-                            tableIds);
             LOG.debug("receive stream load multi table put request result: {}", result);
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
@@ -3075,21 +3080,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStatus updateStatsCache(TUpdateFollowerStatsCacheRequest request) throws TException {
-        StatisticsCacheKey key = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
-        /*
-         TODO: Need to handle minExpr and maxExpr, so that we can generate the columnStatistic
-          here and use putCache to update cached directly.
-         ColumnStatistic columnStatistic = GsonUtils.GSON.fromJson(request.colStats, ColumnStatistic.class);
-         Env.getCurrentEnv().getStatisticsCache().putCache(key, columnStatistic);
-        */
-        Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(key.tableId, key.idxId, key.colName);
+        StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
+        ColStatsData data = GsonUtils.GSON.fromJson(request.colStatsData, ColStatsData.class);
+        ColumnStatistic c = data.toColumnStatistic();
+        if (c == ColumnStatistic.UNKNOWN) {
+            Env.getCurrentEnv().getStatisticsCache().invalidate(k.tableId, k.idxId, k.colName);
+        } else {
+            Env.getCurrentEnv().getStatisticsCache().updateColStatsCache(k.tableId, k.idxId, k.colName, c);
+        }
+        // Return Ok anyway
         return new TStatus(TStatusCode.OK);
     }
 
     @Override
     public TStatus invalidateStatsCache(TInvalidateFollowerStatsCacheRequest request) throws TException {
-        StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
-        Env.getCurrentEnv().getStatisticsCache().invalidate(k.tableId, k.idxId, k.colName);
+        InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
+        if (tableStats == null) {
+            return new TStatus(TStatusCode.OK);
+        }
+        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId, target.columns, tableStats);
         return new TStatus(TStatusCode.OK);
     }
 
@@ -3277,4 +3288,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw e;
         }
     }
+
+    @Override
+    public TShowProcessListResult showProcessList(TShowProcessListRequest request) {
+        boolean isShowFullSql = false;
+        if (request.isSetShowFullSql()) {
+            isShowFullSql = request.isShowFullSql();
+        }
+        List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
+                .listConnectionWithoutAuth(isShowFullSql, true);
+        TShowProcessListResult result = new TShowProcessListResult();
+        result.setProcessList(processList);
+        return result;
+    }
+
 }

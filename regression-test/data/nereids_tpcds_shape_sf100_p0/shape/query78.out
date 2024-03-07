@@ -16,16 +16,16 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
 ------------------------------PhysicalProject
---------------------------------filter(sr_ticket_number IS NULL)
-----------------------------------hashJoin[LEFT_OUTER_JOIN](store_sales.ss_item_sk = store_returns.sr_item_sk)(store_returns.sr_ticket_number = store_sales.ss_ticket_number)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales]
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_returns]
+--------------------------------filter((date_dim.d_year = 2000))
+----------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_year = 2000))
-------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------filter(sr_ticket_number IS NULL)
+------------------------------------hashJoin[LEFT_OUTER_JOIN](store_sales.ss_item_sk = store_returns.sr_item_sk)(store_returns.sr_ticket_number = store_sales.ss_ticket_number)
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[store_returns]
 ------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute
@@ -33,16 +33,16 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
 ------------------------------PhysicalProject
---------------------------------filter(wr_order_number IS NULL)
-----------------------------------hashJoin[LEFT_OUTER_JOIN](web_sales.ws_item_sk = web_returns.wr_item_sk)(web_returns.wr_order_number = web_sales.ws_order_number)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_sales]
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_returns]
+--------------------------------filter((date_dim.d_year = 2000))
+----------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_year = 2000))
-------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------filter(wr_order_number IS NULL)
+------------------------------------hashJoin[LEFT_OUTER_JOIN](web_sales.ws_item_sk = web_returns.wr_item_sk)(web_returns.wr_order_number = web_sales.ws_order_number)
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[web_sales]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[web_returns]
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute
@@ -50,14 +50,14 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
 --------------------------PhysicalProject
-----------------------------filter(cr_order_number IS NULL)
-------------------------------hashJoin[LEFT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_returns.cr_order_number = catalog_sales.cs_order_number)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_returns]
+----------------------------filter((date_dim.d_year = 2000))
+------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((date_dim.d_year = 2000))
---------------------------------PhysicalOlapScan[date_dim]
+------------------------------filter(cr_order_number IS NULL)
+--------------------------------hashJoin[LEFT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_returns.cr_order_number = catalog_sales.cs_order_number)
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[catalog_returns]
 

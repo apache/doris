@@ -705,4 +705,33 @@ suite("test_json_load", "p0") {
         set_be_param.call("enable_simdjson_reader", "true")
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+
+    // case27: import json with malformed json along with json path
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `syscode` VARCHAR(20)  NOT NULL COMMENT "",
+                `event_dt` DateTime NULL COMMENT "",
+                `pro_brand` VARCHAR(20)  COMMENT "",
+                `app_package`  VARCHAR(50) COMMENT "",
+                `platform` VARCHAR(20) COMMENT "",
+                `log_num`  BIGINT DEFAULT "0" COMMENT ""
+            )
+            DUPLICATE KEY(`syscode`, `event_dt`,`pro_brand`,`app_package`,`platform`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case27_1", 'false', 'true', 'json', 'id= id * 10', '[\"$.platform\",\"$.app_package\",\"$.sysCode\",\"$.sys_code\",\"$.proBrand\",\"$.pro_brand\",\"$.event_time\"]',
+                             '', '', '', 'test_malformed_json_with_path.json', false, 2)
+        sql "sync"
+        qt_select26 "select * from ${testTable}"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
 }

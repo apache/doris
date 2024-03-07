@@ -167,16 +167,16 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
                 _failed_channels_msgs.emplace(the_tablet_id,
                                               err + ", host: " + node_channel->host());
                 if (_failed_channels[the_tablet_id].size() >= least_tablet_success_channel_num) {
-                    _intolerable_failure_status =
-                            Status::InternalError(_failed_channels_msgs[the_tablet_id]);
+                    _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                            _failed_channels_msgs[the_tablet_id]);
                 }
             }
         } else {
             _failed_channels[tablet_id].insert(node_id);
             _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
             if (_failed_channels[tablet_id].size() >= least_tablet_success_channel_num) {
-                _intolerable_failure_status =
-                        Status::InternalError(_failed_channels_msgs[tablet_id]);
+                _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        _failed_channels_msgs[tablet_id]);
             }
         }
     }
@@ -292,6 +292,8 @@ void VNodeChannel::clear_all_blocks() {
     _cur_mutable_block.reset();
 }
 
+// we don't need to send tablet_writer_cancel rpc request when
+// init failed, so set _is_closed to true.
 // if "_cancelled" is set to true,
 // no need to set _cancel_msg because the error will be
 // returned directly via "TabletSink::prepare()" method.
@@ -302,6 +304,7 @@ Status VNodeChannel::init(RuntimeState* state) {
     auto node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
         _cancelled = true;
+        _is_closed = true;
         return Status::InternalError("unknown node id, id={}", _node_id);
     }
 
@@ -317,6 +320,7 @@ Status VNodeChannel::init(RuntimeState* state) {
                                                                         _node_info.brpc_port);
     if (_stub == nullptr) {
         _cancelled = true;
+        _is_closed = true;
         return Status::InternalError("Get rpc stub failed, host={}, port={}, info={}",
                                      _node_info.host, _node_info.brpc_port, channel_info());
     }
@@ -397,7 +401,7 @@ Status VNodeChannel::open_wait() {
             delete _open_closure;
         }
         _open_closure = nullptr;
-        return Status::InternalError(
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                 "failed to open tablet writer, error={}, error_text={}, info={}",
                 berror(error_code), error_text, channel_info());
     }
@@ -531,7 +535,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("add row failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
         }
@@ -830,8 +835,10 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     _next_packet_seq++;
 }
 
+// When _cancelled is true, we still need to send a tablet_writer_cancel
+// rpc request to truly release the load channel
 void VNodeChannel::cancel(const std::string& cancel_msg) {
-    if (_is_closed || _cancelled) {
+    if (_is_closed) {
         // skip the channels that have been canceled or close_wait.
         return;
     }
@@ -881,7 +888,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("wait close failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("wait close failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(
                     st.prepend("already stopped, skip waiting for close. cancelled/!eos: "));
@@ -908,7 +916,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         return Status::OK();
     }
 
-    return Status::InternalError(get_cancel_msg());
+    return Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
 }
 
 void VNodeChannel::_close_check() {
@@ -1025,6 +1033,16 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     if (_output_tuple_desc == nullptr) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
         return Status::InternalError("unknown destination tuple descriptor");
+    }
+
+    if (_output_vexpr_ctxs.size() > 0 &&
+        _output_tuple_desc->slots().size() != _output_vexpr_ctxs.size()) {
+        LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
+                     << "output_tuple_slot_num " << _output_tuple_desc->slots().size()
+                     << " output_expr_num " << _output_vexpr_ctxs.size();
+        return Status::InvalidArgument(
+                "output_tuple_slot_num {} should be equal to output_expr_num {}",
+                _output_tuple_desc->slots().size(), _output_vexpr_ctxs.size());
     }
 
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
@@ -1898,7 +1916,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         break;
     }
     case TYPE_DECIMAL128I: {
-        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128);
+        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128I);
         break;
     }
     case TYPE_ARRAY: {

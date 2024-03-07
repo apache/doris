@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -31,6 +32,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
@@ -52,6 +54,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Full scan of an ODBC table.
@@ -79,6 +82,22 @@ public class OdbcScanNode extends ExternalScanNode {
     }
 
     @Override
+    public void init(Analyzer analyzer) throws UserException {
+        super.init(analyzer);
+    }
+
+    /**
+     * Used for Nereids. Should NOT use this function in anywhere else.
+     */
+    @Override
+    public void init() throws UserException {
+        super.init();
+        numNodes = numNodes <= 0 ? 1 : numNodes;
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = (long) statsDeriveResult.getRowCount();
+    }
+
+    @Override
     protected String debugString() {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         return helper.addValue(super.debugString()).toString();
@@ -87,9 +106,22 @@ public class OdbcScanNode extends ExternalScanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         // Convert predicates to Odbc columns and filters.
-        createOdbcColumns(analyzer);
-        createOdbcFilters(analyzer);
+        createOdbcColumns();
+        createOdbcFilters();
         createScanRangeLocations();
+    }
+
+    @Override
+    public void finalizeForNereids() throws UserException {
+        createOdbcColumns();
+        createOdbcFilters();
+        createScanRangeLocations();
+    }
+
+    @Override
+    public void updateRequiredSlots(PlanTranslatorContext context, Set<SlotId> requiredByProjectSlotIdSet)
+            throws UserException {
+        createOdbcColumns();
     }
 
     @Override
@@ -152,7 +184,8 @@ public class OdbcScanNode extends ExternalScanNode {
         return sql.toString();
     }
 
-    private void createOdbcColumns(Analyzer analyzer) {
+    private void createOdbcColumns() {
+        columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
                 continue;
@@ -161,16 +194,15 @@ public class OdbcScanNode extends ExternalScanNode {
             columns.add(JdbcTable.databaseProperName(odbcType, col.getName()));
         }
         // this happens when count(*)
-        if (0 == columns.size()) {
+        if (columns.isEmpty()) {
             columns.add("*");
         }
     }
 
     // We convert predicates of the form <slotref> op <constant> to Odbc filters
-    private void createOdbcFilters(Analyzer analyzer) {
+    private void createOdbcFilters() {
         if (conjuncts.isEmpty()) {
             return;
-
         }
         List<SlotRef> slotRefs = Lists.newArrayList();
         Expr.collectList(conjuncts, SlotRef.class, slotRefs);
@@ -184,7 +216,7 @@ public class OdbcScanNode extends ExternalScanNode {
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
             if (shouldPushDownConjunct(odbcType, p)) {
-                String filter = JdbcScanNode.conjunctExprToString(odbcType, p);
+                String filter = JdbcScanNode.conjunctExprToString(odbcType, p, tbl);
                 filters.add(filter);
                 conjuncts.remove(p);
             }

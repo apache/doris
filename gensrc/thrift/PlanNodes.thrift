@@ -308,6 +308,7 @@ struct TPaimonFileDesc {
     8: optional i64 db_id
     9: optional i64 tbl_id
     10: optional i64 last_update_time
+    11: optional string file_format
 }
 
 struct TMaxComputeFileDesc {
@@ -448,7 +449,9 @@ enum TDataGenFunctionName {
 // Every table valued function should have a scan range definition to save its
 // running parameters
 struct TTVFNumbersScanRange {
-	1: optional i64 totalNumbers
+  1: optional i64 totalNumbers
+  2: optional bool useConst
+  3: optional i64 constValue
 }
 
 struct TDataGenScanRange {

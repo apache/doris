@@ -51,6 +51,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
@@ -321,7 +322,7 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
                     .error(result.status);
             try_time += 1;
         }
-        sleep(config::sleep_one_second);
+        sleep(1);
     }
 }
 
@@ -430,8 +431,8 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 need_to_save = true;
             }
             if (tablet_meta_info.__isset.compaction_policy) {
-                if (tablet_meta_info.compaction_policy != "size_based" &&
-                    tablet_meta_info.compaction_policy != "time_series") {
+                if (tablet_meta_info.compaction_policy != CUMULATIVE_SIZE_BASED_POLICY &&
+                    tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY) {
                     status = Status::InvalidArgument(
                             "invalid compaction policy, only support for size_based or "
                             "time_series");
@@ -441,7 +442,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 need_to_save = true;
             }
             if (tablet_meta_info.__isset.time_series_compaction_goal_size_mbytes) {
-                if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                     status = Status::InvalidArgument(
                             "only time series compaction policy support time series config");
                     continue;
@@ -451,7 +452,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 need_to_save = true;
             }
             if (tablet_meta_info.__isset.time_series_compaction_file_count_threshold) {
-                if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                     status = Status::InvalidArgument(
                             "only time series compaction policy support time series config");
                     continue;
@@ -461,13 +462,33 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 need_to_save = true;
             }
             if (tablet_meta_info.__isset.time_series_compaction_time_threshold_seconds) {
-                if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                     status = Status::InvalidArgument(
                             "only time series compaction policy support time series config");
                     continue;
                 }
                 tablet->tablet_meta()->set_time_series_compaction_time_threshold_seconds(
                         tablet_meta_info.time_series_compaction_time_threshold_seconds);
+                need_to_save = true;
+            }
+            if (tablet_meta_info.__isset.time_series_compaction_empty_rowsets_threshold) {
+                if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
+                    status = Status::InvalidArgument(
+                            "only time series compaction policy support time series config");
+                    continue;
+                }
+                tablet->tablet_meta()->set_time_series_compaction_empty_rowsets_threshold(
+                        tablet_meta_info.time_series_compaction_empty_rowsets_threshold);
+                need_to_save = true;
+            }
+            if (tablet_meta_info.__isset.time_series_compaction_level_threshold) {
+                if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
+                    status = Status::InvalidArgument(
+                            "only time series compaction policy support time series config");
+                    continue;
+                }
+                tablet->tablet_meta()->set_time_series_compaction_level_threshold(
+                        tablet_meta_info.time_series_compaction_level_threshold);
                 need_to_save = true;
             }
             if (tablet_meta_info.__isset.replica_id) {
@@ -840,8 +861,8 @@ void TaskWorkerPool::_download_worker_thread_callback() {
         auto status = Status::OK();
         if (download_request.__isset.remote_tablet_snapshots) {
             SnapshotLoader loader(_env, download_request.job_id, agent_task_req.signature);
-            loader.remote_http_download(download_request.remote_tablet_snapshots,
-                                        &downloaded_tablet_ids);
+            status = loader.remote_http_download(download_request.remote_tablet_snapshots,
+                                                 &downloaded_tablet_ids);
         } else {
             std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                     _env, download_request.job_id, agent_task_req.signature,

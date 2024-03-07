@@ -88,6 +88,7 @@ public class ColumnStatistic {
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
+    @SerializedName("updatedTime")
     public final String updatedTime;
 
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,

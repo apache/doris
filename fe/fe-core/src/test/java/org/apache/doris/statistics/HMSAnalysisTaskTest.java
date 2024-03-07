@@ -86,7 +86,7 @@ public class HMSAnalysisTaskTest {
         new MockUp<HMSExternalTable>() {
             @Mock
             public long getDataSize(boolean singleReplica) {
-                return 1000;
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1;
             }
         };
         HMSAnalysisTask task = new HMSAnalysisTask();
@@ -159,5 +159,4 @@ public class HMSAnalysisTaskTest {
         Assertions.assertEquals(1.0, info2.first);
         Assertions.assertEquals(0, info2.second);
     }
-
 }

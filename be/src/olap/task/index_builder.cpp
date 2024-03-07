@@ -155,6 +155,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         std::string segment_dir = _tablet->tablet_path();
         auto fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
             std::string segment_filename = fmt::format(
                     "{}_{}.dat", output_rowset_meta->rowset_id().to_string(), seg_ptr->id());
@@ -249,11 +250,18 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "CLuceneError occured: {}", e.what());
                 }
+                inverted_index_size += _inverted_index_builders[writer_sign]->file_size();
             }
 
             _olap_data_convertor->reset();
         }
         _inverted_index_builders.clear();
+        output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
+                                               inverted_index_size);
+        output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
+                                                inverted_index_size);
+        output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
+                                                inverted_index_size);
         LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
     }
 
@@ -313,30 +321,26 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         }
         return step;
     };
+    // TODO: need to process null data for inverted index
     if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(field->get_sub_field_count() == 1);
-        BitmapIterator null_iter(null_map, num_rows);
-        bool is_null = false;
-        size_t this_run = 0;
-        while ((this_run = null_iter.Next(&is_null)) > 0) {
-            if (is_null) {
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(this_run));
-            } else {
-                // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
-                auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
-                // total number length
-                size_t element_cnt = size_t((unsigned long)(*data_ptr));
-                auto offset_data = *(data_ptr + 1);
-                const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
-                if (element_cnt > 0) {
-                    auto data = *(data_ptr + 2);
-                    auto nested_null_map = *(data_ptr + 3);
-                    RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                            field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
-                            reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr,
-                            num_rows));
-                }
+        // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
+        auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+        // total number length
+        size_t element_cnt = size_t((unsigned long)(*data_ptr));
+        auto offset_data = *(data_ptr + 1);
+        const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
+        try {
+            if (element_cnt > 0) {
+                auto data = *(data_ptr + 2);
+                auto nested_null_map = *(data_ptr + 3);
+                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+                        field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
+                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
             }
+        } catch (const std::exception& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError occured: {}", e.what());
         }
         return Status::OK();
     }
@@ -347,15 +351,8 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
             if (null_map[offset]) {
                 RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(step));
             } else {
-                if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                    DCHECK(field->get_sub_field_count() == 1);
-                    const auto* col_cursor = reinterpret_cast<const CollectionValue*>(*ptr);
-                    RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                            field->get_sub_field(0)->size(), col_cursor, step));
-                } else {
-                    RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
-                            column_name, *ptr, step));
-                }
+                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
+                        column_name, *ptr, step));
             }
             *ptr += field->size() * step;
             offset += step;
@@ -374,9 +371,19 @@ Status IndexBuilder::_add_data(const std::string& column_name,
     try {
         if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             DCHECK(field->get_sub_field_count() == 1);
-            const auto* col_cursor = reinterpret_cast<const CollectionValue*>(*ptr);
-            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                    field->get_sub_field(0)->size(), col_cursor, num_rows));
+            // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
+            auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+            // total number length
+            size_t element_cnt = size_t((unsigned long)(*data_ptr));
+            auto offset_data = *(data_ptr + 1);
+            const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
+            if (element_cnt > 0) {
+                auto data = *(data_ptr + 2);
+                auto nested_null_map = *(data_ptr + 3);
+                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+                        field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
+                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+            }
         } else {
             RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
                     column_name, *ptr, num_rows));

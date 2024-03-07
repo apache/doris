@@ -55,7 +55,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[web_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_month_seq <= 1195)(date_dim.d_month_seq >= 1184))
+----------------------------------filter((date_dim.d_month_seq >= 1184)(date_dim.d_month_seq <= 1195))
 ------------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject

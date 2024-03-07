@@ -69,17 +69,29 @@ public class InPredicate extends Expression {
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        children().forEach(c -> {
+            if (c.getDataType().isObjectType()) {
+                throw new AnalysisException("in predicate could not contains object type: " + this.toSql());
+            }
+            if (c.getDataType().isComplexType()) {
+                throw new AnalysisException("in predicate could not contains complex type: " + this.toSql());
+            }
+        });
+    }
+
+    @Override
     public String toString() {
         return compareExpr + " IN " + options.stream()
-            .map(Expression::toString)
-            .collect(Collectors.joining(", ", "(", ")"));
+                .map(Expression::toString)
+                .collect(Collectors.joining(", ", "(", ")"));
     }
 
     @Override
     public String toSql() {
         return compareExpr.toSql() + " IN " + options.stream()
-            .map(Expression::toSql)
-            .collect(Collectors.joining(", ", "(", ")"));
+                .map(Expression::toSql)
+                .collect(Collectors.joining(", ", "(", ")"));
     }
 
     @Override
@@ -92,7 +104,7 @@ public class InPredicate extends Expression {
         }
         InPredicate that = (InPredicate) o;
         return Objects.equals(compareExpr, that.getCompareExpr())
-            && Objects.equals(options, that.getOptions());
+                && Objects.equals(options, that.getOptions());
     }
 
     @Override
@@ -118,17 +130,5 @@ public class InPredicate extends Expression {
             }
         }
         return true;
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        children().forEach(c -> {
-            if (c.getDataType().isObjectType()) {
-                throw new AnalysisException("in predicate could not contains object type: " + this.toSql());
-            }
-            if (c.getDataType().isComplexType()) {
-                throw new AnalysisException("in predicate could not contains complex type: " + this.toSql());
-            }
-        });
     }
 }

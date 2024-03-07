@@ -61,7 +61,6 @@ Status CumulativeCompaction::prepare_compact() {
     // 2. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
-    _tablet->set_clone_occurred(false);
 
     return Status::OK();
 }
@@ -73,13 +72,6 @@ Status CumulativeCompaction::execute_compact_impl() {
                 "The tablet is under cumulative compaction. tablet={}", _tablet->full_name());
     }
 
-    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
-    // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<CUMULATIVE_CLONE_OCCURRED, false>("get_clone_occurred failed");
-    }
-
     SCOPED_ATTACH_TASK(_mem_tracker);
 
     // 3. do cumulative compaction, merge rowsets
@@ -89,13 +81,17 @@ Status CumulativeCompaction::execute_compact_impl() {
     // 4. set state to success
     _state = CompactionState::SUCCESS;
 
-    // 5. set cumulative point
+    // 5. set cumulative level
+    _tablet->cumulative_compaction_policy()->update_compaction_level(_tablet.get(), _input_rowsets,
+                                                                     _output_rowset);
+
+    // 6. set cumulative point
     _tablet->cumulative_compaction_policy()->update_cumulative_point(
             _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
-    // 6. add metric to cumulative compaction
+    // 7. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
 

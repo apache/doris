@@ -73,7 +73,8 @@ public class StatementSubmitter {
     private static final String JDBC_DRIVER = "org.mariadb.jdbc.Driver";
     private static final String DB_URL_PATTERN = "jdbc:mariadb://127.0.0.1:%d/%s";
 
-    private ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(2, "SQL submitter", true);
+    private ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPoolThrowException(
+                        Config.http_sql_submitter_max_worker_threads, "SQL submitter", true);
 
     public Future<ExecutionResultSet> submit(StmtContext queryCtx) {
         Worker worker = new Worker(ConnectContext.get(), queryCtx);

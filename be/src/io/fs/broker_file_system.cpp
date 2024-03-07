@@ -97,7 +97,7 @@ Status BrokerFileSystem::connect_impl() {
 Status BrokerFileSystem::create_file_impl(const Path& path, FileWriterPtr* writer,
                                           const FileWriterOptions* opts) {
     *writer = std::make_unique<BrokerFileWriter>(ExecEnv::GetInstance(), _broker_addr, _broker_prop,
-                                                 path, 0 /* offset */, getSPtr());
+                                                 path, 0 /* offset */, getSPtr(), opts);
     return Status::OK();
 }
 

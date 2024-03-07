@@ -28,9 +28,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -54,9 +54,8 @@ public class Sum extends NullableAggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD)
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)
     );
 
     /**
@@ -75,6 +74,12 @@ public class Sum extends NullableAggregateFunction
 
     public Sum(boolean distinct, boolean alwaysNullable, Expression arg) {
         super("sum", distinct, alwaysNullable, arg);
+    }
+
+    public MultiDistinctSum convertToMultiDistinct() {
+        Preconditions.checkArgument(distinct,
+                "can't convert to multi_distinct_sum because there is no distinct args");
+        return new MultiDistinctSum(false, alwaysNullable, child());
     }
 
     @Override
@@ -108,5 +113,13 @@ public class Sum extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        if (getArgument(0).getDataType() instanceof FloatType) {
+            return FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE);
+        }
+        return ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 }

@@ -99,6 +99,8 @@ public:
     template <typename DecimalPrimitiveType>
     void init_decimal_converter(DataTypePtr& data_type);
 
+    void reset_time_scale_if_missing(int scale);
+
     // Write the decoded values batch to doris's column
     virtual Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                  ColumnSelectVector& select_vector, bool is_dict_filter) = 0;

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <stdint.h>
 
 #include <map>
@@ -58,8 +60,12 @@ private:
 class QueryStatistics {
 public:
     QueryStatistics()
-            : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0), max_peak_memory_bytes(0) {}
-    ~QueryStatistics();
+            : scan_rows(0),
+              scan_bytes(0),
+              cpu_nanos(0),
+              returned_rows(0),
+              max_peak_memory_bytes(0) {}
+    virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
 
@@ -67,7 +73,7 @@ public:
 
     void add_scan_bytes(int64_t scan_bytes) { this->scan_bytes += scan_bytes; }
 
-    void add_cpu_ms(int64_t cpu_ms) { this->cpu_ms += cpu_ms; }
+    void add_cpu_nanos(int64_t cpu_nanos) { this->cpu_nanos += cpu_nanos; }
 
     NodeStatistics* add_nodes_statistics(int64_t node_id) {
         NodeStatistics* nodeStatistics = nullptr;
@@ -96,9 +102,10 @@ public:
     void clearNodeStatistics();
 
     void clear() {
-        scan_rows = 0;
-        scan_bytes = 0;
-        cpu_ms = 0;
+        scan_rows.store(0);
+        scan_bytes.store(0);
+
+        cpu_nanos = 0;
         returned_rows = 0;
         max_peak_memory_bytes = 0;
         clearNodeStatistics();
@@ -107,22 +114,24 @@ public:
     }
 
     void to_pb(PQueryStatistics* statistics);
-
+    void to_thrift(TQueryStatistics* statistics) const;
     void from_pb(const PQueryStatistics& statistics);
     bool collected() const { return _collected; }
     void set_collected() { _collected = true; }
 
+    int64_t get_scan_rows() { return scan_rows.load(); }
+    int64_t get_scan_bytes() { return scan_bytes.load(); }
+
 private:
     friend class QueryStatisticsRecvr;
-    int64_t scan_rows;
-    int64_t scan_bytes;
-    int64_t cpu_ms;
+    std::atomic<int64_t> scan_rows;
+    std::atomic<int64_t> scan_bytes;
+    std::atomic<int64_t> cpu_nanos;
+
     // number rows returned by query.
     // only set once by result sink when closing.
     int64_t returned_rows;
-    // Maximum memory peak for all backends.
-    // only set once by result sink when closing.
-    int64_t max_peak_memory_bytes;
+    std::atomic<int64_t> max_peak_memory_bytes;
     // The statistics of the query on each backend.
     using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
     NodeStatisticsMap _nodes_statistics_map;

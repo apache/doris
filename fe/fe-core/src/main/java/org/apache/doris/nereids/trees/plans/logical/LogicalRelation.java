@@ -26,11 +26,13 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical relation plan.
@@ -88,5 +90,12 @@ public abstract class LogicalRelation extends LogicalLeaf implements Relation {
         properties.put("RelationId", relationId.toString());
         logicalRelation.put("Properties", properties);
         return logicalRelation;
+    }
+
+    @Override
+    public Set<RelationId> getInputRelations() {
+        Set<RelationId> relationIdSet = Sets.newHashSet();
+        relationIdSet.add(relationId);
+        return relationIdSet;
     }
 }

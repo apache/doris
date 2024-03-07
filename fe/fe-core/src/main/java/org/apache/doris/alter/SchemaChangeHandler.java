@@ -950,6 +950,10 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        if (newColumn.getType().isTime() || newColumn.getType().isTimeV2()) {
+            throw new DdlException("Time type is not supported for olap table");
+        }
+
         // hll must be used in agg_keys
         if (newColumn.getType().isHllType() && KeysType.AGG_KEYS != olapTable.getKeysType()) {
             throw new DdlException("HLL type column can only be in Aggregation data model table: " + newColName);
@@ -2194,6 +2198,20 @@ public class SchemaChangeHandler extends AlterHandler {
                         .put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
                         Long.parseLong(properties
                         .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)));
+        }
+
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+            timeSeriesCompactionConfig
+                        .put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                        Long.parseLong(properties
+                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)));
+        }
+
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
+            timeSeriesCompactionConfig
+                        .put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                        Long.parseLong(properties
+                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)));
         }
 
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()

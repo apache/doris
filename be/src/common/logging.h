@@ -72,6 +72,8 @@ bool init_glog(const char* basename);
 // flushed. May only be called once.
 void shutdown_logging();
 
+void update_logging(const std::string& name, const std::string& value);
+
 class TaggableLogger {
 public:
     TaggableLogger(const char* file, int line, google::LogSeverity severity)

@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -95,7 +96,16 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visit(Plan plan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        if (childrenOutputProperties.isEmpty()) {
+            return PhysicalProperties.ANY;
+        } else {
+            DistributionSpec firstChildSpec = childrenOutputProperties.get(0).getDistributionSpec();
+            if (firstChildSpec instanceof DistributionSpecHash) {
+                return PhysicalProperties.createAnyFromHash((DistributionSpecHash) firstChildSpec);
+            } else {
+                return PhysicalProperties.ANY;
+            }
+        }
     }
 
     /* ********************************************************************************************
@@ -114,7 +124,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalCTEConsumer(
             PhysicalCTEConsumer cteConsumer, PlanContext context) {
-        Preconditions.checkState(childrenOutputProperties.size() == 0);
+        Preconditions.checkState(childrenOutputProperties.isEmpty(), "cte consumer should be leaf node");
         return PhysicalProperties.MUST_SHUFFLE;
     }
 
@@ -145,6 +155,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
      */
     @Override
     public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
+        return PhysicalProperties.STORAGE_ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, PlanContext context) {
         return PhysicalProperties.STORAGE_ANY;
     }
 
@@ -272,7 +287,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                                 leftHashSpec.getShuffleType()));
                     }
                 case FULL_OUTER_JOIN:
-                    return PhysicalProperties.ANY;
+                    return PhysicalProperties.createAnyFromHash(leftHashSpec);
                 default:
                     throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
             }
@@ -341,7 +356,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
-        return PhysicalProperties.ANY.withOrderSpec(childrenOutputProperties.get(0).getOrderSpec());
+        DistributionSpec childDistributionSpec = childrenOutputProperties.get(0).getDistributionSpec();
+        PhysicalProperties output = childrenOutputProperties.get(0);
+        if (childDistributionSpec instanceof DistributionSpecHash) {
+            output = PhysicalProperties.createAnyFromHash((DistributionSpecHash) childDistributionSpec);
+        }
+        return output.withOrderSpec(childrenOutputProperties.get(0).getOrderSpec());
     }
 
     @Override
@@ -369,7 +389,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         for (int i = 0; i < childrenDistribution.size(); i++) {
             DistributionSpec childDistribution = childrenDistribution.get(i);
             if (!(childDistribution instanceof DistributionSpecHash)) {
-                return PhysicalProperties.ANY;
+                if (i != 0) {
+                    // NOTICE: if come here, the first child output must be DistributionSpecHash
+                    return PhysicalProperties.createAnyFromHash((DistributionSpecHash) childrenDistribution.get(0));
+                } else {
+                    return new PhysicalProperties(childDistribution);
+                }
             }
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
             int[] offsetsOfCurrentChild = new int[distributionSpecHash.getOrderedShuffledColumns().size()];
@@ -379,7 +404,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 if (offset >= 0) {
                     offsetsOfCurrentChild[offset] = j;
                 } else {
-                    return PhysicalProperties.ANY;
+                    // NOTICE: if come here, the first child output must be DistributionSpecHash
+                    return PhysicalProperties.createAnyFromHash((DistributionSpecHash) childrenDistribution.get(0));
                 }
             }
             if (offsetsOfFirstChild == null) {
@@ -387,7 +413,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 offsetsOfFirstChild = offsetsOfCurrentChild;
             } else if (!Arrays.equals(offsetsOfFirstChild, offsetsOfCurrentChild)
                     || firstType != ((DistributionSpecHash) childDistribution).getShuffleType()) {
-                return PhysicalProperties.ANY;
+                // NOTICE: if come here, the first child output must be DistributionSpecHash
+                return PhysicalProperties.createAnyFromHash((DistributionSpecHash) childrenDistribution.get(0));
             }
         }
         // bucket
@@ -405,7 +432,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         } else {
             // current be could not run const expr on appropriate node,
             // so if we have constant exprs on union, the output of union always any
-            return PhysicalProperties.ANY;
+            return visit(union, context);
         }
     }
 

@@ -172,9 +172,15 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
+    /**
+     * merge source fragment info into target fragment.
+     * include runtime filter info and fragment attribute.
+     */
     public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
         srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
         srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
+        targetFragment.setHasColocatePlanNode(targetFragment.hasColocatePlanNode()
+                || srcFragment.hasColocatePlanNode());
         this.planFragments.remove(srcFragment);
     }
 

@@ -48,7 +48,7 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[web_page]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((time_dim.t_hour >= 16)(time_dim.t_hour <= 17))
+--------------------------------filter((time_dim.t_hour <= 17)(time_dim.t_hour >= 16))
 ----------------------------------PhysicalOlapScan[time_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

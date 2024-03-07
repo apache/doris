@@ -97,6 +97,11 @@ public:
         return _index_meta.properties();
     }
 
+    [[nodiscard]] Status get_index_search(OlapReaderStatistics* stats,
+                                          IndexSearcherPtr& index_searcher,
+                                          const std::string& index_dir,
+                                          const std::string& index_file_name);
+
     static void get_analyse_result(std::vector<std::string>& analyse_result,
                                    lucene::util::Reader* reader,
                                    lucene::analysis::Analyzer* analyzer,

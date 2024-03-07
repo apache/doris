@@ -43,6 +43,7 @@ class IColumn;
 class VExprContext;
 
 struct JdbcConnectorParam {
+    int64_t catalog_id;
     std::string driver_path;
     std::string driver_class;
     std::string resource_name;
@@ -52,6 +53,11 @@ struct JdbcConnectorParam {
     std::string passwd;
     std::string query_string;
     TOdbcTableType::type table_type;
+    int32_t connection_pool_min_size;
+    int32_t connection_pool_max_size;
+    int32_t connection_pool_max_wait_time;
+    int32_t connection_pool_max_life_time;
+    bool connection_pool_keep_alive;
 
     const TupleDescriptor* tuple_desc;
 };

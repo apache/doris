@@ -31,8 +31,7 @@ under the License.
 - 增加、删除列
 - 修改列类型
 - 调整列顺序
-- 增加、修改 Bloom Filter
-- 增加、删除 bitmap index
+- 增加、删除索引
 
 本文档主要介绍如何创建 Schema Change 作业，以及进行 Schema Change 的一些注意事项和常见问题。
 
@@ -219,7 +218,7 @@ alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
 +-----------+-------+-------------+------+------+---------+-------+
 ```
 
-因为Schema Chanage 作业是异步操作，同一个表同时只能进行一个Schema chanage 作业，查看作业运行情况，可以通过下面这个命令
+因为Schema Change 作业是异步操作，同一个表同时只能进行一个Schema change 作业，查看作业运行情况，可以通过下面这个命令
 
 ```sql
 SHOW ALTER TABLE COLUMN\G;

@@ -30,8 +30,10 @@
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "task_group/task_group.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
@@ -75,6 +77,11 @@ public:
         }
         if (_task_group) {
             _task_group->remove_mem_tracker_limiter(query_mem_tracker);
+        }
+        if (_exec_env &&
+            _exec_env
+                    ->runtime_query_statistics_mgr()) { // for BE ut FragmentMgrTest.Normal, Meaningless
+            _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(query_id));
         }
     }
 
@@ -173,6 +180,45 @@ public:
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
+    void register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
+        _exec_env->runtime_query_statistics_mgr()->register_query_statistics(print_id(query_id), qs,
+                                                                             coord_addr);
+    }
+
+    std::shared_ptr<QueryStatistics> get_query_statistics() {
+        return _exec_env->runtime_query_statistics_mgr()->get_runtime_query_statistics(
+                print_id(query_id));
+    }
+
+    void register_memory_statistics() {
+        if (query_mem_tracker) {
+            std::shared_ptr<QueryStatistics> qs = query_mem_tracker->get_query_statistics();
+            std::string query_id_str = print_id(query_id);
+            if (qs) {
+                if (_exec_env &&
+                    _exec_env->runtime_query_statistics_mgr()) { // for ut FragmentMgrTest.normal
+                    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                            query_id_str, qs, coord_addr);
+                }
+            } else {
+                LOG(INFO) << " query " << query_id_str << " get memory query statistics failed ";
+            }
+        }
+    }
+
+    void register_cpu_statistics() {
+        if (!_cpu_statistics) {
+            _cpu_statistics = std::make_shared<QueryStatistics>();
+            if (_exec_env &&
+                _exec_env->runtime_query_statistics_mgr()) { // for ut FragmentMgrTest.normal
+                _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                        print_id(query_id), _cpu_statistics, coord_addr);
+            }
+        }
+    }
+
+    std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
+
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -226,6 +272,8 @@ private:
     taskgroup::TaskGroupPtr _task_group;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
+
+    std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
 };
 
 } // namespace doris

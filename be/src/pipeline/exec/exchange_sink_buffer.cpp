@@ -190,12 +190,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
-        if (_statistics && _statistics->collected()) {
-            auto statistic = brpc_request->mutable_query_statistics();
-            _statistics->to_pb(statistic);
-        }
         if (request.block) {
             brpc_request->set_allocated_block(request.block.get());
+        }
+        if (!request.exec_status.ok()) {
+            request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
         }
         auto* closure = request.channel->get_closure(id, request.eos, nullptr);
 
@@ -247,10 +246,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block_holder->get_block()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
-        }
-        if (_statistics && _statistics->collected()) {
-            auto statistic = brpc_request->mutable_query_statistics();
-            _statistics->to_pb(statistic);
         }
         auto* closure = request.channel->get_closure(id, request.eos, request.block_holder);
 
@@ -345,7 +340,7 @@ void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_ti
         }
     }
     *max_time = local_max_time;
-    *min_time = local_min_time;
+    *min_time = local_min_time == INT64_MAX ? 0 : local_min_time;
 }
 
 int64_t ExchangeSinkBuffer::get_sum_rpc_time() {

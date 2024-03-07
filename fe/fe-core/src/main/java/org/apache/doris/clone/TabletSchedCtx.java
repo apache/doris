@@ -674,10 +674,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
-            Backend be = infoService.getBackend(replica.getBackendId());
-            if (be == null || !be.isScheduleAvailable()) {
-                LOG.debug("replica's backend {} does not exist or is not scheduler available, skip. tablet: {}",
-                        replica.getBackendId(), tabletId);
+            if (!replica.isScheduleAvailable()) {
+                if (Env.getCurrentSystemInfo().checkBackendScheduleAvailable(replica.getBackendId())) {
+                    LOG.debug("replica's backend {} does not exist or is not scheduler available, skip. tablet: {}",
+                            replica.getBackendId(), tabletId);
+                } else {
+                    LOG.debug("user drop replica {}, skip. tablet: {}",
+                            replica, tabletId);
+                }
                 continue;
             }
 

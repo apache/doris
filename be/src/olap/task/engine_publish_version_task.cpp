@@ -108,6 +108,14 @@ Status EnginePublishVersionTask::finish() {
             StorageEngine::instance()->tablet_publish_txn_thread_pool()->new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
     std::unordered_map<int64_t, int64_t> tablet_id_to_num_delta_rows;
+
+#ifndef NDEBUG
+    if (UNLIKELY(_publish_version_req.partition_version_infos.empty())) {
+        LOG(WARNING) << "transaction_id: " << transaction_id << " empty partition_version_infos";
+    }
+#endif
+
+    std::vector<std::shared_ptr<TabletPublishTxnTask>> tablet_tasks;
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
@@ -230,11 +238,21 @@ Status EnginePublishVersionTask::finish() {
 
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
+            tablet_tasks.push_back(tablet_publish_txn_ptr);
             auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
             CHECK(submit_st.ok()) << submit_st;
         }
     }
     token->wait();
+
+    if (res.ok()) {
+        for (const auto& tablet_task : tablet_tasks) {
+            res = tablet_task->result();
+            if (!res.ok()) {
+                break;
+            }
+        }
+    }
 
     _succ_tablets->clear();
     // check if the related tablet remained all have the version
@@ -318,30 +336,39 @@ TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task
 }
 
 void TabletPublishTxnTask::handle() {
+    std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::chrono::seconds(5));
+    if (!migration_rlock.owns_lock()) {
+        _result = Status::Error<TRY_LOCK_FAILED, false>("got migration_rlock failed");
+        LOG(WARNING) << "failed to publish version. tablet_id=" << _tablet_info.tablet_id
+                     << ", txn_id=" << _transaction_id << ", res=" << _result;
+        return;
+    }
     std::unique_lock<std::mutex> rowset_update_lock(_tablet->get_rowset_update_lock(),
                                                     std::defer_lock);
     if (_tablet->enable_unique_key_merge_on_write()) {
         rowset_update_lock.lock();
     }
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
-    auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
+    _result = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, _version, &_stats);
-    if (publish_status != Status::OK()) {
+    if (!_result.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
-                     << ", res=" << publish_status;
+                     << ", res=" << _result;
         _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
         return;
     }
 
+    DBUG_EXECUTE_IF("EnginePublishVersionTask.handle.block_add_rowsets", DBUG_BLOCK);
+
     // add visible rowset to tablet
     int64_t t1 = MonotonicMicros();
-    publish_status = _tablet->add_inc_rowset(_rowset);
+    _result = _tablet->add_inc_rowset(_rowset);
     _stats.add_inc_rowset_us = MonotonicMicros() - t1;
-    if (publish_status != Status::OK() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
+    if (!_result.ok() && !_result.is<PUSH_VERSION_ALREADY_EXIST>()) {
         LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
-                     << ", res=" << publish_status;
+                     << ", res=" << _result;
         _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
         return;
     }
@@ -351,12 +378,20 @@ void TabletPublishTxnTask::handle() {
     LOG(INFO) << "publish version successfully on tablet"
               << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->full_name()
               << ", transaction_id=" << _transaction_id << ", version=" << _version.first
-              << ", num_rows=" << _rowset->num_rows() << ", res=" << publish_status
+              << ", num_rows=" << _rowset->num_rows() << ", res=" << _result
               << ", cost: " << cost_us << "(us) "
               << (cost_us > 500 * 1000 ? _stats.to_string() : "");
+
+    _result = Status::OK();
 }
 
 void AsyncTabletPublishTask::handle() {
+    std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::chrono::seconds(5));
+    if (!migration_rlock.owns_lock()) {
+        LOG(WARNING) << "failed to publish version. tablet_id=" << _tablet->tablet_id()
+                     << ", txn_id=" << _transaction_id << ", got migration_rlock failed";
+        return;
+    }
     std::lock_guard<std::mutex> wrlock(_tablet->get_rowset_update_lock());
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -377,6 +412,8 @@ void AsyncTabletPublishTask::handle() {
                      << ", res=" << publish_status;
         return;
     }
+
+    DBUG_EXECUTE_IF("EnginePublishVersionTask.handle.block_add_rowsets", DBUG_BLOCK);
 
     // add visible rowset to tablet
     int64_t t1 = MonotonicMicros();

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -58,11 +59,11 @@ public abstract class BaseAnalysisTask {
             + "         COUNT(1) AS `row_count`, "
             + "         NDV(`${colName}`) AS `ndv`, "
             + "         COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
-            + "         CAST(MIN(`${colName}`) AS STRING) AS `min`, "
-            + "         CAST(MAX(`${colName}`) AS STRING) AS `max`, "
+            + "         SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
+            + "         SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
             + "         ${dataSizeFunction} AS `data_size`, "
             + "         NOW() AS `update_time` "
-            + " FROM `${catalogName}`.`${dbName}`.`${tblName}`";
+            + " FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}";
 
     protected static final String LINEAR_ANALYZE_TEMPLATE = " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
@@ -75,11 +76,11 @@ public abstract class BaseAnalysisTask {
             + "${rowCount} AS `row_count`, "
             + "${ndvFunction} as `ndv`, "
             + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
-            + "${min} AS `min`, "
-            + "${max} AS `max`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleHints} ${limit}";
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}";
 
     protected static final String DUJ1_ANALYZE_TEMPLATE = "SELECT "
             + "CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
@@ -92,14 +93,14 @@ public abstract class BaseAnalysisTask {
             + "${rowCount} AS `row_count`, "
             + "${ndvFunction} as `ndv`, "
             + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
-            + "${min} AS `min`, "
-            + "${max} AS `max`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
             + "FROM ( "
             + "    SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count` "
             + "    FROM "
-            + "    (SELECT `${colName}` FROM `${catalogName}`.`${dbName}`.`${tblName}` "
+            + "    (SELECT `${colName}` FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} "
             + "    ${sampleHints} ${limit}) as `t0` "
             + "    GROUP BY `t0`.`${colName}` "
             + ") as `t1` ";
@@ -115,8 +116,8 @@ public abstract class BaseAnalysisTask {
             + "${row_count} AS `row_count`, "
             + "${ndv} AS `ndv`, "
             + "${null_count} AS `null_count`, "
-            + "${min} AS `min`, "
-            + "${max} AS `max`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${data_size} AS `data_size`, "
             + "NOW() ";
 
@@ -204,16 +205,7 @@ public abstract class BaseAnalysisTask {
 
     public abstract void doExecute() throws Exception;
 
-    protected void afterExecution() {
-        if (killed) {
-            return;
-        }
-        long tblId = tbl.getId();
-        String colName = col.getName();
-        if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
-            Env.getCurrentEnv().getAnalysisManager().removeColStatsStatus(tblId, colName);
-        }
-    }
+    protected void afterExecution() {}
 
     protected void setTaskStateToRunning() {
         Env.getCurrentEnv().getAnalysisManager()
@@ -313,12 +305,20 @@ public abstract class BaseAnalysisTask {
 
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
+        String queryId = "";
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
+            queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
             job.appendBuf(this, Collections.singletonList(colStatsData));
         } finally {
-            LOG.debug("End cost time in secs: " + (System.currentTimeMillis() - startTime) / 1000);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("End cost time in millisec: " + (System.currentTimeMillis() - startTime)
+                        + " Analyze SQL: " + sql + " QueryId: " + queryId);
+            }
+            // Release the reference to stmtExecutor, reduce memory usage.
+            stmtExecutor = null;
         }
     }
 

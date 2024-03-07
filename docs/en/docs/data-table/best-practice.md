@@ -164,10 +164,10 @@ Database Session
 session -u data (visitorid, sessionid, visittime, city, province, ip, browser, url)
 ```
 
-In addition to visitorid analysis, there are Brower and province analysis cases, Rollup can be established separately.
+In addition to visitorid analysis, there are browser and province analysis cases, Rollup can be established separately.
 
 ```
-ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLICATE KEY(brower,province);
+ALTER TABLE session_data ADD ROLLUP rollup_browser(browser,province,ip,url) DUPLICATE KEY(browser,province);
 ```
 
 ## Schema Change
@@ -177,7 +177,6 @@ Users can modify the Schema of an existing table through the Schema Change opera
 - Adding and deleting columns
 - Modify column types
 - Reorder columns
-- Adding or modifying Bloom Filter
-- Adding or removing bitmap index
+- Adding or removing index
 
 For details, please refer to [Schema Change](../advanced/alter-table/schema-change.md)

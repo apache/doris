@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
@@ -95,6 +97,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -225,6 +228,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         we record the lowest expression cost as group cost to avoid missing this group.
         */
         if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
+            boolean isReliable = groupExpression.getPlan().getExpressions().stream()
+                    .noneMatch(e -> stats.isInputSlotsUnknown(e.getInputSlots()));
+            groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(stats);
         } else {
             // the reason why we update col stats here.
@@ -320,6 +326,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, Void context) {
         jdbcScan.getExpressions();
         return computeCatalogRelation(jdbcScan);
+    }
+
+    @Override
+    public Statistics visitLogicalOdbcScan(LogicalOdbcScan odbcScan, Void context) {
+        odbcScan.getExpressions();
+        return computeCatalogRelation(odbcScan);
     }
 
     @Override
@@ -465,6 +477,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, Void context) {
+        return computeCatalogRelation(odbcScan);
+    }
+
+    @Override
     public Statistics visitPhysicalEsScan(PhysicalEsScan esScan, Void context) {
         return computeCatalogRelation(esScan);
     }
@@ -570,7 +587,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new FilterEstimation().estimate(filter.getPredicate(), stats);
     }
 
-    private ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+    private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().internalSession) {
             return ColumnStatistic.UNKNOWN;
@@ -595,7 +612,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 dbId = -1;
             }
             return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                catalogId, dbId, table.getId(), colName);
+                catalogId, dbId, table.getId(), idxId, colName);
         }
     }
 
@@ -607,21 +624,30 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
         TableIf table = catalogRelation.getTable();
-        double rowCount = catalogRelation.getTable().estimatedRowCount();
+        double rowCount = catalogRelation.getTable().getRowCountForNereids();
+        boolean hasUnknownCol = false;
+        long idxId = -1;
+        if (catalogRelation instanceof OlapScan) {
+            OlapScan olapScan = (OlapScan) catalogRelation;
+            if (olapScan.getTable().getBaseIndexId() != olapScan.getSelectedIndexId()) {
+                idxId = olapScan.getSelectedIndexId();
+            }
+        }
         for (SlotReference slotReference : slotSet) {
-            String colName = slotReference.getName();
+            String colName = slotReference.getColumn().isPresent()
+                    ? slotReference.getColumn().get().getName()
+                    : slotReference.getName();
             boolean shouldIgnoreThisCol = StatisticConstants.shouldIgnoreCol(table, slotReference.getColumn().get());
 
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache;
-            if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableStats
-                    || !FeConstants.enableInternalSchemaDb
+            if (!FeConstants.enableInternalSchemaDb
                     || shouldIgnoreThisCol) {
                 cache = ColumnStatistic.UNKNOWN;
             } else {
-                cache = getColumnStatistic(table, colName);
+                cache = getColumnStatistic(table, colName, idxId);
             }
             if (cache.avgSizeByte <= 0) {
                 cache = new ColumnStatisticBuilder(cache)
@@ -630,10 +656,33 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             if (!cache.isUnKnown) {
                 rowCount = Math.max(rowCount, cache.count);
+            } else {
+                hasUnknownCol = true;
             }
-            columnStatisticMap.put(slotReference, cache);
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
+                columnStatisticMap.put(slotReference, cache);
+            } else {
+                columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+                hasUnknownCol = true;
+            }
         }
-        return new Statistics(rowCount, columnStatisticMap);
+        if (hasUnknownCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
+            ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
+        }
+        Statistics stats = new Statistics(rowCount, columnStatisticMap);
+        stats = normalizeCatalogRelationColumnStatsRowCount(stats);
+        return stats;
+    }
+
+    private Statistics normalizeCatalogRelationColumnStatsRowCount(Statistics stats) {
+        for (Expression slot : stats.columnStatistics().keySet()) {
+            ColumnStatistic colStats = stats.findColumnStatistics(slot);
+            Preconditions.checkArgument(colStats != null,
+                    "can not find col stats for %s  in table", slot.toSql());
+            stats.addColumnStats(slot,
+                    new ColumnStatisticBuilder(colStats).setCount(stats.getRowCount()).build());
+        }
+        return stats;
     }
 
     private Statistics computeTopN(TopN topN) {
@@ -891,7 +940,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Statistics computeGenerate(Generate generate) {
         Statistics stats = groupExpression.childStatistics(0);
-        double count = stats.getRowCount() * generate.getGeneratorOutput().size() * 5;
+        int statsFactor = ConnectContext.get().getSessionVariable().generateStatsFactor;
+        double count = stats.getRowCount() * generate.getGeneratorOutput().size() * statsFactor;
         Map<Expression, ColumnStatistic> columnStatsMap = Maps.newHashMap();
         for (Map.Entry<Expression, ColumnStatistic> entry : stats.columnStatistics().entrySet()) {
             ColumnStatistic columnStatistic = new ColumnStatisticBuilder(entry.getValue()).setCount(count).build();

@@ -236,8 +236,6 @@ DECLARE_mInt32(max_download_speed_kbps);
 DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
-// sleep time for one second
-DECLARE_Int32(sleep_one_second);
 
 // log dir
 DECLARE_String(sys_log_dir);
@@ -819,6 +817,9 @@ DECLARE_mInt32(segment_compression_threshold_kb);
 // The connection timeout when connecting to external table such as odbc table.
 DECLARE_mInt32(external_table_connect_timeout_sec);
 
+// Time to clean up useless JDBC connection pool cache
+DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
+
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
 
@@ -1033,14 +1034,16 @@ DECLARE_String(inverted_index_query_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
-DECLARE_Int32(query_bkd_inverted_index_limit_percent); // 5%
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
+DECLARE_mInt32(inverted_index_max_buffered_docs);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
-DECLARE_Bool(inverted_index_compaction_enable);
+DECLARE_mBool(inverted_index_compaction_enable);
+// index by RAM directory
+DECLARE_mBool(inverted_index_ram_dir_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs
@@ -1083,6 +1086,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 
 // max number of hdfs file handle in cache
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
+DECLARE_Int32(max_hdfs_file_handle_cache_time_sec);
+
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
 // Apply delete pred in cumu compaction
@@ -1093,10 +1098,10 @@ DECLARE_Int32(rocksdb_max_write_buffer_number);
 
 // Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
 DECLARE_mBool(allow_invalid_decimalv2_literal);
-// the max expiration time of kerberos ticket.
-// If a hdfs filesytem with kerberos authentication live longer
-// than this time, it will be expired.
-DECLARE_mInt64(kerberos_expiration_time_seconds);
+// Allow to specify kerberos credentials cache path.
+DECLARE_mString(kerberos_ccache_path);
+// set krb5.conf path, use "/etc/krb5.conf" by default
+DECLARE_mString(kerberos_krb5_conf_path);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
@@ -1153,6 +1158,7 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
+DECLARE_Bool(use_doris_tzfile);
 
 // the max package bytes be thrift server can receive
 // avoid accepting error or too large package causing OOM,default 20000000(20M)
@@ -1170,6 +1176,16 @@ DECLARE_Bool(enable_snapshot_action);
 
 // The timeout config for S3 write buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout_second);
+
+DECLARE_mBool(enable_column_type_check);
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
+
+DECLARE_mInt32(report_query_statistics_interval_ms);
+DECLARE_mInt32(query_statistics_reserve_timeout_ms);
+
+DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 #ifdef BE_TEST
 // test s3
@@ -1281,6 +1297,8 @@ std::vector<std::vector<std::string>> get_config_info();
 Status set_fuzzy_config(const std::string& field, const std::string& value);
 
 void set_fuzzy_configs();
+
+void update_config(const std::string& field, const std::string& value);
 
 } // namespace config
 } // namespace doris
