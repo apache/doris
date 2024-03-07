@@ -103,7 +103,7 @@ public class Statistics {
             return this;
         }
         double newCount = rowCount * sel + numNull;
-        return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
+        return new Statistics(newCount, new HashMap<>(expressionToColumnStats));
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
