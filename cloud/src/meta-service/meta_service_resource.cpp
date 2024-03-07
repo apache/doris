@@ -212,9 +212,9 @@ static int fetch_all_storage_valut(std::string storage_valut_key, std::string_vi
         msg = "failed to parse InstanceInfoPB";
         return -1;
     }
-    if (storage_valut.has_hdfs_infos()) {
+    if (storage_valut.has_hdfs_info()) {
         auto* hdfs_info = response->add_hdfs_info();
-        *hdfs_info = storage_valut.hdfs_infos();
+        *hdfs_info = storage_valut.hdfs_info();
         return 0;
     }
     return 0;
@@ -307,7 +307,7 @@ static std::string next_avaiable_vault_id(const InstanceInfoPB& instance) {
 }
 
 static int add_hdfs_storage_valut(InstanceInfoPB& instance, TxnKv* txn_kv,
-                                  const AlterHdfsParams& hdfs_param, MetaServiceCode& code,
+                                  const AlterHdfsVaultInfo& hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
     if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                      [&hdfs_param](const auto& name) { return name == hdfs_param.vault_name(); }) !=
@@ -322,7 +322,7 @@ static int add_hdfs_storage_valut(InstanceInfoPB& instance, TxnKv* txn_kv,
     StorageVaultPB vault;
     vault.set_id(vault_id);
     vault.set_name(hdfs_param.vault_name());
-    *vault.mutable_hdfs_infos() = hdfs_param.hdfs();
+    *vault.mutable_hdfs_info() = hdfs_param.hdfs();
     std::string val = vault.SerializeAsString();
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -881,7 +881,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     }
     // TODO(ByteYue): Reclaim the vault if the following procedure failed
     if (request->has_hdfs_info()) {
-        AlterHdfsParams hdfs_param;
+        AlterHdfsVaultInfo hdfs_param;
         hdfs_param.set_vault_name("Default");
         *hdfs_param.mutable_hdfs() = request->hdfs_info();
         if (0 != add_hdfs_storage_valut(instance, txn_kv_.get(), hdfs_param, code, msg)) {

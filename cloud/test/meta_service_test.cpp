@@ -334,9 +334,11 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         req.set_instance_id("test_instance_with_hdfs_info");
         req.set_user_id("test_user");
         req.set_name("test_name");
-        HdfsParams hdfs;
-        hdfs.set_fs_name("test_name_node");
-        hdfs.set_user("test_user");
+        HdfsVaultInfo hdfs;
+        HdfsBuildConf conf;
+        conf.set_fs_name("test_name_node");
+        conf.set_user("test_user");
+        hdfs.mutable_build_conf()->CopyFrom(conf);
         req.mutable_hdfs_info()->CopyFrom(hdfs);
 
         auto sp = SyncPoint::get_instance();
@@ -5037,9 +5039,9 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         AlterObjStoreInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
-        AlterHdfsParams hdfs;
+        AlterHdfsVaultInfo hdfs;
         hdfs.set_vault_name("test_alter_add_hdfs_info");
-        HdfsParams params;
+        HdfsVaultInfo params;
 
         hdfs.mutable_hdfs()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
@@ -5060,9 +5062,9 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         AlterObjStoreInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
-        AlterHdfsParams hdfs;
+        AlterHdfsVaultInfo hdfs;
         hdfs.set_vault_name("test_alter_add_hdfs_info_1");
-        HdfsParams params;
+        HdfsVaultInfo params;
 
         hdfs.mutable_hdfs()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
