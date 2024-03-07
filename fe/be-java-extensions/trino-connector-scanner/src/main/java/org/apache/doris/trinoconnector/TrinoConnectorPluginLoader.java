@@ -31,8 +31,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 
-public class PluginLoader {
-    private static final Logger LOG = LogManager.getLogger(PluginLoader.class);
+public class TrinoConnectorPluginLoader {
+    private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
 
     private static String pluginsDir = EnvUtils.getDorisHome() + "/connectors";
 
@@ -62,7 +62,7 @@ public class PluginLoader {
 
     // called by c++
     public static void setPluginsDir(String pluginsDir) {
-        PluginLoader.pluginsDir = pluginsDir;
+        TrinoConnectorPluginLoader.pluginsDir = pluginsDir;
     }
 
     public static TrinoConnectorPluginManager getTrinoConnectorPluginManager() {

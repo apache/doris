@@ -250,7 +250,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
     private ObjectMapperProvider generateObjectMapperProvider() {
         TypeManager typeManager = new InternalTypeManager(
-                PluginLoader.getTrinoConnectorPluginManager().getTypeRegistry());
+                TrinoConnectorPluginLoader.getTrinoConnectorPluginManager().getTypeRegistry());
         ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
         Set<Module> modules = new HashSet<Module>();
         modules.add(HandleJsonModule.tableHandleModule(handleResolver));
@@ -274,7 +274,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
         TrinoConnectorCacheKey cacheKey = new TrinoConnectorCacheKey(catalogNameString, connectorName,
                 catalogCreateTime);
         cacheKey.setProperties(this.trinoConnectorOptionParams);
-        cacheKey.setTrinoConnectorPluginManager(PluginLoader.getTrinoConnectorPluginManager());
+        cacheKey.setTrinoConnectorPluginManager(TrinoConnectorPluginLoader.getTrinoConnectorPluginManager());
 
         TrinoConnectorCacheValue connectorCacheValue = TrinoConnectorCache.getConnector(cacheKey);
         this.catalogHandle = connectorCacheValue.getCatalogHandle();
@@ -339,7 +339,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
                                 new QueryManagerConfig(),
                                 new TaskManagerConfig().setTaskConcurrency(4),
                                 new MemoryManagerConfig(),
-                                PluginLoader.getFeaturesConfig(),
+                                TrinoConnectorPluginLoader.getFeaturesConfig(),
                                 new OptimizerConfig(),
                                 new NodeMemoryConfig(),
                                 new DynamicFilterConfig(),
