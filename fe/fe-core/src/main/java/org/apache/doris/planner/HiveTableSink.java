@@ -37,10 +37,13 @@ import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveTableSink;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class HiveTableSink extends DataSink {
 
@@ -78,32 +81,38 @@ public class HiveTableSink extends DataSink {
         return DataPartition.RANDOM;
     }
 
-    public void init(List<Column> cols, List<Long> partitionIds) throws AnalysisException {
+    public void init(List<Column> insertCols, List<Long> partitionIds) throws AnalysisException {
         THiveTableSink tSink = new THiveTableSink();
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
-        List<THiveColumn> hiveColumns = new ArrayList<>();
-        for (Column col : cols) {
-            THiveColumn tHiveColumn = new THiveColumn();
-            tHiveColumn.setName(col.getName());
-            tHiveColumn.setColumnType(THiveColumnType.REGULAR);
-            hiveColumns.add(tHiveColumn);
-        }
+        List<FieldSchema> partitionKeys = targetTable.getRemoteTable().getPartitionKeys();
 
-        tSink.setColumns(hiveColumns);
-        List<THivePartition> partitions = new ArrayList<>();
-        for (Long partitionId : partitionIds) {
-            String partName = targetTable.getPartitionName(partitionId);
-            if (StringUtils.isNotEmpty(partName)) {
-                THivePartition hivePartition = new THivePartition();
-                // TODO: use partition format type itself.
-                hivePartition.setFileFormat(getFileFormatType());
-                hivePartition.setValues(new ArrayList<>(targetTable.getPartitionNames()));
-                // TODO: set partition location: hivePartition.setLocation();
-                partitions.add(hivePartition);
+        Map<String, FieldSchema> nameToPartitions = new HashMap<>();
+        for (FieldSchema partitionKey : partitionKeys) {
+            nameToPartitions.put(partitionKey.getName(), partitionKey);
+        }
+        List<FieldSchema> hmsColumns = targetTable.getRemoteTable().getSd().getCols();
+        Map<String, FieldSchema> nameToColumns = new HashMap<>();
+        for (FieldSchema column : hmsColumns) {
+            nameToColumns.put(column.getName(), column);
+        }
+        List<THiveColumn> targetColumns = new ArrayList<>();
+        for (Column col : insertCols) {
+            if (nameToPartitions.containsKey(col.getName())) {
+                THiveColumn tHiveColumn = new THiveColumn();
+                tHiveColumn.setName(col.getName());
+                tHiveColumn.setColumnType(THiveColumnType.PARTITION_KEY);
+                targetColumns.add(tHiveColumn);
+            } else if (nameToColumns.containsKey(col.getName())) {
+                THiveColumn tHiveColumn = new THiveColumn();
+                tHiveColumn.setName(col.getName());
+                tHiveColumn.setColumnType(THiveColumnType.REGULAR);
+                targetColumns.add(tHiveColumn);
             }
         }
-        tSink.setPartitions(partitions);
+        tSink.setColumns(targetColumns);
+
+        setPartitionValues(partitionIds, tSink);
 
         StorageDescriptor sd = targetTable.getRemoteTable().getSd();
         THiveBucket bucketInfo = new THiveBucket();
@@ -122,6 +131,25 @@ public class HiveTableSink extends DataSink {
 
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
+    }
+
+    private void setPartitionValues(List<Long> partitionIds, THiveTableSink tSink) throws AnalysisException {
+        List<THivePartition> partitions = new ArrayList<>();
+        if (partitionIds.isEmpty()) {
+            return;
+        }
+        for (Long partitionId : partitionIds) {
+            String partName = targetTable.getPartitionName(partitionId);
+            if (StringUtils.isNotEmpty(partName)) {
+                THivePartition hivePartition = new THivePartition();
+                // TODO: use partition format type itself.
+                hivePartition.setFileFormat(getFileFormatType());
+                hivePartition.setValues(new ArrayList<>(targetTable.getPartitionNames()));
+                // TODO: set partition location: hivePartition.setLocation();
+                partitions.add(hivePartition);
+            }
+        }
+        tSink.setPartitions(partitions);
     }
 
     private TFileFormatType getFileFormatType() {
