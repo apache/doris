@@ -106,18 +106,30 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             if (!column.isVisible()) {
                 continue;
             }
             if (colNameToExpression.containsKey(column.getName())) {
                 Expression expr = colNameToExpression.get(column.getName());
+                // when updating the sequence map column, the real sequence column need to set with the same value.
+                boolean isSequenceMapColumn = targetTable.hasSequenceCol()
+                        && targetTable.getSequenceMapCol() != null
+                        && column.getName().equalsIgnoreCase(targetTable.getSequenceMapCol());
+                if (setExpr == null && isSequenceMapColumn) {
+                    setExpr = expr;
+                }
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
                         : new UnboundAlias(expr));
                 colNameToExpression.remove(column.getName());
             } else {
-                selectItems.add(new UnboundSlot(tableName, column.getName()));
+                if (column.isSequenceColumn() && setExpr != null) {
+                    selectItems.add(new UnboundAlias(setExpr, column.getName()));
+                } else {
+                    selectItems.add(new UnboundSlot(tableName, column.getName()));
+                }
             }
         }
         if (!colNameToExpression.isEmpty()) {
