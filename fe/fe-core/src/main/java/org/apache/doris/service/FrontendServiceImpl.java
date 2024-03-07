@@ -50,6 +50,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
+import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -205,6 +206,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReplicaInfo;
+import org.apache.doris.thrift.TReportCommitTxnResultRequest;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
@@ -247,6 +249,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -3674,6 +3677,37 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             throw e;
         }
+    }
+
+    class TableStats {
+        public long updatedRowCount;
+    }
+
+    public TStatus reportCommitTxnResult(TReportCommitTxnResultRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        // FE only has one master, this should not be a problem
+        if (!Env.getCurrentEnv().isMaster()) {
+            LOG.error("failed to handle load stats report: not master, backend:{}",
+                      clientAddr);
+            return new TStatus(TStatusCode.NOT_MASTER);
+        }
+
+        LOG.info("receive load stats report request: {}, backend: {}, dbId: {}, txnId: {}, label: {}",
+                  request, clientAddr, request.getDbId(), request.getTxnId(), request.getLabel());
+
+        try {
+            byte[] receivedProtobufBytes = request.getPayload();
+            if (receivedProtobufBytes == null || receivedProtobufBytes.length <= 0) {
+                return new TStatus(TStatusCode.INVALID_ARGUMENT);
+            }
+            CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
+            Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse);
+        } catch (InvalidProtocolBufferException e) {
+            // Handle the exception, log it, or take appropriate action
+            e.printStackTrace();
+        }
+
+        return new TStatus(TStatusCode.OK);
     }
 
     @Override
