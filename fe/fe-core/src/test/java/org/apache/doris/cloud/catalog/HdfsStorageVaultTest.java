@@ -36,24 +36,17 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 public class HdfsStorageVaultTest {
     private StorageVaultMgr mgr = new StorageVaultMgr();
-    Method method;
 
     @Before
     public void setUp() throws Exception {
         Config.cloud_unique_id = "cloud_unique_id";
         Config.meta_service_endpoint = "127.0.0.1:20121";
-        Class<?> myClass = StorageVaultMgr.class;
-        String methodName = "createHdfsVault";
-        method = myClass.getDeclaredMethod(methodName, StorageVault.class);
-        method.setAccessible(true);
     }
 
     StorageVault createHdfsVault(String name, Map<String, String> properties) throws DdlException {
@@ -77,7 +70,7 @@ public class HdfsStorageVaultTest {
         StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/"));
-        method.invoke(mgr, vault);
+        mgr.createHdfsVault(vault);
     }
 
     @Test
@@ -89,11 +82,11 @@ public class HdfsStorageVaultTest {
                     alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
-                if (existed.contains(request.getHdfs().getVaultName())) {
+                if (existed.contains(request.getHdfs().getName())) {
                     status.setCode(MetaServiceCode.ALREADY_EXISTED);
                 } else {
                     status.setCode(MetaServiceCode.OK);
-                    existed.add(request.getHdfs().getVaultName());
+                    existed.add(request.getHdfs().getName());
                 }
                 resp.setStatus(status.build());
                 resp.setStorageVaultId("1");
@@ -103,10 +96,10 @@ public class HdfsStorageVaultTest {
         StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/"));
-        method.invoke(mgr, vault);
-        Assertions.assertThrows(InvocationTargetException.class,
+        mgr.createHdfsVault(vault);
+        Assertions.assertThrows(DdlException.class,
                 () -> {
-                    method.invoke(mgr, vault);
+                    mgr.createHdfsVault(vault);
                 });
     }
 
@@ -117,7 +110,7 @@ public class HdfsStorageVaultTest {
             public Cloud.AlterObjStoreInfoResponse
                     alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
-                if (!request.getHdfs().hasVaultName() || request.getHdfs().getVaultName().isEmpty()) {
+                if (!request.getHdfs().hasName() || request.getHdfs().getName().isEmpty()) {
                     resp.setStatus(MetaServiceResponseStatus.newBuilder()
                                 .setCode(MetaServiceCode.INVALID_ARGUMENT).build());
                 } else {
@@ -130,9 +123,9 @@ public class HdfsStorageVaultTest {
         StorageVault vault = createHdfsVault("", ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/"));
-        Assertions.assertThrows(InvocationTargetException.class,
+        Assertions.assertThrows(DdlException.class,
                 () -> {
-                    method.invoke(mgr, vault);
+                    mgr.createHdfsVault(vault);
                 });
     }
 
@@ -145,11 +138,11 @@ public class HdfsStorageVaultTest {
                     alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
-                if (existed.contains(request.getHdfs().getVaultName())) {
+                if (existed.contains(request.getHdfs().getName())) {
                     status.setCode(MetaServiceCode.ALREADY_EXISTED);
                 } else {
                     status.setCode(MetaServiceCode.OK);
-                    existed.add(request.getHdfs().getVaultName());
+                    existed.add(request.getHdfs().getName());
                 }
                 resp.setStatus(status.build());
                 resp.setStorageVaultId("1");
@@ -160,6 +153,6 @@ public class HdfsStorageVaultTest {
         vault.modifyProperties(ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/"));
-        method.invoke(mgr, vault);
+        mgr.createHdfsVault(vault);
     }
 }

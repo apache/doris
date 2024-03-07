@@ -37,6 +37,7 @@ import java.util.Map;
  * (
  * "type" = "hdfs",
  * "fs.defaultFS" = "hdfs://10.220.147.151:8020",
+ * "fs.prefix" = "",
  * "hadoop.username" = "root"
  * );
  */
@@ -44,6 +45,7 @@ public class HdfsStorageVault extends StorageVault {
     private static final Logger LOG = LogManager.getLogger(HdfsStorageVault.class);
     public static final String HADOOP_FS_PREFIX = "dfs.";
     public static String HADOOP_FS_NAME = "fs.defaultFS";
+    public static String HADOOP_PREFIX = "fs.prefix";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
     public static String DSF_NAMESERVICES = "dfs.nameservices";
@@ -85,25 +87,28 @@ public class HdfsStorageVault extends StorageVault {
                     && properties.containsKey(HADOOP_SOCKET_PATH);
     }
 
-    public static Cloud.HdfsInfo generateHdfsParam(Map<String, String> properties) {
-        Cloud.HdfsInfo.Builder hdfsInfoBuilder =
-                    Cloud.HdfsInfo.newBuilder();
+    public static Cloud.HdfsVaultInfo generateHdfsParam(Map<String, String> properties) {
+        Cloud.HdfsVaultInfo.Builder hdfsVaultInfoBuilder =
+                    Cloud.HdfsVaultInfo.newBuilder();
+        Cloud.HdfsBuildConf.Builder hdfsConfBuilder = Cloud.HdfsBuildConf.newBuilder();
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
-                hdfsInfoBuilder.setFsName(property.getValue());
+                hdfsConfBuilder.setFsName(property.getValue());
+            } else if (property.getKey().equalsIgnoreCase(HADOOP_PREFIX)) {
+                hdfsVaultInfoBuilder.setPrefix(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_USER_NAME)) {
-                hdfsInfoBuilder.setUser(property.getValue());
+                hdfsConfBuilder.setUser(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL)) {
-                hdfsInfoBuilder.setHdfsKerberosPrincipal(property.getValue());
+                hdfsConfBuilder.setHdfsKerberosPrincipal(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB)) {
-                hdfsInfoBuilder.setHdfsKerberosKeytab(property.getValue());
+                hdfsConfBuilder.setHdfsKerberosKeytab(property.getValue());
             } else {
-                Cloud.HdfsConf.Builder hdfsConfBuilder = Cloud.HdfsConf.newBuilder();
-                hdfsConfBuilder.setKey(property.getKey());
-                hdfsConfBuilder.setValue(property.getValue());
-                hdfsInfoBuilder.addHdfsConfs(hdfsConfBuilder.build());
+                Cloud.HdfsBuildConf.HdfsConfKVPair.Builder conf = Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder();
+                conf.setKey(property.getKey());
+                conf.setValue(property.getValue());
+                hdfsConfBuilder.addHdfsConfs(conf.build());
             }
         }
-        return hdfsInfoBuilder.build();
+        return hdfsVaultInfoBuilder.setBuildConf(hdfsConfBuilder.build()).build();
     }
 }

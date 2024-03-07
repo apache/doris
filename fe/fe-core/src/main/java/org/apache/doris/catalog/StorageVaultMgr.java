@@ -51,10 +51,10 @@ public class StorageVaultMgr {
     @VisibleForTesting
     public void createHdfsVault(StorageVault vault) throws DdlException {
         HdfsStorageVault hdfsStorageVault = (HdfsStorageVault) vault;
-        Cloud.HdfsInfo hdfsInfos = HdfsStorageVault.generateHdfsParam(hdfsStorageVault.getCopiedProperties());
-        Cloud.AlterHdfsInfo.Builder alterHdfsInfoBuilder = Cloud.AlterHdfsInfo.newBuilder();
-        alterHdfsInfoBuilder.setVaultName(hdfsStorageVault.getName());
-        alterHdfsInfoBuilder.setHdfs(hdfsInfos);
+        Cloud.HdfsVaultInfo hdfsInfos = HdfsStorageVault.generateHdfsParam(hdfsStorageVault.getCopiedProperties());
+        Cloud.StorageVaultPB.Builder alterHdfsInfoBuilder = Cloud.StorageVaultPB.newBuilder();
+        alterHdfsInfoBuilder.setName(hdfsStorageVault.getName());
+        alterHdfsInfoBuilder.setHdfsInfo(hdfsInfos);
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
                 = Cloud.AlterObjStoreInfoRequest.newBuilder();
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
