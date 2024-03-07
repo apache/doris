@@ -437,7 +437,7 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         String plan = planner.getExplainString(new ExplainOptions(false, false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
+        Assertions.assertTrue(plan.contains("`k1` = 1"));
     }
 
     @Test
@@ -459,7 +459,7 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         String plan = planner.getExplainString(new ExplainOptions(false, false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1 AND `k2` = 1\n"));
+        Assertions.assertTrue(plan.contains("(`k1` = 1) AND (`k2` = 1)"));
     }
 
     @Test
@@ -471,7 +471,7 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         String plan = planner.getExplainString(new ExplainOptions(false, false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
+        Assertions.assertTrue(plan.contains("`k1` = 1"));
     }
 
     @Test

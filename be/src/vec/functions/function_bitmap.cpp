@@ -132,7 +132,9 @@ struct ToBitmap {
                         continue;
                     }
                 }
-                res_data[i].add(col->get_data()[i]);
+                if (auto value = col->get_data()[i]; value >= 0) {
+                    res_data[i].add(value);
+                }
             }
         }
     }
@@ -361,7 +363,7 @@ public:
             const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
             const ColumnString::Offsets& offsets = str_column.get_offsets();
-            static_cast<void>(Impl::vector(data, offsets, res, null_map, input_rows_count));
+            RETURN_IF_ERROR(Impl::vector(data, offsets, res, null_map, input_rows_count));
         } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeArray>) {
             auto argument_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
@@ -375,19 +377,19 @@ public:
 
             WhichDataType which_type(argument_type);
             if (which_type.is_int8()) {
-                static_cast<void>(Impl::template vector<ColumnInt8>(
-                        offset_column_data, nested_column, nested_null_map, res, null_map));
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
+                                                                  nested_null_map, res, null_map));
             } else if (which_type.is_uint8()) {
-                static_cast<void>(Impl::template vector<ColumnUInt8>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnUInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (which_type.is_int16()) {
-                static_cast<void>(Impl::template vector<ColumnInt16>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt16>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (which_type.is_int32()) {
-                static_cast<void>(Impl::template vector<ColumnInt32>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt32>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (which_type.is_int64()) {
-                static_cast<void>(Impl::template vector<ColumnInt64>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt64>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -700,12 +702,7 @@ Status execute_bitmap_op_count_null_to_zero(
         size_t input_rows_count,
         const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
                 exec_impl_func) {
-    NullPresence null_presence = get_null_presence(block, arguments);
-
-    if (null_presence.has_null_constant) {
-        block.get_by_position(result).column =
-                block.get_by_position(result).type->create_column_const(input_rows_count, 0);
-    } else if (null_presence.has_nullable) {
+    if (have_null_column(block, arguments)) {
         auto [temporary_block, new_args, new_result] =
                 create_block_with_nested_columns(block, arguments, result);
         RETURN_IF_ERROR(exec_impl_func(context, temporary_block, new_args, new_result,

@@ -49,7 +49,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSourceOperator final : public SourceOperator<StreamingAggSourceOperatorBuilder> {
+class StreamingAggSourceOperator final : public SourceOperator<vectorized::AggregationNode> {
 public:
     StreamingAggSourceOperator(OperatorBuilderBase*, ExecNode*, std::shared_ptr<DataQueue>);
     bool can_read() override;
@@ -58,19 +58,6 @@ public:
 
 private:
     std::shared_ptr<DataQueue> _data_queue;
-};
-
-class StreamingAggSourceOperatorX final : public AggSourceOperatorX {
-public:
-    using Base = AggSourceOperatorX;
-    StreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                const DescriptorTbl& descs);
-    ~StreamingAggSourceOperatorX() = default;
-
-    Status init(const TPlanNode& tnode, RuntimeState* state) override;
-
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
 };
 
 } // namespace pipeline

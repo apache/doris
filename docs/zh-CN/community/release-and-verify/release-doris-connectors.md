@@ -44,9 +44,20 @@ Doris Connectors 目前包含：
 
 我们以发布 Spark Connector 1.2.0 为例。
 
-### 1. 准备分支
+### 1. 准备分支和tag
 
 在代码库中创建分支：release-1.2.0，并 checkout 到该分支。
+
+修改pom中的版本revision为要发布的版本号，即1.2.0。并且提交本次修改，例如：
+```
+git commit -a -m "Commit for release 1.2.0"
+```
+
+创建tag并推送
+```
+git tag 1.2.0
+git push origin 1.2.0
+```
 
 ### 2. 发布到 Maven staging
 
@@ -57,8 +68,7 @@ Doris Connectors 目前包含：
 mvn clean install \
 -Dspark.version=2.3.0 \
 -Dscala.version=2.11 \
--Dspark.major.version=2.3 \
--Drevision=1.2.0 
+-Dspark.major.version=2.3
 ```
 >注意：相关参数可以参考build.sh脚本中的编译命令，revision为本次要发布的版本号。
 
@@ -67,8 +77,7 @@ mvn deploy \
 -Papache-release \
 -Dspark.version=2.3.0 \
 -Dscala.version=2.11 \
--Dspark.major.version=2.3 \
--Drevision=1.2.0
+-Dspark.major.version=2.3
 ```
 
 执行成功后，在 [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) 里面可以找到刚刚发布的版本：

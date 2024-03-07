@@ -72,17 +72,13 @@ public class CreateDataSyncJobStmtTest {
                 minTimes = 0;
                 result = catalog;
 
-                catalog.getDbNullable("testCluster:testDb");
+                catalog.getDbNullable("testDb");
                 minTimes = 0;
                 result = database;
 
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
 
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
@@ -178,7 +174,7 @@ public class CreateDataSyncJobStmtTest {
         try {
             stmt.analyze(analyzer);
             Assert.assertEquals(jobName, stmt.getJobName());
-            Assert.assertEquals("testCluster:testDb", stmt.getDbName());
+            Assert.assertEquals("testDb", stmt.getDbName());
             Assert.assertEquals(DataSyncJobType.CANAL, stmt.getDataSyncJobType());
         } catch (UserException e) {
             // CHECKSTYLE IGNORE THIS LINE

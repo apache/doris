@@ -64,7 +64,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
                 labelStringLiteral);
         CancelLoadStmt stmt = new CancelLoadStmt(null, labelBinaryPredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label'",
+        Assertions.assertEquals("CANCEL LOAD FROM testDb WHERE (`label` = 'doris_test_label')",
                 stmt.toString());
 
         SlotRef labelSlotRefUpper = new SlotRef(null, "LABEL");
@@ -72,7 +72,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
                 labelStringLiteral);
         CancelLoadStmt stmtUpper = new CancelLoadStmt(null, labelBinaryPredicateUpper);
         stmtUpper.analyze(analyzer);
-        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `LABEL` = 'doris_test_label'",
+        Assertions.assertEquals("CANCEL LOAD FROM testDb WHERE (`LABEL` = 'doris_test_label')",
                 stmtUpper.toString());
 
         StringLiteral stateStringLiteral = new StringLiteral("LOADING");
@@ -80,13 +80,13 @@ public class CancelLoadStmtTest extends TestWithFeService {
                 stateStringLiteral);
         stmt = new CancelLoadStmt(null, stateBinaryPredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `state` = 'LOADING'", stmt.toString());
+        Assertions.assertEquals("CANCEL LOAD FROM testDb WHERE (`state` = 'LOADING')", stmt.toString());
 
         LikePredicate labelLikePredicate = new LikePredicate(LikePredicate.Operator.LIKE, labelSlotRef,
                 labelStringLiteral);
         stmt = new CancelLoadStmt(null, labelLikePredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `label` LIKE 'doris_test_label'",
+        Assertions.assertEquals("CANCEL LOAD FROM testDb WHERE `label` LIKE 'doris_test_label'",
                 stmt.toString());
 
         CompoundPredicate compoundAndPredicate = new CompoundPredicate(Operator.AND, labelBinaryPredicate,
@@ -94,7 +94,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
         stmt = new CancelLoadStmt(null, compoundAndPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label' AND `state` = 'LOADING'",
+                "CANCEL LOAD FROM testDb WHERE (`label` = 'doris_test_label') AND (`state` = 'LOADING')",
                 stmt.toString());
 
         CompoundPredicate compoundOrPredicate = new CompoundPredicate(Operator.OR, labelBinaryPredicate,
@@ -102,12 +102,12 @@ public class CancelLoadStmtTest extends TestWithFeService {
         stmt = new CancelLoadStmt(null, compoundOrPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label' OR `state` = 'LOADING'",
+                "CANCEL LOAD FROM testDb WHERE (`label` = 'doris_test_label') OR (`state` = 'LOADING')",
                 stmt.toString());
 
         // test match
         List<LoadJob> loadJobs = new ArrayList<>();
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:testDb");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("testDb");
         long dbId = db.getId();
         Table tbl = db.getTableNullable(tblName);
         long tblId = tbl.getId();

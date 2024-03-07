@@ -18,8 +18,10 @@
 
 suite("test_index_match_phrase_prefix", "p0"){
     def indexTbName1 = "test_index_match_phrase_prefix"
+    def indexTbName2 = "test_index_match_phrase_prefix2"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
+    sql "DROP TABLE IF EXISTS ${indexTbName2}"
 
     sql """
       CREATE TABLE ${indexTbName1} (
@@ -29,6 +31,22 @@ suite("test_index_match_phrase_prefix", "p0"){
       `status` int(11) NULL COMMENT "",
       `size` int(11) NULL COMMENT "",
       INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`@timestamp`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY RANDOM BUCKETS 1
+      PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+      );
+    """
+
+    sql """
+      CREATE TABLE ${indexTbName2} (
+      `@timestamp` int(11) NULL COMMENT "",
+      `clientip` varchar(20) NULL COMMENT "",
+      `request` text NULL COMMENT "",
+      `status` int(11) NULL COMMENT "",
+      `size` int(11) NULL COMMENT ""
       ) ENGINE=OLAP
       DUPLICATE KEY(`@timestamp`)
       COMMENT "OLAP"
@@ -76,22 +94,31 @@ suite("test_index_match_phrase_prefix", "p0"){
     }
 
     try {
-        load_httplogs_data.call(indexTbName1, 'test_index_match_phrase_prefix', 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(indexTbName1, indexTbName1, 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(indexTbName2, indexTbName2, 'true', 'json', 'documents-1000.json')
 
-        qt_sql """ select count() from test_index_match_phrase_prefix where request match_phrase_prefix 'ima'; """
-        qt_sql """ select count() from test_index_match_phrase_prefix where request like '%ima%'; """
+        sql "sync"
 
-        qt_sql """ select count() from test_index_match_phrase_prefix where request match_phrase_prefix 'images/h'; """
-        qt_sql """ select count() from test_index_match_phrase_prefix where request like '%images/h%'; """
+        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'ima'; """
+        qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix 'ima'; """
+        qt_sql """ select count() from ${indexTbName1} where request like '%ima%'; """
 
-        qt_sql """ select count() from test_index_match_phrase_prefix where request match_phrase_prefix 'images/hm'; """
-        qt_sql """ select count() from test_index_match_phrase_prefix where request like '%images/hm%'; """
+        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'images/h'; """
+        qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix 'images/h'; """
+        qt_sql """ select count() from ${indexTbName1} where request like '%images/h%'; """
 
-        qt_sql """ select count() from test_index_match_phrase_prefix where request match_phrase_prefix '/french/images/n'; """
-        qt_sql """ select count() from test_index_match_phrase_prefix where request like '%/french/images/n%'; """
+        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'images/hm'; """
+        qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix 'images/hm'; """
+        qt_sql """ select count() from ${indexTbName1} where request like '%images/hm%'; """
 
-        qt_sql """ select count() from test_index_match_phrase_prefix where request match_phrase_prefix '/french/tickets/images/ti'; """
-        qt_sql """ select count() from test_index_match_phrase_prefix where request like '%/french/tickets/images/ti%'; """
+        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix '/french/images/n'; """
+        qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix '/french/images/n'; """
+        qt_sql """ select count() from ${indexTbName1} where request like '%/french/images/n%'; """
+
+        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix '/french/tickets/images/ti'; """
+        qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix '/french/tickets/images/ti'; """
+        qt_sql """ select count() from ${indexTbName1} where request like '%/french/tickets/images/ti%'; """
+
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

@@ -58,6 +58,8 @@ public class GroupCommitBlockSink extends OlapTableSink {
             return TGroupCommitMode.ASYNC_MODE;
         } else if (groupCommit.equalsIgnoreCase("sync_mode")) {
             return TGroupCommitMode.SYNC_MODE;
+        } else if (groupCommit.equalsIgnoreCase("off_mode")) {
+            return TGroupCommitMode.OFF_MODE;
         } else {
             return null;
         }

@@ -79,6 +79,8 @@ private:
                                                    TFetchSchemaTableDataRequest* request);
     Status _build_workload_groups_metadata_request(const TMetaScanRange& meta_scan_range,
                                                    TFetchSchemaTableDataRequest* request);
+    Status _build_workload_sched_policy_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                         TFetchSchemaTableDataRequest* request);
     Status _build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
                                             TFetchSchemaTableDataRequest* request);
     Status _build_materialized_views_metadata_request(const TMetaScanRange& meta_scan_range,
@@ -89,6 +91,8 @@ private:
                                          TFetchSchemaTableDataRequest* request);
     Status _build_queries_metadata_request(const TMetaScanRange& meta_scan_range,
                                            TFetchSchemaTableDataRequest* request);
+    Status _build_active_be_tasks_data();
+
     bool _meta_eos;
     TupleId _tuple_id;
     TUserIdentity _user_identity;

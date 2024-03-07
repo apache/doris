@@ -36,11 +36,11 @@ class ObjectPool;
 class RuntimeState;
 class TPlanFragmentExecParams;
 class DescriptorTbl;
-class QueryStatistics;
 class TDataSink;
 class TExpr;
 class TPipelineFragmentParams;
 class TOlapTableSink;
+class QueryStatistics;
 
 namespace vectorized {
 class Block;
@@ -49,7 +49,7 @@ class Block;
 // Superclass of all data sinks.
 class DataSink {
 public:
-    DataSink(const RowDescriptor& desc) : _row_desc(desc) {}
+    DataSink(const RowDescriptor& desc);
     virtual ~DataSink() {}
 
     virtual Status init(const TDataSink& thrift_sink);
@@ -71,11 +71,7 @@ public:
         return send(state, block, eos);
     }
 
-    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
-        return Status::OK();
-    }
-
-    virtual bool is_close_done() { return true; }
+    [[nodiscard]] virtual bool is_pending_finish() const { return false; }
 
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
@@ -104,16 +100,11 @@ public:
     // Returns the runtime profile for the sink.
     RuntimeProfile* profile() { return _profile; }
 
-    virtual void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-        _query_statistics = statistics;
-    }
-
     const RowDescriptor& row_desc() { return _row_desc; }
 
     virtual bool can_write() { return true; }
 
-private:
-    static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
+    std::shared_ptr<QueryStatistics> get_query_statistics_ptr();
 
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
@@ -124,9 +115,6 @@ protected:
 
     RuntimeProfile* _profile = nullptr; // Allocated from _pool
 
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
-
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
     RuntimeProfile::Counter* _output_rows_counter = nullptr;
@@ -136,6 +124,8 @@ protected:
         _output_rows_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
         _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     }
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

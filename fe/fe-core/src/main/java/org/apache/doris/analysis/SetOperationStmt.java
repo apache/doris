@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -485,7 +486,7 @@ public class SetOperationStmt extends QueryStmt {
         List<Pair<Type, Boolean>> selectTypeWithNullable = operands.get(0).getQueryStmt().getResultExprs().stream()
                 .map(expr -> Pair.of(expr.getType(), expr.isNullable())).collect(Collectors.toList());
         for (int i = 1; i < operands.size(); i++) {
-            for (int j = 1; j < selectTypeWithNullable.size(); j++) {
+            for (int j = 0; j < selectTypeWithNullable.size(); j++) {
                 if (selectTypeWithNullable.get(j).first.isDecimalV2()
                         && operands.get(i).getQueryStmt().getResultExprs().get(j).getType().isDecimalV2()) {
                     selectTypeWithNullable.get(j).first = ScalarType.getAssignmentCompatibleDecimalV2Type(
@@ -497,6 +498,13 @@ public class SetOperationStmt extends QueryStmt {
                     selectTypeWithNullable.get(j).first = ScalarType.getAssignmentCompatibleDecimalV3Type(
                             (ScalarType) selectTypeWithNullable.get(j).first,
                             (ScalarType) operands.get(i).getQueryStmt().getResultExprs().get(j).getType());
+                }
+                if (selectTypeWithNullable.get(j).first.isStringType() && operands.get(i)
+                        .getQueryStmt().getResultExprs().get(j).getType().isStringType()) {
+                    selectTypeWithNullable.get(j).first = ScalarType.getAssignmentCompatibleType(
+                            (ScalarType) selectTypeWithNullable.get(j).first,
+                            (ScalarType) operands.get(i).getQueryStmt().getResultExprs().get(j).getType(),
+                            false, SessionVariable.getEnableDecimal256());
                 }
             }
         }

@@ -39,6 +39,8 @@ public class JoinReorderContext {
     private boolean hasRightAssociate = false;
     private boolean hasLeftAssociate = false;
 
+    private boolean isLeadingJoin = false;
+
     public JoinReorderContext() {
     }
 
@@ -52,6 +54,7 @@ public class JoinReorderContext {
         this.hasLeftAssociate = joinReorderContext.hasLeftAssociate;
         this.hasRightAssociate = joinReorderContext.hasRightAssociate;
         this.hasCommuteZigZag = joinReorderContext.hasCommuteZigZag;
+        this.isLeadingJoin = joinReorderContext.isLeadingJoin;
     }
 
     /**
@@ -64,6 +67,7 @@ public class JoinReorderContext {
         hasExchange = false;
         hasRightAssociate = false;
         hasLeftAssociate = false;
+        isLeadingJoin = false;
     }
 
     public boolean hasCommute() {
@@ -112,5 +116,13 @@ public class JoinReorderContext {
 
     public void setHasCommuteZigZag(boolean hasCommuteZigZag) {
         this.hasCommuteZigZag = hasCommuteZigZag;
+    }
+
+    public boolean isLeadingJoin() {
+        return isLeadingJoin;
+    }
+
+    public void setLeadingJoin(boolean leadingJoin) {
+        isLeadingJoin = leadingJoin;
     }
 }

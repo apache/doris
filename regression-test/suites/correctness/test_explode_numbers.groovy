@@ -17,6 +17,7 @@
 
 suite("test_explode_numbers") {
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
     qt_select1 """
         select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as e1 order by e1;
     """

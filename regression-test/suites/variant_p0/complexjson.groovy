@@ -16,7 +16,6 @@
 // under the License.
 
 suite("regression_test_variant_complexjson", "variant_type_complex_json") {
-    sql "set enable_memtable_on_sink_node = true"
     def create_table = { table_name ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
@@ -61,9 +60,7 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
         }
     ]
     }')"""
-    // qt_sql """SELECT v:key_0.key_1.key_3.key_4, v:key_0.key_1.key_3.key_5, \
-    // v:key_0.key_1.key_3.key_6, v:key_0.key_1.key_3.key_7 FROM ${table_name} ORDER BY v:id"""
-    qt_sql """SELECT * from ${table_name} order by cast(v:id as int)"""
+    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
 
     table_name = "complexjson2"
     create_table table_name
@@ -91,19 +88,12 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
         }
     ]
     }')""" 
-    // qt_sql """SELECT \
-    // v:key_1.key_2.key_3.key_8, \
-    // v:key_1.key_2.key_3.key_4.key_5, \
-    // v:key_1.key_2.key_3.key_4.key_6, \
-    // v:key_1.key_2.key_3.key_4.key_7 \
-    // FROM  ${table_name} ORDER BY v:id"""
-    qt_sql """SELECT * from ${table_name} order by cast(v:id as int)"""
+    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
 
     table_name = "complexjson3"
     create_table table_name
     sql """INSERT INTO ${table_name} VALUES (1, '{"key_10":65536,"key_11":"anve","key_0":{"key_1":{"key_2":1025,"key_3":1},"key_4":1,"key_5":256}}')"""
     sql """INSERT INTO ${table_name} VALUES (2, '{"key_0":[{"key_12":"buwvq","key_11":0.0000000255}]}')"""
-    // qt_sql """SELECT k, v:key_10, v:key_11, v:key_0.key_1.key_2, v:key_0.key_1.key_3, v:key_0.key_4, v:key_0.key_5, v:key_0.key_12, v:key_0.key_11 FROM complexjson3 ORDER BY k;""" 
     qt_sql """SELECT * from ${table_name} order by k"""
 
     table_name = "complexjson4"
@@ -115,13 +105,7 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
             {"key_10":10.23,"key_0":922337203.685}
         ]
     }')"""
-    // qt_sql """SELECT \
-    // v:key_0.key_1.key_2, \
-    // v:key_0.key_1.key_8, \
-    // v:key_0.key_10, \
-    // v:key_0.key_0 \
-    // FROM ${table_name} ORDER BY v:id"""
-    qt_sql """SELECT * from ${table_name} order by cast(v:id as int)"""
+    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
 
     table_name = "complexjson5"
     create_table table_name
@@ -148,12 +132,5 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
         }
     ]
     }')""" 
-    // qt_sql """SELECT \
-    // v:key_0.key_1.key_2.key_3.key_4,
-    // v:key_0.key_1.key_2.key_3.key_6,
-    // v:key_0.key_1.key_2.key_3.key_7,
-    // v:key_0.key_1.key_2.key_5.key_6, \
-    // v:key_0.key_1.key_2.key_5.key_7
-    // FROM ${table_name} ORDER BY v:id"""
-    qt_sql """SELECT * from ${table_name} order by cast(v:id as int)"""
+    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
 }

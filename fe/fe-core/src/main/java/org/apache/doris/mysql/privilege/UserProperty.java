@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Joiner;
@@ -36,6 +37,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,6 +65,7 @@ public class UserProperty implements Writable {
     // advanced properties
     private static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
     private static final String PROP_MAX_QUERY_INSTANCES = "max_query_instances";
+    private static final String PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     private static final String PROP_RESOURCE_TAGS = "resource_tags";
     private static final String PROP_RESOURCE = "resource";
     private static final String PROP_SQL_BLOCK_RULES = "sql_block_rules";
@@ -79,18 +82,28 @@ public class UserProperty implements Writable {
 
     private static final String PROP_WORKLOAD_GROUP = "default_workload_group";
 
+    public static final String DEFAULT_CLOUD_CLUSTER = "default_cloud_cluster";
+
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
     // for normal user
     public static final Set<Pattern> COMMON_PROPERTIES = Sets.newHashSet();
 
+    @SerializedName(value = "qualifiedUser")
     private String qualifiedUser;
 
+    @SerializedName(value = "commonProperties")
     private CommonUserProperties commonProperties = new CommonUserProperties();
 
     // load cluster
+    @SerializedName(value = "defaultLoadCluster")
     private String defaultLoadCluster = null;
+
+    @SerializedName(value = "clusterToDppConfig")
     private Map<String, DppConfig> clusterToDppConfig = Maps.newHashMap();
+
+    @SerializedName(value = "defaultCloudCluster")
+    private String defaultCloudCluster = null;
 
     /*
      *  We keep white list here to save Baidu domain name (BNS) or DNS as white list.
@@ -113,6 +126,8 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + "."
                 + DppConfig.PRIORITY + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_QUERY_INSTANCES + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM + "$",
+                Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_SQL_BLOCK_RULES + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_CPU_RESOURCE_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE_TAGS + "$", Pattern.CASE_INSENSITIVE));
@@ -125,6 +140,7 @@ public class UserProperty implements Writable {
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + ".",
                 Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -152,6 +168,10 @@ public class UserProperty implements Writable {
 
     public long getMaxQueryInstances() {
         return commonProperties.getMaxQueryInstances(); // maxQueryInstances;
+    }
+
+    public int getParallelFragmentExecInstanceNum() {
+        return commonProperties.getParallelFragmentExecInstanceNum();
     }
 
     public String[] getSqlBlockRules() {
@@ -187,6 +207,7 @@ public class UserProperty implements Writable {
         // copy
         long newMaxConn = this.commonProperties.getMaxConn();
         long newMaxQueryInstances = this.commonProperties.getMaxQueryInstances();
+        int newParallelFragmentExecInstanceNum = this.commonProperties.getParallelFragmentExecInstanceNum();
         String sqlBlockRules = this.commonProperties.getSqlBlockRules();
         int cpuResourceLimit = this.commonProperties.getCpuResourceLimit();
         Set<Tag> resourceTags = this.commonProperties.getResourceTags();
@@ -196,6 +217,7 @@ public class UserProperty implements Writable {
         String workloadGroup = this.commonProperties.getWorkloadGroup();
 
         String newDefaultLoadCluster = defaultLoadCluster;
+        String newDefaultCloudCluster = defaultCloudCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
 
         // update
@@ -231,6 +253,15 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
+            }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
+                // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
+                if (keyArr.length != 1) {
+                    throw new DdlException(DEFAULT_CLOUD_CLUSTER + " format error");
+                }
+                if (value == null) {
+                    value = "";
+                }
+                newDefaultCloudCluster = value;
             } else if (keyArr[0].equalsIgnoreCase(PROP_MAX_QUERY_INSTANCES)) {
                 // set property "max_query_instances" = "1000"
                 if (keyArr.length != 1) {
@@ -241,6 +272,17 @@ public class UserProperty implements Writable {
                     newMaxQueryInstances = Long.parseLong(value);
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_MAX_QUERY_INSTANCES + " is not number");
+                }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)) {
+                // set property "parallel_fragment_exec_instance_num" = "16"
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM + " format error");
+                }
+
+                try {
+                    newParallelFragmentExecInstanceNum = Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM + " is not number");
                 }
             } else if (keyArr[0].equalsIgnoreCase(PROP_SQL_BLOCK_RULES)) {
                 // set property "sql_block_rules" = "test_rule1,test_rule2"
@@ -337,6 +379,7 @@ public class UserProperty implements Writable {
         // set
         this.commonProperties.setMaxConn(newMaxConn);
         this.commonProperties.setMaxQueryInstances(newMaxQueryInstances);
+        this.commonProperties.setParallelFragmentExecInstanceNum(newParallelFragmentExecInstanceNum);
         this.commonProperties.setSqlBlockRules(sqlBlockRules);
         this.commonProperties.setCpuResourceLimit(cpuResourceLimit);
         this.commonProperties.setResourceTags(resourceTags);
@@ -350,6 +393,7 @@ public class UserProperty implements Writable {
             defaultLoadCluster = null;
         }
         clusterToDppConfig = newDppConfigs;
+        defaultCloudCluster = newDefaultCloudCluster;
     }
 
     private long getLongProperty(String key, String value, String[] keyArr, String propName) throws DdlException {
@@ -424,6 +468,10 @@ public class UserProperty implements Writable {
         }
     }
 
+    public String getDefaultCloudCluster() {
+        return defaultCloudCluster;
+    }
+
     public String getDefaultLoadCluster() {
         return defaultLoadCluster;
     }
@@ -456,6 +504,10 @@ public class UserProperty implements Writable {
         result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES,
                 String.valueOf(commonProperties.getMaxQueryInstances())));
 
+        // parallel fragment exec instance num
+        result.add(Lists.newArrayList(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM,
+                String.valueOf(commonProperties.getParallelFragmentExecInstanceNum())));
+
         // sql block rules
         result.add(Lists.newArrayList(PROP_SQL_BLOCK_RULES, commonProperties.getSqlBlockRules()));
 
@@ -481,6 +533,13 @@ public class UserProperty implements Writable {
             result.add(Lists.newArrayList(PROP_DEFAULT_LOAD_CLUSTER, defaultLoadCluster));
         } else {
             result.add(Lists.newArrayList(PROP_DEFAULT_LOAD_CLUSTER, ""));
+        }
+
+        // default cloud cluster
+        if (defaultCloudCluster != null) {
+            result.add(Lists.newArrayList(DEFAULT_CLOUD_CLUSTER, defaultCloudCluster));
+        } else {
+            result.add(Lists.newArrayList(DEFAULT_CLOUD_CLUSTER, ""));
         }
 
         for (Map.Entry<String, DppConfig> entry : clusterToDppConfig.entrySet()) {
@@ -524,36 +583,21 @@ public class UserProperty implements Writable {
     }
 
     public static UserProperty read(DataInput in) throws IOException {
-        UserProperty userProperty = new UserProperty();
-        userProperty.readFields(in);
-        return userProperty;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_130) {
+            UserProperty userProperty = new UserProperty();
+            userProperty.readFields(in);
+            return userProperty;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, UserProperty.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // user name
-        Text.writeString(out, qualifiedUser);
-
-        // call UserResource.write(out) to make sure that FE can rollback.
-        UserResource.write(out);
-
-        // load cluster
-        if (defaultLoadCluster == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, defaultLoadCluster);
-        }
-        out.writeInt(clusterToDppConfig.size());
-        for (Map.Entry<String, DppConfig> entry : clusterToDppConfig.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        // common properties
-        commonProperties.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         qualifiedUser = Text.readString(in);
         // should be removed after version 3.0

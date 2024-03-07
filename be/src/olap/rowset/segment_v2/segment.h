@@ -39,11 +39,14 @@
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "util/once.h"
 #include "util/slice.h"
+#include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 namespace vectorized {
@@ -123,6 +126,10 @@ public:
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
+    Status seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot, uint32_t row_id,
+                                  vectorized::MutableColumnPtr& result, OlapReaderStatistics& stats,
+                                  std::unique_ptr<ColumnIterator>& iterator_hint);
+
     Status load_index();
 
     Status load_pk_index_and_bf();
@@ -146,7 +153,8 @@ public:
     // ignore_chidren set to false will treat field as variant
     // when it contains children with field paths.
     // nullptr will returned if storage type does not contains such column
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const Field& filed,
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(vectorized::PathInData path,
+                                                                  bool is_nullable,
                                                                   bool ignore_children) const;
 
     // Check is schema read type equals storage column type
@@ -157,8 +165,8 @@ public:
     bool can_apply_predicate_safely(int cid, Predicate* pred, const Schema& schema,
                                     ReaderType read_type) const {
         const Field* col = schema.column(cid);
-        vectorized::DataTypePtr storage_column_type =
-                get_data_type_of(*col, read_type != ReaderType::READER_QUERY);
+        vectorized::DataTypePtr storage_column_type = get_data_type_of(
+                col->path(), col->is_nullable(), read_type != ReaderType::READER_QUERY);
         if (storage_column_type == nullptr) {
             // Default column iterator
             return true;
@@ -185,6 +193,12 @@ private:
     Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter();
     ColumnReader* _get_column_reader(const TabletColumn& col);
+
+    // Get Iterator which will read variant root column and extract with paths and types info
+    Status _new_iterator_with_variant_root(const TabletColumn& tablet_column,
+                                           std::unique_ptr<ColumnIterator>* iter,
+                                           const SubcolumnColumnReaders::Node* root,
+                                           vectorized::DataTypePtr target_type_hint);
 
     Status _load_index_impl();
 
@@ -214,6 +228,9 @@ private:
     // Each node in the tree represents the sub column reader and type
     // for variants.
     SubcolumnColumnReaders _sub_column_tree;
+
+    // each sprase column's path and types info
+    SubcolumnColumnReaders _sparse_column_tree;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;

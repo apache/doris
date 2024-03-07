@@ -54,15 +54,18 @@
 
 namespace doris::vectorized {
 
+static const unsigned char bom[] = {0xEF, 0xBB, 0xBF};
+
 VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                  const VExprContextSPtrs& output_vexpr_ctxs,
                                  bool output_object_data, std::string_view header_type,
                                  std::string_view header, std::string_view column_separator,
-                                 std::string_view line_delimiter)
+                                 std::string_view line_delimiter, bool with_bom)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_separator(column_separator),
           _line_delimiter(line_delimiter),
-          _file_writer(file_writer) {
+          _file_writer(file_writer),
+          _with_bom(with_bom) {
     if (header.size() > 0) {
         _csv_header = header;
         if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
@@ -74,6 +77,10 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
 }
 
 Status VCSVTransformer::open() {
+    if (_with_bom) {
+        RETURN_IF_ERROR(
+                _file_writer->append(Slice(reinterpret_cast<const char*>(bom), sizeof(bom))));
+    }
     if (!_csv_header.empty()) {
         return _file_writer->append(Slice(_csv_header.data(), _csv_header.size()));
     }

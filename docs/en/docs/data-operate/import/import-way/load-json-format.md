@@ -243,9 +243,9 @@ In import statement 1, only JSON Path is specified, and Columns is not specified
 
 ````text
 +------+------+
-| k1 | k2 |
+| k1   | k2   |
 +------+------+
-| 2 | 1 |
+| 2    | 1    |
 +------+------+
 ````
 
@@ -261,9 +261,9 @@ Compared with the import statement 1, the Columns field is added here to describ
 
 ````text
 +------+------+
-| k1 | k2 |
+| k1   |  k2  |
 +------+------+
-| 1 | 2 |
+| 1    | 2    |
 +------+------+
 ````
 
@@ -277,11 +277,67 @@ The above example will import the value of k1 multiplied by 100. The final impor
 
 ````text
 +------+------+
-| k1 | k2 |
+| k1   | k2   |
 +------+------+
-| 100 | 2 |
+| 100  | 2    |
 +------+------+
 ````
+
+Import statement 3：
+
+Compared with the  import statement 1 and import statement 2, the columns field `k1_copy` is added here.
+Table Structure：
+
+```
+k2 int, k1 int, k1_copy int
+```
+
+If you want to assign a column field in JSON to several column fields in the table multiple times, you can specify the column multiple times in jsonPaths and specify the mapping order in sequence. An example is as follows:
+
+```bash
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\", \"$.k1\"]" -H "columns: k2,k1,k1_copy" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+The above example will extract the fields in the order specified by the JSON Path. It designates the first column as the value for the `k2` column in the table, the second column as the value for the `k1` column, and the third column as the value for the `k1_copy` column. The final imported data result is as follows:
+
+```text
++------+------+---------+
+| k2   | k1   | k2_copy |
++------+------+---------+
+|    2 |    1 |       2 |
++------+------+---------+
+```
+
+Import statement 4：
+
+Data content：
+
+```json
+{"k1" : 1, "k2": 2, "k3": {"k1" : 31, "k1_nested" : {"k1" : 32} } }
+```
+
+Compared with the  import statement 1 and import statement 2, the columns field `k1_nested1` and `k1_nested2` are added here.
+
+Table Structure:
+
+```
+k2 int, k1 int, k1_nested1 int, k1_nested2 int
+```
+If you want to assign multi-level fields with the same name nested in json to different columns in the table, you can specify the column in jsonPaths and specify the mapping order in turn. An example are as follows:
+
+```bash
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\",\"$.k3.k1\",\"$.k3.k1_nested.k1\" -H "columns: k2,k1,k1_nested1,k1_nested2" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+The above example will extract the fields in the order of the JSON Path, specifying that the first column is the value of the `k2` column in the table, the second column is the value of the `k1` column in the table, and the third column is the `k1` column in the nested type. The value of the `k1_nested1` column, from which we know that the `k3.k1_nested.k1` column is the value of the `k1_nested2` column in the table. The final imported data results are as follows:
+
+```text
++------+------+------------+------------+
+| k2   | k1   | k1_nested1 | k1_nested2 |
++------+------+------------+------------+
+|    2 |    1 |         31 |         32 |
++------+------+------------+------------+
+```
 
 ## JSON root
 
@@ -340,13 +396,13 @@ The import results that users may expect are as follows, that is, for missing co
 
 ````text
 +------+------+
-| k1 | k2 |
+| k1 | k2     |
 +------+------+
-| 1 | a |
+| 1    | a    |
 +------+------+
-| 2 | x |
+| 2    | x    |
 +------+------+
-|3|c|
+|3     |c     |
 +------+------+
 ````
 
@@ -354,13 +410,13 @@ But the actual import result is as follows, that is, for the missing column, NUL
 
 ````text
 +------+------+
-| k1 | k2 |
+| k1 | k2     |
 +------+------+
-| 1 | a |
+| 1    | a    |
 +------+------+
-| 2 | NULL |
+| 2    | NULL |
 +------+------+
-|3|c|
+|3     |c     |
 +------+------+
 ````
 

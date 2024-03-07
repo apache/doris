@@ -80,7 +80,7 @@ public class DropTableTest {
 
     @Test
     public void testNormalDropTable() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
@@ -102,7 +102,7 @@ public class DropTableTest {
         dropTable(dropTableSql);
         // After unify force and non-force drop table, the replicas will be recycled eventually.
         //
-        // Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        // Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         // OlapTable table = (OlapTable) db.getTableOrMetaException("tbl2");
         // Partition partition = table.getAllPartitions().iterator().next();
         // long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
@@ -112,7 +112,7 @@ public class DropTableTest {
         String recoverDbSql = "recover table test.tbl2";
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown table 'tbl2' or table id '-1' in default_cluster:test",
+                "Unknown table 'tbl2' or table id '-1' in test",
                 () -> Env.getCurrentEnv().recoverTable(recoverTableStmt));
     }
 }

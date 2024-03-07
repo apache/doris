@@ -26,6 +26,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "util/brpc_client_cache.h"
 #include "vec/columns/column.h"
@@ -46,7 +47,7 @@ Status RPCFnImpl::vec_call(FunctionContext* context, Block& block, const ColumnN
     PFunctionCallRequest request;
     PFunctionCallResponse response;
     request.set_function_name(_function_name);
-    _convert_block_to_proto(block, arguments, input_rows_count, &request);
+    RETURN_IF_ERROR(_convert_block_to_proto(block, arguments, input_rows_count, &request));
     brpc::Controller cntl;
     _client->fn_call(&cntl, &request, &response, nullptr);
     if (cntl.Failed()) {
@@ -65,16 +66,17 @@ Status RPCFnImpl::vec_call(FunctionContext* context, Block& block, const ColumnN
     return Status::OK();
 }
 
-void RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& arguments,
-                                        size_t input_rows_count, PFunctionCallRequest* request) {
+Status RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& arguments,
+                                          size_t input_rows_count, PFunctionCallRequest* request) {
     size_t row_count = std::min(block.rows(), input_rows_count);
     for (size_t col_idx : arguments) {
         PValues* arg = request->add_args();
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
         arg->set_has_null(column.column->has_null(row_count));
         auto col = column.column->convert_to_full_column_if_const();
-        static_cast<void>(column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count));
+        RETURN_IF_ERROR(column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count));
     }
+    return Status::OK();
 }
 
 void RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t pos) {
@@ -101,7 +103,7 @@ Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStat
 }
 
 Status FunctionRPC::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                            size_t result, size_t input_rows_count, bool dry_run) {
+                            size_t result, size_t input_rows_count, bool dry_run) const {
     RPCFnImpl* fn = reinterpret_cast<RPCFnImpl*>(
             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     return fn->vec_call(context, block, arguments, result, input_rows_count);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
@@ -25,7 +24,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -40,9 +38,8 @@ public class LeadingJoin implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             logicalJoin()
-                    .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                     .thenApply(ctx -> {
-                        if (!ctx.cascadesContext.isLeadingJoin()) {
+                        if (!ctx.cascadesContext.isLeadingJoin() || ctx.cascadesContext.isLeadingDisableJoinReorder()) {
                             return ctx.root;
                         }
                         Hint leadingHint = ctx.cascadesContext.getHintMap().get("Leading");
@@ -52,13 +49,8 @@ public class LeadingJoin implements RewriteRuleFactory {
                                 && leadingHint.isSuccess()) {
                             Plan leadingJoin = ((LeadingHint) leadingHint).generateLeadingJoinPlan();
                             if (leadingHint.isSuccess() && leadingJoin != null) {
-                                try {
-                                    ctx.cascadesContext.getConnectContext().getSessionVariable()
-                                        .disableNereidsJoinReorderOnce();
-                                    ctx.cascadesContext.setLeadingJoin(false);
-                                } catch (DdlException e) {
-                                    throw new RuntimeException(e);
-                                }
+                                ctx.cascadesContext.setLeadingDisableJoinReorder(true);
+                                ctx.cascadesContext.setLeadingJoin(false);
                                 return leadingJoin;
                             }
                         }

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -73,20 +74,19 @@ public class PushDownTopNDistinctThroughUnion implements RewriteRuleFactory {
                                     NamedExpression output = union.getOutputs().get(i);
                                     replaceMap.put(output, child.getOutput().get(i));
                                 }
-
                                 List<OrderKey> orderKeys = topN.getOrderKeys().stream()
                                         .map(orderKey -> orderKey.withExpression(
                                                 ExpressionUtils.replace(orderKey.getExpr(), replaceMap)))
                                         .collect(ImmutableList.toImmutableList());
-                                newChildren.add(
-                                        new LogicalTopN<>(orderKeys, topN.getLimit() + topN.getOffset(), 0, child));
+                                newChildren.add(new LogicalTopN<>(orderKeys, topN.getLimit() + topN.getOffset(), 0,
+                                        PlanUtils.distinct(child)));
                             }
                             if (union.children().equals(newChildren)) {
                                 return null;
                             }
                             return topN.withChildren(agg.withChildren(union.withChildren(newChildren)));
                         })
-                        .toRule(RuleType.PUSH_DOWN_TOP_N_THROUGH_UNION)
+                        .toRule(RuleType.PUSH_DOWN_TOP_N_DISTINCT_THROUGH_UNION)
         );
     }
 }

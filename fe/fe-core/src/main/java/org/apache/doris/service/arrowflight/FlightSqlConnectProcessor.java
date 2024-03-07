@@ -74,7 +74,9 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
             LOG.warn("Unknown command(" + command + ")");
             return;
         }
-        LOG.debug("arrow flight sql handle command {}", command);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("arrow flight sql handle command {}", command);
+        }
         ctx.setCommand(command);
         ctx.setStartTime();
     }
@@ -178,5 +180,3 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
         ConnectContext.remove();
     }
 }
-
-

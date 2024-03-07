@@ -15,31 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.util.Date
-import java.text.SimpleDateFormat
-import org.apache.http.HttpResponse
-import org.apache.http.client.methods.HttpPut
-import org.apache.http.impl.client.CloseableHttpClient
-import org.apache.http.impl.client.HttpClients
-import org.apache.http.entity.ContentType
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.config.RequestConfig
-import org.apache.http.client.RedirectStrategy
-import org.apache.http.protocol.HttpContext
-import org.apache.http.HttpRequest
-import org.apache.http.impl.client.LaxRedirectStrategy
-import org.apache.http.client.methods.RequestBuilder
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.methods.CloseableHttpResponse
-import org.apache.http.util.EntityUtils
-
 suite("test_schema_change_agg", "p0") {
     def tableName3 = "test_all_agg"
-
-    def getJobState = { tableName ->
-        def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        return jobStateResult[0][9]
-    }
 
     def getCreateViewState = { tableName ->
         def createViewStateResult = sql """ SHOW ALTER TABLE MATERIALIZED VIEW WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
@@ -96,21 +73,10 @@ suite("test_schema_change_agg", "p0") {
     execStreamLoad()
 
     sql """ alter table ${tableName3} modify column k2 bigint(11) key NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            execStreamLoad()
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1"""
+        time 60
     }
 
     /*
@@ -134,21 +100,9 @@ suite("test_schema_change_agg", "p0") {
     */
 
     sql """ alter table ${tableName3} modify column k4 bigint(11) sum NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            execStreamLoad()
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1"""
+        time 60
     }
 
     sql """ alter table ${tableName3} add column v14 int sum NOT NULL default "0" after k13 """
@@ -156,24 +110,9 @@ suite("test_schema_change_agg", "p0") {
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
 
     sql """ alter table ${tableName3} modify column v14 int sum NULL default "0" """
-    sleep(10)
-    max_try_num = 6000
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            int val = 100000 + max_try_num
-            sql """ insert into ${tableName3} values (${val}, 2, 3, 4, 5, 6.6, 1.7, 8.8,
-    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 9527) """
-            sleep(10)
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1"""
+        time 60
     }
 
     sql """ alter table ${tableName3} drop column v14 """
@@ -191,5 +130,85 @@ suite("test_schema_change_agg", "p0") {
         assertEquals(2, row[1]);
         assertEquals(3, row[2]);
     }
+
+    // boolean type
+    sql """ alter table ${tableName3} add column v15 boolean replace NOT NULL default "0" after k13 """
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1"""
+        time 60
+    }
+
+    sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.81,
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', true) """
+
+    test {
+        sql """ALTER table ${tableName3} modify COLUMN v15 int replace NOT NULL default "0" after k13"""
+        exception "Can not change BOOLEAN to INT"
+    }
+
+    // check add column without agg type
+    test {
+        sql """ alter table ${tableName3} add column v16 int NOT NULL default "0" after k13 """
+        exception "Invalid column order. value should be after key. index[${tableName3}]"
+    }
+
+    // del key
+    test {
+        sql """ alter table ${tableName3} drop column k1 """
+        exception "Can not drop key column when table has value column with REPLACE aggregation method"
+    }
+
+
+    //drop partition key
+    sql """ DROP TABLE IF EXISTS ${tableName3} """
+    sql """
+        CREATE TABLE `${tableName3}`
+        (
+            `siteid` INT DEFAULT '10',
+            `citycode` SMALLINT,
+            `username` VARCHAR(32) DEFAULT 'test',
+            `pv` BIGINT SUM DEFAULT '0'
+        )
+        AGGREGATE KEY(`siteid`, `citycode`, `username`)
+        PARTITION BY RANGE(`siteid`)
+                (
+                    partition `old_p1` values [("1"), ("2")),
+                    partition `old_p2` values [("2"), ("3"))
+                )
+        DISTRIBUTED BY HASH(pv) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+
+    test {
+        sql "alter table ${tableName3} drop column siteid"
+        exception "Partition column[siteid] cannot be dropped. index[${tableName3}]"
+    }
+
+    //modify col
+
+    // without agg type
+    test {
+        sql "alter table ${tableName3} modify column pv varchar"
+        exception "Can not change aggregation type"
+    }
+
+    //partition col
+    test {
+        sql "alter table ${tableName3} modify column siteid varchar DEFAULT '10'"
+        exception "Can not modify partition column[siteid]."
+    }
+
+    //distribution key
+
+    test {
+        sql "alter table ${tableName3} modify column pv bigint sum default '0' comment 'pv'"
+        exception "Can not modify distribution column[pv]. index[${tableName3}]"
+    }
+
+
+
 }
 

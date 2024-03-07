@@ -80,6 +80,9 @@ int64_t MemInfo::_s_sys_mem_available_low_water_mark = -1;
 int64_t MemInfo::_s_sys_mem_available_warning_water_mark = -1;
 int64_t MemInfo::_s_process_minor_gc_size = -1;
 int64_t MemInfo::_s_process_full_gc_size = -1;
+std::mutex MemInfo::je_purge_dirty_pages_lock;
+std::condition_variable MemInfo::je_purge_dirty_pages_cv;
+std::atomic<bool> MemInfo::je_purge_dirty_pages_notify {false};
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -129,7 +132,7 @@ bool MemInfo::process_minor_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        je_purge_all_arena_dirty_pages();
+        notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -139,7 +142,7 @@ bool MemInfo::process_minor_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    je_purge_all_arena_dirty_pages();
+    notify_je_purge_dirty_pages();
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
     }
@@ -180,7 +183,7 @@ bool MemInfo::process_full_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        je_purge_all_arena_dirty_pages();
+        notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -190,7 +193,7 @@ bool MemInfo::process_full_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    je_purge_all_arena_dirty_pages();
+    notify_je_purge_dirty_pages();
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
@@ -242,7 +245,7 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
     std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
     int64_t total_free_memory = 0;
 
-    ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
+    ExecEnv::GetInstance()->task_group_manager()->get_related_taskgroups(
             [](const taskgroup::TaskGroupPtr& task_group) {
                 return task_group->is_mem_limit_valid() && !task_group->enable_memory_overcommit();
             },
@@ -253,9 +256,7 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
 
     std::vector<taskgroup::TaskGroupPtr> task_groups_overcommit;
     for (const auto& task_group : task_groups) {
-        taskgroup::TaskGroupInfo tg_info;
-        task_group->task_group_info(&tg_info);
-        if (task_group->memory_used() > tg_info.memory_limit) {
+        if (task_group->memory_used() > task_group->memory_limit()) {
             task_groups_overcommit.push_back(task_group);
         }
     }
@@ -283,12 +284,9 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
     }};
 
     for (const auto& task_group : task_groups_overcommit) {
-        taskgroup::TaskGroupInfo tg_info;
-        task_group->task_group_info(&tg_info);
         auto used = task_group->memory_used();
-        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
-                used - tg_info.memory_limit, used, tg_info.id, tg_info.name, tg_info.memory_limit,
-                task_group->mem_tracker_limiter_pool(), tg_profile.get());
+        total_free_memory +=
+                task_group->gc_memory(used - task_group->memory_limit(), tg_profile.get());
     }
     return total_free_memory;
 }
@@ -298,7 +296,7 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
     MonotonicStopWatch watch;
     watch.start();
     std::vector<taskgroup::TaskGroupPtr> task_groups;
-    ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
+    ExecEnv::GetInstance()->task_group_manager()->get_related_taskgroups(
             [](const taskgroup::TaskGroupPtr& task_group) {
                 return task_group->is_mem_limit_valid() && task_group->enable_memory_overcommit();
             },
@@ -359,11 +357,7 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
                                 : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
                                           request_free_memory /* exceeded memory as a weight */;
         auto task_group = task_groups[i];
-        taskgroup::TaskGroupInfo tg_info;
-        task_group->task_group_info(&tg_info);
-        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
-                tg_need_free_memory, used_memorys[i], tg_info.id, tg_info.name,
-                tg_info.memory_limit, task_group->mem_tracker_limiter_pool(), profile);
+        total_free_memory += task_group->gc_memory(tg_need_free_memory, profile);
     }
     return total_free_memory;
 }

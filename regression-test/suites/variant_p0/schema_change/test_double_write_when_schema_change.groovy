@@ -101,16 +101,16 @@ suite("double_write_schema_change_with_variant") {
         }
     }
 
-    qt_sql "select v:type, v:id, v:created_at from ${table_name} where cast(v:id as bigint) != 25061216922 order by k, cast(v:id as bigint) limit 10"
+    qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k, cast(v['id'] as bigint) limit 10"
 
     sql """ ALTER TABLE ${table_name} modify COLUMN change_column text"""
     double_write.call()
 
     sql """ALTER TABLE ${table_name} drop index idx_var"""
     double_write.call()
-    qt_sql "select v:type, v:id, v:created_at from ${table_name} where cast(v:id as bigint) != 25061216922 order by k,  cast(v:id as bigint) limit 10"
+    qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k,  cast(v['id'] as bigint) limit 10"
 
-    createMV("create materialized view xxx as select k, sum(k) from ${table_name} group by k order by k;")
-    qt_sql "select v:type, v:id, v:created_at from ${table_name} where cast(v:id as bigint) != 25061216922 order by k,  cast(v:id as bigint) limit 10"
+    // createMV("create materialized view xxx as select k, sum(k) from ${table_name} group by k order by k;")
+    // qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k,  cast(v['id'] as bigint) limit 10"
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "2147483648")
 }

@@ -1,0 +1,2 @@
+sum(`AdvEngineID`)	count(*)	avg(`ResolutionWidth`)
+7280088	99997497	1513.4879349030107

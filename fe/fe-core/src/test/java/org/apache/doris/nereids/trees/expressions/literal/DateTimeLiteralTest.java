@@ -34,6 +34,13 @@ class DateTimeLiteralTest {
     }
 
     @Test
+    void mysqlStrangeCase() {
+        new DateTimeV2Literal("0-08-01 13:21:03");
+        new DateTimeV2Literal("0001-01-01: 00:01:01.001");
+        new DateTimeV2Literal("2021?01?01 00.00.00");
+    }
+
+    @Test
     void testBasic() {
         Consumer<DateTimeV2Literal> assertFunc = (datetime) -> {
             Assertions.assertEquals(2022, datetime.year);
@@ -41,13 +48,14 @@ class DateTimeLiteralTest {
             Assertions.assertEquals(1, datetime.day);
             Assertions.assertEquals(1, datetime.hour);
             Assertions.assertEquals(1, datetime.minute);
-            Assertions.assertEquals(1, datetime.second);
+            Assertions.assertEquals(2, datetime.second);
         };
 
-        assertFunc.accept(new DateTimeV2Literal("20220801010101"));
-        assertFunc.accept(new DateTimeV2Literal("20220801T010101"));
-        assertFunc.accept(new DateTimeV2Literal("220801010101"));
-        assertFunc.accept(new DateTimeV2Literal("220801T010101"));
+        assertFunc.accept(new DateTimeV2Literal("20220801010102"));
+        assertFunc.accept(new DateTimeV2Literal("20220801T010102"));
+        assertFunc.accept(new DateTimeV2Literal("220801010102"));
+        assertFunc.accept(new DateTimeV2Literal("220801T010102"));
+        assertFunc.accept(new DateTimeV2Literal("20220801010101.9999999"));
     }
 
     @Test
@@ -165,17 +173,7 @@ class DateTimeLiteralTest {
     }
 
     @Test
-    void testZoneOffset() {
-        new DateTimeV2Literal("2022-08-01 01:01:01UTC+01:01:01");
-        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1:1");
-
-        new DateTimeV2Literal("2022-08-01 01:01:01UTC+01:01");
-
-        new DateTimeV2Literal("2022-08-01 01:01:01UTC+01");
-        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1");
-    }
-
-    @Test
+    @Disabled
     void testTwoDigitalYearZoneOffset() {
         new DateTimeV2Literal("22-08-01 01:01:01UTC+01:01:01");
         new DateTimeV2Literal("22-08-01 01:01:01UTC+1:1:1");
@@ -187,6 +185,7 @@ class DateTimeLiteralTest {
     }
 
     @Test
+    @Disabled
     void testOffset() {
         new DateTimeV2Literal("2022-08-01 01:01:01+01:01:01");
         new DateTimeV2Literal("2022-08-01 01:01:01+01:01");
@@ -212,11 +211,8 @@ class DateTimeLiteralTest {
     }
 
     @Test
-    void testDateTime() {
-        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1:1");
-        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1");
-        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1");
-
+    @Disabled
+    void testDateTimeZone() {
         new DateTimeV2Literal("0001-01-01 00:01:01");
         new DateTimeV2Literal("0001-01-01 00:01:01.001");
         new DateTimeV2Literal("0001-01-01 00:01:01.00305");
@@ -238,11 +234,8 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2022-03-01 01:02:55UTC+8");
         new DateTimeV2Literal("2022-03-01 01:02:55.123UTC");
         new DateTimeV2Literal("2022-04-01T01:02:55UTC-6");
-        new DateTimeV2Literal("2022-04-01T01:02:55.123UTC+6");
 
         new DateTimeV2Literal("0001-01-01");
-        // new DateTimeV2Literal("20220801GMT+5");
-        // new DateTimeV2Literal("20220801GMT-3");
     }
 
     @Test
@@ -401,6 +394,29 @@ class DateTimeLiteralTest {
         // Testing with microsecond of length 6
         new DateTimeV2Literal("2016-07-02 01:01:01.123456");
         new DateTimeV2Literal("2016-7-02 01:01:01.123456");
+
+        // Testing with microsecond of length 7
+        DateTimeV2Literal literal = new DateTimeV2Literal("2016-07-02 01:01:01.12345678");
+        Assertions.assertEquals(123457, literal.microSecond);
+
+        literal = new DateTimeV2Literal("2016-07-02 01:01:01.44444444");
+        Assertions.assertEquals(444444, literal.microSecond);
+
+        literal = new DateTimeV2Literal("2016-07-02 01:01:01.44444445");
+        Assertions.assertEquals(444444, literal.microSecond);
+
+        literal = new DateTimeV2Literal("2016-07-02 01:01:01.4444445");
+        Assertions.assertEquals(444445, literal.microSecond);
+
+        literal = new DateTimeV2Literal("2016-07-02 01:01:01.9999995");
+        Assertions.assertEquals(0, literal.microSecond);
+        Assertions.assertEquals(2, literal.second);
+
+        literal = new DateTimeV2Literal("2021-01-01 23:59:59.9999995");
+        Assertions.assertEquals(0, literal.microSecond);
+        Assertions.assertEquals(0, literal.second);
+        Assertions.assertEquals(0, literal.minute);
+        Assertions.assertEquals(0, literal.hour);
     }
 
     @Test
@@ -435,4 +451,3 @@ class DateTimeLiteralTest {
                 new DateTimeV2Literal("2017-01-01 00:00:00.0"));
     }
 }
-

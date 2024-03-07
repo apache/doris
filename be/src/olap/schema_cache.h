@@ -65,11 +65,10 @@ public:
         if (!instance() || schema_key.empty()) {
             return {};
         }
-        auto lru_handle = _cache->lookup(schema_key);
+        auto lru_handle = cache()->lookup(schema_key);
         if (lru_handle) {
-            Defer release([cache = _cache.get(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)_cache->value(lru_handle);
-            value->last_visit_time = UnixMillis();
+            Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
+            auto value = (CacheValue*)cache()->value(lru_handle);
             VLOG_DEBUG << "use cache schema";
             if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
                 return value->tablet_schema;
@@ -88,7 +87,6 @@ public:
             return;
         }
         CacheValue* value = new CacheValue;
-        value->last_visit_time = UnixMillis();
         if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
             value->type = Type::TABLET_SCHEMA;
             value->tablet_schema = schema;
@@ -101,14 +99,14 @@ public:
             delete cache_value;
         };
         auto lru_handle =
-                _cache->insert(key, value, 1, deleter, CachePriority::NORMAL, schema->mem_size());
-        _cache->release(lru_handle);
+                cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, schema->mem_size());
+        cache()->release(lru_handle);
     }
 
     // Try to prune the cache if expired.
     Status prune();
 
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         Type type;
         // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;

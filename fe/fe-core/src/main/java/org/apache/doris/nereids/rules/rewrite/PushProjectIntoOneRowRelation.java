@@ -19,16 +19,11 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.util.PlanUtils;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
-
-import java.util.Map;
+import java.util.List;
 
 /**
  * Project(OneRowRelation) -> OneRowRelation
@@ -36,26 +31,11 @@ import java.util.Map;
 public class PushProjectIntoOneRowRelation extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalProject(logicalOneRowRelation()).then(p -> {
-            Map<Expression, Expression> replaceMap = Maps.newHashMap();
-            Map<Expression, NamedExpression> replaceRootMap = Maps.newHashMap();
-            p.child().getProjects().forEach(ne -> {
-                if (ne instanceof Alias) {
-                    replaceMap.put(ne.toSlot(), ((Alias) ne).child());
-                } else {
-                    replaceMap.put(ne, ne);
-                }
-                replaceRootMap.put(ne.toSlot(), ne);
-            });
-            ImmutableList.Builder<NamedExpression> newProjections = ImmutableList.builder();
-            for (NamedExpression old : p.getProjects()) {
-                if (old instanceof SlotReference) {
-                    newProjections.add(replaceRootMap.get(old));
-                } else {
-                    newProjections.add((NamedExpression) ExpressionUtils.replace(old, replaceMap));
-                }
-            }
-            return p.child().withProjects(newProjections.build());
+        return logicalProject(logicalOneRowRelation()).then(project -> {
+            LogicalOneRowRelation oneRowRelation = project.child();
+            List<NamedExpression> namedExpressions = PlanUtils.mergeProjections(oneRowRelation.getProjects(),
+                    project.getProjects());
+            return oneRowRelation.withProjects(namedExpressions);
 
         }).toRule(RuleType.PUSH_PROJECT_INTO_ONE_ROW_RELATION);
     }

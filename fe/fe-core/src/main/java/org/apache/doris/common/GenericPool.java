@@ -154,7 +154,9 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         @Override
         public boolean validateObject(TNetworkAddress key, PooledObject<VALUE> p) {
             boolean isOpen = p.getObject().getOutputProtocol().getTransport().isOpen();
-            LOG.debug("isOpen={}", isOpen);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("isOpen={}", isOpen);
+            }
             return isOpen;
         }
 

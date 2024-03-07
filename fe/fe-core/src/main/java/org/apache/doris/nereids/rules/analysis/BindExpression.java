@@ -27,6 +27,7 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.AppliedAwareRule.AppliedAwareRuleCondition;
 import org.apache.doris.nereids.rules.Rule;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -43,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
@@ -50,8 +53,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -67,6 +73,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -78,6 +85,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -87,7 +96,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -172,8 +183,8 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalJoin<Plan, Plan> lj = new LogicalJoin<>(using.getJoinType() == JoinType.CROSS_JOIN
                             ? JoinType.INNER_JOIN : using.getJoinType(),
                             using.getHashJoinConjuncts(),
-                            using.getOtherJoinConjuncts(), using.getHint(), using.getMarkJoinSlotReference(),
-                            using.children());
+                            using.getOtherJoinConjuncts(), using.getDistributeHint(), using.getMarkJoinSlotReference(),
+                            using.children(), null);
                     List<Expression> unboundSlots = lj.getHashJoinConjuncts();
                     Set<String> slotNames = new HashSet<>();
                     List<Slot> leftOutput = new ArrayList<>(lj.left().getOutput());
@@ -205,7 +216,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     for (int i = 0; i < size; i++) {
                         hashEqExpr.add(new EqualTo(leftSlots.get(i), rightSlots.get(i)));
                     }
-                    return lj.withJoinConjuncts(hashEqExpr, lj.getOtherJoinConjuncts());
+                    return lj.withJoinConjuncts(hashEqExpr, lj.getOtherJoinConjuncts(), null);
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
@@ -222,8 +233,8 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
-                            hashJoinConjuncts, cond, join.getHint(), join.getMarkJoinSlotReference(),
-                            join.children());
+                            hashJoinConjuncts, cond, join.getDistributeHint(), join.getMarkJoinSlotReference(),
+                            join.children(), null);
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
@@ -292,10 +303,22 @@ public class BindExpression implements AnalysisRuleFactory {
                         if (alias.child().anyMatch(expr -> expr instanceof AggregateFunction)) {
                             continue;
                         }
-                        // NOTICE: must use unbound expressions, because we will bind them in binding group by expr.
-                        childOutputsToExpr.putIfAbsent(alias.getName(), agg.getOutputExpressions().get(i).child(0));
+                        /*
+                            Alias(x) has been bound by binding agg's output
+                            we add x to childOutputsToExpr, so when binding group by exprs later, we can use x directly
+                            and won't bind it again
+                            select
+                              p_cycle_time / (select max(p_cycle_time) from log_event_8)  as 'x',
+                              count(distinct case_id) as 'y'
+                            from
+                              log_event_8
+                            group by
+                              x
+                         */
+                        childOutputsToExpr.putIfAbsent(alias.getName(), output.get(i).child(0));
                     }
 
+                    Set<Expression> boundedGroupByExpressions = Sets.newHashSet();
                     List<Expression> replacedGroupBy = agg.getGroupByExpressions().stream()
                             .map(groupBy -> {
                                 if (groupBy instanceof UnboundSlot) {
@@ -303,7 +326,9 @@ public class BindExpression implements AnalysisRuleFactory {
                                     if (unboundSlot.getNameParts().size() == 1) {
                                         String name = unboundSlot.getNameParts().get(0);
                                         if (childOutputsToExpr.containsKey(name)) {
-                                            return childOutputsToExpr.get(name);
+                                            Expression expression = childOutputsToExpr.get(name);
+                                            boundedGroupByExpressions.add(expression);
+                                            return expression;
                                         }
                                     }
                                 }
@@ -336,16 +361,24 @@ public class BindExpression implements AnalysisRuleFactory {
 
                     List<Expression> groupBy = replacedGroupBy.stream()
                             .map(expression -> {
-                                Expression e = binder.bind(expression);
-                                if (e instanceof UnboundSlot) {
-                                    return childBinder.bind(e);
+                                if (boundedGroupByExpressions.contains(expression)) {
+                                    // expr has been bound by binding agg's output
+                                    return expression;
+                                } else {
+                                    // bind slot for unbound exprs
+                                    Expression e = binder.bind(expression);
+                                    if (e instanceof UnboundSlot) {
+                                        return childBinder.bind(e);
+                                    }
+                                    return e;
                                 }
-                                return e;
                             })
                             .collect(Collectors.toList());
                     groupBy.forEach(expression -> checkBoundExceptLambda(expression, ctx.root));
                     groupBy = groupBy.stream()
-                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            // bind function for unbound exprs or return old expr if it's bound by binding agg's output
+                            .map(expr -> boundedGroupByExpressions.contains(expr) ? expr
+                                    : bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
                     checkIfOutputAliasNameDuplicatedForGroupBy(groupBy, output);
                     return agg.withGroupByAndOutput(groupBy, output);
@@ -506,6 +539,26 @@ public class BindExpression implements AnalysisRuleFactory {
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })
             ),
+            RuleType.BINDING_INLINE_TABLE_SLOT.build(
+                logicalInlineTable().thenApply(ctx -> {
+                    LogicalInlineTable logicalInlineTable = ctx.root;
+                    // ensure all expressions are valid.
+                    List<LogicalPlan> relations
+                            = Lists.newArrayListWithCapacity(logicalInlineTable.getConstantExprsList().size());
+                    for (int i = 0; i < logicalInlineTable.getConstantExprsList().size(); i++) {
+                        if (logicalInlineTable.getConstantExprsList().get(i).stream()
+                                .anyMatch(DefaultValueSlot.class::isInstance)) {
+                            throw new AnalysisException("Default expression"
+                                    + " can't exist in SELECT statement at row " + (i + 1));
+                        }
+                        relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
+                                logicalInlineTable.getConstantExprsList().get(i)));
+                    }
+                    // construct union all tree
+                    return LogicalPlanBuilder.reduceToLogicalPlanTree(0, relations.size() - 1,
+                            relations, Qualifier.ALL);
+                })
+            ),
             RuleType.BINDING_ONE_ROW_RELATION_SLOT.build(
                 // we should bind UnboundAlias in the UnboundOneRowRelation
                 unboundOneRowRelation().thenApply(ctx -> {
@@ -516,16 +569,6 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(project -> bindFunction(project, ctx.root, ctx.cascadesContext))
                             .collect(Collectors.toList());
                     return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
-                })
-            ),
-            RuleType.BINDING_INLINE_TABLE_SLOT.build(
-                logicalInlineTable().thenApply(ctx -> {
-                    LogicalInlineTable logicalInlineTable = ctx.root;
-                    // ensure all expressions are valid.
-                    logicalInlineTable.getExpressions().forEach(expr ->
-                            bindSlot(expr, ImmutableList.of(), ctx.cascadesContext, false)
-                    );
-                    return null;
                 })
             ),
             RuleType.BINDING_SET_OPERATION_SLOT.build(
@@ -550,7 +593,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     // we need to do cast before set operation, because we maybe use these slot to do shuffle
                     // so, we must cast it before shuffle to get correct hash code.
                     List<List<NamedExpression>> childrenProjections = setOperation.collectChildrenProjections();
-                    ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
+                    Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
                     Builder<Plan> newChildren = ImmutableList.builder();
                     for (int i = 0; i < childrenProjections.size(); i++) {
                         Plan newChild;
@@ -571,14 +614,15 @@ public class BindExpression implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_GENERATE_SLOT.build(
-                logicalGenerate().thenApply(ctx -> {
+                logicalGenerate().when(AbstractPlan::canBind).thenApply(ctx -> {
                     LogicalGenerate<Plan> generate = ctx.root;
                     List<Function> boundSlotGenerators
                             = bindSlot(generate.getGenerators(), generate.child(), ctx.cascadesContext);
                     List<Function> boundFunctionGenerators = boundSlotGenerators.stream()
                             .map(f -> bindTableGeneratingFunction((UnboundFunction) f, ctx.root, ctx.cascadesContext))
                             .collect(Collectors.toList());
-                    Builder<Slot> slotBuilder = ImmutableList.builder();
+                    ImmutableList.Builder<Slot> slotBuilder = ImmutableList.builder();
+                    List<Alias> expandAlias = Lists.newArrayList();
                     for (int i = 0; i < generate.getGeneratorOutput().size(); i++) {
                         Function generator = boundFunctionGenerators.get(i);
                         UnboundSlot slot = (UnboundSlot) generate.getGeneratorOutput().get(i);
@@ -587,8 +631,34 @@ public class BindExpression implements AnalysisRuleFactory {
                         Slot boundSlot = new SlotReference(slot.getNameParts().get(1), generator.getDataType(),
                                 generator.nullable(), ImmutableList.of(slot.getNameParts().get(0)));
                         slotBuilder.add(boundSlot);
+                        // the boundSlot may has two situation:
+                        // 1. the expandColumnsAlias is not empty, we should use make boundSlot expand to multi alias
+                        // 2. the expandColumnsAlias is empty, we should use origin boundSlot
+                        if (generate.getExpandColumnAlias() != null && i < generate.getExpandColumnAlias().size()
+                                && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))) {
+                            // if the alias is not empty, we should bind it with struct_element as child expr with alias
+                            // struct_element(#expand_col#k, #k) as #k
+                            // struct_element(#expand_col#v, #v) as #v
+                            List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
+                            for (int idx = 0; idx < fields.size(); ++idx) {
+                                expandAlias.add(new Alias(new StructElement(
+                                        boundSlot, new StringLiteral(fields.get(idx).getName())),
+                                        generate.getExpandColumnAlias().get(i).get(idx)));
+                            }
+                        }
                     }
-                    return new LogicalGenerate<>(boundFunctionGenerators, slotBuilder.build(), generate.child());
+                    LogicalGenerate ret = new LogicalGenerate<>(
+                            boundFunctionGenerators, slotBuilder.build(), generate.child());
+                    if (expandAlias.size() > 0) {
+                        // we need a project to deal with explode(map) to struct with field alias
+                        // project should contains: generator.child slot + expandAlias
+                        List<NamedExpression> allProjectSlots = generate.child().getOutput().stream()
+                                .map(NamedExpression.class::cast)
+                                .collect(Collectors.toList());
+                        allProjectSlots.addAll(expandAlias);
+                        return new LogicalProject<>(allProjectSlots, ret);
+                    }
+                    return ret;
                 })
             ),
             RuleType.BINDING_UNBOUND_TVF_RELATION_FUNCTION.build(

@@ -75,4 +75,31 @@ suite("agg_window_project") {
                             test_window_table;"""
 
     sql "DROP TABLE IF EXISTS test_window_table;"
+
+    sql "DROP TABLE IF EXISTS test_window_table2;"
+    sql """
+        create table test_window_table2
+        (
+            a varchar(100) null,
+            b decimalv3(18,10) null,
+            c int,
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`a`)
+        DISTRIBUTED BY HASH(`a`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+        
+    """
+
+    sql """insert into test_window_table2 values("1", 1, 1),("1", 1, 2),("1", 2, 1),("1", 2, 2),("2", 11, 1),("2", 11, 2),("2", 12, 1),("2", 12, 2);"""
+
+    order_qt_select4 """select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;"""
+
+    explain {
+        sql("select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;")
+        contains "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+    }
+
+    sql "DROP TABLE IF EXISTS test_window_table2;"
 }

@@ -18,8 +18,7 @@
 package org.apache.doris.nereids.exceptions;
 
 /**
- * DialectTransformException when have not supported transforming for the
- * {@link io.trino.sql.tree.Node}.
+ * DialectTransformException when have not supported transforming for dialect converters.
  */
 public class DialectTransformException extends UnsupportedOperationException {
 

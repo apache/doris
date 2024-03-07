@@ -17,193 +17,403 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
-import org.apache.doris.nereids.rules.exploration.mv.mapping.EquivalenceClassSetMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeUtils;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * The abstract class for all materialized view rules
  */
-public abstract class AbstractMaterializedViewRule {
+public abstract class AbstractMaterializedViewRule implements ExplorationRuleFactory {
+    public static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET = Sets.newHashSet(JoinType.INNER_JOIN,
+            JoinType.LEFT_OUTER_JOIN);
 
     /**
-     * The abstract template method for query rewrite, it contains the main logic and different query
-     * pattern should override the sub logic.
+     * The abstract template method for query rewrite, it contains the main logic, try to rewrite query by
+     * multi materialization every time. if exception it will catch the exception and record it to
+     * materialization context.
      */
-    protected List<Plan> rewrite(Plan queryPlan, CascadesContext cascadesContext) {
-        List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
-        List<Plan> rewriteResults = new ArrayList<>();
-        if (materializationContexts.isEmpty()) {
-            return rewriteResults;
+    public List<Plan> rewrite(Plan queryPlan, CascadesContext cascadesContext) {
+        List<Plan> rewrittenPlans = new ArrayList<>();
+        // already rewrite or query is invalid, bail out
+        List<StructInfo> queryStructInfos = checkQuery(queryPlan, cascadesContext);
+        if (queryStructInfos.isEmpty()) {
+            return rewrittenPlans;
         }
+        for (MaterializationContext context : cascadesContext.getMaterializationContexts()) {
+            if (checkIfRewritten(queryPlan, context)) {
+                continue;
+            }
+            // TODO Just support only one query struct info, support multi later.
+            StructInfo queryStructInfo = queryStructInfos.get(0);
+            try {
+                rewrittenPlans.addAll(doRewrite(queryStructInfo, cascadesContext, context));
+            } catch (Exception exception) {
+                context.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                        Pair.of("Materialized view rule exec fail", exception.toString()));
+            }
+        }
+        return rewrittenPlans;
+    }
 
-        List<StructInfo> queryStructInfos = extractStructInfo(queryPlan, cascadesContext);
+    /**
+     * Check query is valid or not, if valid return the query struct infos, if invalid return empty list.
+     */
+    protected List<StructInfo> checkQuery(Plan queryPlan, CascadesContext cascadesContext) {
+        List<StructInfo> validQueryStructInfos = new ArrayList<>();
+        List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
+        if (materializationContexts.isEmpty()) {
+            return validQueryStructInfos;
+        }
+        List<StructInfo> queryStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, cascadesContext);
         // TODO Just Check query queryPlan firstly, support multi later.
         StructInfo queryStructInfo = queryStructInfos.get(0);
         if (!checkPattern(queryStructInfo)) {
+            cascadesContext.getMaterializationContexts().forEach(ctx ->
+                    ctx.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                            Pair.of("Query struct info is invalid",
+                                    String.format("queryPlan is %s", queryPlan.treeString())))
+            );
+            return validQueryStructInfos;
+        }
+        validQueryStructInfos.add(queryStructInfo);
+        return validQueryStructInfos;
+    }
+
+    /**
+     * The abstract template method for query rewrite, it contains the main logic, try to rewrite query by
+     * only one materialization every time. Different query pattern should override the sub logic.
+     */
+    protected List<Plan> doRewrite(StructInfo queryStructInfo, CascadesContext cascadesContext,
+            MaterializationContext materializationContext) {
+        List<Plan> rewriteResults = new ArrayList<>();
+        List<StructInfo> viewStructInfos = MaterializedViewUtils.extractStructInfo(
+                materializationContext.getMvPlan(), cascadesContext);
+        if (viewStructInfos.size() > 1) {
+            // view struct info should only have one
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("The num of view struct info is more then one",
+                            String.format("mv plan is %s", materializationContext.getMvPlan().treeString())));
             return rewriteResults;
         }
-
-        for (MaterializationContext materializationContext : materializationContexts) {
-            // already rewrite, bail out
-            if (queryPlan.getGroupExpression().isPresent()
-                    && materializationContext.alreadyRewrite(
-                    queryPlan.getGroupExpression().get().getOwnerGroup().getGroupId())) {
+        StructInfo viewStructInfo = viewStructInfos.get(0);
+        if (!checkPattern(viewStructInfo)) {
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("View struct info is invalid",
+                            String.format(", view plan is %s", viewStructInfo.getOriginalPlan().treeString())));
+            return rewriteResults;
+        }
+        MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations());
+        if (MatchMode.COMPLETE != matchMode) {
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("Match mode is invalid", String.format("matchMode is %s", matchMode)));
+            return rewriteResults;
+        }
+        List<RelationMapping> queryToViewTableMappings = RelationMapping.generate(queryStructInfo.getRelations(),
+                viewStructInfo.getRelations());
+        // if any relation in query and view can not map, bail out.
+        if (queryToViewTableMappings == null) {
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("Query to view table mapping is null", ""));
+            return rewriteResults;
+        }
+        for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
+            SlotMapping queryToViewSlotMapping = SlotMapping.generate(queryToViewTableMapping);
+            if (queryToViewSlotMapping == null) {
+                materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                        Pair.of("Query to view slot mapping is null", ""));
                 continue;
             }
-            Plan mvPlan = materializationContext.getMtmv().getMvCache().getLogicalPlan();
-            List<StructInfo> viewStructInfos = extractStructInfo(mvPlan, cascadesContext);
-            if (viewStructInfos.size() > 1) {
-                // view struct info should only have one
-                return rewriteResults;
-            }
-            StructInfo viewStructInfo = viewStructInfos.get(0);
-            if (!checkPattern(viewStructInfo)) {
+            SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
+            LogicalCompatibilityContext compatibilityContext = LogicalCompatibilityContext.from(
+                    queryToViewTableMapping, queryToViewSlotMapping, queryStructInfo, viewStructInfo);
+            ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
+                    compatibilityContext);
+            if (comparisonResult.isInvalid()) {
+                materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                        Pair.of("The graph logic between query and view is not consistent",
+                                comparisonResult.getErrorMessage()));
                 continue;
             }
-            MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations());
-            if (MatchMode.COMPLETE != matchMode) {
+            SplitPredicate compensatePredicates = predicatesCompensate(queryStructInfo, viewStructInfo,
+                    viewToQuerySlotMapping, comparisonResult, cascadesContext);
+            // Can not compensate, bail out
+            if (compensatePredicates.isInvalid()) {
+                materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                        Pair.of("Predicate compensate fail",
+                                String.format("query predicates = %s,\n query equivalenceClass = %s, \n"
+                                                + "view predicates = %s,\n query equivalenceClass = %s\n"
+                                                + "comparisonResult = %s ",
+                                        queryStructInfo.getPredicates(),
+                                        queryStructInfo.getEquivalenceClass(),
+                                        viewStructInfo.getPredicates(),
+                                        viewStructInfo.getEquivalenceClass(),
+                                        comparisonResult)));
                 continue;
             }
-            List<RelationMapping> queryToViewTableMappings =
-                    RelationMapping.generate(queryStructInfo.getRelations(), viewStructInfo.getRelations());
-            // if any relation in query and view can not map, bail out.
-            if (queryToViewTableMappings == null) {
-                return rewriteResults;
+            Plan rewrittenPlan;
+            Plan mvScan = materializationContext.getMvScanPlan();
+            Plan originalPlan = queryStructInfo.getOriginalPlan();
+            if (compensatePredicates.isAlwaysTrue()) {
+                rewrittenPlan = mvScan;
+            } else {
+                // Try to rewrite compensate predicates by using mv scan
+                List<Expression> rewriteCompensatePredicates = rewriteExpression(compensatePredicates.toList(),
+                        originalPlan, materializationContext.getMvExprToMvScanExprMapping(),
+                        viewToQuerySlotMapping, true);
+                if (rewriteCompensatePredicates.isEmpty()) {
+                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                            Pair.of("Rewrite compensate predicate by view fail", String.format(
+                                    "compensatePredicates = %s,\n mvExprToMvScanExprMapping = %s,\n"
+                                            + "viewToQuerySlotMapping = %s",
+                                    compensatePredicates,
+                                    materializationContext.getMvExprToMvScanExprMapping(),
+                                    viewToQuerySlotMapping)));
+                    continue;
+                }
+                rewrittenPlan = new LogicalFilter<>(Sets.newHashSet(rewriteCompensatePredicates), mvScan);
             }
-            for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
-                SlotMapping queryToViewSlotMapping = SlotMapping.generate(queryToViewTableMapping);
-                if (queryToViewSlotMapping == null) {
-                    continue;
-                }
-                LogicalCompatibilityContext compatibilityContext =
-                        LogicalCompatibilityContext.from(queryToViewTableMapping, queryToViewSlotMapping,
-                                queryStructInfo, viewStructInfo);
-                // todo outer join compatibility check
-                if (StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo, compatibilityContext) == null) {
-                    continue;
-                }
-                SplitPredicate compensatePredicates = predicatesCompensate(queryStructInfo, viewStructInfo,
-                        queryToViewSlotMapping);
-                // Can not compensate, bail out
-                if (compensatePredicates.isEmpty()) {
-                    continue;
-                }
-                Plan rewritedPlan;
-                Plan mvScan = materializationContext.getMvScanPlan();
-                if (compensatePredicates.isAlwaysTrue()) {
-                    rewritedPlan = mvScan;
-                } else {
-                    // Try to rewrite compensate predicates by using mv scan
-                    List<Expression> rewriteCompensatePredicates = rewriteExpression(
-                            compensatePredicates.toList(),
-                            materializationContext.getViewExpressionIndexMapping(),
-                            queryToViewSlotMapping);
-                    if (rewriteCompensatePredicates.isEmpty()) {
-                        continue;
-                    }
-                    rewritedPlan = new LogicalFilter<>(Sets.newHashSet(rewriteCompensatePredicates), mvScan);
-                }
-                // Rewrite query by view
-                rewritedPlan = rewriteQueryByView(matchMode,
-                        queryStructInfo,
-                        viewStructInfo,
-                        queryToViewSlotMapping,
-                        rewritedPlan,
-                        materializationContext);
-                if (rewritedPlan == null) {
-                    continue;
-                }
-                rewriteResults.add(rewritedPlan);
+            // Rewrite query by view
+            rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
+                    rewrittenPlan, materializationContext);
+            if (rewrittenPlan == null) {
+                continue;
             }
+            rewrittenPlan = rewriteByRules(cascadesContext, rewrittenPlan, originalPlan);
+            if (!isOutputValid(originalPlan, rewrittenPlan)) {
+                ObjectId planObjId = originalPlan.getGroupExpression().map(GroupExpression::getId)
+                        .orElseGet(() -> new ObjectId(-1));
+                materializationContext.recordFailReason(planObjId, Pair.of(
+                        "RewrittenPlan output logical properties is different with target group",
+                        String.format("planOutput logical properties = %s,\n"
+                                        + "groupOutput logical properties = %s", rewrittenPlan.getLogicalProperties(),
+                                originalPlan.getLogicalProperties())));
+                continue;
+            }
+            // check the partitions used by rewritten plan is valid or not
+            Set<Long> invalidPartitionsQueryUsed =
+                    calcInvalidPartitions(rewrittenPlan, materializationContext, cascadesContext);
+            if (!invalidPartitionsQueryUsed.isEmpty()) {
+                materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                        Pair.of("Check partition query used validation fail",
+                                String.format("the partition used by query is invalid by materialized view,"
+                                                + "invalid partition info query used is %s",
+                                        materializationContext.getMTMV().getPartitions().stream()
+                                                .filter(partition ->
+                                                        invalidPartitionsQueryUsed.contains(partition.getId()))
+                                                .collect(Collectors.toSet()))));
+                continue;
+            }
+            recordIfRewritten(originalPlan, materializationContext);
+            rewriteResults.add(rewrittenPlan);
         }
         return rewriteResults;
     }
 
     /**
+     * Rewrite by rules and try to make output is the same after optimize by rules
+     */
+    protected Plan rewriteByRules(CascadesContext cascadesContext, Plan rewrittenPlan, Plan originPlan) {
+        // run rbo job on mv rewritten plan
+        CascadesContext rewrittenPlanContext = CascadesContext.initContext(
+                cascadesContext.getStatementContext(), rewrittenPlan,
+                cascadesContext.getCurrentJobContext().getRequiredProperties());
+        Rewriter.getWholeTreeRewriter(rewrittenPlanContext).execute();
+        rewrittenPlan = rewrittenPlanContext.getRewritePlan();
+        List<Slot> originPlanOutput = originPlan.getOutput();
+        List<Slot> rewrittenPlanOutput = rewrittenPlan.getOutput();
+        if (originPlanOutput.size() != rewrittenPlanOutput.size()) {
+            return null;
+        }
+        List<NamedExpression> expressions = new ArrayList<>();
+        // should add project above rewritten plan if top plan is not project, if aggregate above will nu
+        if (!isOutputValid(originPlan, rewrittenPlan)) {
+            for (int i = 0; i < originPlanOutput.size(); i++) {
+                expressions.add(((NamedExpression) normalizeExpression(originPlanOutput.get(i),
+                        rewrittenPlanOutput.get(i))));
+            }
+            return new LogicalProject<>(expressions, rewrittenPlan, false);
+        }
+        return rewrittenPlan;
+    }
+
+    /**
+     * Check the logical properties of rewritten plan by mv is the same with source plan
+     * if same return true, if different return false
+     */
+    protected boolean isOutputValid(Plan sourcePlan, Plan rewrittenPlan) {
+        if (sourcePlan.getGroupExpression().isPresent() && !rewrittenPlan.getLogicalProperties()
+                .equals(sourcePlan.getGroupExpression().get().getOwnerGroup().getLogicalProperties())) {
+            return false;
+        }
+        return sourcePlan.getLogicalProperties().equals(rewrittenPlan.getLogicalProperties());
+    }
+
+    /**
+     * Partition will be pruned in query then add the pruned partitions to select partitions field of
+     * catalog relation.
+     * Maybe only just some partitions is valid in materialized view, so we should check if the mv can
+     * offer the partitions which query used or not.
+     */
+    protected Set<Long> calcInvalidPartitions(Plan rewrittenPlan, MaterializationContext materializationContext,
+            CascadesContext cascadesContext) {
+        // check partition is valid or not
+        MTMV mtmv = materializationContext.getMTMV();
+        PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
+        if (PartitionType.UNPARTITIONED.equals(mvPartitionInfo.getType())) {
+            // if not partition, if rewrite success, it means mv is available
+            return ImmutableSet.of();
+        }
+        // check mv related table partition is valid or not
+        MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
+        BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
+        if (relatedPartitionTable == null) {
+            return ImmutableSet.of();
+        }
+        // get mv valid partitions
+        Set<Long> mvDataValidPartitionIdSet = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
+                cascadesContext.getConnectContext(), System.currentTimeMillis()).stream()
+                .map(Partition::getId)
+                .collect(Collectors.toSet());
+        Set<Long> queryUsedPartitionIdSet = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan
+                        && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()))
+                .stream()
+                .map(node -> ((LogicalOlapScan) node).getSelectedPartitionIds())
+                .flatMap(Collection::stream)
+                .collect(Collectors.toSet());
+        queryUsedPartitionIdSet.removeAll(mvDataValidPartitionIdSet);
+        return queryUsedPartitionIdSet;
+    }
+
+    /**
      * Rewrite query by view, for aggregate or join rewriting should be different inherit class implementation
      */
-    protected Plan rewriteQueryByView(MatchMode matchMode,
-            StructInfo queryStructInfo,
-            StructInfo viewStructInfo,
-            SlotMapping queryToViewSlotMappings,
-            Plan tempRewritedPlan,
-            MaterializationContext materializationContext) {
+    protected Plan rewriteQueryByView(MatchMode matchMode, StructInfo queryStructInfo, StructInfo viewStructInfo,
+            SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext) {
         return tempRewritedPlan;
     }
 
     /**
-     * Use target output expression to represent the source expression
+     * Use target expression to represent the source expression. Visit the source expression,
+     * try to replace the source expression with target expression in targetExpressionMapping, if found then
+     * replace the source expression by target expression mapping value.
+     *
+     * @param sourceExpressionsToWrite the source expression to write by target expression
+     * @param sourcePlan the source plan witch the source expression belong to
+     * @param targetExpressionMapping target expression mapping, if finding the expression in key set of the mapping
+     *         then use the corresponding value of mapping to replace it
+     * @param targetExpressionNeedSourceBased if targetExpressionNeedSourceBased is true,
+     *         we should make the target expression map key to source based,
+     *         Note: the key expression in targetExpressionMapping should be shuttled. with the method
+     *         ExpressionUtils.shuttleExpressionWithLineage.
+     *         example as following:
+     *         source                           target
+     *         project(slot 1, 2)              project(slot 3, 2, 1)
+     *         scan(table)                        scan(table)
+     *         then
+     *         transform source to:
+     *         project(slot 2, 1)
+     *         target
      */
-    protected List<Expression> rewriteExpression(
-            List<? extends Expression> sourceExpressionsToWrite,
-            ExpressionMapping mvExprToMvScanExprMapping,
-            SlotMapping sourceToTargetMapping) {
-        // Firstly, rewrite the target plan output expression using query with inverse mapping
-        // then try to use the mv expression to represent the query. if any of source expressions
-        // can not be represented by mv, return null
-        //
-        // example as following:
-        //     source                           target
-        //        project(slot 1, 2)              project(slot 3, 2, 1)
-        //          scan(table)                        scan(table)
-        //
-        //     transform source to:
-        //        project(slot 2, 1)
-        //            target
-        // generate mvSql to mvScan mvExprToMvScanExprMapping, and change mv sql expression to query based
-        ExpressionMapping mvExprToMvScanExprMappingKeySourceBased =
-                mvExprToMvScanExprMapping.keyPermute(sourceToTargetMapping.inverse());
-        List<Map<? extends Expression, ? extends Expression>> flattenExpressionMapping =
-                mvExprToMvScanExprMappingKeySourceBased.flattenMap();
-        // view to view scan expression is 1:1 so get first element
-        Map<? extends Expression, ? extends Expression> mvSqlToMvScanMappingQueryBased =
-                flattenExpressionMapping.get(0);
+    protected List<Expression> rewriteExpression(List<? extends Expression> sourceExpressionsToWrite, Plan sourcePlan,
+            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping,
+            boolean targetExpressionNeedSourceBased) {
+        // Firstly, rewrite the target expression using source with inverse mapping
+        // then try to use the target expression to represent the query. if any of source expressions
+        // can not be represented by target expressions, return null.
+        // generate target to target replacement expression mapping, and change target expression to source based
+        List<? extends Expression> sourceShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
+                sourceExpressionsToWrite, sourcePlan);
+        ExpressionMapping expressionMappingKeySourceBased = targetExpressionNeedSourceBased
+                ? targetExpressionMapping.keyPermute(targetToSourceMapping) : targetExpressionMapping;
+        // target to target replacement expression mapping, because mv is 1:1 so get first element
+        List<Map<Expression, Expression>> flattenExpressionMap = expressionMappingKeySourceBased.flattenMap();
+        Map<? extends Expression, ? extends Expression> targetToTargetReplacementMapping = flattenExpressionMap.get(0);
 
         List<Expression> rewrittenExpressions = new ArrayList<>();
-        for (Expression expressionToRewrite : sourceExpressionsToWrite) {
-            if (expressionToRewrite instanceof Literal) {
-                rewrittenExpressions.add(expressionToRewrite);
+        for (Expression expressionShuttledToRewrite : sourceShuttledExpressions) {
+            if (expressionShuttledToRewrite instanceof Literal) {
+                rewrittenExpressions.add(expressionShuttledToRewrite);
                 continue;
             }
             final Set<Object> slotsToRewrite =
-                    expressionToRewrite.collectToSet(expression -> expression instanceof Slot);
-            boolean wiAlias = expressionToRewrite instanceof NamedExpression;
-            Expression replacedExpression = ExpressionUtils.replace(expressionToRewrite,
-                    mvSqlToMvScanMappingQueryBased,
-                    wiAlias);
+                    expressionShuttledToRewrite.collectToSet(expression -> expression instanceof Slot);
+            Expression replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
+                    targetToTargetReplacementMapping);
             if (replacedExpression.anyMatch(slotsToRewrite::contains)) {
                 // if contains any slot to rewrite, which means can not be rewritten by target, bail out
-                return null;
+                return ImmutableList.of();
             }
             rewrittenExpressions.add(replacedExpression);
         }
         return rewrittenExpressions;
+    }
+
+    /**
+     * Normalize expression with query, keep the consistency of exprId and nullable props with
+     * query
+     */
+    protected Expression normalizeExpression(Expression sourceExpression, Expression replacedExpression) {
+        if (sourceExpression instanceof NamedExpression
+                && replacedExpression.nullable() != sourceExpression.nullable()) {
+            // if enable join eliminate, query maybe inner join and mv maybe outer join.
+            // If the slot is at null generate side, the nullable maybe different between query and view
+            // So need to force to consistent.
+            replacedExpression = sourceExpression.nullable()
+                    ? new Nullable(replacedExpression) : new NonNullable(replacedExpression);
+        }
+        if (sourceExpression instanceof NamedExpression
+                && !sourceExpression.equals(replacedExpression)) {
+            NamedExpression sourceNamedExpression = (NamedExpression) sourceExpression;
+            replacedExpression = new Alias(sourceNamedExpression.getExprId(), replacedExpression,
+                    sourceNamedExpression.getName());
+        }
+        return replacedExpression;
     }
 
     /**
@@ -215,104 +425,102 @@ public abstract class AbstractMaterializedViewRule {
     protected SplitPredicate predicatesCompensate(
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
-            SlotMapping queryToViewSlotMapping
+            SlotMapping viewToQuerySlotMapping,
+            ComparisonResult comparisonResult,
+            CascadesContext cascadesContext
     ) {
-        EquivalenceClass queryEquivalenceClass = queryStructInfo.getEquivalenceClass();
-        EquivalenceClass viewEquivalenceClass = viewStructInfo.getEquivalenceClass();
+        // TODO: Use set of list? And consider view expr
+        List<Expression> queryPulledUpExpressions = ImmutableList.copyOf(comparisonResult.getQueryExpressions());
+        // set pulled up expression to queryStructInfo predicates and update related predicates
+        if (!queryPulledUpExpressions.isEmpty()) {
+            queryStructInfo = queryStructInfo.withPredicates(
+                    queryStructInfo.getPredicates().merge(queryPulledUpExpressions));
+        }
+        List<Expression> viewPulledUpExpressions = ImmutableList.copyOf(comparisonResult.getViewExpressions());
+        // set pulled up expression to viewStructInfo predicates and update related predicates
+        if (!viewPulledUpExpressions.isEmpty()) {
+            viewStructInfo = viewStructInfo.withPredicates(
+                    viewStructInfo.getPredicates().merge(viewPulledUpExpressions));
+        }
+        // if the join type in query and mv plan is different, we should check query is have the
+        // filters which rejects null
+        Set<Set<Slot>> requireNoNullableViewSlot = comparisonResult.getViewNoNullableSlot();
+        // check query is use the null reject slot which view comparison need
+        if (!requireNoNullableViewSlot.isEmpty()) {
+            SlotMapping queryToViewMapping = viewToQuerySlotMapping.inverse();
+            // try to use
+            boolean valid = containsNullRejectSlot(requireNoNullableViewSlot,
+                    queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, cascadesContext);
+            if (!valid) {
+                queryStructInfo = queryStructInfo.withPredicates(
+                        queryStructInfo.getPredicates().merge(comparisonResult.getQueryAllPulledUpExpressions()));
+                valid = containsNullRejectSlot(requireNoNullableViewSlot,
+                        queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, cascadesContext);
+            }
+            if (!valid) {
+                return SplitPredicate.INVALID_INSTANCE;
+            }
+        }
         // viewEquivalenceClass to query based
-        Map<SlotReference, SlotReference> viewToQuerySlotMapping = queryToViewSlotMapping.inverse()
-                .toSlotReferenceMap();
-        EquivalenceClass viewEquivalenceClassQueryBased = viewEquivalenceClass.permute(viewToQuerySlotMapping);
-        if (viewEquivalenceClassQueryBased == null) {
-            return SplitPredicate.empty();
-        }
-        final List<Expression> equalCompensateConjunctions = new ArrayList<>();
-        if (queryEquivalenceClass.isEmpty() && viewEquivalenceClass.isEmpty()) {
-            equalCompensateConjunctions.add(BooleanLiteral.of(true));
-        }
-        if (queryEquivalenceClass.isEmpty()
-                && !viewEquivalenceClass.isEmpty()) {
-            return SplitPredicate.empty();
-        }
-        EquivalenceClassSetMapping queryToViewEquivalenceMapping =
-                EquivalenceClassSetMapping.generate(queryEquivalenceClass, viewEquivalenceClassQueryBased);
-        // can not map all target equivalence class, can not compensate
-        if (queryToViewEquivalenceMapping.getEquivalenceClassSetMap().size()
-                < viewEquivalenceClass.getEquivalenceSetList().size()) {
-            return SplitPredicate.empty();
-        }
-        // do equal compensate
-        Set<Set<SlotReference>> mappedQueryEquivalenceSet =
-                queryToViewEquivalenceMapping.getEquivalenceClassSetMap().keySet();
-        queryEquivalenceClass.getEquivalenceSetList().forEach(
-                queryEquivalenceSet -> {
-                    // compensate the equivalence in query but not in view
-                    if (!mappedQueryEquivalenceSet.contains(queryEquivalenceSet)) {
-                        Iterator<SlotReference> iterator = queryEquivalenceSet.iterator();
-                        SlotReference first = iterator.next();
-                        while (iterator.hasNext()) {
-                            Expression equals = new EqualTo(first, iterator.next());
-                            equalCompensateConjunctions.add(equals);
-                        }
-                    } else {
-                        // compensate the equivalence both in query and view, but query has more equivalence
-                        Set<SlotReference> viewEquivalenceSet =
-                                queryToViewEquivalenceMapping.getEquivalenceClassSetMap().get(queryEquivalenceSet);
-                        Set<SlotReference> copiedQueryEquivalenceSet = new HashSet<>(queryEquivalenceSet);
-                        copiedQueryEquivalenceSet.removeAll(viewEquivalenceSet);
-                        SlotReference first = viewEquivalenceSet.iterator().next();
-                        for (SlotReference slotReference : copiedQueryEquivalenceSet) {
-                            Expression equals = new EqualTo(first, slotReference);
-                            equalCompensateConjunctions.add(equals);
-                        }
-                    }
-                }
-        );
-        // TODO range predicates and residual predicates compensate, Simplify implementation.
-        SplitPredicate querySplitPredicate = queryStructInfo.getSplitPredicate();
-        SplitPredicate viewSplitPredicate = viewStructInfo.getSplitPredicate();
-
+        // equal predicate compensate
+        final Set<Expression> equalCompensateConjunctions = Predicates.compensateEquivalence(
+                queryStructInfo,
+                viewStructInfo,
+                viewToQuerySlotMapping,
+                comparisonResult);
         // range compensate
-        List<Expression> rangeCompensate = new ArrayList<>();
-        Expression queryRangePredicate = querySplitPredicate.getRangePredicate();
-        Expression viewRangePredicate = viewSplitPredicate.getRangePredicate();
-        Expression viewRangePredicateQueryBased =
-                ExpressionUtils.replace(viewRangePredicate, viewToQuerySlotMapping);
-
-        Set<Expression> queryRangeSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(queryRangePredicate));
-        Set<Expression> viewRangeQueryBasedSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(viewRangePredicateQueryBased));
-        // query range predicate can not contain all view range predicate when view have range predicate, bail out
-        if (!viewRangePredicateQueryBased.equals(BooleanLiteral.TRUE)
-                && !queryRangeSet.containsAll(viewRangeQueryBasedSet)) {
-            return SplitPredicate.empty();
-        }
-        queryRangeSet.removeAll(viewRangeQueryBasedSet);
-        rangeCompensate.addAll(queryRangeSet);
-
+        final Set<Expression> rangeCompensatePredicates = Predicates.compensateRangePredicate(
+                queryStructInfo,
+                viewStructInfo,
+                viewToQuerySlotMapping,
+                comparisonResult,
+                cascadesContext);
         // residual compensate
-        List<Expression> residualCompensate = new ArrayList<>();
-        Expression queryResidualPredicate = querySplitPredicate.getResidualPredicate();
-        Expression viewResidualPredicate = viewSplitPredicate.getResidualPredicate();
-        Expression viewResidualPredicateQueryBased =
-                ExpressionUtils.replace(viewResidualPredicate, viewToQuerySlotMapping);
-        Set<Expression> queryResidualSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(queryResidualPredicate));
-        Set<Expression> viewResidualQueryBasedSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(viewResidualPredicateQueryBased));
-        // query residual predicate can not contain all view residual predicate when view have residual predicate,
-        // bail out
-        if (!viewResidualPredicateQueryBased.equals(BooleanLiteral.TRUE)
-                && !queryResidualSet.containsAll(viewResidualQueryBasedSet)) {
-            return SplitPredicate.empty();
+        final Set<Expression> residualCompensatePredicates = Predicates.compensateResidualPredicate(
+                queryStructInfo,
+                viewStructInfo,
+                viewToQuerySlotMapping,
+                comparisonResult);
+        if (equalCompensateConjunctions == null || rangeCompensatePredicates == null
+                || residualCompensatePredicates == null) {
+            return SplitPredicate.INVALID_INSTANCE;
         }
-        queryResidualSet.removeAll(viewResidualQueryBasedSet);
-        residualCompensate.addAll(queryResidualSet);
+        return SplitPredicate.of(equalCompensateConjunctions.isEmpty() ? BooleanLiteral.TRUE
+                        : ExpressionUtils.and(equalCompensateConjunctions),
+                rangeCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
+                        : ExpressionUtils.and(rangeCompensatePredicates),
+                residualCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
+                        : ExpressionUtils.and(residualCompensatePredicates));
+    }
 
-        return SplitPredicate.of(ExpressionUtils.and(equalCompensateConjunctions),
-                rangeCompensate.isEmpty() ? BooleanLiteral.of(true) : ExpressionUtils.and(rangeCompensate),
-                residualCompensate.isEmpty() ? BooleanLiteral.of(true) : ExpressionUtils.and(residualCompensate));
+    /**
+     * Check the queryPredicates contains the required nullable slot
+     */
+    private boolean containsNullRejectSlot(Set<Set<Slot>> requireNoNullableViewSlot,
+            Set<Expression> queryPredicates,
+            SlotMapping queryToViewMapping,
+            CascadesContext cascadesContext) {
+        Set<Expression> queryPulledUpPredicates = queryPredicates.stream()
+                .flatMap(expr -> ExpressionUtils.extractConjunction(expr).stream())
+                .map(expr -> {
+                    // NOTICE inferNotNull generate Not with isGeneratedIsNotNull = false,
+                    //  so, we need set this flag to false before comparison.
+                    if (expr instanceof Not) {
+                        return ((Not) expr).withGeneratedIsNotNull(false);
+                    }
+                    return expr;
+                })
+                .collect(Collectors.toSet());
+        Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates, cascadesContext);
+        Set<Expression> queryUsedNeedRejectNullSlotsViewBased = nullRejectPredicates.stream()
+                .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
+                .filter(Objects::nonNull)
+                .map(expr -> ExpressionUtils.replace((Expression) expr, queryToViewMapping.toSlotReferenceMap()))
+                .collect(Collectors.toSet());
+        // query pulledUp predicates should have null reject predicates and contains any require noNullable slot
+        return !queryPulledUpPredicates.containsAll(nullRejectPredicates)
+                && requireNoNullableViewSlot.stream().noneMatch(
+                        set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty());
     }
 
     /**
@@ -321,13 +529,9 @@ public abstract class AbstractMaterializedViewRule {
      * @see MatchMode
      */
     private MatchMode decideMatchMode(List<CatalogRelation> queryRelations, List<CatalogRelation> viewRelations) {
-        List<TableIf> queryTableRefs = queryRelations
-                .stream()
-                .map(CatalogRelation::getTable)
+        List<TableIf> queryTableRefs = queryRelations.stream().map(CatalogRelation::getTable)
                 .collect(Collectors.toList());
-        List<TableIf> viewTableRefs = viewRelations
-                .stream()
-                .map(CatalogRelation::getTable)
+        List<TableIf> viewTableRefs = viewRelations.stream().map(CatalogRelation::getTable)
                 .collect(Collectors.toList());
         boolean sizeSame = viewTableRefs.size() == queryTableRefs.size();
         boolean queryPartial = viewTableRefs.containsAll(queryTableRefs);
@@ -345,23 +549,6 @@ public abstract class AbstractMaterializedViewRule {
     }
 
     /**
-     * Extract struct info from plan, support to get struct info from logical plan or plan in group.
-     */
-    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext) {
-        if (plan.getGroupExpression().isPresent()
-                && !plan.getGroupExpression().get().getOwnerGroup().getStructInfos().isEmpty()) {
-            return plan.getGroupExpression().get().getOwnerGroup().getStructInfos();
-        } else {
-            // build struct info and add them to current group
-            List<StructInfo> structInfos = StructInfo.of(plan);
-            if (plan.getGroupExpression().isPresent()) {
-                plan.getGroupExpression().get().getOwnerGroup().addStructInfo(structInfos);
-            }
-            return structInfos;
-        }
-    }
-
-    /**
      * Check the pattern of query or materializedView is supported or not.
      */
     protected boolean checkPattern(StructInfo structInfo) {
@@ -369,6 +556,18 @@ public abstract class AbstractMaterializedViewRule {
             return false;
         }
         return true;
+    }
+
+    protected void recordIfRewritten(Plan plan, MaterializationContext context) {
+        context.setSuccess(true);
+        if (plan.getGroupExpression().isPresent()) {
+            context.addMatchedGroup(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
+        }
+    }
+
+    protected boolean checkIfRewritten(Plan plan, MaterializationContext context) {
+        return plan.getGroupExpression().isPresent()
+                && context.alreadyRewrite(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
     }
 
     /**

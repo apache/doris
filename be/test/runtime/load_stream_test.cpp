@@ -39,6 +39,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
+#include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_manager.h"
 #include "olap/txn_manager.h"
@@ -53,7 +54,7 @@ using namespace brpc;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static std::unique_ptr<StorageEngine> k_engine;
+static StorageEngine* engine_ref = nullptr;
 static const std::string zTestDir = "./data_test/data/load_stream_mgr_test";
 
 const int64_t NORMAL_TABLET_ID = 10000;
@@ -142,6 +143,7 @@ void construct_schema(OlapTableSchemaParam* schema) {
 static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
                                   TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
+    request->partition_id = 30001;
     request->__set_version(1);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 6;
@@ -323,7 +325,7 @@ public:
         int on_received_messages(StreamId id, butil::IOBuf* const messages[],
                                  size_t size) override {
             for (size_t i = 0; i < size; i++) {
-                PWriteStreamSinkResponse response;
+                PLoadStreamResponse response;
                 butil::IOBufAsZeroCopyInputStream wrapper(*messages[i]);
                 response.ParseFromZeroCopyStream(&wrapper);
                 LOG(INFO) << "response " << response.DebugString();
@@ -331,8 +333,8 @@ public:
                 for (auto& id : response.success_tablet_ids()) {
                     g_response_stat.success_tablet_ids.push_back(id);
                 }
-                for (auto& id : response.failed_tablet_ids()) {
-                    g_response_stat.failed_tablet_ids.push_back(id);
+                for (auto& tablet : response.failed_tablets()) {
+                    g_response_stat.failed_tablet_ids.push_back(tablet.id());
                 }
                 g_response_stat.num++;
             }
@@ -358,7 +360,7 @@ public:
             brpc::StreamOptions stream_options;
 
             for (const auto& req : request->tablets()) {
-                TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+                TabletManager* tablet_mgr = engine_ref->tablet_manager();
                 TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
                 if (tablet == nullptr) {
                     cntl->SetFailed("Tablet not found");
@@ -445,9 +447,9 @@ public:
             id.set_hi(1);
             id.set_lo(1);
 
-            OlapTableSchemaParam param;
-            construct_schema(&param);
-            *request.mutable_schema() = *param.to_protobuf();
+            auto param = std::make_shared<OlapTableSchemaParam>();
+            construct_schema(param.get());
+            *request.mutable_schema() = *param->to_protobuf();
             *request.mutable_load_id() = id;
             request.set_txn_id(NORMAL_TXN_ID);
             request.set_src_id(sender_id);
@@ -571,7 +573,7 @@ public:
     }
 
     void wait_for_close() {
-        for (int i = 0; i < 1000 && _load_stream_mgr->get_load_stream_num() != 0; i++) {
+        for (int i = 0; i < 3000 && _load_stream_mgr->get_load_stream_num() != 0; i++) {
             bthread_usleep(1000);
         }
     }
@@ -583,23 +585,23 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        k_engine = std::make_unique<StorageEngine>(options);
-        Status s = k_engine->open();
-        EXPECT_TRUE(s.ok()) << s.to_string();
-        doris::ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
+        auto engine = std::make_unique<StorageEngine>(options);
+        engine_ref = engine.get();
+        Status s = engine->open();
+        EXPECT_TRUE(s.ok()) << s;
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(zTestDir).ok());
-
-        static_cast<void>(k_engine->start_bg_threads());
 
         _load_stream_mgr = std::make_unique<LoadStreamMgr>(4, &_heavy_work_pool, &_light_work_pool);
         _stream_service = new StreamService(_load_stream_mgr.get());
@@ -615,23 +617,24 @@ public:
             TCreateTabletReq request;
             create_tablet_request(NORMAL_TABLET_ID + i, SCHEMA_HASH, &request);
             auto profile = std::make_unique<RuntimeProfile>("test");
-            Status res = k_engine->create_tablet(request, profile.get());
+            Status res = engine_ref->create_tablet(request, profile.get());
             EXPECT_EQ(Status::OK(), res);
         }
     }
 
     void TearDown() override {
-        _server->Stop(1000);
+        _server->Stop(0);
         CHECK_EQ(0, _server->Join());
         SAFE_DELETE(_server);
-        k_engine.reset();
-        doris::ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        engine_ref = nullptr;
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
     std::string read_data(int64_t txn_id, int64_t partition_id, int64_t tablet_id, uint32_t segid) {
-        auto tablet = k_engine->tablet_manager()->get_tablet(tablet_id);
+        auto tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-        k_engine->txn_manager()->get_txn_related_tablets(txn_id, partition_id, &tablet_related_rs);
+        engine_ref->txn_manager()->get_txn_related_tablets(txn_id, partition_id,
+                                                           &tablet_related_rs);
         LOG(INFO) << "get txn related tablet, txn_id=" << txn_id << ", tablet_id=" << tablet_id
                   << "partition_id=" << partition_id;
         for (auto& [tablet, rowset] : tablet_related_rs) {
@@ -802,7 +805,8 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_tablet) {
     wait_for_ack(3);
     EXPECT_EQ(g_response_stat.num, 3);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
-    EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
+    EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 2);
+    EXPECT_EQ(g_response_stat.failed_tablet_ids[1], ABNORMAL_TABLET_ID);
 
     // server will close stream on CLOSE_LOAD
     wait_for_close();
@@ -848,6 +852,46 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0_zero_b
     // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
+}
+
+TEST_F(LoadStreamMgrTest, close_load_before_recv_eos) {
+    MockSinkClient client;
+    auto st = client.connect_stream();
+    EXPECT_TRUE(st.ok());
+
+    reset_response_stat();
+
+    // append data
+    butil::IOBuf append_buf;
+    PStreamHeader header;
+    std::string data = "file1 hello world 123 !@#$%^&*()_+";
+    write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
+                     data.length(), data, false);
+
+    EXPECT_EQ(g_response_stat.num, 0);
+    // CLOSE_LOAD before EOS
+    close_load(client);
+    wait_for_ack(1);
+    EXPECT_EQ(g_response_stat.num, 1);
+    EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
+    EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
+    // server will close stream on CLOSE_LOAD
+    wait_for_close();
+    EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
+
+    // then the late EOS, will not be handled
+    write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
+                     data.length(), data, true);
+
+    // duplicated close, will not be handled
+    close_load(client);
+    wait_for_ack(2);
+    EXPECT_EQ(g_response_stat.num, 1);
+    EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
+    EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
+
+    auto written_data = read_data(NORMAL_TXN_ID, NORMAL_PARTITION_ID, NORMAL_TABLET_ID, 0);
+    EXPECT_EQ(written_data, "");
 }
 
 TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0) {

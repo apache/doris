@@ -38,7 +38,7 @@ check_prerequest() {
     local CMD=$1
     local NAME=$2
     if ! ${CMD}; then
-        echo "${NAME} is missing. This script depends on unzip to extract files from TPC-H_Tools_v3.0.0.zip"
+        echo "${NAME} is missing. This script depends on unzip to extract files from TPC-H_Tools_v3.0.0new.zip"
         exit 1
     fi
 }
@@ -48,10 +48,10 @@ check_prerequest "unzip -h" "unzip"
 # download tpch tools pacage first
 if [[ -d ${TPCH_DBGEN_DIR} ]]; then
     echo "Dir ${TPCH_DBGEN_DIR} already exists. No need to download."
-    echo "If you want to download TPC-H_Tools_v3.0.0 again, please delete this dir first."
+    echo "If you want to download TPC-H_Tools_v3.0.0new again, please delete this dir first."
 else
-    wget "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/tools/TPC-H_Tools_v3.0.0.zip"
-    unzip TPC-H_Tools_v3.0.0.zip -d "${CURDIR}/"
+    wget "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/tools/TPC-H_Tools_v3.0.0new.zip"
+    unzip TPC-H_Tools_v3.0.0new.zip -d "${CURDIR}/"
 fi
 
 # modify tpcd.h

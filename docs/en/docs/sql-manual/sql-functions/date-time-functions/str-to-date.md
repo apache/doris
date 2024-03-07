@@ -33,7 +33,7 @@ under the License.
 
 Convert STR to DATE type by format specified, if the conversion result does not return NULL. Note that the 'format' parameter specifies the format of the first parameter.
 
-The `format` supported is consistent with [date_format](date_format.md)
+All formats in [date_format](./date-format) are supported. In addition, support auto completing the remainder of date part for '%Y' and '%Y-%m'.
 
 ### example
 
@@ -65,7 +65,13 @@ mysql> select str_to_date("2020-09-01", "%Y-%m-%d %H:%i:%s");
 +------------------------------------------------+
 | 2020-09-01 00:00:00                            |
 +------------------------------------------------+
-1 row in set (0.01 sec)
+
+mysql> select str_to_date('2023','%Y');
++---------------------------+
+| str_to_date('2023', '%Y') |
++---------------------------+
+| 2023-01-01                |
++---------------------------+
 ```
 ### keywords
 

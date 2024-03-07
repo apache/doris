@@ -36,7 +36,6 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -66,10 +65,8 @@ public class RoleManager implements Writable, GsonPostProcessable {
     private Map<String, Role> roles = Maps.newHashMap();
 
     public RoleManager() {
-        roles.put(
-                Role.OPERATOR.getRoleName(), Role.OPERATOR);
-        roles.put(
-                Role.ADMIN.getRoleName(), Role.ADMIN);
+        roles.put(Role.OPERATOR.getRoleName(), Role.OPERATOR);
+        roles.put(Role.ADMIN.getRoleName(), Role.ADMIN);
     }
 
     public Role getRole(String name) {
@@ -101,6 +98,14 @@ public class RoleManager implements Writable, GsonPostProcessable {
 
         // we just remove the role from this map and remain others unchanged(privs, etc..)
         roles.remove(qualifiedRole);
+    }
+
+    private void replaceResourceLevel(Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> map, PrivLevel type) {
+        List<Entry<ResourcePattern, PrivBitSet>> clusterSet = map.get(PrivLevel.RESOURCE);
+        if (clusterSet != null && !clusterSet.isEmpty()) {
+            map.remove(PrivLevel.RESOURCE);
+            map.put(type, clusterSet);
+        }
     }
 
     public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs,
@@ -154,7 +159,13 @@ public class RoleManager implements Writable, GsonPostProcessable {
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
             info.add(Joiner.on(", ").join(Env.getCurrentEnv().getAuth().getRoleUsers(role.getRoleName())));
+
+            Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> clusterMap = role.getClusterPatternToPrivs()
+                    .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
+            replaceResourceLevel(clusterMap, PrivLevel.CLUSTER);
+
             Map<PrivLevel, String> infoMap =
+                    Stream.concat(
                     Stream.concat(
                             role.getTblPatternToPrivs().entrySet().stream()
                                     .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
@@ -165,6 +176,8 @@ public class RoleManager implements Writable, GsonPostProcessable {
                                     role.getWorkloadGroupPatternToPrivs().entrySet().stream()
                                             .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
                                             .entrySet().stream())
+                    ),
+                    clusterMap.entrySet().stream()
                     ).collect(Collectors.toMap(Entry::getKey, entry -> {
                                 if (entry.getKey() == PrivLevel.GLOBAL) {
                                     return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
@@ -176,7 +189,8 @@ public class RoleManager implements Writable, GsonPostProcessable {
                                 }
                             }, (s1, s2) -> s1 + " " + s2
                     ));
-            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE)
+            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
+                        PrivLevel.CLUSTER)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {
@@ -198,14 +212,14 @@ public class RoleManager implements Writable, GsonPostProcessable {
         List<TablePattern> tablePatterns = Lists.newArrayList();
         TablePattern informationTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
-            informationTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            informationTblPattern.analyze();
             tablePatterns.add(informationTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
         TablePattern mysqlTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
         try {
-            mysqlTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            mysqlTblPattern.analyze();
             tablePatterns.add(mysqlTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
@@ -263,8 +277,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
             return roleManager;
         } else {
             String json = Text.readString(in);
-            RoleManager rm = GsonUtils.GSON.fromJson(json, RoleManager.class);
-            return rm;
+            return GsonUtils.GSON.fromJson(json, RoleManager.class);
         }
     }
 

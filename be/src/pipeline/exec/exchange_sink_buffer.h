@@ -29,6 +29,7 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <stack>
 #include <string>
 
 #include "common/global_types.h"
@@ -45,8 +46,6 @@ class TUniqueId;
 using InstanceLoId = int64_t;
 
 namespace pipeline {
-class BroadcastDependency;
-class ExchangeSinkQueueDependency;
 class Dependency;
 } // namespace pipeline
 
@@ -71,25 +70,52 @@ struct AtomicWrapper {
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
 // will be shared between different channel, so we have to use a ref count to mark if this
 // PBlock is available for next serialization.
+class BroadcastPBlockHolderQueue;
 class BroadcastPBlockHolder {
+    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
+
 public:
-    BroadcastPBlockHolder() : _ref_count(0), _dep(nullptr) {}
-    BroadcastPBlockHolder(pipeline::BroadcastDependency* dep) : _ref_count(0), _dep(dep) {}
-    ~BroadcastPBlockHolder() noexcept = default;
+    BroadcastPBlockHolder() { _pblock = std::make_unique<PBlock>(); }
+    BroadcastPBlockHolder(std::unique_ptr<PBlock>&& pblock) { _pblock = std::move(pblock); }
+    ~BroadcastPBlockHolder();
 
-    void ref(int delta) noexcept { _ref_count._value.fetch_add(delta); }
-    void unref() noexcept;
-    void ref() noexcept { ref(1); }
-
-    bool available() { return _ref_count._value == 0; }
-
-    PBlock* get_block() { return &pblock; }
+    PBlock* get_block() { return _pblock.get(); }
 
 private:
-    AtomicWrapper<int32_t> _ref_count;
-    PBlock pblock;
-    pipeline::BroadcastDependency* _dep = nullptr;
+    friend class BroadcastPBlockHolderQueue;
+    std::unique_ptr<PBlock> _pblock;
+    std::weak_ptr<BroadcastPBlockHolderQueue> _parent_creator;
+    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderQueue> parent_creator) {
+        _parent_creator = parent_creator;
+    }
 };
+
+// Use a stack inside to ensure that the PBlock is in cpu cache
+class BroadcastPBlockHolderQueue : public std::enable_shared_from_this<BroadcastPBlockHolderQueue> {
+    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderQueue);
+
+public:
+    BroadcastPBlockHolderQueue() = default;
+
+    BroadcastPBlockHolderQueue(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
+        _broadcast_dependency = broadcast_dependency;
+    }
+
+    void push(std::shared_ptr<BroadcastPBlockHolder> holder);
+
+    bool empty() {
+        std::unique_lock l(_holders_lock);
+        return _holders.empty();
+    }
+
+    std::shared_ptr<BroadcastPBlockHolder> pop();
+
+private:
+    std::stack<std::shared_ptr<BroadcastPBlockHolder>> _holders;
+    std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
+    std::mutex _holders_lock;
+};
+
 } // namespace vectorized
 
 namespace pipeline {
@@ -104,7 +130,7 @@ struct TransmitInfo {
 template <typename Parent>
 struct BroadcastTransmitInfo {
     vectorized::PipChannel<Parent>* channel = nullptr;
-    vectorized::BroadcastPBlockHolder* block_holder = nullptr;
+    std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
     bool eos;
 };
 
@@ -115,10 +141,9 @@ class ExchangeSendCallback : public ::doris::DummyBrpcCallback<Response> {
 public:
     ExchangeSendCallback() = default;
 
-    void init(InstanceLoId id, bool eos, vectorized::BroadcastPBlockHolder* data) {
+    void init(InstanceLoId id, bool eos) {
         _id = id;
         _eos = eos;
-        _data = data;
     }
 
     ~ExchangeSendCallback() override = default;
@@ -135,9 +160,6 @@ public:
 
     void call() noexcept override {
         try {
-            if (_data) {
-                _data->unref();
-            }
             if (::doris::DummyBrpcCallback<Response>::cntl_->Failed()) {
                 std::string err = fmt::format(
                         "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
@@ -164,7 +186,6 @@ private:
     std::function<void(const InstanceLoId&, const bool&, const Response&, const int64_t&)> _suc_fn;
     InstanceLoId _id;
     bool _eos;
-    vectorized::BroadcastPBlockHolder* _data = nullptr;
 };
 
 struct ExchangeRpcContext {
@@ -174,9 +195,10 @@ struct ExchangeRpcContext {
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 template <typename Parent>
-class ExchangeSinkBuffer {
+class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId, int, PlanNodeId, int, QueryContext*);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
+                       RuntimeState* state);
     ~ExchangeSinkBuffer();
     void register_sink(TUniqueId);
 
@@ -188,12 +210,11 @@ public:
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
-    void set_dependency(std::shared_ptr<ExchangeSinkQueueDependency> queue_dependency,
+    void set_dependency(std::shared_ptr<Dependency> queue_dependency,
                         std::shared_ptr<Dependency> finish_dependency) {
         _queue_dependency = queue_dependency;
         _finish_dependency = finish_dependency;
     }
-    void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
 
     void set_should_stop() {
         _should_stop = true;
@@ -235,6 +256,7 @@ private:
     int _sender_id;
     int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
+    RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
     Status _send_rpc(InstanceLoId);
@@ -249,9 +271,8 @@ private:
 
     std::atomic<int> _total_queue_size = 0;
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
-    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
+    std::shared_ptr<Dependency> _queue_dependency;
     std::shared_ptr<Dependency> _finish_dependency;
-    QueryStatistics* _statistics = nullptr;
     std::atomic<bool> _should_stop {false};
 };
 

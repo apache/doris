@@ -49,7 +49,7 @@ class DebugPoint {
         if (params != null && params.size() > 0) {
             url += '?' + params.collect((k, v) -> k + '=' + v).join('&')
         }
-        def result = Http.http_post(url, null, true)
+        def result = Http.POST(url, null, true)
         Http.checkHttpResult(result, type)
     }
 
@@ -62,7 +62,7 @@ class DebugPoint {
      */
     static def disableDebugPoint(String host, int httpPort, NodeType type, String name) {
         def url = 'http://' + host + ':' + httpPort + '/api/debug_point/remove/' + name
-        def result = Http.http_post(url, null, true)
+        def result = Http.POST(url, null, true)
         Http.checkHttpResult(result, type)
     }
 
@@ -74,7 +74,7 @@ class DebugPoint {
      */
     static def clearDebugPoints(String host, int httpPort, NodeType type) {
         def url = 'http://' + host + ':' + httpPort + '/api/debug_point/clear'
-        def result = Http.http_post(url, null, true)
+        def result = Http.POST(url, null, true)
         Http.checkHttpResult(result, type)
     }
 

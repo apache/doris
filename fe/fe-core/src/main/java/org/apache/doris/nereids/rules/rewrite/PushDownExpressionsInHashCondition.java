@@ -99,6 +99,19 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
             }
         });
 
+        // add mark conjuncts used slots to project exprs
+        join.getMarkJoinConjuncts().stream().flatMap(conjunct ->
+                conjunct.getInputSlots().stream()
+        ).forEach(slot -> {
+            if (leftExprIdSet.contains(slot.getExprId())) {
+                // belong to left child
+                leftProjectExprs.add(slot);
+            } else {
+                // belong to right child
+                rightProjectExprs.add(slot);
+            }
+        });
+
         List<Expression> newHashConjuncts = join.getHashJoinConjuncts().stream()
                 .map(equalTo -> equalTo.withChildren(equalTo.children()
                         .stream().map(expr -> exprReplaceMap.get(expr).toSlot())
@@ -107,7 +120,7 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
         return join.withHashJoinConjunctsAndChildren(
                 newHashConjuncts,
                 createChildProjectPlan(join.left(), join, leftProjectExprs),
-                createChildProjectPlan(join.right(), join, rightProjectExprs));
+                createChildProjectPlan(join.right(), join, rightProjectExprs), join.getJoinReorderContext());
 
     }
 

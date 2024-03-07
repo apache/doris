@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -27,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -230,7 +231,7 @@ public class HyperGraphBuilder {
                     "can not find plan %s-%s", leftBitmap, rightBitmap);
             Plan leftPlan = plans.get(leftKey.get());
             Plan rightPlan = plans.get(rightKey.get());
-            LogicalJoin join = new LogicalJoin<>(joinType, leftPlan, rightPlan);
+            LogicalJoin join = new LogicalJoin<>(joinType, leftPlan, rightPlan, null);
 
             BitSet key = new BitSet();
             key.or(leftKey.get());
@@ -284,15 +285,15 @@ public class HyperGraphBuilder {
                 .collect(Collectors.toSet());
         assert outputs.containsAll(requireSlots);
         if (withJoinHint) {
-            JoinHint[] values = JoinHint.values();
+            DistributeType[] values = DistributeType.values();
             Random random = new Random();
             int randomIndex = random.nextInt(values.length);
-            JoinHint hint = values[randomIndex];
-            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
-            ((LogicalJoin) hintJoin).setHint(hint);
+            DistributeType hint = values[randomIndex];
+            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType, null);
+            ((LogicalJoin) hintJoin).setHint(new DistributeHint(hint));
             return hintJoin;
         }
-        return ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
+        return ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType, null);
     }
 
     private Optional<BitSet> findPlan(BitSet bitSet) {
@@ -334,14 +335,14 @@ public class HyperGraphBuilder {
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         injectRowcount(cascadesContext.getMemo().getRoot());
-        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
 
     public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
 
     private void injectRowcount(Group group) {
@@ -387,7 +388,7 @@ public class HyperGraphBuilder {
         } else {
             conditions.add(condition);
         }
-        return new LogicalJoin<>(join.getJoinType(), conditions, left, right);
+        return new LogicalJoin<>(join.getJoinType(), conditions, left, right, null);
     }
 
     private Expression makeCondition(int node1, int node2, BitSet bitSet) {

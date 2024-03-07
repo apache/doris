@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] NGram BloomFilter索引及使用使用场景
+# NGram BloomFilter索引及使用使用场景
 
 <version since="2.0.0">
 </version>

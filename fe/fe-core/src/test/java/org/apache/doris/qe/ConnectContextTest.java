@@ -66,19 +66,14 @@ public class ConnectContextTest {
         ctx.setKilled();
         Assert.assertTrue(ctx.isKilled());
 
-        // Current cluster
-        Assert.assertEquals("", ctx.getClusterName());
-        ctx.setCluster("testCluster");
-        Assert.assertEquals("testCluster", ctx.getClusterName());
-
         // Current db
         Assert.assertEquals("", ctx.getDatabase());
-        ctx.setDatabase("testCluster:testDb");
-        Assert.assertEquals("testCluster:testDb", ctx.getDatabase());
+        ctx.setDatabase("testDb");
+        Assert.assertEquals("testDb", ctx.getDatabase());
 
         // User
-        ctx.setQualifiedUser("testCluster:testUser");
-        Assert.assertEquals("testCluster:testUser", ctx.getQualifiedUser());
+        ctx.setQualifiedUser("testUser");
+        Assert.assertEquals("testUser", ctx.getQualifiedUser());
 
         // Serializer
         Assert.assertNotNull(ctx.getMysqlChannel().getSerializer());

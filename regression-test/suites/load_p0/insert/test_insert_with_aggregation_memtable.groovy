@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_with_aggregation_memtable") {
+suite("test_insert_with_aggregation_memtable", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     def backendId_to_params = [string:[:]]
@@ -114,6 +114,28 @@ suite("test_insert_with_aggregation_memtable") {
     sql "sync"
     qt_sql "select * from ${testTable} order by id asc"
 
+    // test with mv
+    def table_name = "agg_shrink"
+    sql "DROP TABLE IF EXISTS ${table_name}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${table_name} (
+            k bigint,
+            v text 
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 4
+        properties("replication_num" = "1");
+    """
+    set_be_param("write_buffer_size_for_agg", "10240") // change it to 10KB
+    sql """INSERT INTO ${table_name} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "4096")"""
+    sql """INSERT INTO ${table_name} SELECT k, v from ${table_name}"""
+    sql """INSERT INTO ${table_name} SELECT k, v from ${table_name}"""
+    createMV("""create materialized view var_cnt as select k, count(k) from ${table_name} group by k""")    
+    sql """INSERT INTO ${table_name} SELECT k, v from ${table_name} limit 8101"""
+    // insert with no duplicate
+    sql """INSERT INTO ${table_name} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "4096"); """
+
     reset_be_param("enable_shrink_memory")
     reset_be_param("write_buffer_size_for_agg")
+
 }

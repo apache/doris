@@ -73,4 +73,9 @@ suite("test_key_topn_merge_block_columns", "p0") {
 
     // will cause be core if bug not fix by #20820
     sql "SELECT /*+ SET_VAR(topn_opt_limit_threshold=1024) */ * FROM ${testTable} WHERE c_int = 100 or k1 = 1000 ORDER BY k1 LIMIT 10"
+    sql "insert into ${testTable} select * from ${testTable}"
+    sql "insert into ${testTable} select * from ${testTable}"
+    sql "insert into ${testTable} select * from ${testTable}"
+    sql """ alter table ${testTable} ADD COLUMN (new_k1 INT DEFAULT '1', new_k2 INT DEFAULT '2');"""
+    sql "select * from ${testTable} order by new_k1 limit 1"
 }

@@ -56,7 +56,7 @@ distribution_desc
 * `column_definition`
     列定义：
 
-    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT] [default_value] [on update current_timestamp] [column_comment]`
+    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT(auto_inc_start_value)] [default_value] [on update current_timestamp] [column_comment]`
     * `column_type`
         列类型，支持以下类型：
         ```
@@ -106,11 +106,12 @@ distribution_desc
         HLL_UNION：HLL 类型的列的聚合方式，通过 HyperLogLog 算法聚合。
         BITMAP_UNION：BIMTAP 类型的列的聚合方式，进行位图的并集聚合。
         ```
-    * `AUTO_INCREMENT`(仅在master分支可用)
+    * <version since="2.1" type="inline">`AUTO_INCREMENT(auto_inc_start_value)`</version>
             
         是否为自增列，自增列可以用来为新插入的行生成一个唯一标识。在插入表数据时如果没有指定自增列的值，则会自动生成一个合法的值。当自增列被显示地插入NULL时，其值也会被替换为生成的合法值。需要注意的是，处于性能考虑，BE会在内存中缓存部分自增列的值，所以自增列自动生成的值只能保证单调性和唯一性，无法保证严格的连续性。
         一张表中至多有一个列是自增列，自增列必须是BIGINT类型，且必须为NOT NULL。
         Duplicate模型表和Unique模型表均支持自增列。
+        可以通过给定`auto_inc_start_value`的方式指定自增列的起始值，如果不指定，则默认起始值为1。
 
   * `default_value`
         列默认值，当导入数据未指定该列的值时，系统将赋予该列default_value。
@@ -129,7 +130,7 @@ distribution_desc
             // 只用于DATETIME类型，导入数据缺失该值时系统将赋予当前时间
             dt DATETIME DEFAULT CURRENT_TIMESTAMP
         ```
-  * `on update current_timestamp`
+  * <version since="2.1" type="inline">`on update current_timestamp`</version>
 
         是否在该行有列更新时将该列的值更新为当前时间(`current_timestamp`)。该特性只能在开启了merge-on-write的unique表上使用，开启了这个特性的列必须声明默认值，且默认值必须为`current_timestamp`。如果此处声明了时间戳的精度，则该列默认值中的时间戳精度必须与该处的时间戳精度相同。
 
@@ -158,14 +159,14 @@ distribution_desc
     索引定义：
 
     ```sql
-    INDEX index_name (col_name) [USING BITMAP] COMMENT 'xxxxxx'
+    INDEX index_name (col_name) [USING INVERTED] COMMENT 'xxxxxx'
     ```
 
     示例：
     
     ```sql
-    INDEX idx1 (k1) USING BITMAP COMMENT "This is a bitmap index1",
-    INDEX idx2 (k2) USING BITMAP COMMENT "This is a bitmap index2",
+    INDEX idx1 (k1) USING INVERTED COMMENT "This is a inverted index1",
+    INDEX idx2 (k2) USING INVERTED COMMENT "This is a inverted index2",
     ...
     ```
 
@@ -366,6 +367,12 @@ UNIQUE KEY(k1, k2)
 
     `"function_column.sequence_type" = 'Date'`
 
+* `enable_unique_key_merge_on_write`
+
+    <version since="1.2" type="inline"> unique表是否使用merge on write实现。</version>
+
+    该属性在 2.1 版本之前默认关闭，从 2.1 版本开始默认开启。
+
 * `light_schema_change`
 
     <version since="1.2" type="inline"> 是否使用light schema change优化。</version>
@@ -436,6 +443,14 @@ UNIQUE KEY(k1, k2)
     compaction 的合并策略为 time_series 时，将使用此参数来调整 compaction 的最长时间间隔，即长时间未执行过 compaction 时，就会触发一次 compaction，单位为秒
 
     `"time_series_compaction_time_threshold_seconds" = "3600"`
+
+* `time_series_compaction_level_threshold`
+
+    compaction 的合并策略为 time_series 时，此参数默认为1，当设置为2时用来控住对于合并过一次的段再合并一层，保证段大小达到time_series_compaction_goal_size_mbytes，
+    
+    能达到段数量减少的效果。
+
+    `"time_series_compaction_level_threshold" = "2"`
 
 * 动态分区相关
 
@@ -569,7 +584,7 @@ UNIQUE KEY(k1, k2)
     );
     ```
 
-7. 创建一个带有 bitmap 索引以及 bloom filter 索引的表
+7. 创建一个带有倒排索引以及 bloom filter 索引的表
 
     ```sql
     CREATE TABLE example_db.table_hash
@@ -578,7 +593,7 @@ UNIQUE KEY(k1, k2)
         k2 DECIMAL(10, 2) DEFAULT "10.5",
         v1 CHAR(10) REPLACE,
         v2 INT SUM,
-        INDEX k1_idx (k1) USING BITMAP COMMENT 'my first index'
+        INDEX k1_idx (k1) USING INVERTED COMMENT 'my first index'
     )
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32

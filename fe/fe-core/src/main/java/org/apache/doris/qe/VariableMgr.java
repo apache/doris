@@ -152,7 +152,11 @@ public class VariableMgr {
     }
 
     // Set value to a variable
-    private static boolean setValue(Object obj, Field field, String value) throws DdlException {
+    private static boolean setValue(Object obj, SessionVariableField sessionVariableField, String value)
+            throws DdlException {
+
+        Field field = sessionVariableField.getField();
+        field.setAccessible(true);
         VarAttr attr = field.getAnnotation(VarAttr.class);
 
         if (VariableVarConverters.hasConverter(attr.name())) {
@@ -196,22 +200,22 @@ public class VariableMgr {
                         }
                         break;
                     case "byte":
-                        field.setByte(obj, Byte.valueOf(value));
+                        field.setByte(obj, Byte.parseByte(value));
                         break;
                     case "short":
-                        field.setShort(obj, Short.valueOf(value));
+                        field.setShort(obj, Short.parseShort(value));
                         break;
                     case "int":
-                        field.setInt(obj, Integer.valueOf(value));
+                        field.setInt(obj, Integer.parseInt(value));
                         break;
                     case "long":
-                        field.setLong(obj, Long.valueOf(value));
+                        field.setLong(obj, Long.parseLong(value));
                         break;
                     case "float":
-                        field.setFloat(obj, Float.valueOf(value));
+                        field.setFloat(obj, Float.parseFloat(value));
                         break;
                     case "double":
-                        field.setDouble(obj, Double.valueOf(value));
+                        field.setDouble(obj, Double.parseDouble(value));
                         break;
                     case "String":
                         field.set(obj, value);
@@ -236,9 +240,9 @@ public class VariableMgr {
 
     // revert the operator[set_var] on select/*+ SET_VAR()*/  sql;
     public static void revertSessionValue(SessionVariable obj) throws DdlException {
-        Map<Field, String> sessionOriginValue = obj.getSessionOriginValue();
+        Map<SessionVariableField, String> sessionOriginValue = obj.getSessionOriginValue();
         if (!sessionOriginValue.isEmpty()) {
-            for (Field field : sessionOriginValue.keySet()) {
+            for (SessionVariableField field : sessionOriginValue.keySet()) {
                 // revert session value
                 setValue(obj, field, sessionOriginValue.get(field));
             }
@@ -299,7 +303,9 @@ public class VariableMgr {
         try {
             checkUpdate(setVar, varCtx.getFlag());
         } catch (DdlException e) {
-            LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+            }
             return;
         }
         setVarInternal(sessionVariable, setVar, varCtx);
@@ -351,22 +357,24 @@ public class VariableMgr {
 
         // No matter this is a global setting or not, always set session variable.
         Field field = ctx.getField();
+        SessionVariableField sessionVariableField = new SessionVariableField(field);
         // if stmt is "Select /*+ SET_VAR(...)*/"
         if (sessionVariable.getIsSingleSetVar()) {
             try {
-                sessionVariable.addSessionOriginValue(field, field.get(sessionVariable).toString());
+                sessionVariable.addSessionOriginValue(sessionVariableField, field.get(sessionVariable).toString());
             } catch (Exception e) {
                 LOG.warn("failed to collect origin session value ", e);
             }
         }
-        setValue(sessionVariable, field, value);
+        setValue(sessionVariable, sessionVariableField, value);
     }
 
     private static void setGlobalVarAndWriteEditLog(VarContext ctx, String name, String value) throws DdlException {
         // global variable will make effect when is set immediately.
         wlock.lock();
         try {
-            setValue(ctx.getObj(), ctx.getField(), value);
+
+            setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), value);
             // write edit log
             GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
             Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
@@ -380,7 +388,7 @@ public class VariableMgr {
         try {
             VarContext ctx = ctxByVarName.get(SessionVariable.PARALLEL_PIPELINE_TASK_NUM);
             try {
-                setValue(ctx.getObj(), ctx.getField(), String.valueOf(instance));
+                setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), String.valueOf(instance));
             } catch (DdlException e) {
                 LOG.warn("failed to set global variable: {}", SessionVariable.PARALLEL_PIPELINE_TASK_NUM, e);
                 return;
@@ -400,7 +408,7 @@ public class VariableMgr {
         try {
             VarContext ctx = ctxByVarName.get(SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR);
             try {
-                setValue(ctx.getObj(), ctx.getField(), String.valueOf(factor));
+                setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), String.valueOf(factor));
             } catch (DdlException e) {
                 LOG.warn("failed to set global variable: {}", SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR, e);
                 return;
@@ -409,6 +417,46 @@ public class VariableMgr {
             // write edit log
             GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
                     Lists.newArrayList(SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR));
+            Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
+        } finally {
+            wlock.unlock();
+        }
+    }
+
+    public static void enableNereidsPlanner() {
+        wlock.lock();
+        try {
+            VarContext ctx = ctxByVarName.get(SessionVariable.ENABLE_NEREIDS_PLANNER);
+            try {
+                setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), String.valueOf(true));
+            } catch (DdlException e) {
+                LOG.warn("failed to set global variable: {}", SessionVariable.ENABLE_NEREIDS_PLANNER, e);
+                return;
+            }
+
+            // write edit log
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
+                    Lists.newArrayList(SessionVariable.ENABLE_NEREIDS_PLANNER));
+            Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
+        } finally {
+            wlock.unlock();
+        }
+    }
+
+    public static void enableNereidsDml() {
+        wlock.lock();
+        try {
+            VarContext ctx = ctxByVarName.get(SessionVariable.ENABLE_NEREIDS_DML);
+            try {
+                setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), String.valueOf(true));
+            } catch (DdlException e) {
+                LOG.warn("failed to set global variable: {}", SessionVariable.ENABLE_NEREIDS_DML, e);
+                return;
+            }
+
+            // write edit log
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
+                    Lists.newArrayList(SessionVariable.ENABLE_NEREIDS_DML));
             Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
         } finally {
             wlock.unlock();
@@ -470,7 +518,13 @@ public class VariableMgr {
                     LOG.error("failed to get global variable {} when replaying", (String) varName);
                     continue;
                 }
-                setValue(varContext.getObj(), varContext.getField(), root.get((String) varName).toString());
+                try {
+                    setValue(varContext.getObj(), new SessionVariableField(varContext.getField()),
+                            root.get(varName).toString());
+                } catch (Exception exception) {
+                    LOG.warn("Exception during replay global variabl {} oplog, {}, THIS EXCEPTION WILL BE IGNORED.",
+                            (String) varName, exception.getMessage());
+                }
             }
         } finally {
             wlock.unlock();
@@ -661,21 +715,15 @@ public class VariableMgr {
             throws DdlException {
         for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
             VarContext varCtx = entry.getValue();
-
-            SetType newSetType = null;
-            // some variables are GLOBAL only or SESSION only
-            if ((varCtx.getFlag() & GLOBAL) != 0) {
-                newSetType = SetType.GLOBAL;
-            } else if ((varCtx.getFlag() & SESSION_ONLY) != 0) {
-                newSetType = SetType.SESSION;
-            }
-
-            SetVar setVar = new SetVar(newSetType != null ? newSetType : setType, entry.getKey(),
+            SetVar setVar = new SetVar(setType, entry.getKey(),
                     new StringLiteral(varCtx.defaultValue), SetVarType.SET_SESSION_VAR);
-            //skip read only variables
-            if ((varCtx.getFlag() & READ_ONLY) == 0) {
-                setVar(sessionVariable, setVar);
+            try {
+                checkUpdate(setVar, varCtx.getFlag());
+            } catch (DdlException e) {
+                LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+                continue;
             }
+            setVarInternal(sessionVariable, setVar, varCtx);
         }
     }
 
@@ -686,7 +734,8 @@ public class VariableMgr {
 
     // Dump all fields. Used for `show variables`
     public static List<List<String>> dump(SetType type, SessionVariable sessionVar, PatternMatcher matcher) {
-        List<List<String>> rows = Lists.newArrayList();
+        List<List<String>> changedRows = Lists.newArrayList();
+        List<List<String>> defaultRows = Lists.newArrayList();
         // Hold the read lock when session dump, because this option need to access global variable.
         rlock.lock();
         try {
@@ -727,23 +776,35 @@ public class VariableMgr {
                 } else {
                     row.add(varContext.defaultValue);
                 }
-                row.add(row.get(1).equals(row.get(2)) ? "0" : "1");
-
-                rows.add(row);
+                if (row.get(1).equals(row.get(2))) {
+                    row.add("0");
+                    defaultRows.add(row);
+                } else {
+                    row.add("1");
+                    changedRows.add(row);
+                }
             }
         } finally {
             rlock.unlock();
         }
 
         // Sort all variables by variable name.
-        Collections.sort(rows, new Comparator<List<String>>() {
+        Collections.sort(changedRows, new Comparator<List<String>>() {
             @Override
             public int compare(List<String> o1, List<String> o2) {
                 return o1.get(0).compareTo(o2.get(0));
             }
         });
 
-        return rows;
+        Collections.sort(defaultRows, new Comparator<List<String>>() {
+            @Override
+            public int compare(List<String> o1, List<String> o2) {
+                return o1.get(0).compareTo(o2.get(0));
+            }
+        });
+
+        changedRows.addAll(defaultRows);
+        return changedRows;
     }
 
     @Retention(RetentionPolicy.RUNTIME)

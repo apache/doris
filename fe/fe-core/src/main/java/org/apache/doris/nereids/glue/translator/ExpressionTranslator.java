@@ -83,13 +83,16 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HighOrderFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -98,6 +101,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
@@ -195,11 +199,29 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitElementAt(ElementAt elementAt, PlanTranslatorContext context) {
+        if (PushDownToProjectionFunction.validToPushDown(elementAt)) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                throw new AnalysisException(
+                        "set enable_rewrite_element_at_to_slot=true when using element_at function for variant type");
+            }
+            SlotReference rewrittenSlot = (SlotReference) context.getConnectContext()
+                    .getStatementContext().getRewrittenSlotRefByOriginalExpr(elementAt);
+            Preconditions.checkNotNull(rewrittenSlot);
+            return context.findSlotRef(rewrittenSlot.getExprId());
+        }
+        return visitScalarFunction(elementAt, context);
+    }
+
+    @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
         String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
         String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
         Map<String, String> invertedIndexCharFilter = new HashMap<>();
-        SlotRef left = (SlotRef) match.left().accept(this, context);
+        // Get the first slot from match's left expr
+        SlotRef left = (SlotRef) match.left().getInputSlots().stream().findFirst().get().accept(this, context);
         OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
                                     .orElse(getOlapTableDirectly(left));
 
@@ -587,6 +609,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
                 .collect(ImmutableList.toImmutableList());
         return Function.convertToUnionCombinator(
+                new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
+                        new FunctionParams(false, arguments)));
+    }
+
+    @Override
+    public Expr visitForEachCombinator(ForEachCombinator combinator, PlanTranslatorContext context) {
+        List<Expr> arguments = combinator.children().stream()
+                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
+                .collect(ImmutableList.toImmutableList());
+        return Function.convertForEachCombinator(
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
                         new FunctionParams(false, arguments)));
     }

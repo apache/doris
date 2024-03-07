@@ -21,10 +21,14 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
+#include <memory>
+
+#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column_const.h"
@@ -58,9 +62,11 @@ Status VRowDistribution::_save_missing_values(std::vector<std::vector<std::strin
     }
 
     // to avoid too large mem use
-    if (_batching_rows > _batch_size) {
+    if (_batching_block->rows() > _batch_size) {
         _deal_batched = true;
     }
+
+    VLOG_NOTICE << "pushed some batching lines, now numbers = " << _batching_rows;
 
     return Status::OK();
 }
@@ -75,10 +81,12 @@ Status VRowDistribution::automatic_create_partition() {
     SCOPED_TIMER(_add_partition_request_timer);
     TCreatePartitionRequest request;
     TCreatePartitionResult result;
+    string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_txn_id(_txn_id);
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
     request.__set_partitionValues(_partitions_need_create);
+    request.__set_be_endpoint(be_endpoint);
 
     VLOG(1) << "automatic partition rpc begin request " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
@@ -308,10 +316,10 @@ Status VRowDistribution::generate_rows_distribution(
 
     // batching block rows which need new partitions. deal together at finish.
     if (!_batching_block) [[unlikely]] {
-        _batching_block = MutableBlock::create_unique(block->create_same_struct_block(0).release());
+        std::unique_ptr<Block> tmp_block = block->create_same_struct_block(0);
+        _batching_block = MutableBlock::create_unique(std::move(*tmp_block));
     }
 
-    _row_distribution_watch.start();
     auto num_rows = block->rows();
     _tablet_finder->filter_bitmap().Reset(num_rows);
 
@@ -345,7 +353,7 @@ Status VRowDistribution::generate_rows_distribution(
         RETURN_IF_ERROR(_generate_rows_distribution_for_non_auto_partition(
                 block.get(), has_filtered_rows, row_part_tablet_ids));
     }
-    _row_distribution_watch.stop();
+
     filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
                     prev_filtered_rows;
     return Status::OK();

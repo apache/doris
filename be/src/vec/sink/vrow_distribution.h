@@ -161,11 +161,13 @@ private:
 
     // for auto partitions
     std::vector<std::vector<TStringLiteral>> _partitions_need_create;
+
+public:
     std::unique_ptr<MutableBlock> _batching_block;
     bool _deal_batched = false; // If true, send batched block before any block's append.
+private:
     size_t _batching_rows = 0, _batching_bytes = 0;
 
-    MonotonicStopWatch _row_distribution_watch;
     OlapTableBlockConvertor* _block_convertor = nullptr;
     OlapTabletFinder* _tablet_finder = nullptr;
     VOlapTablePartitionParam* _vpartition = nullptr;

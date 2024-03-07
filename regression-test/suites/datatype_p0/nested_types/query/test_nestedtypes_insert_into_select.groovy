@@ -22,7 +22,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_nestedtypes_insert_into_select", "p0") {
     sql "set enable_nereids_planner=false"
-    sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
 
     // create array struct
     sql "DROP TABLE IF EXISTS ast;"
@@ -53,6 +52,6 @@ suite("test_nestedtypes_insert_into_select", "p0") {
 
     test {
         sql "insert into ast values ('text' , [named_struct('a',1,'b','home'),named_struct('a',2,'b','work')]);"
-        exception "errCode = 2, detailMessage = Sql parser can't convert the result to array, please check your sql."
+        exception "ParseException"
     }
 }

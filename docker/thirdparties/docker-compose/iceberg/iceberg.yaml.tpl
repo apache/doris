@@ -58,6 +58,8 @@ services:
   minio:
     image: minio/minio
     container_name: doris--minio
+    ports:
+      - ${MINIO_API_PORT}:9000
     environment:
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password

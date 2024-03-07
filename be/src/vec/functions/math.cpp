@@ -42,8 +42,8 @@
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_const.h"
+#include "vec/functions/function_math_log.h"
 #include "vec/functions/function_math_unary.h"
-#include "vec/functions/function_math_unary_to_null_type.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
@@ -62,22 +62,42 @@ namespace doris::vectorized {
 struct AcosName {
     static constexpr auto name = "acos";
 };
-using FunctionAcos = FunctionMathUnary<UnaryFunctionVectorized<AcosName, std::acos>>;
+using FunctionAcos = FunctionMathUnary<UnaryFunctionPlain<AcosName, std::acos>>;
 
 struct AsinName {
     static constexpr auto name = "asin";
 };
-using FunctionAsin = FunctionMathUnary<UnaryFunctionVectorized<AsinName, std::asin>>;
+using FunctionAsin = FunctionMathUnary<UnaryFunctionPlain<AsinName, std::asin>>;
 
 struct AtanName {
     static constexpr auto name = "atan";
 };
-using FunctionAtan = FunctionMathUnary<UnaryFunctionVectorized<AtanName, std::atan>>;
+using FunctionAtan = FunctionMathUnary<UnaryFunctionPlain<AtanName, std::atan>>;
+
+template <typename A, typename B>
+struct Atan2Impl {
+    using ResultType = double;
+    static const constexpr bool allow_decimal = false;
+
+    template <typename type>
+    static inline double apply(A a, B b) {
+        return std::atan2((double)a, (double)b);
+    }
+};
+struct Atan2Name {
+    static constexpr auto name = "atan2";
+};
+using FunctionAtan2 = FunctionBinaryArithmetic<Atan2Impl, Atan2Name, false>;
 
 struct CosName {
     static constexpr auto name = "cos";
 };
-using FunctionCos = FunctionMathUnary<UnaryFunctionVectorized<CosName, std::cos>>;
+using FunctionCos = FunctionMathUnary<UnaryFunctionPlain<CosName, std::cos>>;
+
+struct CoshName {
+    static constexpr auto name = "cosh";
+};
+using FunctionCosh = FunctionMathUnary<UnaryFunctionPlain<CoshName, std::cosh>>;
 
 struct EImpl {
     static constexpr auto name = "e";
@@ -94,24 +114,7 @@ using FunctionPi = FunctionMathConstFloat64<PiImpl>;
 struct ExpName {
     static constexpr auto name = "exp";
 };
-using FunctionExp = FunctionMathUnary<UnaryFunctionVectorized<ExpName, std::exp>>;
-
-#define LOG_FUNCTION_IMPL(CLASS, NAME, FUNC)                          \
-    struct CLASS##Impl {                                              \
-        using Type = DataTypeFloat64;                                 \
-        using RetType = Float64;                                      \
-        static constexpr auto name = #NAME;                           \
-        template <typename T, typename U>                             \
-        static void execute(const T* src, U* dst, UInt8& null_flag) { \
-            null_flag = src[0] <= 0;                                  \
-            dst[0] = static_cast<U>(FUNC((double)src[0]));            \
-        }                                                             \
-    };                                                                \
-    using Function##CLASS = FunctionMathUnaryToNullType<CLASS##Impl>;
-
-LOG_FUNCTION_IMPL(Log10, log10, std::log10);
-LOG_FUNCTION_IMPL(Log2, log2, std::log2);
-LOG_FUNCTION_IMPL(Ln, ln, std::log);
+using FunctionExp = FunctionMathUnary<UnaryFunctionPlain<ExpName, std::exp>>;
 
 struct LogName {
     static constexpr auto name = "log";
@@ -170,7 +173,7 @@ struct SignImpl {
 struct NameSign {
     static constexpr auto name = "sign";
 };
-using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign, false>;
+using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign>;
 
 template <typename A>
 struct AbsImpl {
@@ -193,7 +196,7 @@ struct NameAbs {
     static constexpr auto name = "abs";
 };
 
-using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs, false>;
+using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs>;
 
 template <typename A>
 struct NegativeImpl {
@@ -206,7 +209,7 @@ struct NameNegative {
     static constexpr auto name = "negative";
 };
 
-using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative, false>;
+using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative>;
 
 template <typename A>
 struct PositiveImpl {
@@ -219,27 +222,32 @@ struct NamePositive {
     static constexpr auto name = "positive";
 };
 
-using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive, false>;
+using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
 struct SinName {
     static constexpr auto name = "sin";
 };
-using FunctionSin = FunctionMathUnary<UnaryFunctionVectorized<SinName, std::sin>>;
+using FunctionSin = FunctionMathUnary<UnaryFunctionPlain<SinName, std::sin>>;
 
 struct SqrtName {
     static constexpr auto name = "sqrt";
 };
-using FunctionSqrt = FunctionMathUnary<UnaryFunctionVectorized<SqrtName, std::sqrt>>;
+using FunctionSqrt = FunctionMathUnary<UnaryFunctionPlain<SqrtName, std::sqrt>>;
 
 struct CbrtName {
     static constexpr auto name = "cbrt";
 };
-using FunctionCbrt = FunctionMathUnary<UnaryFunctionVectorized<CbrtName, std::cbrt>>;
+using FunctionCbrt = FunctionMathUnary<UnaryFunctionPlain<CbrtName, std::cbrt>>;
 
 struct TanName {
     static constexpr auto name = "tan";
 };
-using FunctionTan = FunctionMathUnary<UnaryFunctionVectorized<TanName, std::tan>>;
+using FunctionTan = FunctionMathUnary<UnaryFunctionPlain<TanName, std::tan>>;
+
+struct TanhName {
+    static constexpr auto name = "tanh";
+};
+using FunctionTanh = FunctionMathUnary<UnaryFunctionPlain<TanhName, std::tanh>>;
 
 template <typename A>
 struct RadiansImpl {
@@ -254,7 +262,7 @@ struct NameRadians {
     static constexpr auto name = "radians";
 };
 
-using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians, false>;
+using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians>;
 
 template <typename A>
 struct DegreesImpl {
@@ -269,7 +277,7 @@ struct NameDegrees {
     static constexpr auto name = "degrees";
 };
 
-using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl, NameDegrees, false>;
+using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl, NameDegrees>;
 
 struct NameBin {
     static constexpr auto name = "bin";
@@ -404,15 +412,17 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAsin>();
     factory.register_function<FunctionAtan>();
+    factory.register_function<FunctionAtan2>();
     factory.register_function<FunctionCos>();
+    factory.register_function<FunctionCosh>();
     factory.register_alias("ceil", "dceil");
     factory.register_alias("ceil", "ceiling");
     factory.register_function<FunctionE>();
-    factory.register_function<FunctionLn>();
     factory.register_alias("ln", "dlog1");
     factory.register_function<FunctionLog>();
-    factory.register_function<FunctionLog2>();
-    factory.register_function<FunctionLog10>();
+    factory.register_function<FunctionMathLog<ImplLn>>();
+    factory.register_function<FunctionMathLog<ImplLog2>>();
+    factory.register_function<FunctionMathLog<ImplLog10>>();
     factory.register_alias("log10", "dlog10");
     factory.register_function<FunctionPi>();
     factory.register_function<FunctionSign>();
@@ -424,6 +434,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_alias("sqrt", "dsqrt");
     factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
+    factory.register_function<FunctionTanh>();
     factory.register_alias("floor", "dfloor");
     factory.register_function<FunctionPow>();
     factory.register_alias("pow", "power");

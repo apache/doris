@@ -36,7 +36,7 @@ under the License.
 
 ### 开始导入
 
-Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operate/import/import-way/broker-load-manual.md) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
+Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operate/import/import-way/broker-load-manual) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
 
 ```
   LOAD LABEL db_name.label_name 
@@ -82,11 +82,11 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
        "max_filter_ratio"="0.1"
        );
    ```
-    关于参数介绍，请参阅[Broker Load](../../../data-operate/import/import-way/broker-load-manual.md)，HA集群的创建语法，通过`HELP BROKER LOAD`查看
+    关于参数介绍，请参阅[Broker Load](../../../data-operate/import/import-way/broker-load-manual)，HA集群的创建语法，通过`HELP BROKER LOAD`查看
   
 3. 查看导入状态
    
-   Broker load 是一个异步的导入方式，具体导入结果可以通过[SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.md)命令查看
+   Broker load 是一个异步的导入方式，具体导入结果可以通过[SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD)命令查看
    
    ```
    mysql> show load order by createtime desc limit 1\G;
@@ -134,7 +134,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
 其他云存储系统可以相应的文档找到与S3兼容的相关信息
 
 ### 开始导入
-导入方式和 [Broker Load](../../../data-operate/import/import-way/broker-load-manual.md) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
+导入方式和 [Broker Load](../../../data-operate/import/import-way/broker-load-manual) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
 ```
     WITH S3
     (

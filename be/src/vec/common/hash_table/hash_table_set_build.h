@@ -25,21 +25,11 @@ template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
     template <typename Parent>
     HashTableBuild(Parent* parent, int rows, ColumnRawPtrs& build_raw_ptrs, RuntimeState* state)
-            : _mem_used(parent->mem_used()),
-              _rows(rows),
-              _build_raw_ptrs(build_raw_ptrs),
-              _state(state) {}
+            : _rows(rows), _build_raw_ptrs(build_raw_ptrs), _state(state) {}
 
     Status operator()(HashTableContext& hash_table_ctx, Arena& arena) {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
-        int64_t old_bucket_bytes = hash_table_ctx.hash_table->get_buffer_size_in_bytes();
-
-        Defer defer {[&]() {
-            int64_t bucket_bytes = hash_table_ctx.hash_table->get_buffer_size_in_bytes();
-            *_mem_used += bucket_bytes - old_bucket_bytes;
-        }};
-
         KeyGetter key_getter(_build_raw_ptrs);
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows);
 
@@ -60,7 +50,6 @@ struct HashTableBuild {
     }
 
 private:
-    int64_t* _mem_used = nullptr;
     const int _rows;
     ColumnRawPtrs& _build_raw_ptrs;
     RuntimeState* _state = nullptr;

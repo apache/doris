@@ -36,7 +36,7 @@ REFRESH-LDAP
 
 ### Description
 
-This statement is used to refresh the cached information of LDAP in Doris. The default timeout for LDAP information cache in Doris is 12 hours, which can be viewed by `ADMIN SHOW FRONTEND CONFIG LIKE 'ldap_ user_cache_timeout_s';`.
+This statement is used to refresh the cached information of LDAP in Doris. The default timeout for LDAP information cache in Doris is 12 hours, which can be viewed by `SHOW FRONTEND CONFIG LIKE 'ldap_ user_cache_timeout_s';`.
 
 syntax:
 

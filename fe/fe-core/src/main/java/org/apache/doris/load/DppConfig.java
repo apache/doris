@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TPriority;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -64,12 +65,16 @@ public class DppConfig implements Writable {
     // palo base path in hadoop
     //   dpp: paloPath/cluster_id/applications/dpp_version
     //   output: paloPath/cluster_id/output
+    @SerializedName(value = "paloPath")
     private String paloPath;
+    @SerializedName(value = "httpPort")
     private int httpPort;
+    @SerializedName(value = "hadoopConfigs")
     private Map<String, String> hadoopConfigs;
 
     // priority for palo internal schedule
     // for now are etl submit schedule and download file schedule
+    @SerializedName(value = "priority")
     private TPriority priority;
 
     // for persist

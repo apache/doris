@@ -33,7 +33,7 @@ under the License.
 ## Instructions for use
 
 1. When data in hdfs,need to put core-site.xml, hdfs-site.xml and hive-site.xml in the conf directory of FE and BE. First read the hadoop configuration file in the conf directory, and then read the related to the environment variable `HADOOP_CONF_DIR` configuration file.
-2. The currently adapted version of the payment is 0.5.0
+2. The currently adapted version of the payment is 0.6.0
 
 ## Create Catalog
 
@@ -73,34 +73,43 @@ CREATE CATALOG `paimon_kerberos` PROPERTIES (
 );
 ```
 
-#### S3
-
-> Note that.
->
-> user need download [paimon-s3-0.5.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.5.0-incubating/paimon-s3-0.5.0-incubating.jar)
->
-> Place it in directory `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` and restart be
->
-> Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
+#### MINIO
 
 ```sql
 CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
-    "warehouse" = "s3://paimon-1308700295.cos.ap-beijing.myqcloud.com/paimoncos",
-    "s3.endpoint" = "cos.ap-beijing.myqcloud.com",
+    "warehouse" = "s3://bucket_name/paimons3",
+    "s3.endpoint" = "http://<ip>:<port>",
     "s3.access_key" = "ak",
     "s3.secret_key" = "sk"
 );
 ```
 
+#### OBS
+
+```sql
+CREATE CATALOG `paimon_obs` PROPERTIES (
+    "type" = "paimon",
+    "warehouse" = "obs://bucket_name/paimon",
+    "obs.endpoint"="obs.cn-north-4.myhuaweicloud.com",
+    "obs.access_key"="ak",
+    "obs.secret_key"="sk"
+);
+```
+
+#### COS
+
+```sql
+CREATE CATALOG `paimon_cos` PROPERTIES (
+    "type" = "paimon",
+    "warehouse" = "cosn://paimon-1308700295/paimoncos",
+    "cos.endpoint" = "cos.ap-beijing.myqcloud.com",
+    "cos.access_key" = "ak",
+    "cos.secret_key" = "sk"
+);
+```
+
 #### OSS
-
->Note that.
->
-> user need download [paimon-oss-0.5.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.5.0-incubating/paimon-oss-0.5.0-incubating.jar)
->
-> Place it in directory `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` and restart be
-
 
 ```sql
 CREATE CATALOG `paimon_oss` PROPERTIES (
@@ -176,4 +185,11 @@ CREATE CATALOG `paimon_kerberos` PROPERTIES (
 2. Unknown type value: UNSUPPORTED
 
     This is a compatible issue exist in 2.0.2 with Paimon 0.5, you need to upgrade to 2.0.3 or higher to solve this problem. Or [patch](https://github.com/apache/doris/pull/24985) yourself.
+
+3. When accessing object storage (OSS, S3, etc.), encounter "file system does not support".
+
+     In versions before 2.0.5 (inclusive), users need to manually download the following jar package and place it in the `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` directory, and restart BE.
+
+    - OSS: [paimon-oss-0.6.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.6.0-incubating/paimon-oss-0.6.0-incubating.jar)
+    - Other Object Storage: [paimon-s3-0.6.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.6.0-incubating/paimon-s3-0.6.0-incubating.jar)
 

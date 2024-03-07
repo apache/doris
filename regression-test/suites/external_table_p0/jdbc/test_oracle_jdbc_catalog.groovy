@@ -31,7 +31,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         String test_insert = "TEST_INSERT";
         String test_all_types = "TEST_ALL_TYPES";
         String test_insert_all_types = "test_oracle_insert_all_types";
-        String test_ctas = "test_ctas";
+        String test_ctas = "test_oracle_ctas";
 
         String inDorisTable = "doris_in_tb";
 
@@ -120,6 +120,12 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         order_qt_filter1  """ select * from TEST_CHAR where ID = 1 order by ID; """
         order_qt_filter2  """ select * from TEST_CHAR where 1 = 1 order by ID; """
         order_qt_filter3  """ select * from TEST_CHAR where ID = 1 and 1 = 1  order by ID; """
+        order_qt_filter4  """ select * from STUDENT where NAME NOT like '%bob%' order by ID; """
+        order_qt_filter5  """ select * from STUDENT where NAME NOT like '%bob%' or NAME NOT LIKE '%jerry%' order by ID; """
+        order_qt_filter6  """ select * from STUDENT where NAME NOT like '%bob%' and NAME NOT LIKE '%jerry%' order by ID; """
+        order_qt_filter7  """ select * from STUDENT where NAME NOT like '%bob%' and NAME LIKE '%jerry%' order by ID; """
+        order_qt_filter8  """ select * from STUDENT where NAME NOT like '%bob%' and ID = 4 order by ID; """
+        order_qt_filter9  """ SELECT * FROM STUDENT WHERE (NAME NOT LIKE '%bob%' AND AGE > 20) OR (SCORE < 90 AND NOT (NAME = 'alice' OR AGE <= 18)) order by ID; """
         order_qt_date1  """ select * from TEST_DATE where T1 > '2022-01-21 00:00:00' or T1 < '2022-01-22 00:00:00'; """
         order_qt_date2  """ select * from TEST_DATE where T1 > '2022-01-21 00:00:00' and T1 < '2022-01-22 00:00:00'; """
         order_qt_date3  """ select * from TEST_DATE where (T1 > '2022-01-21 00:00:00' and T1 < '2022-01-22 00:00:00') or T1 > '2022-01-20 00:00:00'; """
@@ -127,6 +133,20 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         order_qt_date5  """ select * from TEST_DATE where T1 < '2022-01-22 00:00:00' or T1 = '2022-01-21 05:23:01'; """
         order_qt_date6  """ select * from TEST_DATE where (T1 < '2022-01-22 00:00:00' or T1 > '2022-01-20 00:00:00') and (T1 < '2022-01-23 00:00:00' or T1 > '2022-01-19 00:00:00'); """
         order_qt_date7  """select * from TEST_TIMESTAMP where T2 < str_to_date('2020-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');"""
+
+        // test nvl
+        explain {
+            sql("SELECT * FROM STUDENT WHERE nvl(score, 0) < 95;")
+            contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("SCORE", 0.0) < 95.0))"""
+        }
+
+        // for old planner
+        order_qt_filter4_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' order by ID; """
+        order_qt_filter5_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' or NAME NOT LIKE '%jerry%' order by ID; """
+        order_qt_filter6_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' and NAME NOT LIKE '%jerry%' order by ID; """
+        order_qt_filter7_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' and NAME LIKE '%jerry%' order by ID; """
+        order_qt_filter8_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' and ID = 4 order by ID; """
+        order_qt_filter9_old_plan  """ SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM STUDENT WHERE (NAME NOT LIKE '%bob%' AND AGE > 20) OR (SCORE < 90 AND NOT (NAME = 'alice' OR AGE <= 18)) order by ID; """
 
         // The result of TEST_RAW will change
         // So instead of qt, we're using sql here.
@@ -195,7 +215,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         qt_specified_database   """ show databases; """
         sql """drop catalog if exists ${catalog_name} """
 
-        // test lower_case_table_names argument
+        // test lower_case_meta_names argument
         sql """create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="doris_test",
@@ -203,7 +223,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
-                    "lower_case_table_names" = "true"
+                    "lower_case_meta_names" = "true"
         );"""
         sql """ switch ${catalog_name} """
         sql """ use ${ex_db_name_lower_case}"""
@@ -228,10 +248,12 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
-                    "lower_case_table_names" = "true"
+                    "lower_case_meta_names" = "true"
         );"""
         sql """ switch ${catalog_name} """
         qt_query_clob """ select * from doris_test.test_clob order by id; """
+
+        sql """drop catalog if exists ${catalog_name} """
 
         // test for `AA/D`
         sql """create catalog if not exists ${catalog_name} properties(
@@ -241,11 +263,32 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
-                    "lower_case_table_names" = "true"
+                    "lower_case_meta_names" = "true"
         );"""
         sql """ switch ${catalog_name} """
         qt_query_ad1 """ select * from doris_test.`aa/d` order by id; """
         qt_query_ad2 """ select * from doris_test.aaad order by id; """
 
+        sql """drop catalog if exists ${catalog_name} """
+
+        // test for suffix column name
+        sql """create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "lower_case_meta_names" = "true",
+                    "meta_names_mapping" = '{"columns": [{"remoteDatabase": "DORIS_TEST","remoteTable": "LOWER_TEST","remoteColumn": "DORIS","mapping": "doris_1"},{"remoteDatabase": "DORIS_TEST","remoteTable": "LOWER_TEST","remoteColumn": "Doris","mapping": "doris_2"},{"remoteDatabase": "DORIS_TEST","remoteTable": "LOWER_TEST","remoteColumn": "doris","mapping": "doris_3"}]}'
+        );"""
+        sql """ switch ${catalog_name} """
+        qt_query_lower_desc """ desc doris_test.lower_test; """
+        qt_query_lower_all """ select * from doris_test.lower_test; """
+        qt_query_lower_1 """ select doris_1 from doris_test.lower_test; """
+        qt_query_lower_2 """ select doris_2 from doris_test.lower_test; """
+        qt_query_lower_3 """ select doris_3 from doris_test.lower_test; """
+
+        sql """drop catalog if exists ${catalog_name} """
     }
 }

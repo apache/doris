@@ -17,6 +17,7 @@
 
 #include "util/date_func.h"
 
+#include <fmt/compile.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <string.h>
@@ -98,9 +99,7 @@ int32_t time_to_buffer_from_double(double time, char* buffer) {
     }
     int64_t hour = (int64_t)(time / 3600);
     if (hour >= 100) {
-        auto f = fmt::format_int(hour);
-        memcpy(buffer, f.data(), f.size());
-        buffer = buffer + f.size();
+        buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
     } else {
         *buffer++ = (char)('0' + (hour / 10));
         *buffer++ = (char)('0' + (hour % 10));
@@ -136,9 +135,7 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     m_time = check_over_max_time(m_time);
     int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
     if (hour >= 100) {
-        auto f = fmt::format_int(hour);
-        memcpy(buffer, f.data(), f.size());
-        buffer = buffer + f.size();
+        buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
     } else {
         *buffer++ = (char)('0' + (hour / 10));
         *buffer++ = (char)('0' + (hour % 10));

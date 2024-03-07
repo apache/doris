@@ -76,8 +76,9 @@ suite("test_ingest_binlog") {
         syncer.closeBackendClients()
     }
 
+    target_sql " sync "
     res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == insert_num)
+    assertEquals(res.size(), insert_num)
 
 
 
@@ -116,8 +117,9 @@ suite("test_ingest_binlog") {
     assertTrue(syncer.ingestBinlog())
     assertTrue(syncer.commitTxn())
     assertTrue(syncer.checkTargetVersion())
+    target_sql " sync "
     res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == 1)
+    assertEquals(res.size(), 1)
 
 
     // End Test 2

@@ -24,6 +24,7 @@ import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
@@ -44,7 +45,6 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -105,9 +105,6 @@ public class AuthTest {
         accessManager = new AccessControllerManager(auth);
         new Expectations() {
             {
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = SystemInfoService.DEFAULT_CLUSTER;
 
                 analyzer.getDefaultCatalog();
                 minTimes = 0;
@@ -222,7 +219,7 @@ public class AuthTest {
         Assert.assertTrue(
                 auth.checkPlainPasswordForTest("cmy", "192.168.0.1", "12345",
                         currentUser));
-        Assert.assertFalse(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "192.168.0.1",
+        Assert.assertFalse(auth.checkPlainPasswordForTest("cmy", "192.168.0.1",
                 "123456", null));
         Assert.assertFalse(auth.checkPlainPasswordForTest("other:cmy", "192.168.0.1", "12345", null));
         Assert.assertEquals(currentUser.get(0), userIdentity);
@@ -391,7 +388,7 @@ public class AuthTest {
         Assert.assertEquals(1, currentUser2.size());
         // check auth before grant
         Assert.assertFalse(
-                accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db1",
+                accessManager.checkDbPriv(currentUser2.get(0), "db1",
                         PrivPredicate.CREATE));
 
         try {
@@ -402,12 +399,12 @@ public class AuthTest {
         }
 
         // 9.1 check auth
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db1",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db1",
                 PrivPredicate.CREATE));
         UserIdentity zhangsan1 = UserIdentity
                 .createAnalyzedUserIdentWithIp("zhangsan",
                         "172.1.1.1");
-        Assert.assertFalse(accessManager.checkDbPriv(zhangsan1, SystemInfoService.DEFAULT_CLUSTER + ":db1",
+        Assert.assertFalse(accessManager.checkDbPriv(zhangsan1, "db1",
                 PrivPredicate.CREATE));
 
         // 10. grant auth for non exist user
@@ -479,11 +476,11 @@ public class AuthTest {
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
 
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db1",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db1",
                 PrivPredicate.SELECT));
         Assert.assertFalse(accessManager.checkGlobalPriv(currentUser2.get(0), PrivPredicate.SELECT));
         Assert.assertTrue(
-                accessManager.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db1",
+                accessManager.checkTblPriv(currentUser2.get(0), "db1",
                         "tbl1", PrivPredicate.SELECT));
 
         // 13. grant tbl auth to exist user
@@ -511,11 +508,11 @@ public class AuthTest {
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(
-                accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db2",
+                accessManager.checkDbPriv(currentUser2.get(0), "db2",
                         PrivPredicate.SELECT));
         Assert.assertFalse(accessManager.checkGlobalPriv(currentUser2.get(0), PrivPredicate.SELECT));
         Assert.assertTrue(
-                accessManager.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db2", "tbl2",
+                accessManager.checkTblPriv(currentUser2.get(0), "db2", "tbl2",
                         PrivPredicate.DROP));
 
         // 13.1 grant external ctl tbl auth to exist user
@@ -543,10 +540,10 @@ public class AuthTest {
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(
                 accessManager.checkTblPriv(currentUser2.get(0), "ext_ctl",
-                        SystemInfoService.DEFAULT_CLUSTER + ":ext_db1",
+                        "ext_db1",
                         "ext_tbl1", PrivPredicate.SELECT));
         Assert.assertFalse(
-                accessManager.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":ext_db1",
+                accessManager.checkTblPriv(currentUser2.get(0), "ext_db1",
                         "ext_tbl1",
                         PrivPredicate.SELECT));
 
@@ -574,7 +571,7 @@ public class AuthTest {
         auth.checkPlainPasswordForTest("zhangsan", "10.1.1.1", "12345",
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db3",
                 PrivPredicate.ALTER));
         // 15. grant new auth to exist priv entry (exist ALTER/DROP, add SELECT)
         tablePattern = new TablePattern("db3", "*");
@@ -599,20 +596,20 @@ public class AuthTest {
         auth.checkPlainPasswordForTest("zhangsan", "10.1.1.1", "12345",
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db3",
                 PrivPredicate.SELECT));
 
         currentUser2.clear();
         auth.checkPlainPasswordForTest("zhangsan", "10.1.1.2", "12345",
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db3",
                 PrivPredicate.ALTER));
         currentUser2.clear();
         auth.checkPlainPasswordForTest("zhangsan", "10.1.1.3", "12345",
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db3",
                 PrivPredicate.DROP));
 
         /*
@@ -706,7 +703,7 @@ public class AuthTest {
         currentUser2.clear();
         auth.checkPlainPasswordForTest("cmy", "172.1.1.1", "12345", currentUser2);
         Assert.assertEquals(1, currentUser2.size());
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db",
                 PrivPredicate.CREATE));
         try {
             auth.revoke(revokeStmt);
@@ -714,9 +711,9 @@ public class AuthTest {
             e.printStackTrace();
             Assert.fail();
         }
-        Assert.assertFalse(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db",
+        Assert.assertFalse(accessManager.checkDbPriv(currentUser2.get(0), "db",
                 PrivPredicate.CREATE));
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db",
                 PrivPredicate.DROP));
 
         // 19. revoke tbl privs from user @ ip
@@ -736,7 +733,7 @@ public class AuthTest {
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(
-                accessManager.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db2",
+                accessManager.checkTblPriv(currentUser2.get(0), "db2",
                         "tbl2", PrivPredicate.ALTER));
         try {
             auth.revoke(revokeStmt);
@@ -750,9 +747,9 @@ public class AuthTest {
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(
-                accessManager.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db2",
+                accessManager.checkTblPriv(currentUser2.get(0), "db2",
                         "tbl2", PrivPredicate.ALTER));
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db1",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db1",
                 PrivPredicate.SELECT));
 
         // 20. revoke privs from non exist user @ domain
@@ -813,7 +810,7 @@ public class AuthTest {
         auth.checkPlainPasswordForTest("zhangsan", "10.1.1.1", "12345",
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db3",
                 PrivPredicate.DROP));
 
         try {
@@ -828,7 +825,7 @@ public class AuthTest {
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(
-                accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
+                accessManager.checkDbPriv(currentUser2.get(0), "db3",
                         PrivPredicate.DROP));
 
         /*
@@ -984,7 +981,7 @@ public class AuthTest {
         auth.checkPlainPasswordForTest("wangwu", "10.17.2.1", "12345",
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db4",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db4",
                 PrivPredicate.DROP));
 
         // 28. create user@domain and set it as role1
@@ -1014,7 +1011,7 @@ public class AuthTest {
         auth.checkPlainPasswordForTest("chenliu", "20.1.1.1", "12345",
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
-        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db4",
+        Assert.assertTrue(accessManager.checkDbPriv(currentUser2.get(0), "db4",
                 PrivPredicate.DROP));
 
         // 29. revoke auth on non exist db from role1
@@ -1058,7 +1055,7 @@ public class AuthTest {
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(
-                accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db4",
+                accessManager.checkDbPriv(currentUser2.get(0), "db4",
                         PrivPredicate.DROP));
 
         // 31. drop role, privs remain unchanged
@@ -1081,7 +1078,7 @@ public class AuthTest {
                 currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(
-                accessManager.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db4",
+                accessManager.checkDbPriv(currentUser2.get(0), "db4",
                         PrivPredicate.DROP));
 
         // 31.1 drop role again with IF EXISTS
@@ -1548,7 +1545,7 @@ public class AuthTest {
         // check has select priv of column 'a'
         try {
             accessManager
-                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                    .checkColumnsPriv(userIdentity, "db1", "tbl1",
                             Sets.newHashSet("a"), PrivPredicate.SELECT);
         } catch (UserException e) {
             e.printStackTrace();
@@ -1557,7 +1554,7 @@ public class AuthTest {
         // check has select priv of column 'c'
         try {
             accessManager
-                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                    .checkColumnsPriv(userIdentity, "db1", "tbl1",
                             Sets.newHashSet("c"), PrivPredicate.SELECT);
             Assert.fail();
         } catch (UserException e) {
@@ -1566,7 +1563,7 @@ public class AuthTest {
         // check has load priv of column 'a'
         try {
             accessManager
-                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                    .checkColumnsPriv(userIdentity, "db1", "tbl1",
                             Sets.newHashSet("a"), PrivPredicate.LOAD);
             Assert.fail();
         } catch (UserException e) {
@@ -1575,7 +1572,7 @@ public class AuthTest {
         // check 'create_priv' use checkColumnsPriv
         try {
             accessManager
-                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                    .checkColumnsPriv(userIdentity, "db1", "tbl1",
                             Sets.newHashSet("a"), PrivPredicate.CREATE);
             Assert.fail();
         } catch (Exception e) {
@@ -1639,7 +1636,7 @@ public class AuthTest {
             Assert.fail();
         }
         Assert.assertFalse(accessManager
-                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", PrivPredicate.SELECT));
+                .checkDbPriv(userIdentity, "db1", PrivPredicate.SELECT));
         // grant 'role1' to testUser
         grantStmt = new GrantStmt(Lists.newArrayList(role), userIdentity);
         try {
@@ -1650,7 +1647,7 @@ public class AuthTest {
             Assert.fail();
         }
         Assert.assertTrue(accessManager
-                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", PrivPredicate.SELECT));
+                .checkDbPriv(userIdentity, "db1", PrivPredicate.SELECT));
         // revoke 'role1' from testUser
         RevokeStmt revokeStmt = new RevokeStmt(Lists.newArrayList(role), userIdentity);
         try {
@@ -1661,7 +1658,7 @@ public class AuthTest {
             Assert.fail();
         }
         Assert.assertFalse(accessManager
-                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", PrivPredicate.SELECT));
+                .checkDbPriv(userIdentity, "db1", PrivPredicate.SELECT));
         // grant not exist role to testUser
         grantStmt = new GrantStmt(Lists.newArrayList("norole"), userIdentity);
         try {
@@ -1686,9 +1683,9 @@ public class AuthTest {
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
         String role = "role0";
         String resourceName = "spark0";
-        ResourcePattern resourcePattern = new ResourcePattern(resourceName);
+        ResourcePattern resourcePattern = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
         String anyResource = "*";
-        ResourcePattern anyResourcePattern = new ResourcePattern(anyResource);
+        ResourcePattern anyResourcePattern = new ResourcePattern(anyResource, ResourceTypeEnum.GENERAL);
         List<AccessPrivilegeWithCols> usagePrivileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
@@ -1705,7 +1702,7 @@ public class AuthTest {
         }
 
         // 2. grant usage_priv on resource 'spark0' to 'testUser'@'%'
-        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges);
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1717,7 +1714,7 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource 'spark0' from 'testUser'@'%'
-        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges);
+        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1732,7 +1729,7 @@ public class AuthTest {
             List<AccessPrivilegeWithCols> notAllowedPrivileges = Lists
                     .newArrayList(new AccessPrivilegeWithCols(
                             AccessPrivilege.fromName(Privilege.notBelongToResourcePrivileges[i].getName())));
-            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges);
+            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges, ResourceTypeEnum.GENERAL);
             try {
                 grantStmt.analyze(analyzer);
                 Assert.fail(String.format("Can not grant/revoke %s to/from any other users or roles",
@@ -1762,7 +1759,7 @@ public class AuthTest {
             Assert.fail();
         }
         // grant usage_priv on resource 'spark0' to role 'role0'
-        grantStmt = new GrantStmt(null, role, resourcePattern, usagePrivileges);
+        grantStmt = new GrantStmt(null, role, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1784,7 +1781,7 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource 'spark0' from role 'role0'
-        revokeStmt = new RevokeStmt(null, role, resourcePattern, usagePrivileges);
+        revokeStmt = new RevokeStmt(null, role, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1826,7 +1823,7 @@ public class AuthTest {
         }
 
         // 2. grant usage_priv on resource '*' to 'testUser'@'%'
-        grantStmt = new GrantStmt(userIdentity, null, anyResourcePattern, usagePrivileges);
+        grantStmt = new GrantStmt(userIdentity, null, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1840,7 +1837,7 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 3. revoke usage_priv on resource '*' from 'testUser'@'%'
-        revokeStmt = new RevokeStmt(userIdentity, null, anyResourcePattern, usagePrivileges);
+        revokeStmt = new RevokeStmt(userIdentity, null, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1874,7 +1871,7 @@ public class AuthTest {
             Assert.fail();
         }
         // grant usage_priv on resource '*' to role 'role0'
-        grantStmt = new GrantStmt(null, role, anyResourcePattern, usagePrivileges);
+        grantStmt = new GrantStmt(null, role, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1896,7 +1893,7 @@ public class AuthTest {
         Assert.assertTrue(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource '*' from role 'role0'
-        revokeStmt = new RevokeStmt(null, role, anyResourcePattern, usagePrivileges);
+        revokeStmt = new RevokeStmt(null, role, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1940,7 +1937,7 @@ public class AuthTest {
         // 1. grant db table priv to resource
         List<AccessPrivilegeWithCols> privileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
-        grantStmt = new GrantStmt(userIdentity, null, resourcePattern, privileges);
+        grantStmt = new GrantStmt(userIdentity, null, resourcePattern, privileges, ResourceTypeEnum.GENERAL);
         hasException = false;
         try {
             grantStmt.analyze(analyzer);
@@ -2275,14 +2272,14 @@ public class AuthTest {
                         new AccessPrivilegeWithCols(AccessPrivilege.LOAD_PRIV)));
         grant(grantStmt);
         Assert.assertFalse(accessManager
-                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+                .checkDbPriv(userIdentity, "viewdb", PrivPredicate.SHOW_VIEW));
 
         // `SHOW_VIEW_PRIV` can `show create view`
         grantStmt = new GrantStmt(userIdentity, null, new TablePattern("viewdb", "*"),
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SHOW_VIEW_PRIV)));
         grant(grantStmt);
         Assert.assertTrue(accessManager
-                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+                .checkDbPriv(userIdentity, "viewdb", PrivPredicate.SHOW_VIEW));
 
         RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SHOW_VIEW_PRIV)));
@@ -2293,7 +2290,7 @@ public class AuthTest {
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV)));
         grant(grantStmt);
         Assert.assertTrue(accessManager
-                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+                .checkDbPriv(userIdentity, "viewdb", PrivPredicate.SHOW_VIEW));
 
         revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("*", "*", "*"),
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV)));
@@ -2304,7 +2301,7 @@ public class AuthTest {
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.CREATE_PRIV)));
         grant(grantStmt);
         Assert.assertTrue(accessManager
-                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+                .checkDbPriv(userIdentity, "viewdb", PrivPredicate.SHOW_VIEW));
 
         revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.CREATE_PRIV)));
@@ -2315,7 +2312,7 @@ public class AuthTest {
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALTER_PRIV)));
         grant(grantStmt);
         Assert.assertTrue(accessManager
-                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+                .checkDbPriv(userIdentity, "viewdb", PrivPredicate.SHOW_VIEW));
 
         revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALTER_PRIV)));
@@ -2326,7 +2323,7 @@ public class AuthTest {
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV)));
         grant(grantStmt);
         Assert.assertTrue(accessManager
-                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+                .checkDbPriv(userIdentity, "viewdb", PrivPredicate.SHOW_VIEW));
 
         revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV)));

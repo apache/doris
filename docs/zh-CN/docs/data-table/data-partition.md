@@ -148,6 +148,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 1. **Partition**
 
    - Partition 列可以指定一列或多列，分区列必须为 KEY 列。多列分区的使用方式在后面 **多列分区** 小结介绍。
+   - 当 `allowPartitionColumnNullable` 为 `true` 时，Range Partition 支持使用 NULL 分区列。List Partition 始终不支持 NULL 分区列。
    - 不论分区列是什么类型，在写分区值时，都需要加双引号。
    - 分区数量理论上没有上限。
    - 当不使用 Partition 建表时，系统会自动生成一个和表名同名的，全值范围的 Partition。该 Partition 对用户不可见，并且不可删改。

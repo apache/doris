@@ -46,7 +46,7 @@ namespace doris::pipeline {
 
 class TaskQueue;
 class PriorityTaskQueue;
-struct LocalExchangeSinkDependency;
+class Dependency;
 
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineXTask : public PipelineTask {
@@ -54,7 +54,7 @@ public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
                   std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                          std::shared_ptr<LocalExchangeSinkDependency>>>
+                                          std::shared_ptr<Dependency>>>
                           le_state_map,
                   int task_idx);
 
@@ -62,14 +62,11 @@ public:
         return Status::InternalError("Should not reach here!");
     }
 
-    Status prepare(RuntimeState* state, const TPipelineInstanceParams& local_params,
-                   const TDataSink& tsink);
+    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
+                   QueryContext* query_ctx);
 
     Status execute(bool* eos) override;
 
-    // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
-    // this task will enter the `PENDING_FINISH` state.
-    Status try_close(Status exec_status) override;
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status) override;
@@ -97,24 +94,36 @@ public:
 
     bool is_pending_finish() override { return _finish_blocked_dependency() != nullptr; }
 
-    std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
+    std::shared_ptr<BasicSharedState> get_source_shared_state() {
+        return _op_shared_states.contains(_source->operator_id())
+                       ? _op_shared_states[_source->operator_id()]
+                       : nullptr;
+    }
 
-    void add_upstream_dependency(std::vector<DependencySPtr>& multi_upstream_dependency) {
-        for (auto dep : multi_upstream_dependency) {
-            int dst_id = dep->id();
-            if (!_upstream_dependency.contains(dst_id)) {
-                _upstream_dependency.insert({dst_id, {dep}});
-            } else {
-                _upstream_dependency[dst_id].push_back(dep);
+    void inject_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
+        if (!shared_state) {
+            return;
+        }
+        // Shared state is created by upstream task's sink operator and shared by source operator of this task.
+        for (auto& op : _operators) {
+            if (shared_state->related_op_ids.contains(op->operator_id())) {
+                _op_shared_states.insert({op->operator_id(), shared_state});
+                return;
             }
+        }
+        if (shared_state->related_op_ids.contains(_sink->dests_id().front())) {
+            DCHECK(_sink_shared_state == nullptr);
+            _sink_shared_state = shared_state;
         }
     }
 
-    std::vector<DependencySPtr>& get_upstream_dependency(int id) {
-        if (_upstream_dependency.find(id) == _upstream_dependency.end()) {
-            _upstream_dependency.insert({id, {DependencySPtr {}}});
+    std::shared_ptr<BasicSharedState> get_sink_shared_state() { return _sink_shared_state; }
+
+    BasicSharedState* get_op_shared_state(int id) {
+        if (!_op_shared_states.contains(id)) {
+            return nullptr;
         }
-        return _upstream_dependency[id];
+        return _op_shared_states[id].get();
     }
 
     bool is_pipelineX() const override { return true; }
@@ -130,8 +139,7 @@ public:
     int task_id() const { return _index; };
 
     void clear_blocking_state() {
-        if (!is_final_state(get_state()) && get_state() != PipelineTaskState::PENDING_FINISH &&
-            _blocked_dep) {
+        if (!_finished && get_state() != PipelineTaskState::PENDING_FINISH && _blocked_dep) {
             _blocked_dep->set_ready();
             _blocked_dep = nullptr;
         }
@@ -148,10 +156,12 @@ public:
 
 private:
     Dependency* _write_blocked_dependency() {
-        _blocked_dep = _write_dependencies->is_blocked_by(this);
-        if (_blocked_dep != nullptr) {
-            static_cast<Dependency*>(_blocked_dep)->start_watcher();
-            return _blocked_dep;
+        for (auto* op_dep : _write_dependencies) {
+            _blocked_dep = op_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return _blocked_dep;
+            }
         }
         return nullptr;
     }
@@ -190,15 +200,14 @@ private:
     DataSinkOperatorXPtr _sink;
 
     std::vector<Dependency*> _read_dependencies;
-    Dependency* _write_dependencies;
+    std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     RuntimeFilterDependency* _filter_dependency;
 
-    DependencyMap _upstream_dependency;
-    std::map<int, DependencySPtr> _source_dependency;
-    std::vector<DependencySPtr> _downstream_dependency;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    // All shared states of this pipeline task.
+    std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
+    std::shared_ptr<BasicSharedState> _sink_shared_state;
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _le_state_map;
     int _task_idx;
     bool _dry_run = false;

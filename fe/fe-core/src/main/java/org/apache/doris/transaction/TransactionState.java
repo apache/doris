@@ -108,7 +108,8 @@ public class TransactionState implements Writable {
         TIMEOUT,
         OFFSET_OUT_OF_RANGE,
         PAUSE,
-        NO_PARTITIONS;
+        NO_PARTITIONS,
+        INVALID_JSON_PATH;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
@@ -163,6 +164,9 @@ public class TransactionState implements Writable {
         public TxnSourceType sourceType;
         @SerializedName(value = "ip")
         public String ip;
+        // True if this txn if created by system(such as writing data to audit table)
+        @SerializedName(value = "ii")
+        public boolean isFromInternal = false;
 
         public TxnCoordinator() {
         }
@@ -228,6 +232,12 @@ public class TransactionState implements Writable {
     private long firstPublishVersionTime = -1;
 
     private long lastPublishVersionTime = -1;
+
+    private long publishCount = 0;
+
+    // txn may try finish many times and generate a lot of log.
+    // use lastPublishLogTime to reduce log.
+    private long lastPublishLogTime = 0;
 
     @SerializedName(value = "callbackId")
     private long callbackId = -1;
@@ -332,6 +342,22 @@ public class TransactionState implements Writable {
         this.timeoutMs = timeoutMs;
     }
 
+    //for TxnInfoPB convert to TransactionState
+    public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
+            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, TransactionStatus transactionStatus,
+            String reason, long callbackId, long timeoutMs, TxnCommitAttachment txnCommitAttachment, long prepareTime,
+            long preCommitTime, long commitTime, long finishTime) {
+        this(dbId, tableIdList, transactionId, label, requestId, sourceType, txnCoordinator, callbackId, timeoutMs);
+
+        this.transactionStatus = transactionStatus;
+        this.prepareTime = prepareTime;
+        this.preCommitTime = preCommitTime;
+        this.commitTime = commitTime;
+        this.finishTime = finishTime;
+        this.reason = reason;
+        this.txnCommitAttachment = txnCommitAttachment;
+    }
+
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
     }
@@ -346,6 +372,7 @@ public class TransactionState implements Writable {
     }
 
     public void updateSendTaskTime() {
+        this.publishCount++;
         this.lastPublishVersionTime = System.currentTimeMillis();
         if (this.firstPublishVersionTime <= 0) {
             this.firstPublishVersionTime = lastPublishVersionTime;
@@ -358,6 +385,10 @@ public class TransactionState implements Writable {
 
     public long getLastPublishVersionTime() {
         return this.lastPublishVersionTime;
+    }
+
+    public long getPublishCount() {
+        return publishCount;
     }
 
     public boolean hasSendTask() {
@@ -426,6 +457,14 @@ public class TransactionState implements Writable {
 
     public String getErrorLogUrl() {
         return errorLogUrl;
+    }
+
+    public long getLastPublishLogTime() {
+        return lastPublishLogTime;
+    }
+
+    public void setLastPublishLogTime(long lastPublishLogTime) {
+        this.lastPublishLogTime = lastPublishLogTime;
     }
 
     public void setTransactionStatus(TransactionStatus transactionStatus) {
@@ -697,8 +736,7 @@ public class TransactionState implements Writable {
         dbId = in.readLong();
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
-            TableCommitInfo info = new TableCommitInfo();
-            info.readFields(in);
+            TableCommitInfo info = TableCommitInfo.read(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
         txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));

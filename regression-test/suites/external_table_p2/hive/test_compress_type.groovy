@@ -118,7 +118,7 @@ suite("test_compress_type", "p2,external,hive,external_remote,external_remote_hi
         """
 
 
-        order_qt_lzo_7 """ select * from parquet_lzo_compression where col_decimal < 50071 and year(col_timestamp) = 2023
+        order_qt_lzo_7 """ select * from parquet_lzo_compression where col_decimal > 86208 and year(col_timestamp) = 2023
         order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
         limit 10; 
         """

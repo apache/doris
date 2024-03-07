@@ -42,6 +42,10 @@ public class PushDownFilterThroughProject extends PlanPostProcessor {
         }
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
+        if (project.hasPushedDownToProjectionFunctions()) {
+            // ignore project which is pulled up from LogicalOlapScan
+            return filter;
+        }
         PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(
                 ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
                 project.child());

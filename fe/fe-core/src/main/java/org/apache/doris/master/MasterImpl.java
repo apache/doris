@@ -37,6 +37,7 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.task.AlterReplicaTask;
+import org.apache.doris.task.CalcDeleteBitmapTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.CloneTask;
@@ -137,7 +138,8 @@ public class MasterImpl {
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
                         && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
                         && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO
-                        && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE) {
+                        && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
+                        && taskType != TTaskType.CALCULATE_DELETE_BITMAP) {
                     return result;
                 }
             }
@@ -203,6 +205,9 @@ public class MasterImpl {
                 case PUSH_COOLDOWN_CONF:
                     finishPushCooldownConfTask(task);
                     break;
+                case CALCULATE_DELETE_BITMAP:
+                    finishCalcDeleteBitmap(task, request);
+                    break;
                 default:
                     break;
             }
@@ -216,7 +221,9 @@ public class MasterImpl {
         }
 
         if (tStatus.getStatusCode() == TStatusCode.OK) {
-            LOG.debug("report task success. {}", request.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("report task success. {}", request.toString());
+            }
         }
 
         return result;
@@ -262,8 +269,10 @@ public class MasterImpl {
                         request.getReportVersion(), task.getDbId(), task.getTableId());
 
                 createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
-                LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
-                        tabletId, task.getBackendId(), request.getReportVersion());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
+                            tabletId, task.getBackendId(), request.getReportVersion());
+                }
             }
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
@@ -281,8 +290,10 @@ public class MasterImpl {
                         + request.getTaskStatus().getErrorMsgs().toString());
             } else {
                 tabletTask.countDownLatch(task.getBackendId(), tabletTask.getTablets());
-                LOG.debug("finish update tablet meta. tablet id: {}, be: {}",
-                        tabletTask.getTablets(), task.getBackendId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("finish update tablet meta. tablet id: {}, be: {}",
+                            tabletTask.getTablets(), task.getBackendId());
+                }
             }
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPDATE_TABLET_META_INFO, task.getSignature());
@@ -329,7 +340,9 @@ public class MasterImpl {
             LOG.warn("invalid push report infos. finishTabletInfos' size: " + finishTabletInfos.size());
             return;
         }
-        LOG.debug("push report state: {}", pushState.name());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("push report state: {}", pushState.name());
+        }
 
         OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
         if (olapTable == null || !olapTable.writeLockIfExist()) {
@@ -395,7 +408,9 @@ public class MasterImpl {
             }
 
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
-            LOG.debug("finish push replica. tabletId: {}, backendId: {}", pushTabletId, backendId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finish push replica. tabletId: {}, backendId: {}", pushTabletId, backendId);
+            }
         } catch (MetaNotFoundException e) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error", e);
@@ -617,5 +632,29 @@ public class MasterImpl {
         PushCooldownConfTask cooldownTask = (PushCooldownConfTask) task;
         cooldownTask.setFinished(true);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUSH_COOLDOWN_CONF, task.getSignature());
+    }
+
+    private void finishCalcDeleteBitmap(AgentTask task, TFinishTaskRequest request) {
+        // if we get here, this task will be removed from AgentTaskQueue for certain.
+        // because in this function, the only problem that cause failure is meta missing.
+        // and if meta is missing, we no longer need to resend this task
+        try {
+            CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
+            if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+                calcDeleteBitmapTask.countDownToZero(request.getTaskStatus().getStatusCode(),
+                        "backend: " + task.getBackendId() + ", error_tablet_size: "
+                                + request.getErrorTabletIdsSize() + ", err_msg: "
+                                + request.getTaskStatus().getErrorMsgs().toString());
+            } else {
+                calcDeleteBitmapTask.countDownLatch(task.getBackendId(), calcDeleteBitmapTask.getTransactionId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("finish calc delete bitmap. transaction id: {}, be: {}, report version: {}",
+                            calcDeleteBitmapTask.getTransactionId(), calcDeleteBitmapTask.getBackendId(),
+                            request.getReportVersion());
+                }
+            }
+        } finally {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CALCULATE_DELETE_BITMAP, task.getSignature());
+        }
     }
 }

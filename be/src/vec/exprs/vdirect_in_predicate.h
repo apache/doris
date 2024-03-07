@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "exprs/hybrid_set.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
@@ -29,7 +30,23 @@ public:
             : VExpr(node), _filter(nullptr), _expr_name("direct_in_predicate") {}
     ~VDirectInPredicate() override = default;
 
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                   VExprContext* context) override {
+        RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
+        _prepare_finished = true;
+        return Status::OK();
+    }
+
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override {
+        DCHECK(_prepare_finished);
+        RETURN_IF_ERROR(VExpr::open(state, context, scope));
+        _open_finished = true;
+        return Status::OK();
+    }
+
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        DCHECK(_open_finished || _getting_const_col);
         ColumnNumbers arguments(_children.size());
         for (int i = 0; i < _children.size(); ++i) {
             int column_id = -1;
@@ -47,7 +64,7 @@ public:
         if (argument_column->is_nullable()) {
             auto column_nested = static_cast<const ColumnNullable*>(argument_column.get())
                                          ->get_nested_column_ptr();
-            auto& null_map =
+            const auto& null_map =
                     static_cast<const ColumnNullable*>(argument_column.get())->get_null_map_data();
             _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data());
         } else {

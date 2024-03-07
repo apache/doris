@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
@@ -222,10 +223,16 @@ private:
     // this structure and fill with Subcolumns sub items
     mutable std::shared_ptr<rapidjson::Document> doc_structure;
 
+    // column with raw json strings
+    // used for quickly row store encoding
+    ColumnPtr rowstore_column;
+
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
     explicit ColumnObject(bool is_nullable_, bool create_root = true);
+
+    explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
 
     ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
 
@@ -240,6 +247,10 @@ public:
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
     }
+
+    void set_rowstore_column(ColumnPtr col) { rowstore_column = col; }
+
+    ColumnPtr get_rowstore_column() const { return rowstore_column; }
 
     bool serialize_one_row_to_string(int row, std::string* output) const;
 
@@ -307,6 +318,8 @@ public:
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 
+    const Subcolumns& get_sparse_subcolumns() const { return sparse_columns; }
+
     Subcolumns& get_subcolumns() { return subcolumns; }
 
     PathsInData getKeys() const;
@@ -328,7 +341,8 @@ public:
 
     void remove_subcolumns(const std::unordered_set<std::string>& keys);
 
-    void finalize(bool ignore_sparse);
+    // use sparse_subcolumns_schema to record sparse column's path info and type
+    void finalize(bool ignore_sparser);
 
     /// Finalizes all subcolumns.
     void finalize() override;
@@ -459,8 +473,6 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
-
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
 
@@ -476,5 +488,10 @@ public:
     void strip_outer_array();
 
     bool empty() const;
+
+    // Check if all columns and types are aligned
+    Status sanitize() const;
+
+    std::string debug_string() const;
 };
 } // namespace doris::vectorized

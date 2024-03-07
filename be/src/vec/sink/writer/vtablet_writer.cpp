@@ -46,14 +46,13 @@
 #include <utility>
 #include <vector>
 
-#include "common/config.h"
-#include "olap/wal_manager.h"
+#include "cloud/config.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/sink/volap_table_sink.h"
 #include "vec/sink/vrow_distribution.h"
-#include "vec/sink/vtablet_sink.h"
 
 #ifdef DEBUG
 #include <unordered_set>
@@ -176,16 +175,16 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
                 _failed_channels_msgs.emplace(the_tablet_id,
                                               err + ", host: " + node_channel->host());
                 if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                    _intolerable_failure_status =
-                            Status::InternalError(_failed_channels_msgs[the_tablet_id]);
+                    _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                            _failed_channels_msgs[the_tablet_id]);
                 }
             }
         } else {
             _failed_channels[tablet_id].insert(node_id);
             _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
             if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                _intolerable_failure_status =
-                        Status::InternalError(_failed_channels_msgs[tablet_id]);
+                _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        _failed_channels_msgs[tablet_id]);
             }
         }
     }
@@ -307,17 +306,25 @@ void VNodeChannel::clear_all_blocks() {
     _cur_mutable_block.reset();
 }
 
+// we don't need to send tablet_writer_cancel rpc request when
+// init failed, so set _is_closed to true.
 // if "_cancelled" is set to true,
 // no need to set _cancel_msg because the error will be
 // returned directly via "TabletSink::prepare()" method.
 Status VNodeChannel::init(RuntimeState* state) {
+    if (_inited) {
+        return Status::OK();
+    }
+
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    _task_exec_ctx = state->get_task_execution_context();
     _tuple_desc = _parent->_output_tuple_desc;
     _state = state;
     // get corresponding BE node.
     const auto* node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
         _cancelled = true;
+        _is_closed = true;
         return Status::InternalError("unknown node id, id={}", _node_id);
     }
     _node_info = *node;
@@ -332,6 +339,7 @@ Status VNodeChannel::init(RuntimeState* state) {
                                                                         _node_info.brpc_port);
     if (_stub == nullptr) {
         _cancelled = true;
+        _is_closed = true;
         return Status::InternalError("Get rpc stub failed, host={}, port={}, info={}",
                                      _node_info.host, _node_info.brpc_port, channel_info());
     }
@@ -348,6 +356,25 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request->set_backend_id(_node_id);
     _cur_add_block_request->set_eos(false);
 
+    // add block closure
+    _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
+    _send_block_callback->addFailedHandler([this](bool is_last_rpc) {
+        auto ctx_lock = _task_exec_ctx.lock();
+        if (ctx_lock == nullptr) {
+            return;
+        }
+        _add_block_failed_callback(is_last_rpc);
+    });
+
+    _send_block_callback->addSuccessHandler(
+            [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
+                auto ctx_lock = _task_exec_ctx.lock();
+                if (ctx_lock == nullptr) {
+                    return;
+                }
+                _add_block_success_callback(result, is_last_rpc);
+            });
+
     _name = fmt::format("VNodeChannel[{}-{}]", _index_channel->_index_id, _node_id);
     // The node channel will send _batch_size rows of data each rpc. When the
     // number of tablets is large, the number of data rows received by each
@@ -356,18 +383,23 @@ Status VNodeChannel::init(RuntimeState* state) {
     // a relatively large value to improve the import performance.
     _batch_size = std::max(_batch_size, 8192);
 
+    _inited = true;
     return Status::OK();
 }
 
 void VNodeChannel::_open_internal(bool is_incremental) {
+    if (_tablets_wait_open.empty()) {
+        return;
+    }
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     auto request = std::make_shared<PTabletWriterOpenRequest>();
     request->set_allocated_id(&_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_txn_id(_parent->_txn_id);
     request->set_allocated_schema(_parent->_schema->to_protobuf());
+
     std::set<int64_t> deduper;
-    for (auto& tablet : _all_tablets) {
+    for (auto& tablet : _tablets_wait_open) {
         if (deduper.contains(tablet.tablet_id)) {
             continue;
         }
@@ -375,7 +407,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
         ptablet->set_partition_id(tablet.partition_id);
         ptablet->set_tablet_id(tablet.tablet_id);
         deduper.insert(tablet.tablet_id);
+        _all_tablets.push_back(std::move(tablet));
     }
+    _tablets_wait_open.clear();
+
     request->set_num_senders(_parent->_num_senders);
     request->set_need_gen_rollup(false); // Useless but it is a required field in pb
     request->set_load_mem_limit(_parent->_load_mem_limit);
@@ -386,6 +421,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_backend_id(_node_id);
     request->set_enable_profile(_state->enable_profile());
     request->set_is_incremental(is_incremental);
+    request->set_txn_expiration(_parent->_txn_expiration);
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
     auto open_closure = AutoReleaseClosure<
@@ -410,6 +446,7 @@ void VNodeChannel::open() {
 }
 
 void VNodeChannel::incremental_open() {
+    VLOG_DEBUG << "incremental opening node channel" << _node_id;
     _open_internal(true);
 }
 
@@ -432,7 +469,7 @@ Status VNodeChannel::open_wait() {
             _cancelled = true;
             auto error_code = open_callback->cntl_->ErrorCode();
             auto error_text = open_callback->cntl_->ErrorText();
-            return Status::InternalError(
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                     "failed to open tablet writer, error={}, error_text={}, info={}",
                     berror(error_code), error_text, channel_info());
         }
@@ -444,15 +481,6 @@ Status VNodeChannel::open_wait() {
         }
     }
 
-    // add block closure
-    _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
-    _send_block_callback->addFailedHandler(
-            [this](bool is_last_rpc) { _add_block_failed_callback(is_last_rpc); });
-
-    _send_block_callback->addSuccessHandler(
-            [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
-                _add_block_success_callback(result, is_last_rpc);
-            });
     return status;
 }
 
@@ -466,7 +494,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("add row failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
         }
@@ -477,7 +506,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_block() and return OK, because we will check _cancelled in next add_block() or mark_close().
-    while (!_cancelled && _pending_batches_num > 0 &&
+    while (!_cancelled && !_state->is_cancelled() && _pending_batches_num > 0 &&
            _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_RAW_TIMER(&_stat.mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -816,8 +845,10 @@ void VNodeChannel::_add_block_failed_callback(bool is_last_rpc) {
     }
 }
 
+// When _cancelled is true, we still need to send a tablet_writer_cancel
+// rpc request to truly release the load channel
 void VNodeChannel::cancel(const std::string& cancel_msg) {
-    if (_is_closed || _cancelled) {
+    if (_is_closed) {
         // skip the channels that have been canceled or close_wait.
         return;
     }
@@ -855,10 +886,6 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     static_cast<void>(request->release_id());
 }
 
-bool VNodeChannel::is_send_data_rpc_done() const {
-    return _add_batches_finished || _cancelled;
-}
-
 Status VNodeChannel::close_wait(RuntimeState* state) {
     DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemInfo::process_full_gc(); });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
@@ -872,7 +899,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("wait close failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("wait close failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(
                     st.prepend("already stopped, skip waiting for close. cancelled/!eos: "));
@@ -880,7 +908,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    // In pipeline, is_close_done() is false at this time, will not block.
+    // For pipeline engine, the close is called in async writer's process block method,
+    // so that it will not block pipeline thread.
     while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
         bthread_usleep(1000);
     }
@@ -902,7 +931,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         return Status::OK();
     }
 
-    return Status::InternalError(get_cancel_msg());
+    return Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
 }
 
 void VNodeChannel::_close_check() {
@@ -1049,7 +1078,7 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
 
     // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
-        return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
+        return Status::Error<ErrorCode::INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
     return Status::OK();
 }
@@ -1058,6 +1087,9 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     // add new tablet locations. it will use by address. so add to pool
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
     _location->add_locations(*new_locations);
+    if (_write_single_replica) {
+        _slave_location->add_locations(*new_locations);
+    }
 
     // update new node info
     _nodes_info->add_nodes(result->nodes);
@@ -1109,6 +1141,12 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         }
     }
 
+    if (config::is_cloud_mode() &&
+        (!table_sink.__isset.txn_timeout_s || table_sink.txn_timeout_s <= 0)) {
+        return Status::InternalError("The txn_timeout_s of TDataSink is invalid");
+    }
+    _txn_expiration = ::time(nullptr) + table_sink.txn_timeout_s;
+
     if (table_sink.__isset.load_channel_timeout_s) {
         _load_channel_timeout_s = table_sink.load_channel_timeout_s;
     } else {
@@ -1139,7 +1177,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _num_senders = state->num_per_fragment_instances();
     _is_high_priority =
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
-
+    DBUG_EXECUTE_IF("VTabletWriter._init.is_high_priority", { _is_high_priority = true; });
     // profile must add to state's object pool
     _mem_tracker =
             std::make_shared<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));
@@ -1333,9 +1371,9 @@ Status VTabletWriter::_send_new_partition_batch() {
         // these order is only.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
-        //  3. now reuse the column of lval block. cuz append_block doesn't real adjust it. it generate a new block from that.
+        //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(this->append_block(tmp_block));
+        RETURN_IF_ERROR(this->write(tmp_block));
         _row_distribution._batching_block->set_mutable_columns(
                 tmp_block.mutate_columns()); // Recovery back
         _row_distribution._batching_block->clear_column_data();
@@ -1344,7 +1382,7 @@ Status VTabletWriter::_send_new_partition_batch() {
     return Status::OK();
 }
 
-Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
+void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status) {
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
 
@@ -1386,23 +1424,6 @@ Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
         _close_status = status;
         _close_wait = true;
     }
-
-    return Status::OK();
-}
-
-bool VTabletWriter::is_close_done() {
-    // Only after try_close, need to wait rpc end.
-    if (!_close_wait) {
-        return true;
-    }
-    bool close_done = true;
-    for (const auto& index_channel : _channels) {
-        index_channel->for_each_node_channel(
-                [&close_done](const std::shared_ptr<VNodeChannel>& ch) {
-                    close_done &= ch->is_send_data_rpc_done();
-                });
-    }
-    return close_done;
 }
 
 Status VTabletWriter::close(Status exec_status) {
@@ -1417,7 +1438,7 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_profile->total_time_counter());
 
     // will make the last batch of request-> close_wait will wait this finished.
-    static_cast<void>(try_close(_state, exec_status));
+    _do_try_close(_state, exec_status);
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
@@ -1602,7 +1623,7 @@ void VTabletWriter::_generate_index_channels_payloads(
     }
 }
 
-Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
+Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -1619,12 +1640,14 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         return status;
     }
     SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
 
+    _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
             _number_input_rows));
@@ -1633,6 +1656,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
 
     channel_to_payload.resize(_channels.size());
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
+    _row_distribution_watch.stop();
 
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.

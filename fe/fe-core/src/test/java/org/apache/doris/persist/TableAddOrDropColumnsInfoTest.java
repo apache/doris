@@ -65,7 +65,7 @@ public class TableAddOrDropColumnsInfoTest {
         indexSchemaMap.put(tableId, fullSchema);
 
         List<Index> indexes = Lists.newArrayList(
-                new Index(0, "index", Lists.newArrayList("testCol1"), IndexDef.IndexType.BITMAP, null, "xxxxxx"));
+                new Index(0, "index", Lists.newArrayList("testCol1"), IndexDef.IndexType.INVERTED, null, "xxxxxx"));
 
         TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo1 = new TableAddOrDropColumnsInfo("", dbId, tableId,
                 indexSchemaMap, indexes, jobId);

@@ -79,7 +79,7 @@ template <typename T>
 void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                      size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
         keys[i].size += sizeof(T);
     }
 }
@@ -89,7 +89,7 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
                                                    const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
             keys[i].size += sizeof(T);
         }
     }
@@ -129,12 +129,6 @@ UInt64 ColumnDecimal<T>::get64(size_t n) const {
 template <typename T>
 void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
     hash.update(data[n]);
-}
-
-template <typename T>
-void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                                const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
 template <typename T>
@@ -302,10 +296,10 @@ void ColumnDecimal<T>::insert_range_from(const IColumn& src, size_t start, size_
     const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
 
     if (start + length > src_vec.data.size()) {
-        LOG(FATAL) << fmt::format(
-                "Parameters start = {}, length = {} are out of bound in "
-                "ColumnDecimal<T>::insert_range_from method (data.size() = {})",
-                start, length, src_vec.data.size());
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameters start = {}, length = {} are out of bound in "
+                               "ColumnDecimal<T>::insert_range_from method (data.size() = {})",
+                               start, length, src_vec.data.size());
     }
 
     size_t old_size = data.size();
@@ -438,18 +432,6 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
-                                 IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);
-    typename Self::Container& res_data = res.get_data();
-    res_data.resize(target_size);
-
-    for (size_t i = 0; i < target_size; ++i) {
-        res_data[i] = data[indexs[i]];
-    }
-}
-
-template <typename T>
 void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                    IColumn::Permutation& perms, EqualRange& range,
                                    bool last_column) const {
@@ -494,12 +476,12 @@ Decimal64 ColumnDecimal<Decimal64>::get_scale_multiplier() const {
 }
 
 template <>
-Decimal128 ColumnDecimal<Decimal128>::get_scale_multiplier() const {
+Decimal128V2 ColumnDecimal<Decimal128V2>::get_scale_multiplier() const {
     return common::exp10_i128(scale);
 }
 
 template <>
-Decimal128I ColumnDecimal<Decimal128I>::get_scale_multiplier() const {
+Decimal128V3 ColumnDecimal<Decimal128V3>::get_scale_multiplier() const {
     return common::exp10_i128(scale);
 }
 
@@ -515,9 +497,21 @@ ColumnPtr ColumnDecimal<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
 }
 
+template <typename T>
+void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
+    auto s = size();
+    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
+    if (0 == null_count) {
+        return;
+    }
+    for (size_t i = 0; i < s; ++i) {
+        data[i] = null_map[i] ? T() : data[i];
+    }
+}
+
 template class ColumnDecimal<Decimal32>;
 template class ColumnDecimal<Decimal64>;
-template class ColumnDecimal<Decimal128>;
-template class ColumnDecimal<Decimal128I>;
+template class ColumnDecimal<Decimal128V2>;
+template class ColumnDecimal<Decimal128V3>;
 template class ColumnDecimal<Decimal256>;
 } // namespace doris::vectorized

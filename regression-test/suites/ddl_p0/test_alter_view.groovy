@@ -47,7 +47,7 @@ suite("test_alter_view") {
         (2, 10, 50)
         """
 
-    qt_select " SELECT * FROM ${viewName} "
+    qt_select " SELECT * FROM ${viewName} order by k1, k2 "
 
     sql """
         ALTER VIEW ${viewName} (k1, k2)
@@ -55,7 +55,7 @@ suite("test_alter_view") {
         SELECT c1 as k1, sum(c3) as k2 FROM ${tableName} GROUP BY c1
     """
 
-    qt_select " SELECT * FROM ${viewName} "
+    qt_select " SELECT * FROM ${viewName} order by k1, k2 "
 
     sql "DROP VIEW ${viewName}"
     sql "DROP TABLE ${tableName}"

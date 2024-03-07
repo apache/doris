@@ -24,9 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-TABLE-COLUMN
-
-### Name
+## Name
 
 ALTER TABLE COLUMN
 
@@ -34,7 +32,12 @@ ALTER TABLE COLUMN
 
 该语句用于对已有 table 进行 Schema change 操作。schema change 是异步的，任务提交成功则返回，之后可使用[SHOW ALTER TABLE COLUMN](../../Show-Statements/SHOW-ALTER.md) 命令查看进度。
 
-语法：
+:::tip
+Doris 在建表之后有物化索引的概念，在建表成功后为 base 表，物化索引为 base index，基于 base 表可以创建 rollup index。其中 base index 和 rollup index 都是物化索引，在进行 schema change 操作时如果不指定 rollup_index_name 默认基于 base 表进行操作。
+Doris 在 1.2.0 支持了 light schema change 轻量表结构变更，对于值列的加减操作，可以更快地，同步地完成。可以在建表时手动指定 "light_schema_change" = 'true'，2.0.0 及之后版本该参数默认开启。
+:::
+
+### 语法：
 
 ```sql
 ALTER TABLE [database.]table alter_clause;
@@ -42,187 +45,258 @@ ALTER TABLE [database.]table alter_clause;
 
 schema change 的 alter_clause 支持如下几种修改方式：
 
-1. 向指定 index 的指定位置添加一列
+**1. 添加列，向指定的 index 位置进行列添加**
 
-语法：
+**语法**
 
 ```sql
-ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
+ALTER TABLE [database.]table table_name ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
 [AFTER column_name|FIRST]
 [TO rollup_index_name]
 [PROPERTIES ("key"="value", ...)]
 ```
+  
+**Example**
+  
+1. 向 example_db.my_table 的 key_1 后添加一个 key 列 new_col (非聚合模型)
 
- 注意：
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN new_col INT KEY DEFAULT "0" AFTER key_1;
+  ```
 
-- 聚合模型如果增加 value 列，需要指定 agg_type
-- 非聚合模型（如 DUPLICATE KEY）如果增加key列，需要指定KEY关键字
--  不能在 rollup index 中增加 base index 中已经存在的列（如有需要，可以重新创建一个 rollup index）
+2. 向 example_db.my_table 的 value_1 后添加一个 value 列 new_col (非聚合模型)
 
-2. 向指定 index 添加多列
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN new_col INT DEFAULT "0" AFTER value_1;
+  ```
 
-语法：
+3. 向 example_db.my_table 的 key_1 后添加一个 key 列 new_col (聚合模型)
 
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN new_col INT KEY DEFAULT "0" AFTER key_1;
+  ```
+
+4. 向 example_db.my_table 的 value_1 后添加一个 value 列 new_col SUM 聚合类型 (聚合模型)
+
+  ```sql
+  ALTER TABLE example_db.my_table   
+  ADD COLUMN new_col INT SUM DEFAULT "0" AFTER value_1; 
+  ```
+
+5. 将 new_col 添加到 example_db.my_table 表的首列位置 (非聚合模型)
+
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN new_col INT KEY DEFAULT "0" FIRST;
+  ```
+  
+:::tip
+  - 聚合模型如果增加 value 列，需要指定 agg_type
+  - 非聚合模型（如 DUPLICATE KEY）如果增加key列，需要指定KEY关键字
+  - 不能在 rollup index 中增加 base index 中已经存在的列（如有需要，可以重新创建一个 rollup index）
+:::
+
+**2. 添加多列，向指定的 index 位置进行多列添加**
+
+**语法**
+  
+  ```sql
+  ALTER TABLE [database.]table table_name ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", ...)
+  [TO rollup_index_name]
+  [PROPERTIES ("key"="value", ...)]
+  ```
+  
+**Example**
+  
+1. 向 example_db.my_table 中添加多列，new_col 和 new_col2 都是 SUM 聚合类型(聚合模型)
+
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN (new_col1 INT SUM DEFAULT "0" ,new_col2 INT SUM DEFAULT "0");
+  ```
+
+2. 向 example_db.my_table 中添加多列(非聚合模型)，其中 new_col1 为 KEY 列，new_col2 为 value 列
+
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN (new_col1 INT key DEFAULT "0" , new_col2 INT DEFAULT "0");
+  ```
+  
+:::tip
+  
+  - 聚合模型如果增加 value 列，需要指定agg_type
+  - 聚合模型如果增加key列，需要指定KEY关键字
+  - 不能在 rollup index 中增加 base index 中已经存在的列（如有需要，可以重新创建一个 rollup index）
+:::
+
+**3. 删除列，从指定 index 中删除一列**
+
+**语法**
+  
+  ```sql
+  ALTER TABLE [database.]table table_name DROP COLUMN column_name
+  [FROM rollup_index_name]
+  ```
+  
+**Example**
+   
+1. 从 example_db.my_table 中删除 col1 列
+  
+    ```sql
+    ALTER TABLE example_db.my_table DROP COLUMN col1;
+    ```
+
+:::tip
+  - 不能删除分区列
+  - 聚合模型不能删除KEY列
+  - 如果是从 base index 中删除列，则如果 rollup index 中包含该列，也会被删除
+:::
+
+**4. 修改指定列类型以及列位置**
+
+**语法**
+  
 ```sql
-ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", ...)
-[TO rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-```
-
-注意：
-
-- 聚合模型如果增加 value 列，需要指定agg_type
-- 聚合模型如果增加key列，需要指定KEY关键字
-- 不能在 rollup index 中增加 base index 中已经存在的列（如有需要，可以重新创建一个 rollup index）
-
-3. 从指定 index 中删除一列
-
-语法：
-
-```sql
-DROP COLUMN column_name
-[FROM rollup_index_name]
-```
-
-注意：
-
-- 不能删除分区列
-- 如果是从 base index 中删除列，则如果 rollup index 中包含该列，也会被删除
-
-4. 修改指定 index 的列类型以及列位置
-
- 语法：
-
-```sql
-MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAULT "default_value"]
+ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAULT "default_value"]
 [AFTER column_name|FIRST]
 [FROM rollup_index_name]
 [PROPERTIES ("key"="value", ...)]
 ```
 
-注意：
+**Example**
+  
+1. 修改 example_db.my_table 的 key 列 col1 的类型为 BIGINT，并移动到 col2 列后面。
 
-- 聚合模型如果修改 value 列，需要指定 agg_type
-- 非聚合类型如果修改key列，需要指定KEY关键字
-- 只能修改列的类型，列的其他属性维持原样（即其他属性需在语句中按照原属性显式的写出，参见 example 8）
-- 分区列和分桶列不能做任何修改
-- 目前支持以下类型的转换（精度损失由用户保证）
-  - TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE 类型向范围更大的数字类型转换
-  - TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL 转换成 VARCHAR
-  - VARCHAR 支持修改最大长度
-  - VARCHAR/CHAR 转换成 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
-  - VARCHAR/CHAR 转换成 DATE (目前支持"%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d"六种格式化格式)
-  - DATETIME 转换成 DATE(仅保留年-月-日信息, 例如: `2019-12-09 21:47:05` <--> `2019-12-09`)
-  - DATE 转换成 DATETIME(时分秒自动补零， 例如: `2019-12-09` <--> `2019-12-09 00:00:00`)
-  - FLOAT 转换成 DOUBLE
-  - INT 转换成 DATE (如果INT类型数据不合法则转换失败，原始数据不变)
-  - 除DATE与DATETIME以外都可以转换成STRING，但是STRING不能转换任何其他类型
+  ```sql
+  ALTER TABLE example_db.my_table 
+  MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
+  ```
 
-5. 对指定 index 的列进行重新排序
+  :::tip
+  无论是修改 key 列还是 value 列都需要声明完整的 column 信息
+  :::
 
-语法：
+2. 修改 example_db.my_table 的 val1 列最大长度。原 val1 为 (val1 VARCHAR(32) REPLACE DEFAULT "abc")
 
-```sql
-ORDER BY (column_name1, column_name2, ...)
-[FROM rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-```
+  ```sql
+  ALTER TABLE example_db.my_table 
+  MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+  ```
 
-注意：
+  :::tip
+  只能修改列的类型，列的其他属性维持原样
+  :::
 
-- index 中的所有列都要写出来
-- value 列在 key 列之后
+3. 修改 Duplicate key 表 Key 列的某个字段的长度
 
-### Example
+  ```sql
+  ALTER TABLE example_db.my_table 
+  MODIFY COLUMN k3 VARCHAR(50) KEY NULL COMMENT 'to 50';
+  ```
+  
+:::tip
+  - 聚合模型如果修改 value 列，需要指定 agg_type
+  - 非聚合类型如果修改key列，需要指定KEY关键字
+  - 只能修改列的类型，列的其他属性维持原样（即其他属性需在语句中按照原属性显式的写出，参见 example 8）
+  - 分区列和分桶列不能做任何修改
+  - 目前支持以下类型的转换（精度损失由用户保证）
+    - TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE 类型向范围更大的数字类型转换
+    - TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL 转换成 VARCHAR
+    - VARCHAR 支持修改最大长度
+    - VARCHAR/CHAR 转换成 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
+    - VARCHAR/CHAR 转换成 DATE (目前支持"%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d"六种格式化格式)
+    - DATETIME 转换成 DATE(仅保留年-月-日信息, 例如: `2019-12-09 21:47:05` <--> `2019-12-09`)
+    - DATE 转换成 DATETIME(时分秒自动补零， 例如: `2019-12-09` <--> `2019-12-09 00:00:00`)
+    - FLOAT 转换成 DOUBLE
+    - INT 转换成 DATE (如果INT类型数据不合法则转换失败，原始数据不变)
+    - 除DATE与DATETIME以外都可以转换成STRING，但是STRING不能转换任何其他类型
+:::
 
-1. 向 example_rollup_index 的 col1 后添加一个key列 new_col(非聚合模型)
+**5. 对指定表的列进行重新排序**
 
-```sql
-ALTER TABLE example_db.my_table
-ADD COLUMN new_col INT KEY DEFAULT "0" AFTER col1
-TO example_rollup_index;
-```
+**语法**
+  
+  ```sql
+  ALTER TABLE [database.]table table_name ORDER BY (column_name1, column_name2, ...)
+  [FROM rollup_index_name]
+  [PROPERTIES ("key"="value", ...)]
+  ```
 
-2. 向example_rollup_index的col1后添加一个value列new_col(非聚合模型)
+**Example**
+  
+1. 调整 example_db.my_table 的 key 列 和 value 列的顺序（非聚合模型）
 
-```sql
-ALTER TABLE example_db.my_table   
-ADD COLUMN new_col INT DEFAULT "0" AFTER col1    
-TO example_rollup_index;
-```
+  ```sql
+  CREATE TABLE `my_table`(
+  `k_1` INT NULL,
+  `k_2` INT NULL,
+  `v_1` INT NULL,
+  `v_2` varchar NULL,
+  `v_3` varchar NULL
+  ) ENGINE=OLAP
+  DUPLICATE KEY(`k_1`, `k_2`)
+  COMMENT 'OLAP'
+  DISTRIBUTED BY HASH(`k_1`) BUCKETS 5
+  PROPERTIES (
+  "replication_allocation" = "tag.location.default: 1"
+  );
 
-3. 向example_rollup_index的col1后添加一个key列new_col(聚合模型)
+  ALTER TABLE example_db.my_table ORDER BY (k_2,k_1,v_3,v_2,v_1);
 
-```sql
-ALTER TABLE example_db.my_table   
-ADD COLUMN new_col INT DEFAULT "0" AFTER col1    
-TO example_rollup_index;
-```
+  mysql> desc my_table;
+  +-------+------------+------+-------+---------+-------+
+  | Field | Type       | Null | Key   | Default | Extra |
+  +-------+------------+------+-------+---------+-------+
+  | k_2   | INT        | Yes  | true  | NULL    |       |
+  | k_1   | INT        | Yes  | true  | NULL    |       |
+  | v_3   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+  | v_2   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+  | v_1   | INT        | Yes  | false | NULL    | NONE  |
+  +-------+------------+------+-------+---------+-------+
+  ```
 
-4. 向example_rollup_index的col1后添加一个value列new_col SUM聚合类型(聚合模型)
+2. 同时执行添加列和列排序操作
 
-```sql
-ALTER TABLE example_db.my_table   
-ADD COLUMN new_col INT SUM DEFAULT "0" AFTER col1    
-TO example_rollup_index;
-```
+  ```sql
+  CREATE TABLE `my_table` (
+  `k_1` INT NULL,
+  `k_2` INT NULL,
+  `v_1` INT NULL,
+  `v_2` varchar NULL,
+  `v_3` varchar NULL
+  ) ENGINE=OLAP
+  DUPLICATE KEY(`k_1`, `k_2`)
+  COMMENT 'OLAP'
+  DISTRIBUTED BY HASH(`k_1`) BUCKETS 5
+  PROPERTIES (
+  "replication_allocation" = "tag.location.default: 1"
+  );
 
-5. 向 example_rollup_index 添加多列(聚合模型)
+  ALTER TABLE example_db.my_table
+  ADD COLUMN col INT DEFAULT "0" AFTER v_1,
+  ORDER BY (k_2,k_1,v_3,v_2,v_1,col);
 
-```sql
-ALTER TABLE example_db.my_table
-ADD COLUMN (col1 INT DEFAULT "1", col2 FLOAT SUM DEFAULT "2.3")
-TO example_rollup_index;
-```
-
-6. 从 example_rollup_index 删除一列
-
-```sql
-ALTER TABLE example_db.my_table
-DROP COLUMN col2
-FROM example_rollup_index;
-```
-
-7. 修改 base index 的 key 列 col1 的类型为 BIGINT，并移动到 col2 列后面。
-
-```sql
-ALTER TABLE example_db.my_table 
-MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
-```
-
-注意：无论是修改 key 列还是 value 列都需要声明完整的 column 信息
-
-8. 修改 base index 的 val1 列最大长度。原 val1 为 (val1 VARCHAR(32) REPLACE DEFAULT "abc")
-
-```sql
-ALTER TABLE example_db.my_table 
-MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
-```
-注意：只能修改列的类型，列的其他属性维持原样
-
-9. 重新排序 example_rollup_index 中的列（设原列顺序为：k1,k2,k3,v1,v2）
-
-```sql
-ALTER TABLE example_db.my_table
-ORDER BY (k3,k1,k2,v2,v1)
-FROM example_rollup_index;
-```
-
-10. 同时执行两种操作
-
-```sql
-ALTER TABLE example_db.my_table
-ADD COLUMN v2 INT MAX DEFAULT "0" AFTER k2 TO example_rollup_index,
-ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
-```
-
-11. 修改Duplicate key 表 Key 列的某个字段的长度
-
-```sql
-alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
-```
-
-
+  mysql> desc my_table;
+  +-------+------------+------+-------+---------+-------+
+  | Field | Type       | Null | Key   | Default | Extra |
+  +-------+------------+------+-------+---------+-------+
+  | k_2   | INT        | Yes  | true  | NULL    |       |
+  | k_1   | INT        | Yes  | true  | NULL    |       |
+  | v_3   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+  | v_2   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+  | v_1   | INT        | Yes  | false | NULL    | NONE  |
+  | col   | INT        | Yes  | false | 0       | NONE  |
+  +-------+------------+------+-------+---------+-------+
+  ```
+  
+:::tip
+  - index 中的所有列都要写出来
+  - value 列在 key 列之后
+  - key 列只能调整 key 列的范围内进行调整，value 列同理
+:::
 
 ### Keywords
 

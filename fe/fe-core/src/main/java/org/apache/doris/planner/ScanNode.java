@@ -41,8 +41,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -453,7 +454,9 @@ public abstract class ScanNode extends PlanNode {
             }
 
         }
-        LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
+        }
         return partitionColumnFilter;
     }
 
@@ -711,10 +714,28 @@ public abstract class ScanNode extends PlanNode {
     // 1. is key search
     // 2. session variable not enable_shared_scan
     public boolean shouldDisableSharedScan(ConnectContext context) {
-        return isKeySearch() || !context.getSessionVariable().getEnableSharedScan();
+        return isKeySearch() || context == null
+                || !context.getSessionVariable().getEnableSharedScan()
+                || !context.getSessionVariable().getEnablePipelineEngine()
+                || context.getSessionVariable().getEnablePipelineXEngine()
+                || this instanceof FileScanNode
+                || getShouldColoScan();
     }
 
-    public boolean haveLimitAndConjunts() {
-        return hasLimit() && !conjuncts.isEmpty();
+    public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
+        return context != null
+                && context.getSessionVariable().isIgnoreStorageDataDistribution()
+                && context.getSessionVariable().getEnablePipelineXEngine()
+                && !fragment.hasNullAwareLeftAntiJoin()
+                && getScanRangeNum()
+                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numBackends;
+    }
+
+    public int getScanRangeNum() {
+        return Integer.MAX_VALUE;
+    }
+
+    public boolean shouldUseOneInstance() {
+        return hasLimit() && conjuncts.isEmpty();
     }
 }

@@ -41,8 +41,16 @@ public class Truncate extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD, IntegerType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)
     );
+
+    /**
+     * constructor with 1 argument.
+     */
+    public Truncate(Expression arg0) {
+        super("truncate", arg0);
+    }
 
     /**
      * constructor with 2 arguments.
@@ -56,8 +64,12 @@ public class Truncate extends ScalarFunction
      */
     @Override
     public Truncate withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new Truncate(children.get(0), children.get(1));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        if (children.size() == 1) {
+            return new Truncate(children.get(0));
+        } else {
+            return new Truncate(children.get(0), children.get(1));
+        }
     }
 
     @Override

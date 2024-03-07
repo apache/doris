@@ -173,6 +173,8 @@ public class BackendServiceClient {
 
 
     public void shutdown() {
+        ConnectivityState state = channel.getState(false);
+        LOG.warn("shut down backend service client: {}, channel state: {}", address, state);
         if (!channel.isShutdown()) {
             channel.shutdown();
             try {
@@ -194,7 +196,5 @@ public class BackendServiceClient {
                 return;
             }
         }
-
-        LOG.warn("shut down backend service client: {}", address);
     }
 }

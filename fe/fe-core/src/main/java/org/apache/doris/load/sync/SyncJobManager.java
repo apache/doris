@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
@@ -39,12 +40,17 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class SyncJobManager implements Writable {
@@ -58,7 +64,7 @@ public class SyncJobManager implements Writable {
 
     public SyncJobManager() {
         idToSyncJob = Maps.newConcurrentMap();
-        dbIdToJobNameToSyncJobs = Maps.newConcurrentMap();
+        dbIdToJobNameToSyncJobs = Collections.synchronizedMap(Maps.newLinkedHashMap());
         lock = new ReentrantReadWriteLock(true);
     }
 
@@ -282,32 +288,73 @@ public class SyncJobManager implements Writable {
     // Remove old sync jobs. Called periodically.
     // Stopped jobs will be removed after Config.label_keep_max_second.
     public void cleanOldSyncJobs() {
-        LOG.debug("begin to clean old sync jobs ");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("begin to clean old sync jobs ");
+        }
+        cleanFinishedSyncJobsIf(job -> job.isExpired(System.currentTimeMillis()));
+    }
+
+    /**
+     * Remove completed jobs if total job num exceed Config.label_num_threshold
+     */
+    public void cleanOverLimitSyncJobs() {
+        if (Config.label_num_threshold < 0 || idToSyncJob.size() <= Config.label_num_threshold) {
+            return;
+        }
+        writeLock();
+        try {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to clean finished sync jobs ");
+            }
+            Deque<SyncJob> finishedJobs = idToSyncJob
+                    .values()
+                    .stream()
+                    .filter(SyncJob::isCompleted)
+                    .sorted(Comparator.comparingLong(o -> o.finishTimeMs))
+                    .collect(Collectors.toCollection(ArrayDeque::new));
+            while (!finishedJobs.isEmpty() && idToSyncJob.size() > Config.label_num_threshold) {
+                SyncJob syncJob = finishedJobs.pollFirst();
+                if (!dbIdToJobNameToSyncJobs.containsKey(syncJob.getDbId())) {
+                    continue;
+                }
+                idToSyncJob.remove(syncJob.getId());
+                jobRemovedTrigger(syncJob);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void jobRemovedTrigger(SyncJob syncJob) {
+        Map<String, List<SyncJob>> map = dbIdToJobNameToSyncJobs.get(syncJob.getDbId());
+        List<SyncJob> list = map.get(syncJob.getJobName());
+        list.remove(syncJob);
+        if (list.isEmpty()) {
+            map.remove(syncJob.getJobName());
+        }
+        if (map.isEmpty()) {
+            dbIdToJobNameToSyncJobs.remove(syncJob.getDbId());
+        }
+    }
+
+    public void cleanFinishedSyncJobsIf(Predicate<SyncJob> pred) {
         long currentTimeMs = System.currentTimeMillis();
         writeLock();
         try {
             Iterator<Map.Entry<Long, SyncJob>> iterator = idToSyncJob.entrySet().iterator();
             while (iterator.hasNext()) {
                 SyncJob syncJob = iterator.next().getValue();
-                if (syncJob.isExpired(currentTimeMs)) {
+                if (pred.test(syncJob)) {
                     if (!dbIdToJobNameToSyncJobs.containsKey(syncJob.getDbId())) {
                         continue;
                     }
-                    Map<String, List<SyncJob>> map = dbIdToJobNameToSyncJobs.get(syncJob.getDbId());
-                    List<SyncJob> list = map.get(syncJob.getJobName());
-                    list.remove(syncJob);
-                    if (list.isEmpty()) {
-                        map.remove(syncJob.getJobName());
-                    }
-                    if (map.isEmpty()) {
-                        dbIdToJobNameToSyncJobs.remove(syncJob.getDbId());
-                    }
+                    jobRemovedTrigger(syncJob);
                     iterator.remove();
                     LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
                             .add("finishTimeMs", syncJob.getFinishTimeMs())
                             .add("currentTimeMs", currentTimeMs)
                             .add("jobState", syncJob.getJobState())
-                            .add("msg", "old sync job has been cleaned")
+                            .add("msg", "sync job has been cleaned")
                     );
                 }
             }

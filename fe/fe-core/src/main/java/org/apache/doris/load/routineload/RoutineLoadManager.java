@@ -62,7 +62,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +73,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class RoutineLoadManager implements Writable {
@@ -251,7 +255,7 @@ public class RoutineLoadManager implements Writable {
             if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                     dbFullName,
                     PrivPredicate.LOAD)) {
-                //todo add new error code
+                // todo add new error code
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(),
@@ -303,12 +307,23 @@ public class RoutineLoadManager implements Writable {
     public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
             throws UserException {
         List<RoutineLoadJob> jobs = Lists.newArrayList();
-        if (pauseRoutineLoadStmt.isAll()) {
-            jobs = checkPrivAndGetAllJobs(pauseRoutineLoadStmt.getDbFullName());
-        } else {
-            RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
-                    pauseRoutineLoadStmt.getName());
-            jobs.add(routineLoadJob);
+        // it needs lock when getting routine load job,
+        // otherwise, it may cause the editLog out of order in the following scenarios:
+        // thread A: create job and record job meta
+        // thread B: change job state and persist in editlog according to meta
+        // thread A: persist in editlog
+        // which will cause the null pointer exception when replaying editLog
+        readLock();
+        try {
+            if (pauseRoutineLoadStmt.isAll()) {
+                jobs = checkPrivAndGetAllJobs(pauseRoutineLoadStmt.getDbFullName());
+            } else {
+                RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
+                        pauseRoutineLoadStmt.getName());
+                jobs.add(routineLoadJob);
+            }
+        } finally {
+            readUnlock();
         }
 
         for (RoutineLoadJob routineLoadJob : jobs) {
@@ -369,8 +384,20 @@ public class RoutineLoadManager implements Writable {
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)
             throws UserException {
-        RoutineLoadJob routineLoadJob = checkPrivAndGetJob(stopRoutineLoadStmt.getDbFullName(),
-                stopRoutineLoadStmt.getName());
+        RoutineLoadJob routineLoadJob;
+        // it needs lock when getting routine load job,
+        // otherwise, it may cause the editLog out of order in the following scenarios:
+        // thread A: create job and record job meta
+        // thread B: change job state and persist in editlog according to meta
+        // thread A: persist in editlog
+        // which will cause the null pointer exception when replaying editLog
+        readLock();
+        try {
+            routineLoadJob = checkPrivAndGetJob(stopRoutineLoadStmt.getDbFullName(),
+                    stopRoutineLoadStmt.getName());
+        } finally {
+            readUnlock();
+        }
         routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED,
                 new ErrorReason(InternalErrorCode.MANUAL_STOP_ERR,
                         "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
@@ -449,8 +476,8 @@ public class RoutineLoadManager implements Writable {
     // check if the specified BE is available for running task
     // return true if it is available. return false if otherwise.
     // throw exception if unrecoverable errors happen.
-    public long getAvailableBeForTask(long jobId, long previousBeId, String clusterName) throws LoadException {
-        List<Long> availableBeIds = getAvailableBackendIds(jobId, clusterName);
+    public long getAvailableBeForTask(long jobId, long previousBeId) throws LoadException {
+        List<Long> availableBeIds = getAvailableBackendIds(jobId);
 
         // check if be has idle slot
         readLock();
@@ -515,7 +542,7 @@ public class RoutineLoadManager implements Writable {
      * @return
      * @throws LoadException
      */
-    private List<Long> getAvailableBackendIds(long jobId, String cluster) throws LoadException {
+    private List<Long> getAvailableBackendIds(long jobId) throws LoadException {
         RoutineLoadJob job = getJob(jobId);
         if (job == null) {
             throw new LoadException("job " + jobId + " does not exist");
@@ -579,7 +606,7 @@ public class RoutineLoadManager implements Writable {
       else return all of result
      */
     public List<RoutineLoadJob> getJob(String dbFullName, String jobName,
-                                       boolean includeHistory, PatternMatcher matcher)
+            boolean includeHistory, PatternMatcher matcher)
             throws MetaNotFoundException {
         Preconditions.checkArgument(jobName == null || matcher == null,
                 "jobName and matcher cannot be not null at the same time");
@@ -683,19 +710,59 @@ public class RoutineLoadManager implements Writable {
 
     // Remove old routine load jobs from idToRoutineLoadJob
     // This function is called periodically.
-    // Cancelled and stopped job will be remove after Configure.label_keep_max_second seconds
+    // Cancelled and stopped job will be removed after Configure.label_keep_max_second seconds
     public void cleanOldRoutineLoadJobs() {
-        LOG.debug("begin to clean old routine load jobs ");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("begin to clean old routine load jobs ");
+        }
+        clearRoutineLoadJobIf(RoutineLoadJob::isExpired);
+    }
+
+    /**
+     * Remove finished routine load jobs from idToRoutineLoadJob
+     * This function is called periodically if Config.label_num_threshold is set.
+     * Cancelled and stopped job will be removed.
+     */
+    public void cleanOverLimitRoutineLoadJobs() {
+        if (Config.label_num_threshold < 0
+                || idToRoutineLoadJob.size() <= Config.label_num_threshold) {
+            return;
+        }
+        writeLock();
+        try {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to clean routine load jobs");
+            }
+            Deque<RoutineLoadJob> finishedJobs = idToRoutineLoadJob
+                    .values()
+                    .stream()
+                    .filter(RoutineLoadJob::isFinal)
+                    .sorted(Comparator.comparingLong(o -> o.endTimestamp))
+                    .collect(Collectors.toCollection(ArrayDeque::new));
+            while (!finishedJobs.isEmpty()
+                    && idToRoutineLoadJob.size() > Config.label_num_threshold) {
+                RoutineLoadJob routineLoadJob = finishedJobs.pollFirst();
+                unprotectedRemoveJobFromDb(routineLoadJob);
+                idToRoutineLoadJob.remove(routineLoadJob.getId());
+                RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
+                        routineLoadJob.getState());
+                Env.getCurrentEnv().getEditLog().logRemoveRoutineLoadJob(operation);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void clearRoutineLoadJobIf(Predicate<RoutineLoadJob> pred) {
         writeLock();
         try {
             Iterator<Map.Entry<Long, RoutineLoadJob>> iterator = idToRoutineLoadJob.entrySet().iterator();
             long currentTimestamp = System.currentTimeMillis();
             while (iterator.hasNext()) {
                 RoutineLoadJob routineLoadJob = iterator.next().getValue();
-                if (routineLoadJob.needRemove()) {
+                if (pred.test(routineLoadJob)) {
                     unprotectedRemoveJobFromDb(routineLoadJob);
                     iterator.remove();
-
                     RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
                             routineLoadJob.getState());
                     Env.getCurrentEnv().getEditLog().logRemoveRoutineLoadJob(operation);
@@ -756,6 +823,9 @@ public class RoutineLoadManager implements Writable {
             job.updateState(operation.getJobState(), null, true /* is replay */);
         } catch (UserException e) {
             LOG.error("should not happened", e);
+        } catch (NullPointerException npe) {
+            LOG.error("cannot get job when replaying state change job, which is unexpected, job id: "
+                    + operation.getId());
         }
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, operation.getId())
                 .add("current_state", operation.getJobState())
@@ -767,7 +837,19 @@ public class RoutineLoadManager implements Writable {
      * Enter of altering a routine load job
      */
     public void alterRoutineLoadJob(AlterRoutineLoadStmt stmt) throws UserException {
-        RoutineLoadJob job = checkPrivAndGetJob(stmt.getDbName(), stmt.getLabel());
+        RoutineLoadJob job;
+        // it needs lock when getting routine load job,
+        // otherwise, it may cause the editLog out of order in the following scenarios:
+        // thread A: create job and record job meta
+        // thread B: change job state and persist in editlog according to meta
+        // thread A: persist in editlog
+        // which will cause the null pointer exception when replaying editLog
+        readLock();
+        try {
+            job = checkPrivAndGetJob(stmt.getDbName(), stmt.getLabel());
+        } finally {
+            readUnlock();
+        }
         if (stmt.hasDataSourceProperty()
                 && !stmt.getDataSourceProperties().getDataSourceType().equalsIgnoreCase(job.dataSourceType.name())) {
             throw new DdlException("The specified job type is not: "

@@ -52,10 +52,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
         if (Env.isCheckpointThread()) {
             return;
         }
-        if (Env.getCurrentEnv().getAnalysisManager().hasUnFinished()) {
-            LOG.info("Analyze tasks those submitted in last time is not finished, skip");
-            return;
-        }
         collect();
     }
 

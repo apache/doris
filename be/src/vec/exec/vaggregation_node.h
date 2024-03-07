@@ -326,12 +326,26 @@ public:
 private:
     void _expand() {
         _index_in_sub_container = 0;
-        _current_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
-        _key_containers.emplace_back(_current_keys);
+        _current_keys = nullptr;
+        _current_agg_data = nullptr;
+        try {
+            _current_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
+            _key_containers.emplace_back(_current_keys);
 
-        _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
-                                                                SUB_CONTAINER_CAPACITY);
-        _value_containers.emplace_back(_current_agg_data);
+            _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
+                                                                    SUB_CONTAINER_CAPACITY);
+            _value_containers.emplace_back(_current_agg_data);
+        } catch (...) {
+            if (_current_keys) {
+                _key_containers.pop_back();
+                _current_keys = nullptr;
+            }
+            if (_current_agg_data) {
+                _value_containers.pop_back();
+                _current_agg_data = nullptr;
+            }
+            throw;
+        }
     }
 
     static constexpr uint32_t SUB_CONTAINER_CAPACITY = 8192;
@@ -423,6 +437,7 @@ protected:
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
 
 private:
     friend class pipeline::AggSinkOperator;
@@ -465,7 +480,6 @@ private:
     RuntimeProfile::Counter* _serialize_result_timer = nullptr;
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
     RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _max_row_size_counter = nullptr;

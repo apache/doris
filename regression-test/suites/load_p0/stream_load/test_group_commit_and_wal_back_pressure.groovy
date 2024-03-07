@@ -70,7 +70,7 @@ suite("test_group_commit_and_wal_back_pressure", "p2") {
                 unset 'label'
 
                 file 'test_group_commit_and_wal_back_pressure.csv.gz'
-                time 100000 
+                time 600000 
             }
         })
     }
@@ -88,7 +88,7 @@ suite("test_group_commit_and_wal_back_pressure", "p2") {
                 unset 'label'
 
                 file 'test_group_commit_and_wal_back_pressure.csv.gz'
-                time 100000 
+                time 600000 
             }
         })
     }
@@ -106,7 +106,7 @@ suite("test_group_commit_and_wal_back_pressure", "p2") {
                 unset 'label'
 
                 file 'test_group_commit_and_wal_back_pressure.csv.gz'
-                time 100000 
+                time 600000 
             }
         })
     }

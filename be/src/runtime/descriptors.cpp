@@ -85,6 +85,7 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
           _need_materialize(true),
+          _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
           _is_auto_increment(pdesc.is_auto_increment()) {}
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
@@ -103,6 +104,9 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_is_key(_is_key);
     pslot->set_is_auto_increment(_is_auto_increment);
     pslot->set_col_type(_col_type);
+    for (const std::string& path : _column_paths) {
+        pslot->add_column_paths(path);
+    }
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
@@ -193,6 +197,8 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
           _region(tdesc.mcTable.region),
           _project(tdesc.mcTable.project),
           _table(tdesc.mcTable.table),
+          _odps_url(tdesc.mcTable.odps_url),
+          _tunnel_url(tdesc.mcTable.tunnel_url),
           _access_key(tdesc.mcTable.access_key),
           _secret_key(tdesc.mcTable.secret_key),
           _public_access(tdesc.mcTable.public_access) {}
@@ -254,6 +260,7 @@ std::string ODBCTableDescriptor::debug_string() const {
 
 JdbcTableDescriptor::JdbcTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc),
+          _jdbc_catalog_id(tdesc.jdbcTable.catalog_id),
           _jdbc_resource_name(tdesc.jdbcTable.jdbc_resource_name),
           _jdbc_driver_url(tdesc.jdbcTable.jdbc_driver_url),
           _jdbc_driver_class(tdesc.jdbcTable.jdbc_driver_class),
@@ -261,17 +268,27 @@ JdbcTableDescriptor::JdbcTableDescriptor(const TTableDescriptor& tdesc)
           _jdbc_url(tdesc.jdbcTable.jdbc_url),
           _jdbc_table_name(tdesc.jdbcTable.jdbc_table_name),
           _jdbc_user(tdesc.jdbcTable.jdbc_user),
-          _jdbc_passwd(tdesc.jdbcTable.jdbc_password) {}
+          _jdbc_passwd(tdesc.jdbcTable.jdbc_password),
+          _connection_pool_min_size(tdesc.jdbcTable.connection_pool_min_size),
+          _connection_pool_max_size(tdesc.jdbcTable.connection_pool_max_size),
+          _connection_pool_max_wait_time(tdesc.jdbcTable.connection_pool_max_wait_time),
+          _connection_pool_max_life_time(tdesc.jdbcTable.connection_pool_max_life_time),
+          _connection_pool_keep_alive(tdesc.jdbcTable.connection_pool_keep_alive) {}
 
 std::string JdbcTableDescriptor::debug_string() const {
     fmt::memory_buffer buf;
-    fmt::format_to(buf,
-                   "JDBCTable({} ,_jdbc_resource_name={} ,_jdbc_driver_url={} "
-                   ",_jdbc_driver_class={} ,_jdbc_driver_checksum={} ,_jdbc_url={} "
-                   ",_jdbc_table_name={} ,_jdbc_user={} ,_jdbc_passwd={})",
-                   TableDescriptor::debug_string(), _jdbc_resource_name, _jdbc_driver_url,
-                   _jdbc_driver_class, _jdbc_driver_checksum, _jdbc_url, _jdbc_table_name,
-                   _jdbc_user, _jdbc_passwd);
+    fmt::format_to(
+            buf,
+            "JDBCTable({} ,_jdbc_catalog_id = {}, _jdbc_resource_name={} ,_jdbc_driver_url={} "
+            ",_jdbc_driver_class={} ,_jdbc_driver_checksum={} ,_jdbc_url={} "
+            ",_jdbc_table_name={} ,_jdbc_user={} ,_jdbc_passwd={} ,_connection_pool_min_size={} "
+            ",_connection_pool_max_size={} ,_connection_pool_max_wait_time={} "
+            ",_connection_pool_max_life_time={} ,_connection_pool_keep_alive={})",
+            TableDescriptor::debug_string(), _jdbc_catalog_id, _jdbc_resource_name,
+            _jdbc_driver_url, _jdbc_driver_class, _jdbc_driver_checksum, _jdbc_url,
+            _jdbc_table_name, _jdbc_user, _jdbc_passwd, _connection_pool_min_size,
+            _connection_pool_max_size, _connection_pool_max_wait_time,
+            _connection_pool_max_life_time, _connection_pool_keep_alive);
     return fmt::to_string(buf);
 }
 

@@ -56,12 +56,12 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalJoin(logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)), group())
+                logicalJoin(logicalProject(logicalJoin()), group())
                         .when(j -> j.left().child().getJoinType().isOuterJoin()
                                 || j.left().child().getJoinType().isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.left().isAllSlots())
-                        .whenNot(j -> j.left().child().hasJoinHint())
+                        .whenNot(j -> j.left().child().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
                             Plan newLeft = pushdownProject(project);
@@ -70,12 +70,12 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                             }
                             return topJoin.withChildren(newLeft, topJoin.right());
                         }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN_LEFT),
-                logicalJoin(group(), logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)))
+                logicalJoin(group(), logicalProject(logicalJoin()))
                         .when(j -> j.right().child().getJoinType().isOuterJoin()
                                 || j.right().child().getJoinType().isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.right().isAllSlots())
-                        .whenNot(j -> j.right().child().hasJoinHint())
+                        .whenNot(j -> j.right().child().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.right();
                             Plan newRight = pushdownProject(project);

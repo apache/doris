@@ -104,6 +104,7 @@ public class UserPropertyTest {
         properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
         properties.add(Pair.of("default_load_cluster", "dpp-cluster"));
         properties.add(Pair.of("max_qUERY_instances", "3000"));
+        properties.add(Pair.of("parallel_fragment_exec_instance_num", "2000"));
         properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
         properties.add(Pair.of("cpu_resource_limit", "2"));
         properties.add(Pair.of("query_timeout", "500"));
@@ -114,6 +115,7 @@ public class UserPropertyTest {
         Assert.assertEquals("/user/palo2", userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
         Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
+        Assert.assertEquals(2000, userProperty.getParallelFragmentExecInstanceNum());
         Assert.assertEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
         Assert.assertEquals(2, userProperty.getCpuResourceLimit());
         Assert.assertEquals(500, userProperty.getQueryTimeout());

@@ -2,9 +2,9 @@
 -- !groupby_positive_case --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=() build RFs:RF0 a->[a]
+----hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=()
 ------filter((T1.__DORIS_DELETE_SIGN__ = 0))
---------PhysicalOlapScan[T1] apply RFs: RF0
+--------PhysicalOlapScan[T1]
 ------filter((T2.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[T2]
 
@@ -19,12 +19,12 @@ PhysicalResultSink
 
 -- !grouping_positive_case --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=() build RFs:RF0 a->[a]
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalRepeat
 ----------filter((T1.__DORIS_DELETE_SIGN__ = 0))
-------------PhysicalOlapScan[T1] apply RFs: RF0
+------------PhysicalOlapScan[T1]
 ----filter((T2.__DORIS_DELETE_SIGN__ = 0))
 ------PhysicalOlapScan[T2]
 
@@ -42,9 +42,9 @@ PhysicalResultSink
 -- !groupby_positive_case2 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=() build RFs:RF0 a->[a]
+----hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=()
 ------filter((T1.__DORIS_DELETE_SIGN__ = 0))
---------PhysicalOlapScan[T1] apply RFs: RF0
+--------PhysicalOlapScan[T1]
 ------filter((T2.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[T2]
 
@@ -59,12 +59,12 @@ PhysicalResultSink
 
 -- !grouping_positive_case2 --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=() build RFs:RF0 a->[a]
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalRepeat
 ----------filter((T1.__DORIS_DELETE_SIGN__ = 0))
-------------PhysicalOlapScan[T1] apply RFs: RF0
+------------PhysicalOlapScan[T1]
 ----filter((T2.__DORIS_DELETE_SIGN__ = 0))
 ------PhysicalOlapScan[T2]
 

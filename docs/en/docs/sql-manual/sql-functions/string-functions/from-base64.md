@@ -31,7 +31,7 @@ under the License.
 `VARCHAR from_base64(VARCHAR str)`
 
 
-Returns the result of Base64 decoding the input string
+Returns the result of Base64 decoding the input string, NULL is returned when the input string is incorrect (with non-Base64 encoded characters).
 
 ### example
 

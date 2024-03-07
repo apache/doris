@@ -55,34 +55,33 @@ class Block;
 } // namespace vectorized
 
 class BaseRowsetBuilder;
+class RowsetBuilder;
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
 class BaseDeltaWriter {
 public:
-    BaseDeltaWriter(WriteRequest* req, RuntimeProfile* profile, const UniqueId& load_id);
+    BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile, const UniqueId& load_id);
 
     virtual ~BaseDeltaWriter();
 
-    Status init();
-
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                 bool is_append = false);
+    virtual Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
+                         bool is_append = false) = 0;
 
     Status append(const vectorized::Block* block);
 
     // flush the last memtable to flush queue, must call it before build_rowset()
-    Status close();
+    virtual Status close() = 0;
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    Status build_rowset();
+    virtual Status build_rowset();
     Status submit_calc_delete_bitmap_task();
     Status wait_calc_delete_bitmap();
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
     Status cancel();
-    Status cancel_with_status(const Status& st);
+    virtual Status cancel_with_status(const Status& st);
 
     int64_t mem_consumption(MemType mem);
 
@@ -102,19 +101,20 @@ public:
 protected:
     virtual void _init_profile(RuntimeProfile* profile);
 
+    Status init();
+
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
     std::unique_ptr<BaseRowsetBuilder> _rowset_builder;
     std::shared_ptr<MemTableWriter> _memtable_writer;
 
-    std::mutex _lock;
-
     // total rows num written by DeltaWriter
     std::atomic<int64_t> _total_received_rows = 0;
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _wait_flush_limit_timer = nullptr;
 
     MonotonicStopWatch _lock_watch;
 };
@@ -122,10 +122,19 @@ protected:
 // `StorageEngine` mixin for `BaseDeltaWriter`
 class DeltaWriter final : public BaseDeltaWriter {
 public:
-    DeltaWriter(StorageEngine& engine, WriteRequest* req, RuntimeProfile* profile,
+    DeltaWriter(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
                 const UniqueId& load_id);
 
     ~DeltaWriter() override;
+
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
+                 bool is_append = false) override;
+
+    Status close() override;
+
+    Status cancel_with_status(const Status& st) override;
+
+    Status build_rowset() override;
 
     Status commit_txn(const PSlaveTabletNodes& slave_tablet_nodes);
 
@@ -140,7 +149,12 @@ public:
 private:
     void _init_profile(RuntimeProfile* profile) override;
 
-    void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
+    void _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
+
+    // Convert `_rowset_builder` from `BaseRowsetBuilder` to `RowsetBuilder`
+    RowsetBuilder* rowset_builder();
+
+    std::mutex _lock;
 
     StorageEngine& _engine;
     std::unordered_set<int64_t> _unfinished_slave_node;

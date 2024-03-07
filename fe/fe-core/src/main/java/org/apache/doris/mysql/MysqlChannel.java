@@ -31,6 +31,7 @@ import org.xnio.channels.Channels;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
@@ -74,10 +75,12 @@ public class MysqlChannel {
     protected boolean isSslHandshaking;
     private SSLEngine sslEngine;
 
-    protected volatile MysqlSerializer serializer;
+    protected volatile MysqlSerializer serializer = MysqlSerializer.newInstance();
 
     // mysql flag CLIENT_DEPRECATE_EOF
     private boolean clientDeprecatedEOF;
+
+    private ConnectContext context;
 
     protected MysqlChannel() {
         // For DummyMysqlChannel
@@ -91,7 +94,7 @@ public class MysqlChannel {
         return clientDeprecatedEOF;
     }
 
-    public MysqlChannel(StreamConnection connection) {
+    public MysqlChannel(StreamConnection connection, ConnectContext context) {
         Preconditions.checkNotNull(connection);
         this.sequenceId = 0;
         this.isSend = false;
@@ -108,11 +111,10 @@ public class MysqlChannel {
             remoteHostPortString = connection.getPeerAddress().toString();
             remoteIp = connection.getPeerAddress().toString();
         }
-        // The serializer and buffers should only be created if this is a real MysqlChannel
-        this.serializer = MysqlSerializer.newInstance();
         this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
         this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
         this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
+        this.context = context;
     }
 
     public void initSslBuffer() {
@@ -195,7 +197,8 @@ public class MysqlChannel {
         }
         try {
             while (dstBuf.remaining() != 0) {
-                int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf);
+                int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf, context.getNetReadTimeout(),
+                        TimeUnit.SECONDS);
                 // return -1 when remote peer close the channel
                 if (ret == -1) {
                     decryptData(dstBuf, isHeader);
@@ -205,7 +208,9 @@ public class MysqlChannel {
             }
             decryptData(dstBuf, isHeader);
         } catch (IOException e) {
-            LOG.debug("Read channel exception, ignore.", e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Read channel exception, ignore.", e);
+            }
             return 0;
         }
         return readLen;
@@ -253,7 +258,9 @@ public class MysqlChannel {
                 readLen = readAll(sslHeaderByteBuffer, true);
                 if (readLen != SSL_PACKET_HEADER_LEN) {
                     // remote has close this channel
-                    LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                    }
                     return null;
                 }
                 // when handshaking and ssl mode, sslengine unwrap need a packet with header.
@@ -264,7 +271,9 @@ public class MysqlChannel {
                 readLen = readAll(headerByteBuffer, true);
                 if (readLen != PACKET_HEADER_LEN) {
                     // remote has close this channel
-                    LOG.debug("Receive packet header failed, remote may close the channel.");
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Receive packet header failed, remote may close the channel.");
+                    }
                     return null;
                 }
                 if (packetId() != sequenceId) {
@@ -297,7 +306,9 @@ public class MysqlChannel {
                     readLen = readAll(sslHeaderByteBuffer, true);
                     if (readLen != SSL_PACKET_HEADER_LEN) {
                         // remote has close this channel
-                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                        }
                         return null;
                     }
                     tempBuffer.clear();
@@ -365,12 +376,13 @@ public class MysqlChannel {
     protected void realNetSend(ByteBuffer buffer) throws IOException {
         buffer = encryptData(buffer);
         long bufLen = buffer.remaining();
-        long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer);
+        long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer, context.getNetWriteTimeout(),
+                TimeUnit.SECONDS);
         if (bufLen != writeLen) {
             throw new IOException("Write mysql packet failed.[write=" + writeLen
                     + ", needToWrite=" + bufLen + "]");
         }
-        Channels.flushBlocking(conn.getSinkChannel());
+        Channels.flushBlocking(conn.getSinkChannel(), context.getNetWriteTimeout(), TimeUnit.SECONDS);
         isSend = true;
     }
 
@@ -395,8 +407,11 @@ public class MysqlChannel {
             return;
         }
         sendBuffer.flip();
-        realNetSend(sendBuffer);
-        sendBuffer.clear();
+        try {
+            realNetSend(sendBuffer);
+        } finally {
+            sendBuffer.clear();
+        }
         isSend = true;
     }
 
@@ -417,18 +432,17 @@ public class MysqlChannel {
         sendBuffer.put((byte) sequenceId);
     }
 
-    private void writeBuffer(ByteBuffer buffer, boolean isSsl) throws IOException {
+    private void writeBuffer(ByteBuffer buffer) throws IOException {
         if (null == sendBuffer) {
             return;
         }
-        long leftLength = sendBuffer.capacity() - sendBuffer.position();
         // If too long for buffer, send buffered data.
-        if (leftLength < buffer.remaining()) {
+        if (sendBuffer.remaining() < buffer.remaining()) {
             // Flush data in buffer.
             flush();
         }
         // Send this buffer if large enough
-        if (buffer.remaining() > sendBuffer.capacity()) {
+        if (buffer.remaining() > sendBuffer.remaining()) {
             realNetSend(buffer);
             return;
         }
@@ -445,22 +459,34 @@ public class MysqlChannel {
             bufLen = MAX_PHYSICAL_PACKET_LENGTH;
             packet.limit(packet.position() + bufLen);
             if (isSslHandshaking) {
-                writeBuffer(packet, true);
+                writeBuffer(packet);
             } else {
                 writeHeader(bufLen, isSslMode);
-                writeBuffer(packet, isSslMode);
+                writeBuffer(packet);
                 accSequenceId();
             }
         }
         if (isSslHandshaking) {
             packet.limit(oldLimit);
-            writeBuffer(packet, true);
+            writeBuffer(packet);
         } else {
             writeHeader(oldLimit - packet.position(), isSslMode);
             packet.limit(oldLimit);
-            writeBuffer(packet, isSslMode);
+            writeBuffer(packet);
             accSequenceId();
         }
+    }
+
+    public void sendOnePacket(Object[] rows) throws IOException {
+        ByteBuffer packet;
+        serializer.reset();
+        for (Object value : rows) {
+            byte[] bytes = String.valueOf(value).getBytes();
+            serializer.writeVInt(bytes.length);
+            serializer.writeBytes(bytes);
+        }
+        packet = serializer.toByteBuffer();
+        sendOnePacket(packet);
     }
 
     public void sendAndFlush(ByteBuffer packet) throws IOException {

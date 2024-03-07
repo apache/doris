@@ -181,6 +181,8 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             tParams.setQueryOptions(tQueryOptions);
             tParams.setQueryId(context.queryId());
 
+            // TODO: will be delete the debug log after find problem of timeout.
+            LOG.info("fold query {} ", DebugUtil.printId(context.queryId()));
             Future<PConstantExprResult> future =
                     BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
@@ -228,7 +230,9 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                         } else {
                             ret = constMap.get(e1.getKey());
                         }
-                        LOG.debug("Be constant folding convert {} to {}", e1.getKey(), ret);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Be constant folding convert {} to {}", e1.getKey(), ret);
+                        }
                         resultMap.put(e1.getKey(), ret);
                     }
                 }
@@ -244,4 +248,3 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
         return resultMap;
     }
 }
-

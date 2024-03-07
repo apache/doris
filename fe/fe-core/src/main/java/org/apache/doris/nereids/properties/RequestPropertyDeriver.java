@@ -19,13 +19,16 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
@@ -33,11 +36,13 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -47,9 +52,12 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -154,13 +162,15 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
-        JoinHint hint = hashJoin.getHint();
-        if (hint == JoinHint.BROADCAST_RIGHT && JoinUtils.couldBroadcast(hashJoin)) {
+        DistributeHint hint = hashJoin.getDistributeHint();
+        if (hint.distributeType == DistributeType.BROADCAST_RIGHT && JoinUtils.couldBroadcast(hashJoin)) {
             addBroadcastJoinRequestProperty();
+            hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
-        if (hint == JoinHint.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
+        if (hint.distributeType == DistributeType.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
+            hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
         // for shuffle join
@@ -276,8 +286,52 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
+    public Void visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanContext context) {
+        DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
+        if (!(parentDist instanceof DistributionSpecHash)) {
+            return super.visitPhysicalProject(project, context);
+        }
+        DistributionSpecHash hashDist = (DistributionSpecHash) parentDist;
+        Map<ExprId, NamedExpression> exprIdToProjection = project.getProjects().stream()
+                .collect(Collectors.toMap(NamedExpression::getExprId, n -> n, (n1, n2) -> n1));
+        Map<ExprId, ExprId> exprIdMap = Maps.newHashMap();
+        for (ExprId exprId : hashDist.getExprIdToEquivalenceSet().keySet()) {
+            if (!exprIdToProjection.containsKey(exprId)) {
+                return super.visitPhysicalProject(project, context);
+            }
+            NamedExpression projection = exprIdToProjection.get(exprId);
+            if (projection instanceof Alias) {
+                if (((Alias) projection).child() instanceof SlotReference) {
+                    exprIdMap.put(exprId, ((SlotReference) ((Alias) projection).child()).getExprId());
+                } else {
+                    return super.visitPhysicalProject(project, context);
+                }
+            } else if (projection instanceof SlotReference) {
+                exprIdMap.put(exprId, exprId);
+            } else {
+                return super.visitPhysicalProject(project, context);
+            }
+        }
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
+        addRequestPropertyToChildren(new PhysicalProperties(
+                hashDist.project(exprIdMap, ImmutableSet.of(), DistributionSpecAny.INSTANCE)));
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
+        DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
+        if (!(parentDist instanceof DistributionSpecHash)) {
+            return super.visitPhysicalFilter(filter, context);
+        }
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
+        addRequestPropertyToChildren(new PhysicalProperties(parentDist));
+        return null;
+    }
+
+    @Override
     public Void visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        addRequestPropertyToChildren(fileSink.requestProperties(connectContext));
         return null;
     }
 
@@ -334,4 +388,3 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         requestPropertyToChildren.add(physicalProperties);
     }
 }
-

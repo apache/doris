@@ -98,7 +98,16 @@ public class PaimonTypeUtils {
 
         @Override
         public PaimonColumnType visit(DecimalType decimalType) {
-            return new PaimonColumnType(Type.DECIMAL128, decimalType.getPrecision(), decimalType.getScale());
+            int precision = decimalType.getPrecision();
+            Type type;
+            if (precision <= ColumnType.MAX_DECIMAL32_PRECISION) {
+                type = Type.DECIMAL32;
+            } else if (precision <= ColumnType.MAX_DECIMAL64_PRECISION) {
+                type = Type.DECIMAL64;
+            } else {
+                type = Type.DECIMAL128;
+            }
+            return new PaimonColumnType(type, decimalType.getPrecision(), decimalType.getScale());
         }
 
         @Override

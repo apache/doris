@@ -76,10 +76,10 @@ public:
         return Status::OK();
     }
 
-    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                      uint16_t size) const override;
-
 private:
+    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                             uint16_t size) const override;
+
     template <bool is_nullable>
     uint16_t evaluate(const vectorized::IColumn& column, const uint8_t* null_map, uint16_t* sel,
                       uint16_t size) const {
@@ -109,12 +109,12 @@ private:
 };
 
 template <PrimitiveType T>
-uint16_t BitmapFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                                                  uint16_t size) const {
+uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& column,
+                                                         uint16_t* sel, uint16_t size) const {
     uint16_t new_size = 0;
     if (column.is_nullable()) {
-        auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
-        auto& null_map_data = nullable_col->get_null_map_column().get_data();
+        const auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
+        const auto& null_map_data = nullable_col->get_null_map_column().get_data();
         new_size =
                 evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
     } else {

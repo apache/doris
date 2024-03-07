@@ -105,9 +105,6 @@ public:
     /// insert the column to the end
     void insert(const ColumnWithTypeAndName& elem);
     void insert(ColumnWithTypeAndName&& elem);
-    /// insert the column to the end, if there is no column with that name yet
-    void insert_unique(const ColumnWithTypeAndName& elem);
-    void insert_unique(ColumnWithTypeAndName&& elem);
     /// remove the column at the specified position
     void erase(size_t position);
     /// remove the column at the [start, end)
@@ -214,6 +211,8 @@ public:
     Block clone_empty() const;
 
     Columns get_columns() const;
+    Columns get_columns_and_convert();
+
     void set_columns(const Columns& columns);
     Block clone_with_columns(const Columns& columns) const;
     Block clone_without_columns() const;

@@ -33,16 +33,13 @@ class HdfsFileSystem;
 
 class HdfsFileWriter : public FileWriter {
 public:
-    HdfsFileWriter(Path file, FileSystemSPtr fs);
+    HdfsFileWriter(Path file, FileSystemSPtr fs, const FileWriterOptions* opts);
     ~HdfsFileWriter();
 
+    Status open() override;
     Status close() override;
-    Status abort() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;
-    Status write_at(size_t offset, const Slice& data) override {
-        return Status::NotSupported("not support");
-    }
 
 private:
     Status _open();

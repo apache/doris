@@ -104,8 +104,8 @@ under the License.
 | OLAP_ERR_CE_TABLET_ID_EXIST                      | -305   | tablet Id不存在错误                                          |
 | OLAP_ERR_CE_TRY_CE_LOCK_ERROR                    | -306   | 尝试获取执行命令锁错误                                       |
 | Tablet错误异常代码                               |        |                                                              |
-| OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR           | -400   | tablet副本版本错误                                           |
-| OLAP_ERR_TABLE_VERSION_INDEX_MISMATCH_ERROR      | -401   | teblet版本索引不匹配异常                                     |
+| OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR           | -400   | tablet 副本版本错误                                          |
+| OLAP_ERR_TABLE_VERSION_INDEX_MISMATCH_ERROR      | -401   | tablet 版本索引不匹配异常                                     |
 | OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR              | -402   | 这里不检查tablet的初始版本，因为如果在一个tablet进行schema-change时重新启动 BE，我们可能会遇到空tablet异常 |
 | OLAP_ERR_TABLE_INDEX_FIND_ERROR                  | -403   | 无法获得第一个Block块位置 或者找到最后一行Block块失败会引发此异常 |
 | OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR          | -404   | 无法加载Tablet的时候会触发此异常                             |

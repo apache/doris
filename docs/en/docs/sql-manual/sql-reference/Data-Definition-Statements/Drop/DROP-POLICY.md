@@ -40,7 +40,7 @@ Grammar：
 
 1. Drop row policy
 ```sql
-DROP ROW POLICY test_row_policy_1 on table1 [FOR user];
+DROP ROW POLICY test_row_policy_1 on table1 [FOR user| ROLE role];
 ```
 
 2. Drop storage policy
@@ -61,8 +61,14 @@ DROP STORAGE POLICY policy_name1
    ```sql
    DROP ROW POLICY test_row_policy_1 on table1 for test
    ```
+   
+3. Drop the row policy for table1 using by role1
 
-3. Drop the storage policy named policy_name1
+   ```sql
+   DROP ROW POLICY test_row_policy_1 on table1 for role role1
+   ```
+
+4. Drop the storage policy named policy_name1
 ```sql
 DROP STORAGE POLICY policy_name1
 ```
