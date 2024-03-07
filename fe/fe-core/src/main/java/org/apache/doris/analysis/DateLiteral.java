@@ -193,6 +193,16 @@ public class DateLiteral extends LiteralExpr {
 
     private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
 
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof DateLiteral) {
+            DateLiteral that = (DateLiteral) o;
+            return year == that.year && month == that.month && day == that.day && hour == that.hour
+                    && minute == that.minute && second == that.second && microsecond == that.microsecond;
+        }
+        return super.equals(o);
+    }
+
     // Date Literal persist type in meta
     private enum DateLiteralType {
         DATETIME(0),
@@ -625,6 +635,26 @@ public class DateLiteral extends LiteralExpr {
 
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
+        }
+        if (expr instanceof DateLiteral) {
+            DateLiteral other = (DateLiteral) expr;
+            long yearMonthDay = year * 10000 + month * 100 + day;
+            long otherYearMonthDay = other.year * 10000 + other.month * 100 + other.day;
+            long diffDay = yearMonthDay - otherYearMonthDay;
+            if (diffDay != 0) {
+                return diffDay < 0 ? -1 : 1;
+            }
+
+            long hourMinuteSecond = hour * 10000 + minute * 100 + second;
+            long otherHourMinuteSecond = other.hour * 10000 + other.minute * 100 + other.second;
+            long diffSecond = hourMinuteSecond - otherHourMinuteSecond;
+            if (diffSecond != 0) {
+                return diffSecond < 0 ? -1 : 1;
+            }
+            long msDiff = this.microsecond - other.microsecond;
+            return msDiff < 0
+                    ? -1
+                    : msDiff == 0 ? 0 : 1;
         }
         // date time will not overflow when doing addition and subtraction
         return getStringValue().compareTo(expr.getStringValue());

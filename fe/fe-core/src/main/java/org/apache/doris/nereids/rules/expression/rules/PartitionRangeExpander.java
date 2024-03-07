@@ -34,13 +34,11 @@ import org.apache.doris.nereids.types.DataType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.time.DateFormatUtils;
-import org.apache.commons.lang3.time.DateUtils;
+import org.apache.commons.collections.iterators.SingletonIterator;
 
 import java.math.BigInteger;
-import java.text.ParseException;
-import java.time.temporal.ChronoUnit;
-import java.util.Date;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -56,6 +54,8 @@ import java.util.function.Function;
  * after expand range, we can replace partition slot to the literal in expression tree and evaluate it.
  */
 public class PartitionRangeExpander {
+    public static final long ONE_DAY_MILLIS_SECOND = 1000L * 60 * 60 * 24;
+
     /** PartitionSlotType */
     public enum PartitionSlotType {
         // e.g. the first partition column is const '1' in partition [('1', '2', '5'), ('1', '3', '5')),
@@ -83,7 +83,7 @@ public class PartitionRangeExpander {
         for (int i = 0; i < partitionSlotTypes.size(); i++) {
             Slot slot = partitionSlots.get(i);
             PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
-            List<Expression> expandedList = Lists.newArrayList();
+            List<Expression> expandedList = Lists.newArrayListWithCapacity(2);
             Literal lower = lowers.get(i);
             switch (partitionSlotType) {
                 case CONST:
@@ -98,9 +98,13 @@ public class PartitionRangeExpander {
                     try {
                         boolean isLastColumn = i + 1 == partitionSlots.size();
                         if (canExpandRange(slot, lower, upper, expandedCount, expandThreshold)) {
-                            expandedList.addAll(ImmutableList.copyOf(
-                                    enumerableIterator(slot, lower, upper, isLastColumn))
-                            );
+                            Iterator<? extends Expression> iterator = enumerableIterator(
+                                    slot, lower, upper, isLastColumn);
+                            if (iterator instanceof SingletonIterator) {
+                                expandedList.add(iterator.next());
+                            } else {
+                                expandedList.addAll(ImmutableList.copyOf(iterator));
+                            }
                         } else {
                             expandedList.add(slot);
                         }
@@ -163,16 +167,45 @@ public class PartitionRangeExpander {
         return types;
     }
 
-    private final long enumerableCount(DataType dataType, Literal startInclusive, Literal endExclusive) throws
-            ParseException {
+    private long enumerableCount(DataType dataType, Literal startInclusive, Literal endExclusive) {
         if (dataType.isIntegerLikeType()) {
             BigInteger start = new BigInteger(startInclusive.getStringValue());
             BigInteger end = new BigInteger(endExclusive.getStringValue());
             return end.subtract(start).longValue();
-        } else if (dataType.isDateType() || dataType.isDateV2Type()) {
-            Date start = DateUtils.parseDate(startInclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
-            Date end = DateUtils.parseDate(endExclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
-            return ChronoUnit.DAYS.between(start.toInstant(), end.toInstant());
+        } else if (dataType.isDateType()) {
+            DateLiteral startInclusiveDate = (DateLiteral) startInclusive;
+            DateLiteral endExclusiveDate = (DateLiteral) endExclusive;
+            LocalDate startDate = LocalDate.of(
+                    (int) startInclusiveDate.getYear(),
+                    (int) startInclusiveDate.getMonth(),
+                    (int) startInclusiveDate.getDay()
+            );
+
+            LocalDate endDate = LocalDate.of(
+                    (int) endExclusiveDate.getYear(),
+                    (int) endExclusiveDate.getMonth(),
+                    (int) endExclusiveDate.getDay()
+            );
+            long diffMillisSecond = endDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+                    - startDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+            return (diffMillisSecond + ONE_DAY_MILLIS_SECOND - 1) / ONE_DAY_MILLIS_SECOND;
+        } else if (dataType.isDateV2Type()) {
+            DateV2Literal startInclusiveDate = (DateV2Literal) startInclusive;
+            DateV2Literal endExclusiveDate = (DateV2Literal) endExclusive;
+            LocalDate startDate = LocalDate.of(
+                    (int) startInclusiveDate.getYear(),
+                    (int) startInclusiveDate.getMonth(),
+                    (int) startInclusiveDate.getDay()
+            );
+
+            LocalDate endDate = LocalDate.of(
+                    (int) endExclusiveDate.getYear(),
+                    (int) endExclusiveDate.getMonth(),
+                    (int) endExclusiveDate.getDay()
+            );
+            long diffMillisSecond = endDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+                    - startDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+            return (diffMillisSecond + ONE_DAY_MILLIS_SECOND - 1) / ONE_DAY_MILLIS_SECOND;
         }
 
         // not enumerable
@@ -180,7 +213,7 @@ public class PartitionRangeExpander {
     }
 
     private final Iterator<? extends Expression> enumerableIterator(
-            Slot slot, Literal startInclusive, Literal endLiteral, boolean endExclusive) throws ParseException {
+            Slot slot, Literal startInclusive, Literal endLiteral, boolean endExclusive) {
         DataType dataType = slot.getDataType();
         if (dataType.isIntegerLikeType()) {
             BigInteger start = new BigInteger(startInclusive.getStringValue());
@@ -202,15 +235,48 @@ public class PartitionRangeExpander {
                         start, end, endExclusive, LargeIntLiteral::new);
             }
         } else if (dataType.isDateType()) {
-            Date startDate = DateUtils.parseDate(startInclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
-            Date endDate = DateUtils.parseDate(endLiteral.toString(), DateLiteral.JAVA_DATE_FORMAT);
+            DateLiteral startInclusiveDate = (DateLiteral) startInclusive;
+            DateLiteral endLiteralDate = (DateLiteral) endLiteral;
+            LocalDate startDate = LocalDate.of(
+                    (int) startInclusiveDate.getYear(),
+                    (int) startInclusiveDate.getMonth(),
+                    (int) startInclusiveDate.getDay()
+            );
+
+            LocalDate endDate = LocalDate.of(
+                    (int) endLiteralDate.getYear(),
+                    (int) endLiteralDate.getMonth(),
+                    (int) endLiteralDate.getDay()
+            );
+            if (endExclusive
+                    && startDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() + ONE_DAY_MILLIS_SECOND
+                        >= endDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()) {
+                return new SingletonIterator(startInclusive);
+            }
             return new DateLikeRangePartitionValueIterator<>(startDate, endDate, endExclusive,
-                    date -> new DateLiteral(DateFormatUtils.format(date, DateLiteral.JAVA_DATE_FORMAT)));
+                    date -> new DateLiteral(date.getYear(), date.getMonthValue(), date.getDayOfMonth()));
         } else if (dataType.isDateV2Type()) {
-            Date startDate = DateUtils.parseDate(startInclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
-            Date endDate = DateUtils.parseDate(endLiteral.toString(), DateLiteral.JAVA_DATE_FORMAT);
+            DateV2Literal startInclusiveDate = (DateV2Literal) startInclusive;
+            DateV2Literal endLiteralDate = (DateV2Literal) endLiteral;
+            LocalDate startDate = LocalDate.of(
+                    (int) startInclusiveDate.getYear(),
+                    (int) startInclusiveDate.getMonth(),
+                    (int) startInclusiveDate.getDay()
+            );
+
+            LocalDate endDate = LocalDate.of(
+                    (int) endLiteralDate.getYear(),
+                    (int) endLiteralDate.getMonth(),
+                    (int) endLiteralDate.getDay()
+            );
+            if (endExclusive
+                    && startDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() + ONE_DAY_MILLIS_SECOND
+                    >= endDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()) {
+                return new SingletonIterator(startInclusive);
+            }
+
             return new DateLikeRangePartitionValueIterator<>(startDate, endDate, endExclusive,
-                    date -> new DateV2Literal(DateFormatUtils.format(date, DateLiteral.JAVA_DATE_FORMAT)));
+                    date -> new DateV2Literal(date.getYear(), date.getMonthValue(), date.getDayOfMonth()));
         }
         // unsupported type
         return Iterators.singletonIterator(slot);
@@ -231,16 +297,16 @@ public class PartitionRangeExpander {
     }
 
     private class DateLikeRangePartitionValueIterator<L extends Literal>
-            extends RangePartitionValueIterator<Date, L> {
+            extends RangePartitionValueIterator<LocalDate, L> {
 
         public DateLikeRangePartitionValueIterator(
-                Date startInclusive, Date finish, boolean endExclusive, Function<Date, L> toLiteral) {
+                LocalDate startInclusive, LocalDate finish, boolean endExclusive, Function<LocalDate, L> toLiteral) {
             super(startInclusive, finish, endExclusive, toLiteral);
         }
 
         @Override
-        protected Date doGetNext(Date current) {
-            return DateUtils.addDays(current, 1);
+        protected LocalDate doGetNext(LocalDate current) {
+            return current.plusDays(1);
         }
     }
 
