@@ -50,7 +50,6 @@ public class MTMVPartitionInfo {
     private String relatedCol;
     @SerializedName("pc")
     private String partitionCol;
-    // TODO: 2024/3/4 read and write
     private Expr expr;
 
     public MTMVPartitionInfo() {

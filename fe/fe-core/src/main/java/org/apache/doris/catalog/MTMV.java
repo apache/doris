@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
@@ -355,6 +356,9 @@ public class MTMV extends OlapTable {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
+            Expr.writeTo(mvPartitionInfo.getExpr(), out);
+        }
     }
 
     @Override
@@ -373,6 +377,10 @@ public class MTMV extends OlapTable {
         // For compatibility
         if (refreshSnapshot == null) {
             refreshSnapshot = new MTMVRefreshSnapshot();
+        }
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
+            Expr e = Expr.readIn(in);
+            mvPartitionInfo.setExpr(e);
         }
     }
 
