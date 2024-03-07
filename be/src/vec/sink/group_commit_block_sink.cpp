@@ -28,6 +28,7 @@
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
+#include "util/doris_bvar_metrics.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_finder.h"
 

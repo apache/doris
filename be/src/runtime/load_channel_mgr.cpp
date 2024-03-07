@@ -38,11 +38,12 @@
 #include "runtime/exec_env.h"
 #include "runtime/load_channel.h"
 #include "runtime/memory/mem_tracker.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"
-
 namespace doris {
 
 #ifndef BE_TEST

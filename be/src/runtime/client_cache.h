@@ -36,6 +36,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "util/bvar_metrics.h"
 #include "util/hash_util.hpp"
 #include "util/thrift_client.h"
 #include "util/thrift_server.h"

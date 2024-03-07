@@ -52,6 +52,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"

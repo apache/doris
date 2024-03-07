@@ -21,8 +21,9 @@
 
 #include "common/config.h"
 #include "olap/memtable_writer.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/mem_info.h"
-
 namespace doris {
 
 bvar::LatencyRecorder g_memtable_memory_limit_latency_ms("mm_limiter_limit_time_ms");

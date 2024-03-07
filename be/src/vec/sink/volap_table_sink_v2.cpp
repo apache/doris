@@ -29,6 +29,7 @@
 #include "olap/delta_writer_v2.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "util/doris_bvar_metrics.h"
 #include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_stub.h"
 #include "vec/sink/load_stream_stub_pool.h"

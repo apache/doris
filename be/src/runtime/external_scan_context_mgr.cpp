@@ -27,9 +27,10 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
-
 namespace doris {
 
 ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env)
