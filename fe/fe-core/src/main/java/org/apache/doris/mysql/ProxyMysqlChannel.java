@@ -26,6 +26,9 @@ import java.util.List;
  * An interceptor for proxy query, keeping all packets to be sent to master mysql channel.
  */
 public class ProxyMysqlChannel extends MysqlChannel {
+    public ProxyMysqlChannel() {
+        this.serializer = MysqlSerializer.newInstance();
+    }
 
     private final List<ByteBuffer> proxyResultBuffer = Lists.newArrayList();
 
