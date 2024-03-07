@@ -382,4 +382,14 @@ public class JoinUtils {
                         .build();
         }
     }
+
+    public static boolean hasMarkConjuncts(Join join) {
+        return !join.getMarkJoinConjuncts().isEmpty();
+    }
+
+    public static boolean isNullAwareMarkJoin(Join join) {
+        // if mark join's hash conjuncts is empty, we use mark conjuncts as hash conjuncts
+        // and translate join type to NULL_AWARE_LEFT_SEMI_JOIN or NULL_AWARE_LEFT_ANTI_JOIN
+        return join.getHashJoinConjuncts().isEmpty() && !join.getMarkJoinConjuncts().isEmpty();
+    }
 }
