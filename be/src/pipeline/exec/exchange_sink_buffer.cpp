@@ -169,7 +169,8 @@ void ExchangeSinkBuffer<Parent>::register_sink(TUniqueId fragment_instance_id) {
             std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>();
     _instance_to_broadcast_package_queue[low_id] =
             std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>>();
-    _queue_capacity = config::exchange_sink_queue_capacity_factor * _instance_to_package_queue.size();
+    _queue_capacity =
+            config::exchange_sink_queue_capacity_factor * _instance_to_package_queue.size();
     PUniqueId finst_id;
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
