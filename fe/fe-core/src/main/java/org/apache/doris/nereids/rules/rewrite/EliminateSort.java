@@ -65,7 +65,7 @@ public class EliminateSort extends DefaultPlanRewriter<Boolean> implements Custo
 
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Boolean eliminateSort) {
-        // sometimes there is project between logicalResultSink and sort
+        // sometimes there is project between logicalResultSink and sort, should skip eliminate
         return skipEliminateSort(project, eliminateSort);
     }
 
