@@ -139,7 +139,7 @@ public class LoadLoadingTask extends LoadTask {
         executeOnce();
     }
 
-    private void executeOnce() throws Exception {
+    protected void executeOnce() throws Exception {
         // New one query id,
         Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
                 loadId, planner.getDescTable(),
