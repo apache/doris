@@ -34,7 +34,6 @@ import java.util.List;
  * the sort will not be eliminated.
  * Note we have put limit in sort node so that we don't need to consider limit
  */
-
 public class EliminateSort extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
