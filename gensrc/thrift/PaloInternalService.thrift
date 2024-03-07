@@ -274,6 +274,8 @@ struct TQueryOptions {
   // Increase concurrency of scanners adaptively, the maxinum times to scale up
   99: optional double scanner_scale_up_ratio = 0;
 
+  100: optional bool enable_distinct_streaming_aggregation = true;
+
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
