@@ -20,8 +20,9 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
@@ -71,8 +72,12 @@ public class EliminateSort extends DefaultPlanRewriter<Boolean> implements Custo
     }
 
     @Override
-    public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Boolean eliminateSort) {
-        return skipEliminateSort(logicalResultSink, eliminateSort);
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, Boolean eliminateSort) {
+        if (logicalSink instanceof LogicalTableSink) {
+            // eliminate sort
+            return visit(logicalSink, eliminateSort);
+        }
+        return skipEliminateSort(logicalSink, eliminateSort);
     }
 
     private Plan skipEliminateSort(Plan plan, Boolean eliminateSort) {
