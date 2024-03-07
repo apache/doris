@@ -192,8 +192,8 @@
                 "advanced/cold-hot-separation",
                 "advanced/is-being-synced",
                 "advanced/lateral-view",
-                "advanced/user-defined-variables"
-                "advanced/auto-increment"
+                "advanced/user-defined-variables",
+                "advanced/auto-increment",
                 "advanced/is-being-synced"
             ]
         },
