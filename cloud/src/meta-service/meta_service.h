@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <chrono>
 #include <random>
+#include <sstream>
 #include <type_traits>
 
 #include "common/config.h"
@@ -34,6 +35,7 @@
 #include "meta-service/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
+#include "meta-service/meta_service_tablet_stats.h"
 
 namespace doris::cloud {
 

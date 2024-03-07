@@ -41,3 +41,23 @@ VARCHAR_COLUMN	VARCHAR(255)	Yes	true	\N
 123	1234567890.1234567890	1	12345.6789	12345.679	1.2345678901234567E9	1.2345678901234567E9	123	12345	123456789012345	中文一	中文二	中文三	中文四	中文五	中文六	2024-01-24	2024-01-24T12:34:56.789	12:34:56	中文七
 123	1234567890.1234567890	1	12345.6789	12345.679	1.2345678901234567E9	1.2345678901234567E9	123	12345	123456789012345	中文一	中文二	中文三	中文四	中文五	中文六	2024-01-24	2024-01-24T12:34:56.789	12:34:56	中文七
 
+-- !desc_db --
+DORIS_TEST
+NULLID
+SQLJ
+SYSCAT
+SYSFUN
+SYSIBM
+SYSIBMADM
+SYSIBMINTERNAL
+SYSIBMTS
+SYSPROC
+SYSPUBLIC
+SYSSTAT
+SYSTOOLS
+TEST
+information_schema
+
+-- !select_xml --
+1000	<catalog><book><author> Gambardella Matthew</author><title>XML Developers Guide</title><genre>Computer</genre><price>44.95</price><publish_date>2000-10-01</publish_date><description>An in-depth look at creating application\n                          with XML</description></book></catalog>
+

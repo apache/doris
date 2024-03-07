@@ -98,7 +98,9 @@ suite ("test_agg_rollup_schema_change") {
         qt_sc """ select * from ${tableName} order by user_id """
 
         // alter and test light schema change
-        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+        if (!isCloudMode()) {
+            sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+        }
 
         //add rollup
         def rollupName2 = "rollup_city"

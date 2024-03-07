@@ -36,13 +36,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
-template <>
-struct std::equal_to<doris::StringRef> {
-    bool operator()(const doris::StringRef& lhs, const doris::StringRef& rhs) const {
-        return lhs == rhs;
-    }
-};
-
 // for uint24_t
 template <>
 struct std::hash<doris::uint24_t> {

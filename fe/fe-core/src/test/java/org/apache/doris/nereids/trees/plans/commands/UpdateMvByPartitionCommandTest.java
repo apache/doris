@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
@@ -26,6 +27,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.IntegerType;
@@ -52,5 +54,24 @@ class UpdateMvByPartitionCommandTest {
         RangePartitionItem rangePartitionItem = new RangePartitionItem(range);
         Expression expr = (Expression) m.invoke(null, rangePartitionItem, new SlotReference("s", IntegerType.INSTANCE));
         Assertions.assertTrue(expr instanceof GreaterThanEqual);
+    }
+
+    @Test
+    void testNull() throws AnalysisException, NoSuchMethodException, InvocationTargetException,
+            IllegalAccessException {
+        Method m = UpdateMvByPartitionCommand.class.getDeclaredMethod("convertPartitionItemToPredicate", PartitionItem.class,
+                Slot.class);
+        m.setAccessible(true);
+        Column column = new Column("a", PrimitiveType.INT);
+        PartitionKey v = PartitionKey.createListPartitionKeyWithTypes(ImmutableList.of(new PartitionValue("NULL", true)), ImmutableList.of(column.getType()), false);
+        ListPartitionItem listPartitionItem = new ListPartitionItem(ImmutableList.of(v));
+        Expression expr = (Expression) m.invoke(null, listPartitionItem, new SlotReference("s", IntegerType.INSTANCE));
+        Assertions.assertTrue(expr instanceof IsNull);
+
+        PartitionKey v1 = PartitionKey.createListPartitionKeyWithTypes(ImmutableList.of(new PartitionValue("NULL", true)), ImmutableList.of(column.getType()), false);
+        PartitionKey v2 = PartitionKey.createListPartitionKeyWithTypes(ImmutableList.of(new PartitionValue("1", false)), ImmutableList.of(column.getType()), false);
+        listPartitionItem = new ListPartitionItem(ImmutableList.of(v1, v2));
+        expr = (Expression) m.invoke(null, listPartitionItem, new SlotReference("s", IntegerType.INSTANCE));
+        Assertions.assertEquals("(s IS NULL OR s IN (1))", expr.toSql());
     }
 }

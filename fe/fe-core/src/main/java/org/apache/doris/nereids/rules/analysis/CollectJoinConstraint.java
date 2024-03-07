@@ -47,7 +47,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            logicalJoin().whenNot(LogicalJoin::isMarkJoin).thenApply(ctx -> {
+            logicalJoin().thenApply(ctx -> {
                 if (!ctx.cascadesContext.isLeadingJoin()) {
                     return ctx.root;
                 }

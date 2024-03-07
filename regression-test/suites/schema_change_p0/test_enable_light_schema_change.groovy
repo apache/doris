@@ -95,9 +95,11 @@ suite("test_enable_light_schema_change", "p0") {
     sql """ alter table ${tableName1} ADD PARTITION p4 VALUES LESS THAN ("2020-05-01") """
     sql """ insert into ${tableName1} values ('2020-04-10', 2, 5, 'b') """
 
-    test {
-        sql """ alter table ${tableName1} set ("light_schema_change"="true") """
-        exception "errCode = 2, detailMessage = failed to enable light schema change for table"
+    if (!isCloudMode()) {
+        test {
+            sql """ alter table ${tableName1} set ("light_schema_change"="true") """
+            exception "errCode = 2, detailMessage = failed to enable light schema change for table"
+        }
     }
 
     sql """ select * from ${tableName1} """
@@ -149,7 +151,9 @@ suite("test_enable_light_schema_change", "p0") {
     sql """ alter table ${tableName2} ADD PARTITION p4 VALUES LESS THAN ("2020-05-01") """
     sql """ insert into ${tableName2} values ('2020-04-10', 2, 'b', 5, 'test') """
 
-    sql """ alter table ${tableName2} set ("light_schema_change"="true") """
+    if (!isCloudMode()) {
+        sql """ alter table ${tableName2} set ("light_schema_change"="true") """
+    }
 
     sql """ select * from ${tableName2} """
 }
