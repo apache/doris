@@ -104,7 +104,7 @@ Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     // get PluginLoader class
     jclass plugin_loader_cls;
-    std::string plugin_loader_str = "org/apache/doris/trinoconnector/PluginLoader";
+    std::string plugin_loader_str = "org/apache/doris/trinoconnector/TrinoConnectorPluginLoader";
     RETURN_IF_ERROR(
             JniUtil::get_jni_scanner_class(env, plugin_loader_str.c_str(), &plugin_loader_cls));
     if (!plugin_loader_cls) {
