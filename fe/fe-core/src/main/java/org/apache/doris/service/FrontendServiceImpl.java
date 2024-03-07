@@ -2032,7 +2032,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
-
+            TableIf table = httpStreamParams.getTable();
+            if (table instanceof OlapTable) {
+                boolean isEnableMemtableOnSinkNode =
+                        ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                            ? coord.getQueryOptions().isEnableMemtableOnSinkNode() : false;
+                coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+            }
             httpStreamParams.setParams(coord.getStreamLoadPlan());
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
@@ -2055,6 +2061,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
+        }
+        if (request.isSetMemtableOnSinkNode()) {
+            ctx.getSessionVariable().enableMemtableOnSinkNode = request.isMemtableOnSinkNode();
+        } else {
+            ctx.getSessionVariable().enableMemtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
         }
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
         try {
