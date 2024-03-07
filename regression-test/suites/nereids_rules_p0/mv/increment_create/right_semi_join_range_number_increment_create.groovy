@@ -85,6 +85,7 @@ suite("right_semi_join_range_number_increment_create") {
     "replication_allocation" = "tag.location.default: 1"
     );"""
 
+    sql """ set enable_insert_strict = false; """
     sql """
     insert into orders_right_semi_3 values 
     (2, 1, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),

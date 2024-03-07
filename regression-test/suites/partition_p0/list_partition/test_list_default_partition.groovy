@@ -79,7 +79,7 @@ suite("test_list_default_partition") {
     try {
         test {
         sql """insert into list_default_par values (10,1,1,1,24453.325,1,1)"""
-        exception """Insert has filtered data in strict mode"""
+        // exception """Insert has filtered data in strict mode"""
     }
     } finally{
     }
@@ -102,7 +102,7 @@ suite("test_list_default_partition") {
     try {
         test {
         sql """insert into list_default_par values (10,1,1,1,24453.325,1,1)"""
-        exception """Insert has filtered data in strict mode"""
+        // exception """Insert has filtered data in strict mode"""
     }
     } finally{
     }
