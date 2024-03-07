@@ -50,6 +50,45 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
     }
 
     @Test
+    void testEliminateSortWhenCTE() {
+        PlanChecker.from(connectContext)
+                .analyze("with cte_test as (\n"
+                        + "select id, name, age from student order by id\n"
+                        + ")\n"
+                        + "select * from cte_test c1\n"
+                        + "join student\n"
+                        + "join cte_test c2\n"
+                        + "where c1.id =  student.id")
+                .rewrite()
+                .nonMatch(logicalSort());
+
+        PlanChecker.from(connectContext)
+                .analyze("with cte_test as (\n"
+                        + "select id, name, age from student\n"
+                        + ")\n"
+                        + "select * from cte_test c1\n"
+                        + "join student\n"
+                        + "join cte_test c2\n"
+                        + "where c1.id =  student.id order by c1.age")
+                .rewrite()
+                .matches(logicalSort());
+
+        PlanChecker.from(connectContext)
+                .analyze("select t.age from\n"
+                        + "(\n"
+                        + "with cte_test as (\n"
+                        + "select id, name, age from student order by id\n"
+                        + ")\n"
+                        + "select c1.id, student.name, c2.age from cte_test c1\n"
+                        + "join student\n"
+                        + "join cte_test c2\n"
+                        + "where c1.id =  student.id order by c1.age\n"
+                        + ") t order by t.id")
+                .rewrite()
+                .matches(logicalSort());
+    }
+
+    @Test
     void testEliminateSortUnderTableSink() {
         // topN under table sink should not be removed
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -89,6 +128,28 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
     void testEliminateSortInSubquery() {
         PlanChecker.from(connectContext)
                 .analyze("select count(*) from (select * from student order by id) t")
+                .rewrite()
+                .nonMatch(logicalSort());
+        PlanChecker.from(connectContext)
+                .analyze("select \n"
+                        + "  id, \n"
+                        + "  name \n"
+                        + "from \n"
+                        + "  (\n"
+                        + "    select \n"
+                        + "      id, \n"
+                        + "      name, \n"
+                        + "      age \n"
+                        + "    from \n"
+                        + "      (\n"
+                        + "        select \n"
+                        + "          * \n"
+                        + "        from \n"
+                        + "          student\n"
+                        + "      ) s \n"
+                        + "    order by \n"
+                        + "      id\n"
+                        + "  ) t")
                 .rewrite()
                 .nonMatch(logicalSort());
     }
