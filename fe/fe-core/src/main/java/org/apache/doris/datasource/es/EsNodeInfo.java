@@ -74,8 +74,10 @@ public class EsNodeInfo {
                 // if network.publish_host is set to hostname like localhost,
                 // the publish_address contains hostname like "localhost/127.0.0.1:9200"
                 address = address.substring(address.lastIndexOf('/') + 1);
-                String[] scratch = address.split(":");
-                this.publishAddress = new TNetworkAddress((httpSslEnabled ? "https://" : "") + scratch[0], Integer.parseInt(scratch[1]));
+                int pos = addrees.lastIndexOf(":");
+                String host = address.substring(0, pos);
+                String port = address.substring(pos + 1);
+                this.publishAddress = new TNetworkAddress((httpSslEnabled ? "https://" : "") + host, Integer.parseInt(port));
                 this.hasHttp = true;
             } else {
                 this.publishAddress = null;
