@@ -25,6 +25,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
@@ -313,8 +314,15 @@ public class HeartbeatMgr extends MasterDaemon {
             if (fe.getHost().equals(selfNode.getHost())) {
                 // heartbeat to self
                 if (Env.getCurrentEnv().isReady()) {
+                    long journalId = -1;
+                    try {
+                        journalId = Env.getCurrentEnv().getMaxJournalId();
+                    } catch (FatalLogException e) {
+                        LOG.error("get max journal id error in for response heartbeat");
+                        return new FrontendHbResponse(fe.getNodeName(), "not ready");
+                    }
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
-                            Config.arrow_flight_sql_port, Env.getCurrentEnv().getMaxJournalId(),
+                            Config.arrow_flight_sql_port, journalId,
                             System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
                             ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos(),

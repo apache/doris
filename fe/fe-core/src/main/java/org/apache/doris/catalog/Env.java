@@ -95,7 +95,6 @@ import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
@@ -152,6 +151,7 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -273,6 +273,7 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
 import org.apache.doris.trinoconnector.TrinoConnectorPluginManager;
 
+import static com.amazonaws.regions.ServiceAbbreviations.Config;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -282,9 +283,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.NetworkRestore;
-import com.sleepycat.je.rep.NetworkRestoreConfig;
+import com.sleepycat.je.rep.RestartRequiredException;
 import io.trino.FeaturesConfig;
 import io.trino.metadata.HandleResolver;
 import io.trino.metadata.TypeRegistry;
@@ -1053,7 +1052,13 @@ public class Env {
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
         loadImage(this.imageDir); // load image file
-        editLog.open(); // open bdb env
+        try {
+            editLog.open(); // open bdb env
+        } catch (FatalLogException exception) {
+            LOG.error("Failed to open edit log, try again", exception);
+            editLog.close();
+            editLog.open(); // open bdb env
+        }
         this.globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
 
@@ -1498,7 +1503,12 @@ public class Env {
         canRead.set(false);
 
         toMasterProgress = "open editlog";
-        editLog.open();
+        try {
+            editLog.open();
+        } catch (FatalLogException e) {
+            LOG.error("meet FatalLogException when transferToMaster. will exit.", e);
+            System.exit(-1);
+        }
 
         if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
             if (!haProtocol.fencing()) {
@@ -2578,14 +2588,10 @@ public class Env {
                 try {
                     hasLog = replayJournal(-1);
                     metaReplayState.setOk();
-                } catch (InsufficientLogException insufficientLogEx) {
+                } catch (RestartRequiredException restartRequiredException) {
                     // Copy the missing log files from a member of the
                     // replication group who owns the files
-                    LOG.error("catch insufficient log exception. please restart.", insufficientLogEx);
-                    NetworkRestore restore = new NetworkRestore();
-                    NetworkRestoreConfig config = new NetworkRestoreConfig();
-                    config.setRetainLogFiles(false);
-                    restore.execute(insufficientLogEx, config);
+                    LOG.error("There may be a BUG for reach here.", restartRequiredException);
                     System.exit(-1);
                 } catch (Throwable e) {
                     LOG.error("replayer thread catch an exception when replay journal.", e);
@@ -2775,14 +2781,25 @@ public class Env {
     public synchronized boolean replayJournal(long toJournalId) {
         long newToJournalId = toJournalId;
         if (newToJournalId == -1) {
-            newToJournalId = getMaxJournalId();
+            try {
+                newToJournalId = getMaxJournalId();
+            } catch (FatalLogException e) {
+                LOG.error("catch fatal log exception when replay journal, should exit", e);
+                System.exit(-1);
+            }
         }
         if (newToJournalId <= replayedJournalId.get()) {
             return false;
         }
 
         LOG.info("replayed journal id is {}, replay to journal id is {}", replayedJournalId, newToJournalId);
-        JournalCursor cursor = editLog.read(replayedJournalId.get() + 1, newToJournalId);
+        JournalCursor cursor = null;
+        try {
+            cursor = editLog.read(replayedJournalId.get() + 1, newToJournalId);
+        } catch (FatalLogException e) {
+            LOG.error("catch fatal log exception when read journal cursor, should exit", e);
+            System.exit(-1);
+        }
         if (cursor == null) {
             LOG.warn("failed to get cursor from {} to {}", replayedJournalId.get() + 1, newToJournalId);
             return false;
@@ -2792,7 +2809,13 @@ public class Env {
         boolean hasLog = false;
         while (true) {
             long entityStartTime = System.currentTimeMillis();
-            Pair<Long, JournalEntity> kv = cursor.next();
+            Pair<Long, JournalEntity> kv = null;
+            try {
+                kv = cursor.next();
+            } catch (FatalLogException e) {
+                LOG.error("catch fatal log exception when read next journal, should exit", e);
+                System.exit(-1);
+            }
             if (kv == null) {
                 break;
             }
@@ -4109,7 +4132,7 @@ public class Env {
         return this.haProtocol;
     }
 
-    public Long getMaxJournalId() {
+    public Long getMaxJournalId() throws FatalLogException {
         return this.editLog.getMaxJournalId();
     }
 
@@ -5267,7 +5290,7 @@ public class Env {
 
     public String dumpImage() {
         LOG.info("begin to dump meta data");
-        String dumpFilePath;
+        String dumpFilePath = null;
         List<Database> databases = Lists.newArrayList();
         List<List<Table>> tableLists = Lists.newArrayList();
         tryLock(true);
@@ -5292,7 +5315,13 @@ public class Env {
 
             load.readLock();
             LOG.info("acquired all jobs' read lock.");
-            long journalId = getMaxJournalId();
+            long journalId = 0;
+            try {
+                journalId = getMaxJournalId();
+            } catch (FatalLogException e) {
+                LOG.error("failed to dump image", e);
+                return dumpFilePath;
+            }
             File dumpFile = new File(Config.meta_dir, "image." + journalId);
             dumpFilePath = dumpFile.getAbsolutePath();
             try {

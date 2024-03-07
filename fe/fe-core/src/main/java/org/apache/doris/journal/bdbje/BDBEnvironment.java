@@ -43,6 +43,7 @@ import com.sleepycat.je.rep.NodeType;
 import com.sleepycat.je.rep.RepInternal;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.ReplicationConfig;
+import com.sleepycat.je.rep.RestartRequiredException;
 import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.StateChangeListener;
 import com.sleepycat.je.rep.util.DbResetRepGroup;
@@ -190,14 +191,7 @@ public class BDBEnvironment {
                 break;
             } catch (InsufficientLogException insufficientLogEx) {
                 LOG.info("i:{} insufficientLogEx:", i, insufficientLogEx);
-                NetworkRestore restore = new NetworkRestore();
-                NetworkRestoreConfig config = new NetworkRestoreConfig();
-                config.setRetainLogFiles(false); // delete obsolete log files.
-                // Use the members returned by insufficientLogEx.getLogProviders()
-                // to select the desired subset of members and pass the resulting
-                // list as the argument to config.setLogProviders(), if the
-                // default selection of providers is not suitable.
-                restore.execute(insufficientLogEx, config);
+                restoreEnv(insufficientLogEx);
             } catch (DatabaseException e) {
                 LOG.info("i:{} exception:", i, e);
                 if (i < RETRY_TIME - 1) {
@@ -209,6 +203,69 @@ public class BDBEnvironment {
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);
                     System.exit(-1);
+                }
+            }
+        }
+    }
+
+    public void checkRestartRequiredException(RestartRequiredException restartRequiredException, String environmentPath)
+            throws FatalLogException {
+        if (Env.isCheckpointThread()) {
+            throw restartRequiredException;
+        }
+        if (restartRequiredException instanceof InsufficientLogException) {
+            /*
+             * If this is not a checkpoint thread, which means this maybe the FE startup
+             * thread,
+             * or a replay thread. We will reopen bdbEnvironment for these 2 cases to get
+             * valid log
+             * from helper nodes.
+             *
+             * The checkpoint thread will only run on Master FE. And Master FE should not
+             * encounter
+             * these exception. So if it happens, throw exception out.
+             */
+            restoreEnv((InsufficientLogException) restartRequiredException);
+        } else if (restartRequiredException instanceof RollbackException) {
+            if (((RollbackException) restartRequiredException).getEarliestTransactionId() == 0) {
+                LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.",
+                        restartRequiredException);
+                close();
+                openReplicatedEnvironment(new File(environmentPath));
+                return;
+            }
+            // Because Doris FE can not roll back its edit log, so it should restart and replay the new master's
+            // edit log. But, if `getEarliestTransactionId` is 0, just reset up env.
+            LOG.error("Fatal error: catch rollback log exception and it may have replayed outdated "
+                    + "logs.", restartRequiredException);
+        }
+        FatalLogException fatalLogException = new FatalLogException(restartRequiredException.getMessage());
+        fatalLogException.initCause(restartRequiredException);
+        throw fatalLogException;
+    }
+
+    public void restoreEnv(InsufficientLogException insufficientLogEx) {
+        LOG.warn("catch insufficient log exception. will recover.", insufficientLogEx);
+        // Copy the missing log files from a member of the replication group who owns the files
+
+        for (int i = 0; i < RETRY_TIME; i++) {
+            try {
+                // Use the members returned by insufficientLogEx.getLogProviders()
+                // to select the desired subset of members and pass the resulting
+                // list as the argument to config.setLogProviders(), if the
+                // default selection of providers is not suitable.
+                NetworkRestore restore = new NetworkRestore();
+                NetworkRestoreConfig config = new NetworkRestoreConfig();
+                config.setRetainLogFiles(false);
+                restore.execute(insufficientLogEx, config);
+                break;
+            } catch (Exception e) {
+                LOG.warn("retry={}, reSetupBdbEnvironment exception:", i, e);
+                try {
+                    Thread.sleep(5 * 1000);
+                    LOG.warn("after sleep insufficientLogEx:", insufficientLogEx);
+                } catch (InterruptedException e1) {
+                    LOG.warn("InterruptedException", e1);
                 }
             }
         }
@@ -338,9 +395,7 @@ public class BDBEnvironment {
             try {
                 names = replicatedEnvironment.getDatabaseNames();
                 break;
-            } catch (InsufficientLogException e) {
-                throw e;
-            } catch (RollbackException e) {
+            } catch (RestartRequiredException e) {
                 throw e;
             } catch (EnvironmentFailureException e) {
                 tried++;

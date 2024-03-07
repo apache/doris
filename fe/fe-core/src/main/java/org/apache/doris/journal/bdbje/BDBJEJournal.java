@@ -47,6 +47,7 @@ import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.ReplicaConsistencyException;
 import com.sleepycat.je.rep.ReplicaWriteException;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
+import com.sleepycat.je.rep.RestartRequiredException;
 import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.TimeConsistencyPolicy;
 import org.apache.commons.lang3.time.StopWatch;
@@ -316,7 +317,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     }
 
     @Override
-    public JournalEntity read(long journalId) {
+    public JournalEntity read(long journalId) throws FatalLogException {
         List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             return null;
@@ -368,21 +369,21 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     }
 
     @Override
-    public JournalCursor read(long fromKey, long toKey) {
+    public JournalCursor read(long fromKey, long toKey) throws FatalLogException {
         return BDBJournalCursor.getJournalCursor(bdbEnvironment, fromKey, toKey);
     }
 
     @Override
-    public long getMaxJournalId() {
+    public long getMaxJournalId() throws FatalLogException {
         return getMaxJournalIdInternal(true);
     }
 
     // get max journal id but do not check whether the txn is matched.
-    private long getMaxJournalIdWithoutCheck() {
+    private long getMaxJournalIdWithoutCheck() throws FatalLogException {
         return getMaxJournalIdInternal(false);
     }
 
-    private long getMaxJournalIdInternal(boolean checkTxnMatched) {
+    private long getMaxJournalIdInternal(boolean checkTxnMatched) throws FatalLogException {
         long ret = -1;
         if (bdbEnvironment == null) {
             return ret;
@@ -448,7 +449,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     }
 
     @Override
-    public long getMinJournalId() {
+    public long getMinJournalId() throws FatalLogException {
         long ret = -1;
         if (bdbEnvironment == null) {
             return ret;
@@ -481,7 +482,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
      * open the bdbje environment, and get the current journal database
      */
     @Override
-    public synchronized void open() {
+    public synchronized void open() throws FatalLogException {
         if (bdbEnvironment == null) {
             File dbEnv = new File(environmentPath);
 
@@ -534,23 +535,15 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 nextJournalId.set(getMaxJournalIdWithoutCheck() + 1);
 
                 break;
-            } catch (InsufficientLogException insufficientLogEx) {
-                reSetupBdbEnvironment(insufficientLogEx);
-            } catch (RollbackException rollbackEx) {
-                LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
-                bdbEnvironment.close();
-                bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
+            } catch (RestartRequiredException restartRequiredException) {
+                bdbEnvironment.checkRestartRequiredException(restartRequiredException, environmentPath);
             }
         }
     }
 
-    private void reSetupBdbEnvironment(InsufficientLogException insufficientLogEx) {
-        LOG.warn("catch insufficient log exception. will recover and try again.", insufficientLogEx);
-        // Copy the missing log files from a member of the replication group who owns
-        // the files
-        // ATTN: here we use `getServingEnv()`, because only serving catalog has
-        // helper nodes.
-        HostInfo helperNode = Env.getServingEnv().getHelperNode();
+    public void restoreEnv(InsufficientLogException insufficientLogEx) {
+        LOG.warn("catch insufficient log exception. will recover.", insufficientLogEx);
+        // Copy the missing log files from a member of the replication group who owns the files
 
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
@@ -569,10 +562,6 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 }
             }
         }
-
-        bdbEnvironment.close();
-        bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
-                NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), helperNode.getPort()));
     }
 
     @Override
@@ -581,7 +570,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     }
 
     @Override
-    public void deleteJournals(long deleteToJournalId) {
+    public void deleteJournals(long deleteToJournalId) throws FatalLogException {
         List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             LOG.info("delete database names is null.");
@@ -610,7 +599,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     }
 
     @Override
-    public long getFinalizedJournalId() {
+    public long getFinalizedJournalId() throws FatalLogException {
         List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             LOG.error("database name is null.");
@@ -631,7 +620,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     }
 
     @Override
-    public List<Long> getDatabaseNames() {
+    public List<Long> getDatabaseNames() throws FatalLogException {
         if (bdbEnvironment == null) {
             return null;
         }
@@ -643,43 +632,14 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             try {
                 dbNames = bdbEnvironment.getDatabaseNames();
                 break;
-            } catch (InsufficientLogException insufficientLogEx) {
-                /*
-                 * If this is not a checkpoint thread, which means this maybe the FE startup
-                 * thread,
-                 * or a replay thread. We will reopen bdbEnvironment for these 2 cases to get
-                 * valid log
-                 * from helper nodes.
-                 *
-                 * The checkpoint thread will only run on Master FE. And Master FE should not
-                 * encounter
-                 * these exception. So if it happens, throw exception out.
-                 */
-                if (!Env.isCheckpointThread()) {
-                    reSetupBdbEnvironment(insufficientLogEx);
-                } else {
-                    throw insufficientLogEx;
-                }
-            } catch (RollbackException rollbackEx) {
-                if (!Env.isCheckpointThread()) {
-                    // Because Doris FE can not rollback its edit log, so it should restart and replay the new master's
-                    // edit log.
-                    if (rollbackEx.getEarliestTransactionId() != 0) {
-                        LOG.error("Catch rollback log exception and it may have replayed outdated "
-                                + "logs, so exec System.exit(-1).", rollbackEx);
-                        System.exit(-1);
-                    }
-                    LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
-                    bdbEnvironment.close();
-                    bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
-                } else {
-                    throw rollbackEx;
-                }
+            } catch (RestartRequiredException restartRequiredException) {
+                bdbEnvironment.checkRestartRequiredException(restartRequiredException, environmentPath);
             }
         }
-
         return dbNames;
     }
+
+
 
     public BDBEnvironment getBDBEnvironment() {
         return this.bdbEnvironment;

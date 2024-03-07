@@ -76,6 +76,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
@@ -981,7 +982,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         if (params.isSyncJournalOnly()) {
             final TMasterOpResult result = new TMasterOpResult();
-            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            try {
+                result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            } catch (FatalLogException e) {
+                LOG.error("forward(sync journal only) error", e);
+                throw new TException(e.getMessage());
+            }
             // just make the protocol happy
             result.setPacket("".getBytes());
             return result;

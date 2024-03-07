@@ -15,17 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.journal;
 
-import org.apache.doris.common.Pair;
-import org.apache.doris.journal.bdbje.FatalLogException;
+package org.apache.doris.journal.bdbje;
 
-// This class is like JDBC ResultSet.
-public interface JournalCursor {
-
-    // Return the next journal. return null when there is no more journals
-    public Pair<Long, JournalEntity> next() throws FatalLogException;
-
-    public void close();
-
+public class FatalLogException extends Exception {
+    public FatalLogException(String message) {
+        super(message);
+    }
 }

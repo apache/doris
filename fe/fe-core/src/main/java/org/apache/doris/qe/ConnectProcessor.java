@@ -40,6 +40,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -619,7 +620,12 @@ public abstract class ConnectProcessor {
         ) {
             result.setQueryId(ctx.queryId());
         }
-        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        try {
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        } catch (FatalLogException e) {
+            LOG.warn("Process query {} failed because unknown reason: ", DebugUtil.printId(ctx.queryId()), e);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Master state is error: " + e.getMessage());
+        }
         result.setPacket(getResultPacket());
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {

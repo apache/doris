@@ -17,6 +17,7 @@
 
 package org.apache.doris.journal.bdbje;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -26,6 +27,7 @@ import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
+import com.sleepycat.je.rep.RestartRequiredException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,7 +46,8 @@ public class BDBJournalCursor implements JournalCursor {
     private int nextDbPositionIndex;
     private final int maxTryTime = 3;
 
-    public static BDBJournalCursor getJournalCursor(BDBEnvironment env, long fromKey, long toKey) {
+    public static BDBJournalCursor getJournalCursor(BDBEnvironment env, long fromKey, long toKey)
+            throws FatalLogException {
         if (toKey < fromKey || fromKey < 0) {
             System.out.println("Invalid key range!");
             return null;
@@ -52,6 +55,8 @@ public class BDBJournalCursor implements JournalCursor {
         BDBJournalCursor cursor = null;
         try {
             cursor = new BDBJournalCursor(env, fromKey, toKey);
+        } catch (RestartRequiredException e) {
+            env.checkRestartRequiredException(e, Env.getServingEnv().getBdbDir());
         } catch (Exception e) {
             LOG.error("new BDBJournalCursor error.", e);
         }
@@ -88,7 +93,7 @@ public class BDBJournalCursor implements JournalCursor {
     }
 
     @Override
-    public Pair<Long, JournalEntity> next() {
+    public Pair<Long, JournalEntity> next() throws FatalLogException {
         if (currentKey > toKey) {
             return null;
         }
@@ -145,6 +150,8 @@ public class BDBJournalCursor implements JournalCursor {
                     System.exit(-1);
                 }
             }
+        } catch (RestartRequiredException e) {
+            environment.checkRestartRequiredException(e, Env.getServingEnv().getBdbDir());
         } catch (Exception e) {
             LOG.warn("Catch an exception when get next JournalEntity. key:{}", currentKey, e);
             return null;

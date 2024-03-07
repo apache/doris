@@ -59,6 +59,7 @@ import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.BDBJEJournal;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.journal.local.LocalJournal;
 import org.apache.doris.load.DeleteHandler;
@@ -132,27 +133,23 @@ public class EditLog {
         }
     }
 
-    public long getMaxJournalId() {
+    public long getMaxJournalId() throws FatalLogException {
         return journal.getMaxJournalId();
     }
 
-    public long getMinJournalId() {
-        return journal.getMinJournalId();
-    }
-
-    public JournalCursor read(long fromId, long toId) {
+    public JournalCursor read(long fromId, long toId) throws FatalLogException {
         return journal.read(fromId, toId);
     }
 
-    public long getFinalizedJournalId() {
+    public long getFinalizedJournalId() throws FatalLogException {
         return journal.getFinalizedJournalId();
     }
 
-    public void deleteJournals(long deleteToJournalId) {
+    public void deleteJournals(long deleteToJournalId) throws FatalLogException {
         journal.deleteJournals(deleteToJournalId);
     }
 
-    public List<Long> getDatabaseNames() {
+    public List<Long> getDatabaseNames() throws FatalLogException {
         return journal.getDatabaseNames();
     }
 
@@ -1235,7 +1232,7 @@ public class EditLog {
         journal.close();
     }
 
-    public void open() {
+    public void open() throws FatalLogException {
         journal.open();
     }
 

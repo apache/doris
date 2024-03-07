@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
@@ -154,7 +155,14 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
             if (fe.getHost().equals(env.getSelfNode().getHost())) {
                 info.add("true");
-                info.add(Long.toString(env.getEditLog().getMaxJournalId()));
+                long maxJournalId = -1;
+                try {
+                    maxJournalId = env.getEditLog().getMaxJournalId();
+
+                } catch (FatalLogException e) {
+                    LOG.warn("failed to get max journal id", e);
+                }
+                info.add(Long.toString(maxJournalId));
             } else {
                 info.add(String.valueOf(fe.isAlive()));
                 info.add(Long.toString(fe.getReplayedJournalId()));

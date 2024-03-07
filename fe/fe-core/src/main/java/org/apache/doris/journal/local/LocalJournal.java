@@ -22,11 +22,13 @@ import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.persist.EditLogFileOutputStream;
 import org.apache.doris.persist.EditLogOutputStream;
 import org.apache.doris.persist.Storage;
 
 import com.google.common.base.Preconditions;
+import kotlin.jvm.Throws;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -199,8 +201,13 @@ public class LocalJournal implements Journal {
 
         long ret = editFileNames.get(editFileNames.size() - 1);
         JournalCursor cursor = read(ret, -1);
-        while (cursor.next() != null) {
-            ret++;
+        try {
+            while (cursor.next() != null) {
+                ret++;
+            }
+        } catch (FatalLogException ex) {
+            LOG.error("There must be a BUG to reach here", ex);
+            System.exit(-1);
         }
 
         return ret;
