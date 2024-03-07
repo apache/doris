@@ -328,7 +328,7 @@ struct THiveTableSink {
     2: optional string table_name
     3: optional list<THiveColumn> columns
     4: optional list<THivePartition> partitions
-    5: optional list<THiveBucket> buckets
+    5: optional THiveBucket bucket_info
     6: optional PlanNodes.TFileFormatType file_format
     7: optional THiveCompressionType compression_type
     8: optional THiveLocationParams location

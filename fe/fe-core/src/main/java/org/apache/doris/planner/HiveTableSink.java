@@ -37,7 +37,6 @@ import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveTableSink;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.thrift.TTypeDesc;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 
 import java.util.ArrayList;
@@ -106,14 +105,16 @@ public class HiveTableSink extends DataSink {
         }
         tSink.setPartitions(partitions);
 
-        List<THiveBucket> buckets  = new ArrayList<>();
-        // TODO: set buckets
-        tSink.setBuckets(buckets);
+        StorageDescriptor sd = targetTable.getRemoteTable().getSd();
+        THiveBucket bucketInfo = new THiveBucket();
+        bucketInfo.setBucketedBy(sd.getBucketCols());
+        bucketInfo.setBucketCount(sd.getNumBuckets());
+        tSink.setBucketInfo(bucketInfo);
+
         tSink.setFileFormat(getFileFormatType());
 
         tSink.setCompressionType(THiveCompressionType.SNAPPY);
 
-        StorageDescriptor sd = targetTable.getRemoteTable().getSd();
         THiveLocationParams locationParams = new THiveLocationParams();
         locationParams.setWritePath(sd.getLocation());
         locationParams.setTargetPath(sd.getLocation());
