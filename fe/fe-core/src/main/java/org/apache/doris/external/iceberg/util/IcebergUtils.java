@@ -35,11 +35,13 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
@@ -50,6 +52,8 @@ import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
@@ -80,6 +84,9 @@ public class IcebergUtils {
         }
     };
     static long MILLIS_TO_NANO_TIME = 1000;
+    public static final String TOTAL_RECORDS = "total-records";
+    public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
+    public static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
 
     /**
      * Create Iceberg schema from Doris ColumnDef.
@@ -440,6 +447,32 @@ public class IcebergUtils {
             builder.identity(partitionName);
         }
         return builder.build();
+    }
+
+
+    /**
+     * Estimate iceberg table row count.
+     * Get the row count by adding all task file recordCount.
+     *
+     * @return estimated row count
+     */
+    public static long getIcebergRowCount(ExternalCatalog catalog, String dbName, String tbName) {
+        try {
+            Table icebergTable = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getIcebergTable(catalog, dbName, tbName);
+            Snapshot snapshot = icebergTable.currentSnapshot();
+            if (snapshot == null) {
+                // empty table
+                return 0;
+            }
+            Map<String, String> summary = snapshot.summary();
+            return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        } catch (Exception e) {
+            LOG.warn("Fail to collect row count for db {} table {}", dbName, tbName, e);
+        }
+        return -1;
     }
 
 }
