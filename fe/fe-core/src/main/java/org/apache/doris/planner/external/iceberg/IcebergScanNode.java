@@ -89,9 +89,6 @@ import java.util.stream.Collectors;
 public class IcebergScanNode extends FileQueryScanNode {
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
-    private static final String TOTAL_RECORDS = "total-records";
-    private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
-    private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
 
     private IcebergSource source;
     private Table icebergTable;
@@ -431,8 +428,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         Map<String, String> summary = snapshot.summary();
-        if (summary.get(TOTAL_EQUALITY_DELETES).equals("0")) {
-            return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        if (summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
+            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS))
+                - Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
         } else {
             return -1;
         }

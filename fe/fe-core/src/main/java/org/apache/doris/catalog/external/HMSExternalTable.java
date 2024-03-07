@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
+import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -308,7 +309,7 @@ public class HMSExternalTable extends ExternalTable {
                 rowCount = StatisticsUtil.getHiveRowCount(this);
                 break;
             case ICEBERG:
-                rowCount = StatisticsUtil.getIcebergRowCount(this);
+                rowCount = IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
                 break;
             default:
                 LOG.warn("getRowCount for dlaType {} is not supported.", dlaType);

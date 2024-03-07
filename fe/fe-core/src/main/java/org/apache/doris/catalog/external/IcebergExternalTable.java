@@ -23,8 +23,7 @@ import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -37,7 +36,6 @@ import org.apache.iceberg.types.Types;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
 
@@ -143,10 +141,8 @@ public class IcebergExternalTable extends ExternalTable {
     }
 
     @Override
-    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+    public long fetchRowCount() {
         makeSureInitialized();
-        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(),
-                () -> StatisticsUtil.getIcebergColumnStats(colName,
-                        ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name)));
+        return IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
     }
 }
