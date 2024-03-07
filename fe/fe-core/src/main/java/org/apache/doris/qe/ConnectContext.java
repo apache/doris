@@ -301,6 +301,7 @@ public class ConnectContext {
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
+        init();
         sessionVariable = VariableMgr.newSessionVariable();
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
