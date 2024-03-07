@@ -2720,7 +2720,8 @@ void Tablet::gc_binlogs(int64_t version) {
                 if (index.index_type() != IndexType::INVERTED) {
                     continue;
                 }
-                wait_for_deleted_binlog_files.emplace_back(get_segment_index_filepath(rowset_id, i, index.index_id()));
+                wait_for_deleted_binlog_files.emplace_back(
+                        get_segment_index_filepath(rowset_id, i, index.index_id()));
             }
         }
     };
