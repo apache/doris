@@ -32,6 +32,7 @@
 #include <ostream>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "exec/data_sink.h"
@@ -358,7 +359,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
+            !config::is_cloud_mode()) {
             _sink.reset(new OlapTableSinkV2OperatorX(pool, next_sink_operator_id(), row_desc,
                                                      output_exprs));
         } else {
