@@ -25,6 +25,7 @@ import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
+import org.apache.doris.analysis.ShowAutoAnalyzeJobsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -113,9 +114,9 @@ public class AnalysisManager implements Writable {
     private static final int COLUMN_QUEUE_SIZE = 1000;
     public final Queue<HighPriorityColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Queue<HighPriorityColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
-    public final Map<TableIf, Set<String>> highPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableIf, Set<String>> midPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableIf, Set<String>> lowPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableName, Set<String>> highPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableName, Set<String>> midPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableName, Set<String>> lowPriorityJobs = new LinkedHashMap<>();
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -542,6 +543,39 @@ public class AnalysisManager implements Writable {
             tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);
         }
+    }
+
+    public List<AutoAnalysisPendingJob> showAutoPendingJobs(ShowAutoAnalyzeJobsStmt stmt) {
+        TableName tblName = stmt.getTableName();
+        String priority = stmt.getPriority();
+        List<AutoAnalysisPendingJob> result = Lists.newArrayList();
+        if (priority == null || priority.isEmpty()) {
+            result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
+            result.addAll(getPendingJobs(midPriorityJobs, JobPriority.MID, tblName));
+            result.addAll(getPendingJobs(lowPriorityJobs, JobPriority.LOW, tblName));
+        } else if (priority.equals(JobPriority.HIGH.name())) {
+            result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
+        } else if (priority.equals(JobPriority.MID.name())) {
+            result.addAll(getPendingJobs(midPriorityJobs, JobPriority.MID, tblName));
+        } else if (priority.equals(JobPriority.LOW.name())) {
+            result.addAll(getPendingJobs(lowPriorityJobs, JobPriority.LOW, tblName));
+        }
+        return result;
+    }
+
+    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableName, Set<String>> jobMap,
+            JobPriority priority, TableName tblName) {
+        List<AutoAnalysisPendingJob> result = Lists.newArrayList();
+        synchronized (jobMap) {
+            for (Entry<TableName, Set<String>> entry : jobMap.entrySet()) {
+                TableName table = entry.getKey();
+                if (tblName == null || tblName.equals(table)) {
+                    result.add(new AutoAnalysisPendingJob(table.getCtl(),
+                            table.getDb(), table.getTbl(), entry.getValue(), priority));
+                }
+            }
+        }
+        return result;
     }
 
     public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {
