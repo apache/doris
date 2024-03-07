@@ -119,7 +119,7 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
                 return null;
         }
     }
-    
+
     private String sqlserverByteArrayToHexString(byte[] bytes) {
         StringBuilder hexString = new StringBuilder("0x");
         for (byte b : bytes) {
