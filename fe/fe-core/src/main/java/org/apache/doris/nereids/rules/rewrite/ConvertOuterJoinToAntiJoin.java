@@ -78,6 +78,10 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
         }
 
         if (!newJoin.getOutputSet().containsAll(filter.getInputSlots())) {
+            // if there are slots that don't belong to join output, we use null alias to replace them
+            // such as:
+            //   project(A.id, null as B.id)
+            //       -  (A left anti join B)
             Set<Slot> joinOutput = newJoin.getOutputSet();
             List<NamedExpression> projects = filter.getOutput().stream()
                     .map(s -> {
