@@ -148,7 +148,7 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
         auto file_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name, index_id,
                                                                       index_suffix);
         try {
-            dir = DorisCompoundDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
+            dir = DorisFSDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
 
             compound_reader = std::make_unique<DorisCompoundReader>(
                     dir, file_name.c_str(), _read_buffer_size, _open_idx_file_cache);

@@ -101,7 +101,7 @@ public:
                       const char* cfs_path = nullptr);
 };
 
-class CLUCENE_EXPORT DorisRAMCompoundDirectory : public DorisFSDirectory {
+class CLUCENE_EXPORT DorisRAMFSDirectory : public DorisFSDirectory {
 protected:
     using FileMap =
             lucene::util::CLHashMap<char*, lucene::store::RAMFile*, lucene::util::Compare::Char,
@@ -122,12 +122,12 @@ public:
     bool list(std::vector<std::string>* names) const override;
 
     /** Constructs an empty {@link Directory}. */
-    DorisRAMCompoundDirectory();
+    DorisRAMFSDirectory();
 
     ///Destructor - only call this if you are sure the directory
     ///is not being used anymore. Otherwise use the ref-counting
     ///facilities of dir->close
-    ~DorisRAMCompoundDirectory() override;
+    ~DorisRAMFSDirectory() override;
 
     bool doDeleteFile(const char* name) override;
 
@@ -219,7 +219,7 @@ protected:
 /**
  * Factory function to create DorisFSDirectory
  */
-class DorisCompoundDirectoryFactory {
+class DorisFSDirectoryFactory {
 public:
     static DorisFSDirectory* getDirectory(const io::FileSystemSPtr& fs, const char* file,
                                           bool use_compound_file_writer = false,

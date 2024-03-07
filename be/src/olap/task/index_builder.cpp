@@ -163,9 +163,18 @@ Status IndexBuilder::update_inverted_index_info() {
         auto input_rowset_meta = input_rowset->rowset_meta();
         RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
         rowset_meta->set_num_rows(input_rowset_meta->num_rows());
-        rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() - total_index_size);
-        rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size() - total_index_size);
-        rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size() - total_index_size);
+        if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::V1) {
+            rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size());
+            rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size());
+            rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size());
+        } else {
+            rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() -
+                                             total_index_size);
+            rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size() - total_index_size);
+            rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size() -
+                                             total_index_size);
+        }
         rowset_meta->set_empty(input_rowset_meta->empty());
         rowset_meta->set_num_segments(input_rowset_meta->num_segments());
         rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
@@ -337,7 +346,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             for (auto& writer_sign : inverted_index_writer_signs) {
                 try {
                     if (_inverted_index_builders[writer_sign]) {
-                        static_cast<void>(_inverted_index_builders[writer_sign]->finish());
+                        RETURN_IF_ERROR(_inverted_index_builders[writer_sign]->finish());
                     }
                 } catch (const std::exception& e) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -348,15 +357,15 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             _olap_data_convertor->reset();
         }
         for (auto& kv : _inverted_index_file_writers) {
-            auto* inverted_index_writer = kv.second.get();
+            auto* inverted_index_file_writer = kv.second.get();
             LOG(INFO) << "close inverted index file "
-                      << inverted_index_writer->get_index_file_name();
-            auto st = inverted_index_writer->close();
+                      << inverted_index_file_writer->get_index_file_name();
+            auto st = inverted_index_file_writer->close();
             if (!st.ok()) {
                 LOG(ERROR) << "close inverted index file "
-                           << inverted_index_writer->get_index_file_name() << " error:" << st;
+                           << inverted_index_file_writer->get_index_file_name() << " error:" << st;
             }
-            inverted_index_size += inverted_index_writer->get_index_file_size();
+            inverted_index_size += inverted_index_file_writer->get_index_file_size();
         }
         _drop_indices_meta.clear();
         _inverted_index_builders.clear();

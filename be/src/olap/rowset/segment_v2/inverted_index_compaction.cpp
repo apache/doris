@@ -40,8 +40,7 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
         }
     })
 
-    lucene::store::Directory* dir =
-            DorisCompoundDirectoryFactory::getDirectory(fs, tmp_path.c_str());
+    lucene::store::Directory* dir = DorisFSDirectoryFactory::getDirectory(fs, tmp_path.c_str());
     lucene::analysis::SimpleAnalyzer<char> analyzer;
     auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                            true /* closeDirOnShutdown */);

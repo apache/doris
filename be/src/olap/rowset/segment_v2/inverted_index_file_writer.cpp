@@ -41,29 +41,30 @@ Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_di
 Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index_meta) {
     auto index_id = index_meta->index_id();
     auto index_suffix = index_meta->get_index_suffix();
-    auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-            (_index_file_dir / _segment_file_name).native(), index_id, index_suffix);
-
-    bool exists = false;
-    auto st = _fs->exists(index_path.c_str(), &exists);
-    if (!st.ok()) {
-        LOG(ERROR) << "index_path:" << index_path << " exists error:" << st;
-        return ResultError(st);
-    }
-    if (exists) {
-        LOG(ERROR) << "try to init a directory:" << index_path << " already exists";
-        return ResultError(Status::InternalError("init_fulltext_index directory already exists"));
-    }
     auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
     _lfs = io::global_local_filesystem();
     auto lfs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             tmp_file_dir / _segment_file_name, index_meta->index_id(),
             index_meta->get_index_suffix());
+    auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
+            (_index_file_dir / _segment_file_name).native(), index_id, index_suffix);
+
+    bool exists = false;
+    auto st = _fs->exists(lfs_index_path.c_str(), &exists);
+    if (!st.ok()) {
+        LOG(ERROR) << "index_path:" << lfs_index_path << " exists error:" << st;
+        return ResultError(st);
+    }
+    if (exists) {
+        LOG(ERROR) << "try to init a directory:" << lfs_index_path << " already exists";
+        return ResultError(Status::InternalError("init_fulltext_index directory already exists"));
+    }
+
     bool can_use_ram_dir = true;
     bool use_compound_file_writer = false;
-    auto* dir = DorisCompoundDirectoryFactory::getDirectory(
-            _lfs, lfs_index_path.c_str(), use_compound_file_writer, can_use_ram_dir, nullptr, _fs,
-            index_path.c_str());
+    auto* dir = DorisFSDirectoryFactory::getDirectory(_lfs, lfs_index_path.c_str(),
+                                                      use_compound_file_writer, can_use_ram_dir,
+                                                      nullptr, _fs, index_path.c_str());
     _indices_dirs.emplace(std::make_pair(index_id, index_suffix),
                           std::unique_ptr<DorisFSDirectory>(dir));
     return dir;
@@ -122,45 +123,25 @@ Status InvertedIndexFileWriter::close() {
     try {
         if (_storage_format == InvertedIndexStorageFormatPB::V1) {
             for (const auto& entry : _indices_dirs) {
-                auto index_id = entry.first.first;
-                auto index_suffix = entry.first.second;
                 const auto& dir = entry.second;
                 auto* cfsWriter = _CLNEW DorisCompoundFileWriter(dir.get());
                 // write compound file
                 _file_size += cfsWriter->writeCompoundFile();
                 // delete index path, which contains separated inverted index files
-                if (std::string(dir->getObjectName()) == "DorisFSDirectory") {
-                    auto temp_dir = InvertedIndexDescriptor::get_temporary_index_path(
-                            _index_file_dir / _segment_file_name, index_id, index_suffix);
+                if (std::strcmp(dir->getObjectName(), "DorisFSDirectory") == 0) {
                     auto* compound_dir = static_cast<DorisFSDirectory*>(dir.get());
-                    if (compound_dir->getDirName() == temp_dir) {
-                        compound_dir->deleteDirectory();
-                    } else {
-                        LOG(ERROR) << "try to delete wrong inverted index temporal directory, "
-                                      "wrong path is "
-                                   << compound_dir->getDirName() << " actual needed: " << temp_dir;
-                    }
+                    compound_dir->deleteDirectory();
                 }
                 _CLDELETE(cfsWriter)
             }
         } else {
             _file_size = write();
             for (const auto& entry : _indices_dirs) {
-                auto index_id = entry.first.first;
-                auto index_suffix = entry.first.second;
                 const auto& dir = entry.second;
                 // delete index path, which contains separated inverted index files
                 if (std::strcmp(dir->getObjectName(), "DorisFSDirectory") == 0) {
-                    auto temp_dir = InvertedIndexDescriptor::get_temporary_index_path(
-                            _index_file_dir / _segment_file_name, index_id, index_suffix);
                     auto* compound_dir = static_cast<DorisFSDirectory*>(dir.get());
-                    if (compound_dir->getDirName() == temp_dir) {
-                        compound_dir->deleteDirectory();
-                    } else {
-                        LOG(ERROR) << "try to delete wrong inverted index temporal directory, "
-                                      "wrong path is "
-                                   << compound_dir->getDirName() << " actual needed: " << temp_dir;
-                    }
+                    compound_dir->deleteDirectory();
                 }
             }
         }
@@ -176,7 +157,7 @@ size_t InvertedIndexFileWriter::write() {
     // Create the output stream to write the compound file
     int64_t current_offset = headerLength();
     std::string idx_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name);
-    auto* out_dir = DorisCompoundDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
+    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
 
     auto compound_file_output =
             std::unique_ptr<lucene::store::IndexOutput>(out_dir->createOutput(idx_name.c_str()));
@@ -343,7 +324,7 @@ size_t DorisCompoundFileWriter::writeCompoundFile() {
     ram_dir.close();
 
     auto compound_fs = ((DorisFSDirectory*)directory)->getCompoundFileSystem();
-    auto* out_dir = DorisCompoundDirectoryFactory::getDirectory(compound_fs, idx_path.c_str());
+    auto* out_dir = DorisFSDirectoryFactory::getDirectory(compound_fs, idx_path.c_str());
 
     auto* out = out_dir->createOutput(idx_name.c_str());
     if (out == nullptr) {

@@ -114,12 +114,11 @@ public:
                 auto mem_tracker =
                         std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
                 auto index_file_path = _index_file_writer->get_index_file_path(_index_meta);
-                auto index_tmp_dir =
-                        StripSuffixString(index_file_path, InvertedIndexDescriptor::index_suffix);
+                auto index_tmp_dir = _dir->getDirName();
                 InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_path);
 
-                auto* dir = DorisCompoundDirectoryFactory::getDirectory(
-                        _index_file_writer->get_fs(), index_tmp_dir.c_str());
+                auto* dir = DorisFSDirectoryFactory::getDirectory(_index_file_writer->get_fs(),
+                                                                  index_tmp_dir.c_str());
                 IndexSearcherPtr searcher;
                 auto st = InvertedIndexReader::create_index_searcher(
                         dir, &searcher, mem_tracker.get(), InvertedIndexReaderType::FULLTEXT);
