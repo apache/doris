@@ -57,4 +57,30 @@ CREATE CATALOG mc PROPERTIES (
 
 和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
 
+## 自定义服务地址
+
+默认情况下，Max Compute Catalog根据region去默认生成公网的endpoint。
+
+除了默认的endpoint地址外，Max Compute Catalog也支持在属性中自定义服务地址。
+
+使用以下两个属性：
+* `mc.odps_endpoint`：Max Compute Endpoint。
+* `mc.tunnel_endpoint`: Tunnel Endpoint，Max Compute Catalog使用Tunnel SDK获取数据。
+
+Max Compute Endpoint和Tunnel Endpoint的配置请参见[各地域及不同网络连接方式下的Endpoint](https://help.aliyun.com/zh/maxcompute/user-guide/endpoints)
+
+示例：
+
+```sql
+CREATE CATALOG mc PROPERTIES (
+  "type" = "max_compute",
+  "mc.region" = "cn-beijing",
+  "mc.default.project" = "your-project",
+  "mc.access_key" = "ak",
+  "mc.secret_key" = "sk"
+  "mc.odps_endpoint" = "http://service.cn-beijing.maxcompute.aliyun-inc.com/api",
+  "mc.tunnel_endpoint" = "http://dt.cn-beijing.maxcompute.aliyun-inc.com"
+);
+```
+
 

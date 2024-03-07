@@ -190,6 +190,8 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
           _region(tdesc.mcTable.region),
           _project(tdesc.mcTable.project),
           _table(tdesc.mcTable.table),
+          _odps_url(tdesc.mcTable.odps_url),
+          _tunnel_url(tdesc.mcTable.tunnel_url),
           _access_key(tdesc.mcTable.access_key),
           _secret_key(tdesc.mcTable.secret_key),
           _public_access(tdesc.mcTable.public_access) {}

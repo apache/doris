@@ -235,6 +235,8 @@ public:
     const std::string region() const { return _region; }
     const std::string project() const { return _project; }
     const std::string table() const { return _table; }
+    const std::string odps_url() const { return _odps_url; }
+    const std::string tunnel_url() const { return _tunnel_url; }
     const std::string access_key() const { return _access_key; }
     const std::string secret_key() const { return _secret_key; }
     const std::string public_access() const { return _public_access; }
@@ -243,6 +245,8 @@ private:
     std::string _region;
     std::string _project;
     std::string _table;
+    std::string _odps_url;
+    std::string _tunnel_url;
     std::string _access_key;
     std::string _secret_key;
     std::string _public_access;
