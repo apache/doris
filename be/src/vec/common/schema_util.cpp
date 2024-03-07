@@ -259,6 +259,7 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
                                   std::set<PathInData>* path_set = nullptr) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
+    CHECK(common_schema.use_count() == 1);
     // Get the least common type for all paths.
     for (const auto& [key, subtypes] : subcolumns_types) {
         assert(!subtypes.empty());
@@ -380,18 +381,16 @@ void inherit_tablet_index(TabletSchemaSPtr& schema) {
 
     // Add index meta if extracted column is missing index meta
     for (size_t i = 0; i < schema->num_columns(); ++i) {
-        auto col = schema->column(i);
+        TabletColumn& col = schema->mutable_column(i);
         if (!col.is_extracted_column()) {
             continue;
         }
-         if (col.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
+        if (col.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
             col.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
             col.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
             col.type() != FieldType::OLAP_FIELD_TYPE_FLOAT) {
             // above types are not supported in bf
-            TabletColumn new_column(col);
-            new_column.set_is_bf_column(schema->column(col.parent_unique_id()).is_bf_column());
-            schema->replace_column(i, new_column);
+            col.set_is_bf_column(schema->column(col.parent_unique_id()).is_bf_column());
         }
         auto it = variants_index_meta.find(col.parent_unique_id());
         // variant has no index meta, ignore
@@ -609,6 +608,7 @@ static void _append_column(const TabletColumn& parent_variant,
     // If column already exist in original tablet schema, then we pick common type
     // and cast column to common type, and modify tablet column to common type,
     // otherwise it's a new column
+    CHECK(to_append.use_count() == 1);
     const std::string& column_name =
             parent_variant.name_lower_case() + "." + subcolumn->path.get_path();
     const vectorized::DataTypePtr& final_data_type_from_object =
