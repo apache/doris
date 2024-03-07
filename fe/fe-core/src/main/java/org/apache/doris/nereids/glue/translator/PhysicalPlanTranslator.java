@@ -28,6 +28,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -118,6 +119,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -246,10 +248,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     public PlanFragment translatePlan(PhysicalPlan physicalPlan) {
         PlanFragment rootFragment = physicalPlan.accept(this, context);
-        List<Expr> outputExprs = Lists.newArrayList();
-        physicalPlan.getOutput().stream().map(Slot::getExprId)
-                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        rootFragment.setOutputExprs(outputExprs);
+        if (CollectionUtils.isEmpty(rootFragment.getOutputExprs())) {
+            List<Expr> outputExprs = Lists.newArrayList();
+            physicalPlan.getOutput().stream().map(Slot::getExprId)
+                    .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+            rootFragment.setOutputExprs(outputExprs);
+        }
         Collections.reverse(context.getPlanFragments());
         // TODO: maybe we need to trans nullable directly? and then we could remove call computeMemLayout
         context.getDescTable().computeMemLayout();
@@ -370,8 +374,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
             PlanTranslatorContext context) {
         PlanFragment planFragment = physicalResultSink.child().accept(this, context);
-        TResultSinkType resultSinkType = context.getConnectContext() != null ? context.getConnectContext()
-                .getResultSinkType() : null;
+        TResultSinkType resultSinkType = context.getConnectContext() != null
+                ? context.getConnectContext().getResultSinkType() : null;
         planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(), resultSinkType));
         return planFragment;
     }
@@ -433,9 +437,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
+    public PlanFragment visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink,
+                                                   PlanTranslatorContext context) {
+        PlanFragment rootFragment = hiveTableSink.child().accept(this, context);
+        return rootFragment;
+    }
+
+    @Override
     public PlanFragment visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink,
             PlanTranslatorContext context) {
-        PlanFragment rootFragment = fileSink.child().accept(this, context);
+        PlanFragment sinkFragment = fileSink.child().accept(this, context);
         OutFileClause outFile = new OutFileClause(
                 fileSink.getFilePath(),
                 fileSink.getFormat(),
@@ -445,7 +456,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> outputExprs = Lists.newArrayList();
         fileSink.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        rootFragment.setOutputExprs(outputExprs);
+        sinkFragment.setOutputExprs(outputExprs);
 
         // generate colLabels
         List<String> labels = fileSink.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList());
@@ -456,11 +467,49 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        ResultFileSink sink = new ResultFileSink(rootFragment.getPlanRoot().getId(), outFile,
+        ResultFileSink resultFileSink = new ResultFileSink(sinkFragment.getPlanRoot().getId(), outFile,
                 (ArrayList<String>) labels);
 
-        rootFragment.setSink(sink);
-        return rootFragment;
+        sinkFragment.setSink(resultFileSink);
+
+        // TODO: do parallel sink, we should do it in Nereids, but now we impl here temporarily
+        //   because impl in Nereids affect too many things
+        if (fileSink.requestProperties(context.getConnectContext()).equals(PhysicalProperties.GATHER)) {
+            return sinkFragment;
+        } else {
+            // create output tuple
+            TupleDescriptor fileStatusDesc = ResultFileSink.constructFileStatusTupleDesc(context.getDescTable());
+
+            // create exchange node
+            ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), sinkFragment.getPlanRoot());
+            exchangeNode.setPartitionType(TPartitionType.UNPARTITIONED);
+            exchangeNode.setNumInstances(1);
+
+            // create final result sink
+            TResultSinkType resultSinkType = context.getConnectContext() != null
+                    ? context.getConnectContext().getResultSinkType() : null;
+            ResultSink resultSink = new ResultSink(exchangeNode.getId(), resultSinkType);
+
+            // create top fragment
+            PlanFragment topFragment = new PlanFragment(context.nextFragmentId(), exchangeNode,
+                    DataPartition.UNPARTITIONED);
+            topFragment.addChild(sinkFragment);
+            topFragment.setSink(resultSink);
+            context.addPlanFragment(topFragment);
+
+            // update sink fragment and result file sink
+            DataStreamSink streamSink = new DataStreamSink(exchangeNode.getId());
+            streamSink.setOutputPartition(DataPartition.UNPARTITIONED);
+            resultFileSink.resetByDataStreamSink(streamSink);
+            resultFileSink.setOutputTupleId(fileStatusDesc.getId());
+            sinkFragment.setDestination(exchangeNode);
+
+            // set out expr and tuple correct
+            exchangeNode.resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
+            topFragment.resetOutputExprs(fileStatusDesc);
+
+            return topFragment;
+        }
     }
 
     /* ********************************************************************************************
@@ -1196,6 +1245,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> markConjuncts = ImmutableList.of();
         boolean isHashJoinConjunctsEmpty = hashJoin.getHashJoinConjuncts().isEmpty();
         boolean isMarkJoinConjunctsEmpty = hashJoin.getMarkJoinConjuncts().isEmpty();
+        JoinOperator joinOperator = JoinType.toJoinOperator(joinType);
         if (isHashJoinConjunctsEmpty) {
             // if hash join conjuncts is empty, means mark join conjuncts must be EqualPredicate
             // BE should use mark join conjuncts to build hash table
@@ -1205,10 +1255,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
+            // in order to process semi/anti join with no hash conjunct and having mark conjunct effeciently
+            // we can use mark conjunct as hash conjunct with slight different behavior if meets null values
+            // so we use null aware semi/anti join to indicate it's a null aware hash conjunct
+            // it's unnecessary to introduce new join type like NULL_AWARE_LEFT_SEMI_JOIN in nereids
+            // so we translate the join type here to let be known if the hash conjunct is null aware
+            if (joinOperator == JoinOperator.LEFT_ANTI_JOIN) {
+                joinOperator = JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+            } else if (joinOperator == JoinOperator.LEFT_SEMI_JOIN) {
+                joinOperator = JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN;
+            }
         }
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftPlanRoot,
-                rightPlanRoot, JoinType.toJoinOperator(joinType), execEqConjuncts, Lists.newArrayList(), markConjuncts,
+                rightPlanRoot, joinOperator, execEqConjuncts, Lists.newArrayList(), markConjuncts,
                 null, null, null, hashJoin.isMarkJoin());
         hashJoinNode.setNereidsId(hashJoin.getId());
         hashJoinNode.setDistributeExprLists(distributeExprLists);

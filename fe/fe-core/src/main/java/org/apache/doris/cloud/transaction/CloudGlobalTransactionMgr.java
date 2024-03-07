@@ -1118,7 +1118,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public Map<Long, List<Long>> getDbRunningTransInfo(long dbId) throws AnalysisException {
-        throw new AnalysisException(NOT_SUPPORTED_MSG);
+        return Maps.newHashMap();
     }
 
     @Override

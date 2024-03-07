@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -113,25 +114,30 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    private static Expression convertPartitionKeyToLiteral(PartitionKey key) {
+        return Literal.fromLegacyLiteral(key.getKeys().get(0),
+                Type.fromPrimitiveType(key.getTypes().get(0)));
+    }
+
     private static Expression convertPartitionItemToPredicate(PartitionItem item, Slot col) {
         if (item instanceof ListPartitionItem) {
             List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
-                    .map(key -> Literal.fromLegacyLiteral(key.getKeys().get(0),
-                            Type.fromPrimitiveType(key.getTypes().get(0))))
+                    .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
                     .collect(ImmutableList.toImmutableList());
             return new InPredicate(col, inValues);
         } else {
             Range<PartitionKey> range = item.getItems();
             List<Expression> exprs = new ArrayList<>();
-            if (range.hasLowerBound()) {
+            if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 PartitionKey key = range.lowerEndpoint();
-                exprs.add(new GreaterThanEqual(col, Literal.fromLegacyLiteral(key.getKeys().get(0),
-                        Type.fromPrimitiveType(key.getTypes().get(0)))));
+                exprs.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key)));
             }
-            if (range.hasUpperBound()) {
+            if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 PartitionKey key = range.upperEndpoint();
-                exprs.add(new LessThan(col, Literal.fromLegacyLiteral(key.getKeys().get(0),
-                        Type.fromPrimitiveType(key.getTypes().get(0)))));
+                exprs.add(new LessThan(col, convertPartitionKeyToLiteral(key)));
+            }
+            if (exprs.isEmpty()) {
+                return BooleanLiteral.of(true);
             }
             return ExpressionUtils.and(exprs);
         }

@@ -56,7 +56,6 @@ public class JoinExchange extends OneExplorationRuleFactory {
                 .when(JoinExchange::checkReorder)
                 .whenNot(join -> join.hasDistributeHint()
                         || join.left().hasDistributeHint() || join.right().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin() || join.right().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left();
                     LogicalJoin<GroupPlan, GroupPlan> rightJoin = topJoin.right();

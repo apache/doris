@@ -154,6 +154,7 @@ import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -1580,7 +1581,8 @@ public class StmtExecutor {
         RowBatch batch;
         CoordInterface coordBase = null;
         if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
-            coordBase = new PointQueryExec(planner, analyzer);
+            coordBase = new PointQueryExec(planner, analyzer,
+                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
         } else {
             coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
                 planner, context.getStatsErrorEstimator());
@@ -2065,8 +2067,8 @@ public class StmtExecutor {
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
                 profile.setExecutionProfile(coord.getExecutionProfile());
-
-                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
+                QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), this.getOriginStmtInString(), coord);
+                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), queryInfo);
 
                 Table table = insertStmt.getTargetTable();
                 if (table instanceof OlapTable) {

@@ -31,6 +31,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TQueryType;
@@ -123,7 +124,8 @@ public abstract class AbstractInsertExecutor {
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
         executor.getProfile().setExecutionProfile(coordinator.getExecutionProfile());
-        QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), coordinator);
+        QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
+        QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
         coordinator.exec();
         int execTimeout = ctx.getExecTimeout();
         if (LOG.isDebugEnabled()) {
