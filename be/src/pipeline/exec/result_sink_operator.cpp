@@ -180,7 +180,7 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
         if (_writer) {
             _sender->update_return_rows(_writer->get_written_rows());
         }
-        static_cast<void>(_sender->close(final_status));
+        RETURN_IF_ERROR(_sender->close(final_status));
     }
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,

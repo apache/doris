@@ -126,7 +126,7 @@ public:
                                                   int64_t tablet_id);
     Status save_meta(DataDir* data_dir);
 
-    Status serialize(std::string* meta_binary);
+    void serialize(std::string* meta_binary);
     Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 

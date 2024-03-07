@@ -679,7 +679,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
-                static_cast<void>(old_value_block.get_by_position(i).type->from_string(
+                RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
                         rb, mutable_default_value_columns[i].get()));
             }
         }
