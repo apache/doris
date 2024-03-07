@@ -20,7 +20,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.Instant;
 import java.time.ZoneId;
 
-suite("test_base_insert_job") {
+suite("test_base_insert_job", "nonConcurrent") {
     def tableName = "t_test_BASE_inSert_job"
     def jobName = "insert_recovery_test_base_insert_job"
     def jobMixedName = "Insert_recovery_Test_base_insert_job"
