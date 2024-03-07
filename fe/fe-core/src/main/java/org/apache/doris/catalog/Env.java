@@ -273,7 +273,6 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
 import org.apache.doris.trinoconnector.TrinoConnectorPluginManager;
 
-import static com.amazonaws.regions.ServiceAbbreviations.Config;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;

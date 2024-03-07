@@ -28,7 +28,6 @@ import org.apache.doris.persist.EditLogOutputStream;
 import org.apache.doris.persist.Storage;
 
 import com.google.common.base.Preconditions;
-import kotlin.jvm.Throws;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
