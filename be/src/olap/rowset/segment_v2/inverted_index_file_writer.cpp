@@ -61,11 +61,12 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
             index_meta->get_index_suffix());
     bool can_use_ram_dir = true;
     bool use_compound_file_writer = false;
-    auto dir = std::unique_ptr<DorisFSDirectory>(DorisCompoundDirectoryFactory::getDirectory(
+    auto* dir = DorisCompoundDirectoryFactory::getDirectory(
             _lfs, lfs_index_path.c_str(), use_compound_file_writer, can_use_ram_dir, nullptr, _fs,
-            index_path.c_str()));
-    _indices_dirs.emplace(std::make_pair(index_id, index_suffix), std::move(dir));
-    return dir.get();
+            index_path.c_str());
+    _indices_dirs.emplace(std::make_pair(index_id, index_suffix),
+                          std::unique_ptr<DorisFSDirectory>(dir));
+    return dir;
 }
 
 Status InvertedIndexFileWriter::delete_index(const TabletIndex* index_meta) {
