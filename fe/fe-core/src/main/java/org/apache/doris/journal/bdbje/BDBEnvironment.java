@@ -232,7 +232,7 @@ public class BDBEnvironment {
                         restartRequiredException);
                 close();
                 openReplicatedEnvironment(new File(environmentPath));
-                return;
+                throw restartRequiredException;
             }
             // Because Doris FE can not roll back its edit log, so it should restart and replay the new master's
             // edit log. But, if `getEarliestTransactionId` is 0, just reset up env.

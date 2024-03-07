@@ -541,29 +541,6 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         }
     }
 
-    public void restoreEnv(InsufficientLogException insufficientLogEx) {
-        LOG.warn("catch insufficient log exception. will recover.", insufficientLogEx);
-        // Copy the missing log files from a member of the replication group who owns the files
-
-        for (int i = 0; i < RETRY_TIME; i++) {
-            try {
-                NetworkRestore restore = new NetworkRestore();
-                NetworkRestoreConfig config = new NetworkRestoreConfig();
-                config.setRetainLogFiles(false);
-                restore.execute(insufficientLogEx, config);
-                break;
-            } catch (Exception e) {
-                LOG.warn("retry={}, reSetupBdbEnvironment exception:", i, e);
-                try {
-                    Thread.sleep(5 * 1000);
-                    LOG.warn("after sleep insufficientLogEx:", insufficientLogEx);
-                } catch (InterruptedException e1) {
-                    LOG.warn("InterruptedException", e1);
-                }
-            }
-        }
-    }
-
     @Override
     public long getJournalNum() {
         return currentJournalDB.count();
