@@ -225,8 +225,7 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
     _handle->_fpos = _pos;
 }
 
-void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem,
-                                                 const char* path) {
+void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem, const char* path) {
     io::FileWriterOptions opts {.create_empty_file = false};
     Status status = fileSystem->create_file(path, &_writer, &opts);
     DBUG_EXECUTE_IF(

@@ -19,16 +19,15 @@
 
 #include "common/status.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
-#include "io/fs/local_file_system.h"
 
 namespace doris::segment_v2 {
 
 std::string InvertedIndexFileWriter::get_index_file_path(const TabletIndex* index_meta) const {
-
     return InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name,
                                                         index_meta->index_id(),
                                                         index_meta->get_index_suffix());
@@ -63,10 +62,9 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
     bool can_use_ram_dir = true;
     bool use_compound_file_writer = false;
     auto dir = std::unique_ptr<DorisFSDirectory>(DorisCompoundDirectoryFactory::getDirectory(
-            _lfs, lfs_index_path.c_str(), use_compound_file_writer, can_use_ram_dir, nullptr,
-            _fs, index_path.c_str()));
-    _indices_dirs.emplace(std::make_pair(index_id, index_suffix),
-                          std::move(dir));
+            _lfs, lfs_index_path.c_str(), use_compound_file_writer, can_use_ram_dir, nullptr, _fs,
+            index_path.c_str()));
+    _indices_dirs.emplace(std::make_pair(index_id, index_suffix), std::move(dir));
     return dir.get();
 }
 
