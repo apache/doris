@@ -405,7 +405,8 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                     RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(
                             inverted_index_src_file_path, inverted_index_dst_file_path));
                     LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path
-                              << ", " << "to=" << inverted_index_dst_file_path;
+                              << ", "
+                              << "to=" << inverted_index_dst_file_path;
                 }
             }
         }
