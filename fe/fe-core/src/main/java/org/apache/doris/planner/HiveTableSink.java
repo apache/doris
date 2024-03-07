@@ -29,12 +29,15 @@ import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.THiveBucket;
+import org.apache.doris.thrift.THiveColumn;
+import org.apache.doris.thrift.THiveColumnType;
 import org.apache.doris.thrift.THiveCompressionType;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveTableSink;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.thrift.TTypeDesc;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 
 import java.util.ArrayList;
@@ -80,17 +83,19 @@ public class HiveTableSink extends DataSink {
         THiveTableSink tSink = new THiveTableSink();
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
-        List<String> dataCols = new ArrayList<>();
+        List<THiveColumn> hiveColumns = new ArrayList<>();
         for (Column col : cols) {
-            dataCols.add(col.getName());
+            THiveColumn tHiveColumn = new THiveColumn();
+            tHiveColumn.setName(col.getName());
+            tHiveColumn.setColumnType(THiveColumnType.REGULAR);
+            hiveColumns.add(tHiveColumn);
         }
-        tSink.setDataColumnNames(dataCols);
-        List<String> partitionCols = new ArrayList<>();
+
+        tSink.setColumns(hiveColumns);
         List<THivePartition> partitions = new ArrayList<>();
         for (Long partitionId : partitionIds) {
             String partName = targetTable.getPartitionName(partitionId);
             if (StringUtils.isNotEmpty(partName)) {
-                partitionCols.add(partName);
                 THivePartition hivePartition = new THivePartition();
                 // TODO: use partition format type itself.
                 hivePartition.setFileFormat(getFileFormatType());
@@ -99,7 +104,6 @@ public class HiveTableSink extends DataSink {
                 partitions.add(hivePartition);
             }
         }
-        tSink.setPartitionColumnNames(partitionCols);
         tSink.setPartitions(partitions);
 
         List<THiveBucket> buckets  = new ArrayList<>();

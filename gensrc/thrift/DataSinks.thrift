@@ -306,6 +306,17 @@ enum THiveCompressionType {
     ZSTD = 7,
 }
 
+enum THiveColumnType {
+    PARTITION_KEY = 0,
+    REGULAR = 1,
+    SYNTHESIZED = 2
+}
+struct THiveColumn {
+  1: optional string name
+  2: optional Types.TTypeDesc data_type
+  3: optional THiveColumnType column_type
+}
+
 struct THivePartition {
   1: optional list<string> values
   2: optional THiveLocationParams location
@@ -315,13 +326,12 @@ struct THivePartition {
 struct THiveTableSink {
     1: optional string db_name
     2: optional string table_name
-    3: optional list<string> data_column_names
-    4: optional list<string> partition_column_names
-    5: optional list<THivePartition> partitions
-    6: optional list<THiveBucket> buckets
-    7: optional PlanNodes.TFileFormatType file_format
-    8: optional THiveCompressionType compression_type
-    9: optional THiveLocationParams location
+    3: optional list<THiveColumn> columns
+    4: optional list<THivePartition> partitions
+    5: optional list<THiveBucket> buckets
+    6: optional PlanNodes.TFileFormatType file_format
+    7: optional THiveCompressionType compression_type
+    8: optional THiveLocationParams location
 }
 
 enum TUpdateMode {
