@@ -134,7 +134,7 @@ GROUPING SETS (
 
 ### 1.4 GROUPING 和 GROUPING_ID 函数
 当我们没有统计某一列时，它的值显示为 NULL，这也可能是列本身就有 NULL 值，这就需要一种方法区分是没有统计还是值本来就是 NULL。为此引入 GROUPING 和 GROUPING_ID 函数。
-GROUPING(column:Column) 函数用于区分分组后的单个列是普通列和聚合列。如果是聚合列，则返回1，反之，则是0. GROUPING() 只能有一个参数列。
+GROUPING(column:Column) 函数用于区分分组后的单个列是普通列和聚合列。如果是聚合列，则返回0，否则为1. GROUPING() 只能有一个参数列。
 
 GROUPING_ID(column1, column2) 则根据指定的column 顺序，否则根据聚合的时候给的集合的元素顺序，计算出一个列列表的 bitmap 值，一个列如果是聚合列为0，否则为1. GROUPING_ID()函数返回位向量的十进制值。
 比如 [0 1 0] ->2 从下列第三个查询可以看到这种对应关系
