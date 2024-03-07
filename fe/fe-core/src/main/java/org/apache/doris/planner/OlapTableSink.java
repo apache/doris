@@ -132,6 +132,7 @@ public class OlapTableSink extends DataSink {
         tSink.setBaseSchemaVersion(dstTable.getBaseSchemaVersion());
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
+        tSink.setWriteFileCache(!ConnectContext.get().getSessionVariable().isDisableFileCache());
         this.isStrictMode = isStrictMode;
         this.txnId = txnId;
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {

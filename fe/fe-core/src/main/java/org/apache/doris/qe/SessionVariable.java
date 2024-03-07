@@ -372,6 +372,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
+    
+    public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
@@ -1298,6 +1300,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
     public boolean groupByAndHavingUseAliasFirst = false;
 
+    // Whether disable block file cache. Block cache only works when FE's query options sets disableFileCache false
+    // along with BE's config `enable_file_cache` true
+    @VariableMgr.VarAttr(name = DISABLE_FILE_CACHE, needForward = true)
+    public boolean disableFileCache = false;
+
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = {
             "是否启用file cache。该变量只有在be.conf中enable_file_cache=true时才有效，"
@@ -2118,6 +2125,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setResourceGroup(String resourceGroup) {
         this.resourceGroup = resourceGroup;
+    }
+
+    public boolean isDisableFileCache() {
+        return disableFileCache;
+    }
+
+    public void setDisableFileCache(boolean disableFileCache) {
+        this.disableFileCache = disableFileCache;
     }
 
     public boolean isDisableColocatePlan() {
@@ -2970,6 +2985,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setSkipBadTablet(skipBadTablet);
+        tResult.setDisableFileCache(disableFileCache);
 
         return tResult;
     }
