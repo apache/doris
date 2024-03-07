@@ -162,7 +162,7 @@ public class PartitionTableInfo {
 
         if (partitionColumns != null) {
 
-            if (partitionColumns.size() != partitionList.size()) {
+            if (!isExternal && partitionType.equalsIgnoreCase(PartitionType.LIST.name())) {
                 if (!isExternal) {
                     throw new AnalysisException("internal catalog does not support functions in 'LIST' partition");
                 }
