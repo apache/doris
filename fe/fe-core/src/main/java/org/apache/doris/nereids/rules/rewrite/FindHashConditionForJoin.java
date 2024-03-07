@@ -63,7 +63,8 @@ public class FindHashConditionForJoin extends OneRewriteRuleFactory {
             }
 
             List<Expression> combinedHashJoinConjuncts = Streams
-                    .concat(join.getHashJoinConjuncts().stream(), extractedHashJoinConjuncts.stream())
+                    .concat(join.getHashJoinConjuncts().stream(),
+                            extractedHashJoinConjuncts.stream())
                     .distinct()
                     .collect(ImmutableList.toImmutableList());
             JoinType joinType = join.getJoinType();

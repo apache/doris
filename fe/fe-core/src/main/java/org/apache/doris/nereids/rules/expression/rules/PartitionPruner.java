@@ -125,13 +125,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     public static final OnePartitionEvaluator toPartitionEvaluator(long id, PartitionItem partitionItem,
             List<Slot> partitionSlots, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
         if (partitionItem instanceof ListPartitionItem) {
-            if (partitionTableType == PartitionTableType.HIVE
-                    && ((ListPartitionItem) partitionItem).isHiveDefaultPartition()) {
-                return new HiveDefaultPartitionEvaluator(id, partitionSlots);
-            } else {
-                return new OneListPartitionEvaluator(
-                        id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
-            }
+            return new OneListPartitionEvaluator(
+                    id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
         } else if (partitionItem instanceof RangePartitionItem) {
             return new OneRangePartitionEvaluator(
                     id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext);

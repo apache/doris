@@ -38,17 +38,17 @@ import java.util.Set;
 public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedPartitionDescGeneratorService {
 
     @Override
-    public Map<PartitionKeyDesc, Set<Long>> apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            Map<PartitionKeyDesc, Set<Long>> lastResult) throws AnalysisException {
+    public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
+            RelatedPartitionDescResult lastResult) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
-            return lastResult;
+            return;
         }
         MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
         PartitionType partitionType = relatedTable.getPartitionType();
         if (partitionType == PartitionType.RANGE) {
-            return rollUpRange(lastResult, mvPartitionInfo);
+            lastResult.setDescs(rollUpRange(lastResult.getDescs(), mvPartitionInfo));
         } else if (partitionType == PartitionType.LIST) {
-            return rollUpList(lastResult, mvPartitionInfo);
+            lastResult.setDescs(rollUpList(lastResult.getDescs(), mvPartitionInfo));
         } else {
             throw new AnalysisException("only RANGE/LIST partition support roll up");
         }

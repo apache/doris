@@ -41,7 +41,8 @@ merge_pr_to_target_branch_latest() {
         return 1
     fi
 }
-if ! merge_pr_to_target_branch_latest "${pr_num_from_trigger}" "${target_branch}";then return 1; fi
+# It should not merge, otherwise binary and cases may mismatch!
+# if ! merge_pr_to_target_branch_latest "${pr_num_from_trigger}" "${target_branch}";then return 1; fi
 export PATH=/usr/local/software/apache-maven-3.6.3/bin:${PATH}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/

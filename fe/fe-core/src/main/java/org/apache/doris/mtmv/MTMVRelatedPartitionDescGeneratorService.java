@@ -17,11 +17,9 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.common.AnalysisException;
 
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Interface for a series of processes to generate PartitionDesc
@@ -33,9 +31,8 @@ public interface MTMVRelatedPartitionDescGeneratorService {
      * @param mvPartitionInfo PartitionInfo of MTMV
      * @param mvProperties properties of MTMV
      * @param lastResult the processing result of the previous process
-     * @return PartitionKeyDesc to relatedTable partition ids(Different partitions may have the same PartitionKeyDesc)
      * @throws AnalysisException
      */
-    Map<PartitionKeyDesc, Set<Long>> apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            Map<PartitionKeyDesc, Set<Long>> lastResult) throws AnalysisException;
+    void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
+            RelatedPartitionDescResult lastResult) throws AnalysisException;
 }

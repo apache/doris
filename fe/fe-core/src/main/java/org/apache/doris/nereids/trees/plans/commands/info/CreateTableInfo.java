@@ -666,9 +666,6 @@ public class CreateTableInfo {
             throw new AnalysisException(
                     "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
         }
-        if (partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && column.isNullable()) {
-            throw new AnalysisException("The list partition column must be NOT NULL");
-        }
     }
 
     // if auto bucket auto bucket enable, rewrite distribution bucket num &&

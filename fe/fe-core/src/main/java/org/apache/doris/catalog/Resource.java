@@ -111,6 +111,9 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         lock.readLock().unlock();
     }
 
+    // https://programmerr47.medium.com/gson-unsafe-problem-d1ff29d4696f
+    // Resource subclass also MUST define default ctor, otherwise when reloading object from json
+    // some not serialized field (i.e. `lock`) will be `null`.
     public Resource() {
     }
 

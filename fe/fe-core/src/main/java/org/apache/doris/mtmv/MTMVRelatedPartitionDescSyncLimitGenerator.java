@@ -17,10 +17,14 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.common.AnalysisException;
+
+import com.google.common.collect.Maps;
 
 import java.util.Map;
-import java.util.Set;
+import java.util.Map.Entry;
+import java.util.Optional;
 
 /**
  * Only focus on partial partitions of related tables
@@ -28,8 +32,22 @@ import java.util.Set;
 public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPartitionDescGeneratorService {
 
     @Override
-    public Map<PartitionKeyDesc, Set<Long>> apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> descs,
-            Map<PartitionKeyDesc, Set<Long>> lastResult) {
-        return lastResult;
+    public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
+            RelatedPartitionDescResult lastResult) throws AnalysisException {
+        Map<Long, PartitionItem> partitionItems = lastResult.getItems();
+        MTMVPartitionSyncConfig config = MTMVUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        if (config.getSyncLimit() <= 0) {
+            return;
+        }
+        long nowTruncSubSec = MTMVUtil.getNowTruncSubSec(config.getTimeUnit(), config.getSyncLimit());
+        Optional<String> dateFormat = config.getDateFormat();
+        Map<Long, PartitionItem> res = Maps.newHashMap();
+        int relatedColPos = mvPartitionInfo.getRelatedColPos();
+        for (Entry<Long, PartitionItem> entry : partitionItems.entrySet()) {
+            if (entry.getValue().isGreaterThanSpecifiedTime(relatedColPos, dateFormat, nowTruncSubSec)) {
+                res.put(entry.getKey(), entry.getValue());
+            }
+        }
+        lastResult.setItems(res);
     }
 }

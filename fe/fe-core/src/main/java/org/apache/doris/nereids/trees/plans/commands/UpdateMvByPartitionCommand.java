@@ -31,9 +31,12 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -54,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Update mv by partition
@@ -113,25 +117,44 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    private static Expression convertPartitionKeyToLiteral(PartitionKey key) {
+        return Literal.fromLegacyLiteral(key.getKeys().get(0),
+                Type.fromPrimitiveType(key.getTypes().get(0)));
+    }
+
     private static Expression convertPartitionItemToPredicate(PartitionItem item, Slot col) {
         if (item instanceof ListPartitionItem) {
             List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
-                    .map(key -> Literal.fromLegacyLiteral(key.getKeys().get(0),
-                            Type.fromPrimitiveType(key.getTypes().get(0))))
+                    .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
                     .collect(ImmutableList.toImmutableList());
-            return new InPredicate(col, inValues);
+            List<Expression> predicates = new ArrayList<>();
+            if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
+                inValues = inValues.stream()
+                        .filter(e -> !(e instanceof NullLiteral))
+                        .collect(Collectors.toList());
+                Expression isNullPredicate = new IsNull(col);
+                predicates.add(isNullPredicate);
+            }
+            if (!inValues.isEmpty()) {
+                predicates.add(new InPredicate(col, inValues));
+            }
+            if (predicates.isEmpty()) {
+                return BooleanLiteral.of(true);
+            }
+            return ExpressionUtils.or(predicates);
         } else {
             Range<PartitionKey> range = item.getItems();
             List<Expression> exprs = new ArrayList<>();
-            if (range.hasLowerBound()) {
+            if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 PartitionKey key = range.lowerEndpoint();
-                exprs.add(new GreaterThanEqual(col, Literal.fromLegacyLiteral(key.getKeys().get(0),
-                        Type.fromPrimitiveType(key.getTypes().get(0)))));
+                exprs.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key)));
             }
-            if (range.hasUpperBound()) {
+            if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 PartitionKey key = range.upperEndpoint();
-                exprs.add(new LessThan(col, Literal.fromLegacyLiteral(key.getKeys().get(0),
-                        Type.fromPrimitiveType(key.getTypes().get(0)))));
+                exprs.add(new LessThan(col, convertPartitionKeyToLiteral(key)));
+            }
+            if (exprs.isEmpty()) {
+                return BooleanLiteral.of(true);
             }
             return ExpressionUtils.and(exprs);
         }

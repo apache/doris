@@ -33,12 +33,12 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
@@ -173,46 +173,12 @@ public class CreateMTMVInfo {
     }
 
     private void analyzeProperties() {
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
-            String gracePeriod = properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
-            try {
-                Long.parseLong(gracePeriod);
-            } catch (NumberFormatException e) {
-                throw new AnalysisException(
-                        "valid grace_period: " + properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
+        for (String key : MTMVPropertyUtil.mvPropertyKeys) {
+            if (properties.containsKey(key)) {
+                MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
+                mvProperties.put(key, properties.get(key));
+                properties.remove(key);
             }
-            mvProperties.put(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD, gracePeriod);
-            properties.remove(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
-        }
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM)) {
-            String refreshPartitionNum = properties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM);
-            try {
-                Integer.parseInt(refreshPartitionNum);
-            } catch (NumberFormatException e) {
-                throw new AnalysisException(
-                        "valid refresh_partition_num: " + properties
-                                .get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
-            }
-            mvProperties.put(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM, refreshPartitionNum);
-            properties.remove(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM);
-        }
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
-            String excludedTriggerTables = properties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
-            mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, excludedTriggerTables);
-            properties.remove(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
-        }
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP)) {
-            String workloadGroup = properties.get(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP);
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkWorkloadGroupPriv(ConnectContext.get(), workloadGroup, PrivPredicate.USAGE)) {
-                String message = String
-                        .format("Access denied;"
-                                        + " you need (at least one of) the %s privilege(s) to use workload group '%s'.",
-                                "USAGE/ADMIN", workloadGroup);
-                throw new AnalysisException(message);
-            }
-            mvProperties.put(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP, workloadGroup);
-            properties.remove(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP);
         }
     }
 

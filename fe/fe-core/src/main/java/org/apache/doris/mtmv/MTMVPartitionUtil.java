@@ -60,8 +60,9 @@ public class MTMVPartitionUtil {
     private static final List<MTMVRelatedPartitionDescGeneratorService> partitionDescGenerators = ImmutableList
             .of(
                     // It is necessary to maintain this order
-                    new MTMVRelatedPartitionDescOnePartitionColGenerator(),
+                    new MTMVRelatedPartitionDescInitGenerator(),
                     new MTMVRelatedPartitionDescSyncLimitGenerator(),
+                    new MTMVRelatedPartitionDescOnePartitionColGenerator(),
                     new MTMVRelatedPartitionDescRollUpGenerator()
             );
 
@@ -150,11 +151,11 @@ public class MTMVPartitionUtil {
 
     public static Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
             Map<String, String> mvProperties) throws AnalysisException {
-        Map<PartitionKeyDesc, Set<Long>> lastResult = Maps.newHashMap();
+        RelatedPartitionDescResult result = new RelatedPartitionDescResult();
         for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
-            lastResult = service.apply(mvPartitionInfo, mvProperties, lastResult);
+            service.apply(mvPartitionInfo, mvProperties, result);
         }
-        return lastResult;
+        return result.getDescs();
     }
 
     public static List<String> getPartitionNamesByIds(MTMV mtmv, Collection<Long> ids) throws AnalysisException {

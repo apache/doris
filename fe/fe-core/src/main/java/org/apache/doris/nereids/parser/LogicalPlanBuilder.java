@@ -2422,6 +2422,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.INTEGER_VALUE() != null) {
             bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
         }
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         DistributionDescriptor desc = null;
         if (ctx.HASH() != null) {
             desc = new DistributionDescriptor(true, ctx.autoBucket != null, bucketNum,
@@ -2481,7 +2483,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     engineName,
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
-                    "",
+                    comment,
                     isAutoPartition,
                     autoPartitionExpr.build(),
                     partitionType,
@@ -2503,7 +2505,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     engineName,
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
-                    "",
+                    comment,
                     isAutoPartition,
                     autoPartitionExpr.build(),
                     partitionType,
@@ -2681,6 +2683,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return Literal.of(toStringValue(ctx.STRING_LITERAL().getText()));
         } else if (ctx.MAXVALUE() != null) {
             return MaxValue.INSTANCE;
+        } else if (ctx.NULL() != null) {
+            return Literal.of(null);
         }
         throw new AnalysisException("Unsupported partition value: " + ctx.getText());
     }

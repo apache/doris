@@ -46,13 +46,13 @@ import java.util.Set;
 public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRelatedPartitionDescGeneratorService {
 
     @Override
-    public Map<PartitionKeyDesc, Set<Long>> apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            Map<PartitionKeyDesc, Set<Long>> lastResult) throws AnalysisException {
+    public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
+            RelatedPartitionDescResult lastResult) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return lastResult;
+            return;
         }
         Map<PartitionKeyDesc, Set<Long>> res = Maps.newHashMap();
-        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems();
+        Map<Long, PartitionItem> relatedPartitionItems = lastResult.getItems();
         int relatedColPos = mvPartitionInfo.getRelatedColPos();
         for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
             PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
@@ -62,6 +62,6 @@ public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRel
                 res.put(partitionKeyDesc, Sets.newHashSet(entry.getKey()));
             }
         }
-        return res;
+        lastResult.setDescs(res);
     }
 }
