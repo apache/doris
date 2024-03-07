@@ -2516,6 +2516,10 @@ public class Config extends ConfigBase {
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
 
+    @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
+            "Specify the default plugins loading path for the trino-connector catalog"})
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -2574,6 +2578,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int cloud_cold_read_percent = 10; // 10%
+
+    @ConfField(mutable = true)
+    public static int get_tablet_stat_batch_size = 1000;
 
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,

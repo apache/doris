@@ -117,6 +117,7 @@ message RowsetMetaPB {
     reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
+    optional int64 compaction_level = 52 [default = 0];
 
     // For cloud
     // for data recycling
@@ -297,6 +298,7 @@ message ColumnPB {
     optional segment_v2.ColumnPathInfo column_path_info = 20;
     // sparse column within a variant column
     repeated ColumnPB sparse_columns = 21;
+    optional bool is_auto_increment = 22;
 }
 
 enum IndexType {
@@ -456,6 +458,7 @@ message TabletMetaPB {
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
     optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
+    optional int64 time_series_compaction_level_threshold = 33 [default = 1];
 
     // For cloud
     optional int64 index_id = 1000;
@@ -511,6 +514,7 @@ message TabletMetaCloudPB {
     optional int64 group_commit_interval_ms = 35 [default = 10000];
     optional int64 group_commit_data_bytes = 36 [default = 134217728];
     optional int64 time_series_compaction_empty_rowsets_threshold = 37 [default = 5];
+    optional int64 time_series_compaction_level_threshold = 38 [default = 1];
 
     // Use for selectdb-cloud
     optional string table_name = 101;

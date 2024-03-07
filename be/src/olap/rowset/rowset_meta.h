@@ -314,6 +314,12 @@ public:
 
     void set_txn_expiration(int64_t expiration) { _rowset_meta_pb.set_txn_expiration(expiration); }
 
+    void set_compaction_level(int64_t compaction_level) {
+        _rowset_meta_pb.set_compaction_level(compaction_level);
+    }
+
+    int64_t compaction_level() { return _rowset_meta_pb.compaction_level(); }
+
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;
     RowsetMeta operator=(const RowsetMeta&) = delete;

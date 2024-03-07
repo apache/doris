@@ -185,6 +185,13 @@ public:
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                               const RowsetIdUnorderedSet& cur_rowset_ids) override;
 
+    Status calc_delete_bitmap_for_compaciton(const std::vector<RowsetSharedPtr>& input_rowsets,
+                                             const RowsetSharedPtr& output_rowset,
+                                             const RowIdConversion& rowid_conversion,
+                                             ReaderType compaction_type, int64_t merged_rows,
+                                             int64_t initiator,
+                                             DeleteBitmapPtr& output_rowset_delete_bitmap);
+
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;

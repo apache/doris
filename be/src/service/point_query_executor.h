@@ -301,12 +301,14 @@ private:
     };
 
     PTabletKeyLookupResponse* _response = nullptr;
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
+    // snapshot read version
+    int64_t _version = -1;
 };
 
 } // namespace doris

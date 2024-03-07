@@ -274,6 +274,7 @@
             "items": [
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
+                "ecosystem/doris-kafka-connector",
                 "ecosystem/doris-streamloader",
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
@@ -286,6 +287,7 @@
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
                 "ecosystem/dbt-doris-adapter",
+                "ecosystem/bi-integration/apache-superset",
                 {
                     "type": "category",
                     "label": "UDF",
@@ -819,7 +821,6 @@
                                 "sql-manual/sql-functions/table-functions/catalogs",
                                 "sql-manual/sql-functions/table-functions/frontends_disks",
                                 "sql-manual/sql-functions/table-functions/active_queries",
-                                "sql-manual/sql-functions/table-functions/job",
                                 "sql-manual/sql-functions/table-functions/jobs",
                                 "sql-manual/sql-functions/table-functions/mv_infos",
                                 "sql-manual/sql-functions/table-functions/tasks"

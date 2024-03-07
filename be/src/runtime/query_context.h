@@ -148,7 +148,19 @@ public:
         return _shared_scanner_controller;
     }
 
-    vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
+    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
+        DCHECK(_runtime_predicates.contains(source_node_id) || _runtime_predicates.contains(0));
+        if (_runtime_predicates.contains(source_node_id)) {
+            return _runtime_predicates[source_node_id];
+        }
+        return _runtime_predicates[0];
+    }
+
+    void init_runtime_predicates(std::vector<int> source_node_ids) {
+        for (int id : source_node_ids) {
+            _runtime_predicates.try_emplace(id);
+        }
+    }
 
     Status set_task_group(taskgroup::TaskGroupPtr& tg);
 
@@ -274,7 +286,7 @@ private:
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
-    vectorized::RuntimePredicate _runtime_predicate;
+    std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     taskgroup::TaskGroupPtr _task_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;

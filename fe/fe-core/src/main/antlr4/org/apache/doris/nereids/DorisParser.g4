@@ -561,7 +561,7 @@ constantSeq
     ;
     
 partitionValueDef
-    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE
+    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE | NULL
     ;
     
 rollupDefs

@@ -51,7 +51,6 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
         return innerLogicalJoin(group(), innerLogicalJoin())
                 .when(InnerJoinLeftAssociate::checkReorder)
                 .whenNot(join -> join.hasDistributeHint() || join.right().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.right().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right();
                     GroupPlan a = topJoin.left();

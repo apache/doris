@@ -88,6 +88,13 @@ suite("test_dynamic_partition") {
     assertEquals(Integer.valueOf(result.get(0).get(8)), 3)
     sql "drop table dy_par_bucket_set_by_distribution"
     sql "drop table if exists dy_par_bad"
+    def isCloudMode = {
+        def ret = sql_return_maparray  """show backends"""
+        ret.Tag[0].contains("cloud_cluster_name")
+    }
+
+    // not support tag in cloud mode
+    if (!isCloudMode) {
     test {
         sql """
         CREATE TABLE IF NOT EXISTS dy_par_bad ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
@@ -107,6 +114,8 @@ suite("test_dynamic_partition") {
         // check exception message contains
         exception "errCode = 2,"
     }
+    }
+
     sql "drop table if exists dy_par_bad"
     sql """
         CREATE TABLE IF NOT EXISTS dy_par ( k1 datev2 NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
@@ -129,6 +138,8 @@ suite("test_dynamic_partition") {
     sql "drop table dy_par"
     //
     sql "drop table if exists dy_par_bad"
+    // not support tag in cloud mode
+    if (!isCloudMode) { 
     test {
         sql """
         CREATE TABLE IF NOT EXISTS dy_par_bad ( k1 datev2 NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
@@ -147,6 +158,7 @@ suite("test_dynamic_partition") {
         """
         // check exception message contains
         exception "errCode = 2,"
+    }
     }
     sql "drop table if exists dy_par_bad"
 }

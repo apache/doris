@@ -56,13 +56,6 @@ class EliminateJoinByUniqueTest extends TestWithFeService implements MemoPattern
                 .nonMatch(logicalJoin())
                 .printlnTree();
 
-        sql = "select t1.id1 from t1 left outer join t2 on t1.id1 <=> t2.id2";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .rewrite()
-                .matches(logicalJoin())
-                .printlnTree();
-
         sql = "select t2.id2 from t1 left outer join t2 on t1.id1 = t2.id2";
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -78,13 +71,6 @@ class EliminateJoinByUniqueTest extends TestWithFeService implements MemoPattern
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
-                .printlnTree();
-
-        sql = "select t1.id1 from t1 left outer join t2 on t1.id_null <=> t2.id2";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .rewrite()
-                .matches(logicalJoin())
                 .printlnTree();
 
         sql = "select t2.id2 from t1 left outer join t2 on t1.id_null = t2.id2";

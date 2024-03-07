@@ -380,7 +380,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select /*+ SET_VAR(enable_nereids_planner=false) */ e1 from (select k2 as c1 from db1.tbl1 group by c1) a lateral view explode_split(c1, \",\") tmp1 as e1 ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 2, "TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split( `k2`, ',')"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
         Assert.assertTrue(explainString.contains("output slot id: 3"));
         Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
@@ -397,7 +397,7 @@ public class TableFunctionPlanTest {
                 + "lateral view explode_split(c2, \",\") tmp1 as e1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 2, "TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(<slot 3> min(`k2`), ',')"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(min(`k2`), ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
         Assert.assertTrue(explainString.contains("output slot id: 2 6"));
         Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
@@ -480,7 +480,7 @@ public class TableFunctionPlanTest {
                 + "lateral view explode_split(c2, \",\") tmp1 as e1) tmp2";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 2, "TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(<slot 3> min(`k2`), ',')"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(min(`k2`), ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
         Assert.assertTrue(explainString.contains("output slot id: 2"));
         Assert.assertTrue(explainString.contains("tuple ids: 1 3"));

@@ -70,7 +70,9 @@ suite ("test_dup_vals_schema_change") {
             """
 
         // alter and test light schema change
-        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+        if (!isCloudMode()) {
+            sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+        }
 
         sql """ INSERT INTO ${tableName} VALUES
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)

@@ -598,6 +598,13 @@ message CommitTxnRequest {
     repeated int64 mow_table_ids = 6;
 }
 
+// corresponding to TabletStats in meta_service.h and FrontendServiceImpl.java
+// make sure update all of them when adding new fields
+message TableStatsPB {
+    optional int64 table_id = 1;
+    optional int64 updated_row_count = 2;
+}
+
 message CommitTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TxnInfoPB txn_info = 2;
@@ -605,6 +612,7 @@ message CommitTxnResponse {
     repeated int64 table_ids = 3;
     repeated int64 partition_ids = 4;
     repeated int64 versions = 5;
+    repeated TableStatsPB table_stats = 6;
 }
 
 message AbortTxnRequest {
@@ -1167,7 +1175,7 @@ enum MetaServiceCode {
     ERR_ENCRYPT = 7001;
     ERR_DECPYPT = 7002;
 
-    // delete bitmap 
+    // delete bitmap
     LOCK_EXPIRED = 8001;
     LOCK_CONFLICT = 8002;
     ROWSETS_EXPIRED = 8003;
@@ -1281,7 +1289,7 @@ service MetaService {
     rpc alter_cluster(AlterClusterRequest) returns (AlterClusterResponse);
     rpc get_cluster(GetClusterRequest) returns (GetClusterResponse);
     rpc get_cluster_status(GetClusterStatusRequest) returns(GetClusterStatusResponse);
-    
+
     rpc get_tablet_stats(GetTabletStatsRequest) returns (GetTabletStatsResponse);
 
     // stage
