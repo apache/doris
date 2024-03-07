@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -213,6 +214,10 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
         commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, null);
+    }
+
+    @Override
+    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse) {
     }
 
     /**

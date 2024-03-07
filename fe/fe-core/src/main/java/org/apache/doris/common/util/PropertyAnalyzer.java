@@ -152,6 +152,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD =
             "time_series_compaction_empty_rowsets_threshold";
 
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD =
+            "time_series_compaction_level_threshold";
+
     public static final String PROPERTIES_MUTABLE = "mutable";
 
     public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
@@ -169,6 +172,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
+    public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
+    public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
+    public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -196,6 +202,7 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
+    public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
 
     public enum RewriteType {
         PUT,      // always put property
@@ -833,6 +840,30 @@ public class PropertyAnalyzer {
             }
         }
         return emptyRowsetsThreshold;
+    }
+
+    public static long analyzeTimeSeriesCompactionLevelThreshold(Map<String, String> properties)
+            throws AnalysisException {
+        long levelThreshold = TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return levelThreshold;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
+            String levelThresholdStr = properties
+                                    .get(PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+            try {
+                levelThreshold = Long.parseLong(levelThresholdStr);
+                if (levelThreshold < 1 || levelThreshold > 2) {
+                    throw new AnalysisException("time_series_compaction_level_threshold can not"
+                            + " less than 1 or greater than 2: " + levelThreshold);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_level_threshold: "
+                        + levelThreshold);
+            }
+        }
+        return levelThreshold;
     }
 
     public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties)

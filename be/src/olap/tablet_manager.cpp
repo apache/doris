@@ -963,7 +963,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     // should change tablet uid when tablet object changed
     tablet_meta->set_tablet_uid(std::move(tablet_uid));
     std::string meta_binary;
-    RETURN_IF_ERROR(tablet_meta->serialize(&meta_binary));
+    tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_STATUS_WITH_WARN(
             load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
                                   true),

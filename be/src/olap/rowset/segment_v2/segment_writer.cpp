@@ -149,8 +149,9 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
     meta->set_frac(column.frac());
-    if (!column.path_info().empty()) {
-        column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    if (column.has_path_info()) {
+        column.path_info_ptr()->to_protobuf(meta->mutable_column_path_info(),
+                                            column.parent_unique_id());
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
@@ -679,7 +680,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
-                static_cast<void>(old_value_block.get_by_position(i).type->from_string(
+                RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
                         rb, mutable_default_value_columns[i].get()));
             }
         }

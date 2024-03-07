@@ -1781,7 +1781,8 @@ void SegmentIterator::_init_current_block(
                     "Recreate column with expected type {}, file column type {}, col_name {}, "
                     "col_path {}",
                     block->get_by_position(i).type->get_name(), file_column_type->get_name(),
-                    column_desc->name(), column_desc->path().get_path());
+                    column_desc->name(),
+                    column_desc->path() == nullptr ? "" : column_desc->path()->get_path());
             // TODO reuse
             current_columns[cid] = file_column_type->create_column();
             current_columns[cid]->reserve(_opts.block_row_max);
@@ -2103,10 +2104,11 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
                                                                  expected_type, &expected));
             _current_return_columns[i] = expected->assume_mutable();
             _converted_column_ids[i] = 1;
-            VLOG_DEBUG << fmt::format("Convert {} fom file column type {} to {}, num_rows {}",
-                                      field_type->path().get_path(), file_column_type->get_name(),
-                                      expected_type->get_name(),
-                                      _current_return_columns[i]->size());
+            VLOG_DEBUG << fmt::format(
+                    "Convert {} fom file column type {} to {}, num_rows {}",
+                    field_type->path() == nullptr ? "" : field_type->path()->get_path(),
+                    file_column_type->get_name(), expected_type->get_name(),
+                    _current_return_columns[i]->size());
         }
     }
     return Status::OK();
