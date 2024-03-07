@@ -428,6 +428,14 @@ UNIQUE KEY(k1, k2)
 
     `"time_series_compaction_time_threshold_seconds" = "3600"`
 
+* `time_series_compaction_level_threshold`
+
+    compaction 的合并策略为 time_series 时，此参数默认为1，当设置为2时用来控住对于合并过一次的段再合并一层，保证段大小达到time_series_compaction_goal_size_mbytes，
+    
+    能达到段数量减少的效果。
+
+    `"time_series_compaction_level_threshold" = "2"`
+
 * 动态分区相关
 
     动态分区相关参数如下：
