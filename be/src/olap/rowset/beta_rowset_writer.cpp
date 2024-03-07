@@ -375,8 +375,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                         ret, errno);
             }
             // Erase the origin index file cache
-            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
-            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
         }
     }
     return Status::OK();

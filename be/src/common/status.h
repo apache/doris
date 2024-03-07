@@ -571,6 +571,14 @@ inline std::string Status::to_string_no_stack() const {
         }                               \
     } while (false)
 
+#define RETURN_FALSE_IF_ERROR(stmt)   \
+    do {                              \
+        Status status = (stmt);       \
+        if (UNLIKELY(!status.ok())) { \
+            return false;             \
+        }                             \
+    } while (false)
+
 /// @brief Emit a warning if @c to_call returns a bad status.
 #define WARN_IF_ERROR(to_call, warning_prefix)              \
     do {                                                    \

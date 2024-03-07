@@ -432,7 +432,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op.reset(new MultiCastDataStreamerSourceOperatorX(
                     i, pool, thrift_sink.multi_cast_stream_sink.sinks[i], row_desc, source_id));
-            static_cast<void>(new_pipeline->add_operator(source_op));
+            RETURN_IF_ERROR(new_pipeline->add_operator(source_op));
             // 2. create and set sink operator of data stream sender for new pipeline
 
             DataSinkOperatorXPtr sink_op;
@@ -441,7 +441,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                                               thrift_sink.multi_cast_stream_sink.sinks[i],
                                               thrift_sink.multi_cast_stream_sink.destinations[i]));
 
-            static_cast<void>(new_pipeline->set_sink(sink_op));
+            RETURN_IF_ERROR(new_pipeline->set_sink(sink_op));
             {
                 TDataSink* t = pool->add(new TDataSink());
                 t->stream_sink = thrift_sink.multi_cast_stream_sink.sinks[i];

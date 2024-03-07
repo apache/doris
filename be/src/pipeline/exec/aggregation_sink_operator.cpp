@@ -801,7 +801,7 @@ Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_
     }
     if (eos) {
         if (local_state._shared_state->spill_context.has_data) {
-            static_cast<void>(local_state.try_spill_disk(true));
+            RETURN_IF_ERROR(local_state.try_spill_disk(true));
             RETURN_IF_ERROR(local_state._shared_state->spill_context.prepare_for_reading());
         }
         local_state._dependency->set_ready_to_read();
