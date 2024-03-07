@@ -1432,7 +1432,8 @@ public class StmtExecutor {
         RowBatch batch;
         CoordInterface coordBase = null;
         if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
-            coordBase = new PointQueryExec(planner, analyzer);
+            coordBase = new PointQueryExec(planner, analyzer,
+                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
         } else {
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {

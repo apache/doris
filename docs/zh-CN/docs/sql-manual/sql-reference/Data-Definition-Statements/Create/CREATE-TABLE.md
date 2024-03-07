@@ -298,10 +298,6 @@ UNIQUE KEY(k1, k2)
 
     根据 Tag 设置副本分布情况。该属性可以完全覆盖 `replication_num` 属性的功能。
 
-* `min_load_replica_num`
-
-    设定数据导入成功所需的最小副本数，默认值为-1。当该属性小于等于0时，表示导入数据仍需多数派副本成功。
-
 * `is_being_synced`  
 
     用于标识此表是否是被CCR复制而来并且正在被syncer同步，默认为 `false`。  
@@ -431,6 +427,14 @@ UNIQUE KEY(k1, k2)
     compaction 的合并策略为 time_series 时，将使用此参数来调整 compaction 的最长时间间隔，即长时间未执行过 compaction 时，就会触发一次 compaction，单位为秒
 
     `"time_series_compaction_time_threshold_seconds" = "3600"`
+
+* `time_series_compaction_level_threshold`
+
+    compaction 的合并策略为 time_series 时，此参数默认为1，当设置为2时用来控住对于合并过一次的段再合并一层，保证段大小达到time_series_compaction_goal_size_mbytes，
+    
+    能达到段数量减少的效果。
+
+    `"time_series_compaction_level_threshold" = "2"`
 
 * 动态分区相关
 

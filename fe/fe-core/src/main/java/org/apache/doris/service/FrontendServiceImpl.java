@@ -1526,9 +1526,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
                 .getDatabaseTransactionMgr(database.getId());
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
-        LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         }
         List<Long> tableIdList = transactionState.getTableIdList();
         String txnOperation = request.getOperation().trim();

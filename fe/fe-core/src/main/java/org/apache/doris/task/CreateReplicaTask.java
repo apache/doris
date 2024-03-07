@@ -115,6 +115,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private long timeSeriesCompactionEmptyRowsetsThreshold;
 
+    private long timeSeriesCompactionLevelThreshold;
+
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
@@ -138,6 +140,7 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionFileCountThreshold,
                              long timeSeriesCompactionTimeThresholdSeconds,
                              long timeSeriesCompactionEmptyRowsetsThreshold,
+                             long timeSeriesCompactionLevelThreshold,
                              boolean storeRowColumn,
                              boolean isDynamicSchema,
                              BinlogConfig binlogConfig) {
@@ -182,6 +185,7 @@ public class CreateReplicaTask extends AgentTask {
         this.timeSeriesCompactionFileCountThreshold = timeSeriesCompactionFileCountThreshold;
         this.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
         this.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
+        this.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
         this.storeRowColumn = storeRowColumn;
         this.binlogConfig = binlogConfig;
     }
@@ -324,6 +328,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         createTabletReq.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
+        createTabletReq.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
 
         if (binlogConfig != null) {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());

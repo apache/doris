@@ -101,13 +101,6 @@
                                 "data-operate/import/import-way/insert-into-manual",
                                 "data-operate/import/import-way/load-json-format"
                             ]
-                        },
-                        {
-                            "type": "category",
-                            "label": "Import Advanced",
-                            "items": [
-                                "data-operate/import/import-advanced/min-load-replica-num"
-                            ]
                         }
                     ]
                 },
@@ -240,6 +233,7 @@
             "items": [
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
+                "ecosystem/doris-kafka-connector",
                 "ecosystem/doris-streamloader",
                 "ecosystem/datax",
                 "ecosystem/seatunnel",

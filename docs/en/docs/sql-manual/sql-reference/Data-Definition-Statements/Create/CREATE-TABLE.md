@@ -315,10 +315,6 @@ Set table properties. The following attributes are currently supported:
 
     Set the copy distribution according to Tag. This attribute can completely cover the function of the `replication_num` attribute.
 
-* `min_load_replica_num`
-
-    The minimum required successful replica num for loading data. The default value is `-1`. If set less than or equal to 0, loading data requires a majority replicas to succeed.
-
 * `is_being_synced`  
 
     Used to identify whether this table is copied by CCR and is being synchronized by syncer. The default is `false`.  
@@ -448,6 +444,16 @@ Set table properties. The following attributes are currently supported:
      When time series compaction policy is applied, a significant duration passes without a compaction being executed, a compaction will be triggered.
 
     `"time_series_compaction_time_threshold_seconds" = "3600"`
+
+* `time_series_compaction_level_threshold`
+
+    When time series compaction policy is applied, This parameter defaults to 1.  When set to 2, it is used to control the re-merging of segments that have been 
+    
+    merged once, ensuring that the segment size reaches the time_series_compaction_goal_size_mbytes, which can achieve the effect of reducing the number of 
+    
+    segments.
+
+    `"time_series_compaction_level_threshold" = "2"`
 
 
 * Dynamic partition related

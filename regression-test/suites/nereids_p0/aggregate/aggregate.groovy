@@ -331,6 +331,14 @@ suite("aggregate") {
 
     test {
         sql """
+              SELECT k1, k2 FROM tempbaseall
+              GROUP BY k1;
+            """
+        exception "k2 not in aggregate's output"
+    }
+
+    test {
+        sql """
               SELECT sum(avg(k1)) FROM tempbaseall;
             """
         exception "aggregate function cannot contain aggregate parameters"

@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -289,7 +288,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             if (option instanceof Literal) {
                 // remove the options which is out of compareExpr.range
                 if (compareExprStats.minValue <= optionStats.maxValue
-                        && optionStats.maxValue <= compareExprStats.maxValue) {
+                        && optionStats.minValue <= compareExprStats.maxValue) {
                     validInOptCount++;
                     LiteralExpr optionLiteralExpr = ((Literal) option).toLegacyLiteral();
                     if (maxOptionLiteral == null || optionLiteralExpr.compareTo(maxOptionLiteral) >= 0) {
@@ -376,9 +375,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         "Not-predicate meet unexpected child: %s", child.toSql());
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
-                    colBuilder.setNdv(originColStats.ndv - childColStats.ndv);
+                    colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
                 } else if (child instanceof InPredicate) {
-                    colBuilder.setNdv(originColStats.ndv - childColStats.ndv);
+                    colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
                     colBuilder.setMinValue(originColStats.minValue)
                             .setMinExpr(originColStats.minExpr)
                             .setMaxValue(originColStats.maxValue)
@@ -389,8 +388,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                             .setMinExpr(originColStats.minExpr)
                             .setMaxValue(originColStats.maxValue)
                             .setMaxExpr(originColStats.maxExpr);
-                } else if (child instanceof EqualTo) {
-                    colBuilder.setNdv(originColStats.ndv - childColStats.ndv);
+                } else if (child instanceof EqualPredicate) {
+                    colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
                     colBuilder.setMinValue(originColStats.minValue)
                             .setMinExpr(originColStats.minExpr)
                             .setMaxValue(originColStats.maxValue)

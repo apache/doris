@@ -48,13 +48,14 @@ public class FloatLiteral extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.FloatLiteral((double) value, Type.FLOAT);
+        return new org.apache.doris.analysis.FloatLiteral(getDouble(), Type.FLOAT);
     }
 
     @Override
     public String getStringValue() {
         NumberFormat nf = NumberFormat.getInstance();
         nf.setGroupingUsed(false);
+        nf.setMaximumFractionDigits(7);
         return nf.format(value);
     }
 }

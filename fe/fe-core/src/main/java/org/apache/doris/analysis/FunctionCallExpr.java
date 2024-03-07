@@ -1517,6 +1517,8 @@ public class FunctionCallExpr extends Expr {
 
         } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
                 || fnName.getFunction().equalsIgnoreCase("nvl")) {
+            Preconditions.checkArgument(children != null && children.size() == 2,
+                    "The " + fnName + " function must have two params");
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
             if (assignmentCompatibleType != Type.INVALID) {

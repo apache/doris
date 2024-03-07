@@ -172,7 +172,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         return Status::OK();
     }
 
-    // now all columns is const.
+    // now all columns are const.
     Block temporary_block;
 
     size_t arguments_size = args.size();

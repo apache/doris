@@ -3219,6 +3219,14 @@ public class Env {
                 sb.append(olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()).append("\"");
             }
 
+            // time series compaction level threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
+            }
+
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
@@ -4617,7 +4625,8 @@ public class Env {
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
                 .buildEnableSingleReplicaCompaction()
-                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold()
+                .buildTimeSeriesCompactionLevelThreshold();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -5317,6 +5326,7 @@ public class Env {
                     throw new MetaNotFoundException("replica does not exist on backend, beId=" + backendId);
                 }
                 if (status == ReplicaStatus.BAD || status == ReplicaStatus.OK) {
+                    replica.setUserDrop(false);
                     if (replica.setBad(status == ReplicaStatus.BAD)) {
                         if (!isReplay) {
                             SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(backendId, tabletId,
@@ -5326,6 +5336,10 @@ public class Env {
                         LOG.info("set replica {} of tablet {} on backend {} as {}. is replay: {}", replica.getId(),
                                 tabletId, backendId, status, isReplay);
                     }
+                } else if (status == ReplicaStatus.DROP) {
+                    replica.setUserDrop(true);
+                    LOG.info("set replica {} of tablet {} on backend {} as {}.", replica.getId(),
+                            tabletId, backendId, status);
                 }
             } finally {
                 table.writeUnlock();

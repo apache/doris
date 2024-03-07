@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_compaction_null", "p0") {
+suite("test_index_compaction_null", "nonConcurrent") {
     def tableName = "test_index_compaction_null_dups"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
