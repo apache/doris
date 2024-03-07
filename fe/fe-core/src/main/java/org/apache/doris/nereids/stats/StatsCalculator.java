@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -37,6 +38,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -73,6 +76,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -117,6 +121,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -591,8 +597,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private Statistics computeFilter(Filter filter) {
         Statistics stats = groupExpression.childStatistics(0);
         Plan plan = tryToFindChild(groupExpression);
+        boolean isOnBaseTable = false;
         if (plan != null) {
-            if (plan instanceof Aggregate) {
+            if (plan instanceof OlapScan) {
+                isOnBaseTable = true;
+            } else if (plan instanceof Aggregate) {
                 Aggregate agg = ((Aggregate<?>) plan);
                 List<NamedExpression> expressions = agg.getOutputExpressions();
                 Set<Slot> slots = expressions
@@ -604,9 +613,107 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 if (predicate.anyMatch(s -> slots.contains(s))) {
                     return new FilterEstimation(slots).estimate(filter.getPredicate(), stats);
                 }
+            } else if (plan instanceof LogicalJoin
+                    && filter.getConjuncts().stream().anyMatch(e -> e instanceof IsNull)) {
+                Statistics isNullStats = computeOuterJoinWithIsNullStats((LogicalJoin) plan, filter);
+                if (isNullStats != null) {
+                    // overwrite the stats before passing to filter estimation
+                    // if the returned isNull stats is corrected as above
+                    stats = isNullStats;
+                }
             }
         }
-        return new FilterEstimation().estimate(filter.getPredicate(), stats);
+
+        return new FilterEstimation(isOnBaseTable).estimate(filter.getPredicate(), stats);
+    }
+
+    private Statistics computeOuterJoinWithIsNullStats(LogicalJoin join, Filter filter) {
+        JoinType joinType = join.getJoinType();
+        Plan left = join.left();
+        Plan right = join.right();
+        if (left == null || right == null) {
+            return null;
+        }
+        double leftRowCount = ((GroupPlan) left).getGroup().getStatistics().getRowCount();
+        double rightRowCount = ((GroupPlan) right).getGroup().getStatistics().getRowCount();
+        if (leftRowCount < 0 || Double.isInfinite(leftRowCount)
+                || rightRowCount < 0 || Double.isInfinite(rightRowCount)) {
+            return null;
+        }
+        Statistics origJoinStats = join.getGroupExpression().get().getOwnerGroup().getStatistics();
+        if (JoinUtils.isSemiOrAntiJoin(joinType)) {
+            // TODO: following transformed anti join should go here
+            // assume the former estimation is accurate and completed
+            return null;
+        } else if (JoinUtils.isOuterJoin(joinType)) {
+            // case 1: for anti-like cases, use anti join to re-estimate the stats
+            // case 2: for other normal cases with is null filter,
+            boolean isAntiLikeJoin = checkIsAntiLikeJoin(join, filter);
+            // TODO: enable full outer join
+            if (isAntiLikeJoin && join.getJoinType() != JoinType.FULL_OUTER_JOIN) {
+                // transform to anti estimation
+                boolean isLeftAntiJoin = join.getJoinType() == JoinType.LEFT_OUTER_JOIN;
+                boolean isRightAntiJoin = join.getJoinType() == JoinType.RIGHT_OUTER_JOIN;
+                Statistics newStats = null;
+                if (isLeftAntiJoin) {
+                    LogicalJoin<GroupPlan, GroupPlan> newJoin = join.withJoinType(JoinType.LEFT_ANTI_JOIN);
+                    StatsCalculator statsCalculator = new StatsCalculator(join.getGroupExpression().get(),
+                            false, getTotalColumnStatisticMap(), false,
+                            cteIdToStats, cascadesContext);
+
+                    newStats = ((Plan) newJoin).accept(statsCalculator, null);
+                } else if (isRightAntiJoin) {
+                    LogicalJoin<GroupPlan, GroupPlan> newJoin = join.withJoinType(JoinType.RIGHT_ANTI_JOIN);
+                    StatsCalculator statsCalculator = new StatsCalculator(join.getGroupExpression().get(),
+                            false, this.getTotalColumnStatisticMap(), false,
+                            this.cteIdToStats, this.cascadesContext);
+
+                    newStats = ((Plan) newJoin).accept(statsCalculator, null);
+                }
+                newStats.enforceValid();
+
+                double selectivity = Statistics.getValidSelectivity(
+                        newStats.getRowCount() / (leftRowCount * rightRowCount));
+                double newRows = origJoinStats.getRowCount() * selectivity;
+
+                newStats.withRowCount(newRows);
+                return newStats;
+            } else {
+                // pass though to filter estimation process
+                return null;
+            }
+        } else {
+            // pass though to filter estimation process
+            return null;
+        }
+    }
+
+    private boolean checkIsAntiLikeJoin(LogicalJoin join, Filter filter) {
+        boolean isLeftOuterJoin = join.getJoinType() == JoinType.LEFT_OUTER_JOIN;
+        boolean isRightOuterJoin = join.getJoinType() == JoinType.RIGHT_OUTER_JOIN;
+        boolean isFullOuterJoin = join.getJoinType() == JoinType.FULL_OUTER_JOIN;
+        Set<Expression> conjuncts = filter.getConjuncts();
+        for (Expression expr : conjuncts) {
+            if (expr instanceof IsNull) {
+                Expression child = ((IsNull) expr).child();
+                if (PlanUtils.isColumnRef(child)) {
+                    LogicalPlan leftChild = (LogicalPlan) join.left();
+                    LogicalPlan rightChild = (LogicalPlan) join.right();
+                    boolean leftHasIsNull = PlanUtils.checkSlotFrom(((GroupPlan) leftChild)
+                            .getGroup().getLogicalExpression().getPlan(), (SlotReference) child);
+                    boolean rightHasIsNull = PlanUtils.checkSlotFrom(((GroupPlan) rightChild)
+                            .getGroup().getLogicalExpression().getPlan(), (SlotReference) child);
+                    if (isLeftOuterJoin && rightHasIsNull) {
+                        return true;
+                    } else if (isRightOuterJoin && leftHasIsNull) {
+                        return true;
+                    } else if (isFullOuterJoin && (leftHasIsNull || rightHasIsNull)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {

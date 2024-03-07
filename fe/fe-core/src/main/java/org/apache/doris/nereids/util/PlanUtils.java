@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -123,6 +124,28 @@ public class PlanUtils {
         ImmutableSet<TableIf> resultSet = tableSet.stream().map(e -> e.getTable())
                 .collect(ImmutableSet.toImmutableSet());
         return resultSet;
+    }
+
+    /**
+     * Check if slot is from the plan.
+     */
+    public static boolean checkSlotFrom(Plan plan, SlotReference slot) {
+        Set<LogicalCatalogRelation> tableSets = PlanUtils.getLogicalScanFromRootPlan((LogicalPlan) plan);
+        for (LogicalCatalogRelation table : tableSets) {
+            if (table.getOutputExprIds().contains(slot.getExprId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if the expression is a column reference.
+     */
+    public static boolean isColumnRef(Expression expr) {
+        return expr instanceof SlotReference && ((SlotReference) expr).getTable().isPresent()
+                && ((SlotReference) expr).getColumn().isPresent()
+                && ((SlotReference) expr).getTable().isPresent();
     }
 
     /**

@@ -411,7 +411,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType, JoinReorderContext otherJoinReorderContext) {
+    public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, groupExpression, Optional.of(getLogicalProperties()),
+                children, joinReorderContext);
+    }
+
+    public LogicalJoin<Plan, Plan> withJoinTypeAndContext(JoinType joinType,
+            JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 children, otherJoinReorderContext);
