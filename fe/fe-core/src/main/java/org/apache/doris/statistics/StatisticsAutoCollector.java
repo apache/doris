@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -57,13 +58,14 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     @Override
     protected void collect() {
         while (canCollect()) {
-            Map.Entry<TableIf, Set<String>> job = getJob();
+            Map.Entry<TableName, Set<String>> job = getJob();
             if (job == null) {
                 // No more job to process, break and sleep.
                 break;
             }
             try {
-                TableIf table = job.getKey();
+                TableName tblName = job.getKey();
+                TableIf table = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
                 if (!supportAutoAnalyze(table)) {
                     continue;
                 }
@@ -78,7 +80,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 processOneJob(table, columns);
             } catch (Exception e) {
                 LOG.warn("Failed to analyze table {} with columns [{}]",
-                        job.getKey().getName(), job.getValue().stream().collect(Collectors.joining(",")), e);
+                        job.getKey().getTbl(), job.getValue().stream().collect(Collectors.joining(",")), e);
             }
         }
     }
@@ -88,9 +90,9 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             && StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
     }
 
-    protected Map.Entry<TableIf, Set<String>> getJob() {
+    protected Map.Entry<TableName, Set<String>> getJob() {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
-        Optional<Map.Entry<TableIf, Set<String>>> job = fetchJobFromMap(manager.highPriorityJobs);
+        Optional<Map.Entry<TableName, Set<String>>> job = fetchJobFromMap(manager.highPriorityJobs);
         if (job.isPresent()) {
             return job.get();
         }
@@ -102,9 +104,9 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         return job.isPresent() ? job.get() : null;
     }
 
-    protected Optional<Map.Entry<TableIf, Set<String>>> fetchJobFromMap(Map<TableIf, Set<String>> jobMap) {
+    protected Optional<Map.Entry<TableName, Set<String>>> fetchJobFromMap(Map<TableName, Set<String>> jobMap) {
         synchronized (jobMap) {
-            Optional<Map.Entry<TableIf, Set<String>>> first = jobMap.entrySet().stream().findFirst();
+            Optional<Map.Entry<TableName, Set<String>>> first = jobMap.entrySet().stream().findFirst();
             first.ifPresent(entry -> jobMap.remove(entry.getKey()));
             return first;
         }
