@@ -975,7 +975,7 @@ Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                 path.get_path(), type->get_name(), column->get_name(), row);
     }
     const auto* nullable = assert_cast<const ColumnNullable*>(column);
-    if (nullable->is_null_at(row)) {
+    if (nullable->is_null_at(row) || (path.empty() && nullable->get_data_at(row).empty())) {
         return Status::OK();
     }
     // TODO could cache the result of leaf nodes with it's path info

@@ -1064,6 +1064,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
     const ColumnNullable* nullable_column = nullptr;
     if (typed_column.column->is_nullable()) {
         nullable_column = assert_cast<const ColumnNullable*>(typed_column.column.get());
+        _nullmap = nullable_column->get_null_map_data().data();
     }
     const auto& variant =
             nullable_column == nullptr
@@ -1087,8 +1088,6 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
                                             num_rows);
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
-    _nullmap =
-            assert_cast<const ColumnNullable*>(root_of_variant.get())->get_null_map_data().data();
 }
 
 // convert root data

@@ -188,10 +188,10 @@ private:
             DCHECK(dst->is_nullable());
             vectorized::ColumnUInt8& dst_null_map =
                     assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
-            dst_null_map.insert_raw_integers(0, _root_reader->column->size());
             vectorized::ColumnUInt8& src_null_map =
                     assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
                             .get_null_map_column();
+            dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
             // clear nullmap and inner data
             src_null_map.clear();
             assert_cast<vectorized::ColumnObject&>(
