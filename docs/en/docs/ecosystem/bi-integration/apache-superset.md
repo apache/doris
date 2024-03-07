@@ -22,18 +22,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## Apache Superset Integrate
 
-### Introduction
+## Introduction
 Apache Superset is an open-source data exploration platform. It supports a rich variety of data source connections and numerous visualization methods. It also enables fine-grained access control for users. The main features of this tool include self-service analysis, customizable dashboards, visualization of analytical results (with export functionality), and user/role permission control. Moreover, it integrates an SQL editor for conducting SQL editing and queries.
 
 In Apache Superset version 3.1 official support has been introduced for querying and visualizing both internal and external data from Apache Doris.
-### Preconditions
+## Preconditions
 Ensure you have completed the following tool installations:
 1. Install the Python client for Apache Doris on the Apache Superset server.
    pip install pydoris
 2. Install Apache Superset version 3.1 or above. For detailed instructions, refer to [Installing Superset from PyPI](https://superset.apache.org/docs/installation/installing-superset-from-pypi/) or [Installing Superset Locally Using Docker Compose](https://hub.docker.com/r/apache/superset).
-### Add data source
+## Add data source
 When creating a data source in Apache Superset, please pay attention to the following two points:
 - Choose Apache Doris as the data source in SUPPORTED DATABASES.
 - In the SQLALCHEMY URI, fill in the URI following the Doris SQLAlchemy URI format as shown below.

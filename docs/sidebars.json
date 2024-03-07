@@ -281,6 +281,7 @@
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
                 "ecosystem/dbt-doris-adapter",
+                "ecosystem/bi-integration/apache-superset",
                 {
                     "type": "category",
                     "label": "UDF",
