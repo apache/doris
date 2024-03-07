@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -81,31 +82,33 @@ public class StatisticsJobAppender extends MasterDaemon {
         }
     }
 
-    protected void appendColumnsToJobs(Queue<HighPriorityColumn> columnQueue, Map<TableIf, Set<String>> jobsMap) {
+    protected void appendColumnsToJobs(Queue<HighPriorityColumn> columnQueue, Map<TableName, Set<String>> jobsMap) {
         int size = columnQueue.size();
         for (int i = 0; i < size; i++) {
             HighPriorityColumn column = columnQueue.poll();
             LOG.info("Process column " + column.tblId + "." + column.colName);
             TableIf table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
+            TableName tableName = new TableName(table.getDatabase().getCatalog().getName(),
+                    table.getDatabase().getFullName(), table.getName());
             synchronized (jobsMap) {
                 // If job map reach the upper limit, stop putting new jobs.
-                if (!jobsMap.containsKey(table) && jobsMap.size() >= JOB_MAP_SIZE) {
+                if (!jobsMap.containsKey(tableName) && jobsMap.size() >= JOB_MAP_SIZE) {
                     LOG.info("Job map full.");
                     break;
                 }
-                if (jobsMap.containsKey(table)) {
-                    jobsMap.get(table).add(column.colName);
+                if (jobsMap.containsKey(tableName)) {
+                    jobsMap.get(tableName).add(column.colName);
                 } else {
                     HashSet<String> columns = new HashSet<>();
                     columns.add(column.colName);
-                    jobsMap.put(table, columns);
+                    jobsMap.put(tableName, columns);
                 }
                 LOG.info("Column " + column.tblId + "." + column.colName + " added");
             }
         }
     }
 
-    protected void appendToLowQueue(Map<TableIf, Set<String>> jobsMap) {
+    protected void appendToLowQueue(Map<TableName, Set<String>> jobsMap) {
         InternalCatalog catalog = Env.getCurrentInternalCatalog();
         List<Long> sortedDbs = catalog.getDbIds().stream().sorted().collect(Collectors.toList());
         int batchSize = 100;
@@ -122,18 +125,20 @@ public class StatisticsJobAppender extends MasterDaemon {
                 if (!(t instanceof OlapTable) || t.getId() <= currentTableId) {
                     continue;
                 }
+                TableName tableName = new TableName(t.getDatabase().getCatalog().getName(),
+                        t.getDatabase().getFullName(), t.getName());
                 synchronized (jobsMap) {
                     // If job map reach the upper limit, stop adding new jobs.
-                    if (!jobsMap.containsKey(t) && jobsMap.size() >= JOB_MAP_SIZE) {
+                    if (!jobsMap.containsKey(tableName) && jobsMap.size() >= JOB_MAP_SIZE) {
                         return;
                     }
                     Set<String> columns
                             = t.getColumns().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                             .map(c -> c.getName()).collect(Collectors.toSet());
-                    if (jobsMap.containsKey(t)) {
-                        jobsMap.get(t).addAll(columns);
+                    if (jobsMap.containsKey(tableName)) {
+                        jobsMap.get(tableName).addAll(columns);
                     } else {
-                        jobsMap.put(t, columns);
+                        jobsMap.put(tableName, columns);
                     }
                 }
                 currentTableId = t.getId();
