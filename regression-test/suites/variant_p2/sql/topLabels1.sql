@@ -4,7 +4,7 @@
 --     count() AS c
 -- FROM github_events
 -- LATERAL VIEW explode_split(cast(payload:labels as string), ',') t AS label
--- WHERE (type IN ('IssuesEvent', 'PullRequestEvent', 'IssueCommentEvent')) AND (cast(payload:action as string) IN ('created', 'opened', 'labeled'))
+-- WHERE (type IN ('IssuesEvent', 'PullRequestEvent', 'IssueCommentEvent')) AND (cast(payload["action"] as string) IN ('created', 'opened', 'labeled'))
 -- GROUP BY label, id
 -- ORDER BY c, id DESC
 -- LIMIT 50

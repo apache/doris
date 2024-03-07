@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv.mapping;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMultimap;
@@ -122,5 +123,10 @@ public class ExpressionMapping extends Mapping {
             });
         }
         return new ExpressionMapping(foldedMappingBuilder.build());
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("ExpressionMapping", "expressionMapping", expressionMapping);
     }
 }

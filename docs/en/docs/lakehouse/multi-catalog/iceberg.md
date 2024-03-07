@@ -78,6 +78,17 @@ CREATE CATALOG iceberg_hadoop_ha PROPERTIES (
 );
 ```
 
+```sql
+CREATE CATALOG iceberg_s3 PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 's3://bucket/dir/key',
+    's3.endpoint' = 's3.us-east-1.amazonaws.com',
+    's3.access_key' = 'ak',
+    's3.secret_key' = 'sk'
+);
+```
+
 #### Hive Metastore
 
 ```sql
@@ -108,7 +119,9 @@ CREATE CATALOG glue PROPERTIES (
 );
 ```
 
-For Iceberg properties, see [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+1. For Iceberg properties, see [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog).
+
+2. If you do not fill the credentials(`glue.access_key` and `glue.secret_key`) in glue catalog, the default DefaultAWSCredentialsProviderChain will be used, and it will read credentials and the system environment variables or instance profile properties on AWS EC2.
 
 #### Alibaba Cloud DLF
 
@@ -214,4 +227,4 @@ You can use the `FOR TIME AS OF` and `FOR VERSION AS OF` statements to read hist
 
 `SELECT * FROM iceberg_tbl FOR VERSION AS OF 868895038966572;`
 
-In addition, you can use the [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg_meta.md) table function to query the snapshot information of the specified table.
+In addition, you can use the [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg-meta.md) table function to query the snapshot information of the specified table.

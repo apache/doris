@@ -181,8 +181,10 @@ public class BeSelectionPolicy {
             filterBackends = preLocationFilterBackends;
         }
         Collections.shuffle(filterBackends);
+        int numComputeNode = filterBackends.stream().filter(Backend::isComputeNode).collect(Collectors.toList()).size();
         List<Backend> candidates = new ArrayList<>();
-        if (preferComputeNode) {
+        if (preferComputeNode && numComputeNode > 0) {
+            int realExpectBeNum = expectBeNum == -1 ? numComputeNode : expectBeNum;
             int num = 0;
             // pick compute node first
             for (Backend backend : filterBackends) {
@@ -192,10 +194,10 @@ public class BeSelectionPolicy {
                 }
             }
             // fill with some mix node.
-            if (num < expectBeNum) {
+            if (num < realExpectBeNum) {
                 for (Backend backend : filterBackends) {
                     if (backend.isMixNode()) {
-                        if (num >= expectBeNum) {
+                        if (num >= realExpectBeNum) {
                             break;
                         }
                         candidates.add(backend);

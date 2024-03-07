@@ -139,10 +139,7 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) const override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "FunctionMatchPhrasePrefix not support execute_match");
-    }
+                         ColumnUInt8::Container& result) const override;
 };
 
 class FunctionMatchRegexp : public FunctionMatchBase {
@@ -159,6 +156,23 @@ public:
                          ColumnUInt8::Container& result) const override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "FunctionMatchRegexp not support execute_match");
+    }
+};
+
+class FunctionMatchPhraseEdge : public FunctionMatchBase {
+public:
+    static constexpr auto name = "match_phrase_edge";
+    static FunctionPtr create() { return std::make_shared<FunctionMatchPhraseEdge>(); }
+
+    String get_name() const override { return name; }
+
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) const override {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchPhraseEdge not support execute_match");
     }
 };
 

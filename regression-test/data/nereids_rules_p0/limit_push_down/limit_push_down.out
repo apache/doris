@@ -72,8 +72,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t1] apply RFs: RF0
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalOlapScan[t2]
 
@@ -227,9 +227,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.id > 100))
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 --------filter((t2.id > 100))
 ----------PhysicalOlapScan[t2]
 
@@ -333,9 +333,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.id > 100))
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 --------filter((t2.id > 100))
 ----------PhysicalOlapScan[t2]
 
@@ -380,8 +380,8 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t2]
 ------------PhysicalLimit[LOCAL]
 --------------hashAgg[LOCAL]
-----------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=() build RFs:RF1 id->[id]
-------------------PhysicalOlapScan[t3] apply RFs: RF1
+----------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
+------------------PhysicalOlapScan[t3]
 ------------------PhysicalOlapScan[t4]
 
 -- !limit_subquery_union_window --
@@ -389,7 +389,7 @@ PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
 ------PhysicalWindow
---------PhysicalPartitionTopN
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalPartitionTopN
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
@@ -470,9 +470,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.id > 100))
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 --------filter((t2.id > 100))
 ----------PhysicalOlapScan[t2]
 
@@ -558,9 +558,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 --------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF1
+----------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t2]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalOlapScan[t3]
@@ -593,9 +593,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 --------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t2]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalOlapScan[t3]
@@ -639,8 +639,8 @@ PhysicalResultSink
 ----PhysicalLimit[LOCAL]
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalLimit[LOCAL]
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-------------PhysicalOlapScan[t1] apply RFs: RF0
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------PhysicalOlapScan[t1]
 ------------PhysicalLimit[LOCAL]
 --------------PhysicalOlapScan[t2]
 --------PhysicalLimit[LOCAL]
@@ -676,9 +676,9 @@ PhysicalResultSink
 ----PhysicalLimit[LOCAL]
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalLimit[LOCAL]
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------PhysicalOlapScan[t1] apply RFs: RF0
+--------------PhysicalOlapScan[t1]
 --------------PhysicalOlapScan[t2]
 ------------PhysicalLimit[LOCAL]
 --------------PhysicalOlapScan[t3]

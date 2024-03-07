@@ -18,7 +18,6 @@
 #include "vec/data_types/data_type_ipv4.h"
 
 #include "util/binary_cast.hpp"
-#include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"

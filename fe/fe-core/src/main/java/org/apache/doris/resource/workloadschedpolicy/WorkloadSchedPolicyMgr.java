@@ -35,9 +35,11 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.thrift.TUserIdentity;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -72,6 +74,21 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
             .add("Id").add("Name").add("Condition").add("Action").add("Priority").add("Enabled").add("Version")
             .build();
 
+    public static final ImmutableSet<WorkloadActionType> FE_ACTION_SET
+            = new ImmutableSet.Builder<WorkloadActionType>().add(WorkloadActionType.SET_SESSION_VARIABLE).build();
+
+    public static final ImmutableSet<WorkloadMetricType> FE_METRIC_SET
+            = new ImmutableSet.Builder<WorkloadMetricType>().add(WorkloadMetricType.USERNAME)
+            .build();
+
+    public static final ImmutableSet<WorkloadActionType> BE_ACTION_SET
+            = new ImmutableSet.Builder<WorkloadActionType>().add(WorkloadActionType.MOVE_QUERY_TO_GROUP)
+            .add(WorkloadActionType.CANCEL_QUERY).build();
+
+    public static final ImmutableSet<WorkloadMetricType> BE_METRIC_SET
+            = new ImmutableSet.Builder<WorkloadMetricType>().add(WorkloadMetricType.BE_SCAN_ROWS)
+            .add(WorkloadMetricType.BE_SCAN_BYTES).add(WorkloadMetricType.QUERY_TIME).build();
+
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public static Comparator<WorkloadSchedPolicy> policyComparator = new Comparator<WorkloadSchedPolicy>() {
@@ -104,15 +121,12 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                         }
 
                         String username = cctx.getQualifiedUser();
-                        long queryTime = System.currentTimeMillis() - cctx.getStartTime();
-
                         WorkloadQueryInfo policyQueryInfo = new WorkloadQueryInfo();
                         policyQueryInfo.queryId = cctx.queryId() == null ? null : DebugUtil.printId(cctx.queryId());
                         policyQueryInfo.tUniqueId = cctx.queryId();
                         policyQueryInfo.context = cctx;
                         policyQueryInfo.metricMap = new HashMap<>();
                         policyQueryInfo.metricMap.put(WorkloadMetricType.USERNAME, username);
-                        policyQueryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, String.valueOf(queryTime));
 
                         queryInfoList.add(policyQueryInfo);
                     }
@@ -150,28 +164,21 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
             WorkloadCondition cond = WorkloadCondition.createWorkloadCondition(cm);
             policyConditionList.add(cond);
         }
+        boolean feCondition = checkPolicyCondition(policyConditionList);
 
         // 2 create action
         List<WorkloadActionMeta> originActions = createStmt.getActions();
         List<WorkloadAction> policyActionList = new ArrayList<>();
         for (WorkloadActionMeta workloadActionMeta : originActions) {
-            WorkloadActionType actionName = workloadActionMeta.action;
-            String actionArgs = workloadActionMeta.actionArgs;
-
-            // we need convert wgName to wgId, because wgName may change
-            if (WorkloadActionType.MOVE_QUERY_TO_GROUP.equals(actionName)) {
-                Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroupIdByName(actionArgs);
-                if (wgId == null) {
-                    throw new UserException(
-                            "can not find workload group " + actionArgs + " when set workload sched policy");
-                }
-                workloadActionMeta.actionArgs = wgId.toString();
-            }
-
+            // todo(wb) support move action
             WorkloadAction ret = WorkloadAction.createWorkloadAction(workloadActionMeta);
             policyActionList.add(ret);
         }
-        checkPolicyActionConflicts(policyActionList);
+
+        boolean feAction = checkPolicyAction(policyActionList);
+        if (feAction != feCondition) {
+            throw new UserException("action and metric must run in FE together or run in BE together");
+        }
 
         // 3 create policy
         Map<String, String> propMap = createStmt.getProperties();
@@ -190,6 +197,10 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                     throw new UserException("workload schedule policy " + policyName + " already exists ");
                 }
             }
+            if (idToPolicy.size() >= Config.workload_max_policy_num) {
+                throw new UserException(
+                        "workload scheduler policy num can not exceed " + Config.workload_max_policy_num);
+            }
             long id = Env.getCurrentEnv().getNextId();
             WorkloadSchedPolicy policy = new WorkloadSchedPolicy(id, policyName,
                     policyConditionList, policyActionList, propMap);
@@ -203,10 +214,51 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    private void checkPolicyActionConflicts(List<WorkloadAction> actionList) throws UserException {
+    private boolean checkPolicyCondition(List<WorkloadCondition> conditionList) throws UserException {
+        if (conditionList.size() > Config.workload_max_condition_num_in_policy) {
+            throw new UserException(
+                    "condition num in a policy can not exceed " + Config.workload_max_condition_num_in_policy);
+        }
+        boolean containsFeMetric = false;
+        boolean containsBeMetric = false;
+        for (WorkloadCondition cond : conditionList) {
+            if (FE_METRIC_SET.contains(cond.getMetricType())) {
+                containsFeMetric = true;
+            }
+            if (BE_METRIC_SET.contains(cond.getMetricType())) {
+                containsBeMetric = true;
+            }
+            if (containsFeMetric && containsBeMetric) {
+                throw new UserException(
+                        "one policy can not contains fe and be metric, FE metric list is " + FE_METRIC_SET
+                                + ", BE metric list is " + BE_METRIC_SET);
+            }
+        }
+        return containsFeMetric;
+    }
+
+    private boolean checkPolicyAction(List<WorkloadAction> actionList) throws UserException {
+        if (actionList.size() > Config.workload_max_action_num_in_policy) {
+            throw new UserException(
+                    "action num in one policy can not exceed " + Config.workload_max_action_num_in_policy);
+        }
+
         Set<WorkloadActionType> actionTypeSet = new HashSet<>();
         Set<String> setSessionVarSet = new HashSet<>();
+        boolean containsFeAction = false;
+        boolean containsBeAction = false;
         for (WorkloadAction action : actionList) {
+            if (FE_ACTION_SET.contains(action.getWorkloadActionType())) {
+                containsFeAction = true;
+            }
+            if (BE_ACTION_SET.contains(action.getWorkloadActionType())) {
+                containsBeAction = true;
+            }
+            if (containsFeAction && containsBeAction) {
+                throw new UserException(
+                        "one policy can not contains fe and be action, FE action list is " + FE_ACTION_SET
+                                + ", BE action list is " + BE_ACTION_SET);
+            }
             // set session var cmd can be duplicate, but args can not be duplicate
             if (action.getWorkloadActionType().equals(WorkloadActionType.SET_SESSION_VARIABLE)) {
                 WorkloadActionSetSessionVar setAction = (WorkloadActionSetSessionVar) action;
@@ -224,6 +276,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
             throw new UserException(String.format("%s and %s can not exist in one policy at same time",
                     WorkloadActionType.CANCEL_QUERY, WorkloadActionType.MOVE_QUERY_TO_GROUP));
         }
+        return containsFeAction;
     }
 
     public void execPolicy(List<WorkloadQueryInfo> queryInfoList) {
@@ -231,7 +284,11 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         Set<Long> policyIdSet = new HashSet<>();
         readLock();
         try {
-            policyIdSet.addAll(idToPolicy.keySet());
+            for (Map.Entry<Long, WorkloadSchedPolicy> entry : idToPolicy.entrySet()) {
+                if (entry.getValue().isFePolicy()) {
+                    policyIdSet.add(entry.getKey());
+                }
+            }
         } finally {
             readUnlock();
         }
@@ -410,6 +467,25 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
+    }
+
+    public List<TopicInfo> getPublishTopicInfoList() {
+        List<TopicInfo> topicInfoList = new ArrayList();
+        readLock();
+        try {
+            for (Map.Entry<Long, WorkloadSchedPolicy> entry : idToPolicy.entrySet()) {
+                if (entry.getValue().isFePolicy()) {
+                    continue;
+                }
+                TopicInfo tInfo = entry.getValue().toTopicInfo();
+                if (tInfo != null) {
+                    topicInfoList.add(tInfo);
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return topicInfoList;
     }
 
     public void replayCreateWorkloadSchedPolicy(WorkloadSchedPolicy policy) {

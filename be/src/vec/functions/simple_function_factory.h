@@ -48,6 +48,8 @@ void register_function_multiply(SimpleFunctionFactory& factory);
 void register_function_divide(SimpleFunctionFactory& factory);
 void register_function_int_div(SimpleFunctionFactory& factory);
 void register_function_bit(SimpleFunctionFactory& factory);
+void register_function_bit_count(SimpleFunctionFactory& factory);
+void register_function_bit_shift(SimpleFunctionFactory& factory);
 void register_function_math(SimpleFunctionFactory& factory);
 void register_function_modulo(SimpleFunctionFactory& factory);
 void register_function_bitmap(SimpleFunctionFactory& factory);
@@ -63,6 +65,7 @@ void register_function_running_difference(SimpleFunctionFactory& factory);
 void register_function_date_time_to_string(SimpleFunctionFactory& factory);
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory);
 void register_function_in(SimpleFunctionFactory& factory);
+void register_function_struct_in(SimpleFunctionFactory& factory);
 void register_function_if(SimpleFunctionFactory& factory);
 void register_function_nullif(SimpleFunctionFactory& factory);
 void register_function_date_time_computation(SimpleFunctionFactory& factory);
@@ -88,6 +91,7 @@ void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
 void register_function_struct_element(SimpleFunctionFactory& factory);
+void register_function_variant_element(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -176,8 +180,12 @@ public:
 
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
-            LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
-            return nullptr;
+            // use original name as signature without variadic arguments
+            iter = function_creators.find(name);
+            if (iter == function_creators.end()) {
+                LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
+                return nullptr;
+            }
         }
 
         return iter->second()->build(arguments, return_type);
@@ -229,6 +237,8 @@ public:
             register_function_int_div(instance);
             register_function_modulo(instance);
             register_function_bit(instance);
+            register_function_bit_count(instance);
+            register_function_bit_shift(instance);
             register_function_is_null(instance);
             register_function_is_not_null(instance);
             register_function_nullables(instance);
@@ -236,6 +246,7 @@ public:
             register_function_time_of_function(instance);
             register_function_string(instance);
             register_function_in(instance);
+            register_function_struct_in(instance);
             register_function_if(instance);
             register_function_nullif(instance);
             register_function_date_time_computation(instance);
@@ -276,6 +287,7 @@ public:
             register_function_ip(instance);
             register_function_tokenize(instance);
             register_function_ignore(instance);
+            register_function_variant_element(instance);
         });
         return instance;
     }

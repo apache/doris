@@ -19,17 +19,24 @@
 
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
+#include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/storage_policy.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
 
 namespace doris {
 
-RowsetMeta::~RowsetMeta() = default;
+RowsetMeta::~RowsetMeta() {
+    if (_handle) {
+        TabletSchemaCache::instance()->release(_handle);
+    }
+}
 
 bool RowsetMeta::init(const std::string& pb_rowset_meta) {
     bool ret = _deserialize_from_pb(pb_rowset_meta);
@@ -40,16 +47,21 @@ bool RowsetMeta::init(const std::string& pb_rowset_meta) {
     return true;
 }
 
+bool RowsetMeta::init(const RowsetMeta* rowset_meta) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta->to_rowset_pb(&rowset_meta_pb);
+    return init_from_pb(rowset_meta_pb);
+}
+
 bool RowsetMeta::init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
     if (rowset_meta_pb.has_tablet_schema()) {
-        _schema = TabletSchemaCache::instance()->insert(
-                rowset_meta_pb.tablet_schema().SerializeAsString());
+        set_tablet_schema(rowset_meta_pb.tablet_schema());
     }
     // Release ownership of TabletSchemaPB from `rowset_meta_pb` and then set it back to `rowset_meta_pb`,
     // this won't break const semantics of `rowset_meta_pb`, because `rowset_meta_pb` is not changed
     // before and after call this method.
     auto& mut_rowset_meta_pb = const_cast<RowsetMetaPB&>(rowset_meta_pb);
-    auto schema = mut_rowset_meta_pb.release_tablet_schema();
+    auto* schema = mut_rowset_meta_pb.release_tablet_schema();
     _rowset_meta_pb = mut_rowset_meta_pb;
     mut_rowset_meta_pb.set_allocated_tablet_schema(schema);
     _init();
@@ -91,23 +103,45 @@ void RowsetMeta::set_fs(io::FileSystemSPtr fs) {
     _fs = std::move(fs);
 }
 
-void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb) const {
-    *rs_meta_pb = _rowset_meta_pb;
-    if (_schema) {
-        _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
-    }
+bool RowsetMeta::has_variant_type_in_schema() const {
+    return _schema && _schema->num_variant_columns() > 0;
 }
 
-RowsetMetaPB RowsetMeta::get_rowset_pb() {
-    RowsetMetaPB rowset_meta_pb = _rowset_meta_pb;
-    if (_schema) {
-        _schema->to_schema_pb(rowset_meta_pb.mutable_tablet_schema());
+void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema) const {
+    *rs_meta_pb = _rowset_meta_pb;
+    if (_schema) [[likely]] {
+        rs_meta_pb->set_schema_version(_schema->schema_version());
+        if (!skip_schema) {
+            // For cloud, separate tablet schema from rowset meta to reduce persistent size.
+            _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
+        }
     }
+    rs_meta_pb->set_has_variant_type_in_schema(has_variant_type_in_schema());
+}
+
+RowsetMetaPB RowsetMeta::get_rowset_pb(bool skip_schema) const {
+    RowsetMetaPB rowset_meta_pb;
+    to_rowset_pb(&rowset_meta_pb, skip_schema);
     return rowset_meta_pb;
 }
 
 void RowsetMeta::set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
-    _schema = TabletSchemaCache::instance()->insert(tablet_schema->to_key());
+    if (_handle) {
+        TabletSchemaCache::instance()->release(_handle);
+    }
+    auto pair = TabletSchemaCache::instance()->insert(tablet_schema->to_key());
+    _handle = pair.first;
+    _schema = pair.second;
+}
+
+void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
+    if (_handle) {
+        TabletSchemaCache::instance()->release(_handle);
+    }
+    auto pair = TabletSchemaCache::instance()->insert(
+            TabletSchema::deterministic_string_serialize(tablet_schema));
+    _handle = pair.first;
+    _schema = pair.second;
 }
 
 bool RowsetMeta::_deserialize_from_pb(const std::string& value) {
@@ -116,8 +150,7 @@ bool RowsetMeta::_deserialize_from_pb(const std::string& value) {
         return false;
     }
     if (rowset_meta_pb.has_tablet_schema()) {
-        _schema = TabletSchemaCache::instance()->insert(
-                rowset_meta_pb.tablet_schema().SerializeAsString());
+        set_tablet_schema(rowset_meta_pb.tablet_schema());
         rowset_meta_pb.clear_tablet_schema();
     }
     _rowset_meta_pb = rowset_meta_pb;

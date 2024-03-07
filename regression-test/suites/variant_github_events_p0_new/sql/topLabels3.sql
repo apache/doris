@@ -1,4 +1,4 @@
--- SELECT
+-- SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
 --     sum(bug) AS bugs,
 --     sum(feature) AS feature,
 --     sum(bug) / sum(feature) AS ratio

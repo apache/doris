@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -47,6 +46,7 @@ public class ShowIndexStmt extends ShowStmt {
                     .addColumn(new Column("Index_type", ScalarType.createVarchar(80)))
                     .addColumn(new Column("Comment", ScalarType.createVarchar(80)))
                     .addColumn(new Column("Properties", ScalarType.createVarchar(200)))
+                    .addColumn(new Column("Index_id", ScalarType.createVarchar(30)))
                     .build();
     private String dbName;
     private TableName tableName;
@@ -70,13 +70,11 @@ public class ShowIndexStmt extends ShowStmt {
             tableName.setDb(dbName);
         }
         tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
-                ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
-                    tableName.getDb() + ": " + tableName.toString());
+                ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW INDEX",
+                    analyzer.getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableName.toSql());
         }
     }
 

@@ -10,7 +10,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalOlapScan[t1]
 --------PhysicalOlapScan[t2]
 
 -- !limit_sort_semi_join --
@@ -18,7 +18,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalOlapScan[t1]
 --------PhysicalOlapScan[t2]
 
 -- !right_semi_join_order --
@@ -67,8 +67,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
-------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t1] apply RFs: RF0
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalOlapScan[t2]
@@ -88,7 +88,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalOlapScan[t1]
 --------PhysicalOlapScan[t2]
 
 -- !limit_sort_agg_having --
@@ -119,7 +119,11 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalOlapScan[t1]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[GLOBAL]
+------------------hashAgg[LOCAL]
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 
 -- !limit_distinct --
@@ -129,7 +133,11 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalOlapScan[t1]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[GLOBAL]
+------------------hashAgg[LOCAL]
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 
 -- !limit_distinct --
@@ -301,9 +309,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.id > 100))
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 --------filter((t2.id > 100))
 ----------PhysicalOlapScan[t2]
 
@@ -325,7 +333,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalOlapScan[t1]
 --------PhysicalOlapScan[t2]
 
 -- !limit_subquery_window --
@@ -389,9 +397,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.id > 100))
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 --------filter((t2.id > 100))
 ----------PhysicalOlapScan[t2]
 
@@ -427,8 +435,8 @@ PhysicalResultSink
 ------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------PhysicalOlapScan[t1]
 --------------PhysicalOlapScan[t2]
-------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=() build RFs:RF1 id->[id]
---------------PhysicalOlapScan[t3] apply RFs: RF1
+------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
+--------------PhysicalOlapScan[t3]
 --------------PhysicalOlapScan[t4]
 
 -- !limit_subquery_union_window --
@@ -537,9 +545,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.id > 100))
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 --------filter((t2.id > 100))
 ----------PhysicalOlapScan[t2]
 
@@ -548,7 +556,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalOlapScan[t1]
 --------PhysicalOlapScan[t2]
 
 -- !limit_subquery_window --
@@ -603,7 +611,7 @@ PhysicalResultSink
 ----PhysicalTopN[LOCAL_SORT]
 ------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 --------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+----------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t2]
 --------PhysicalOlapScan[t3]
 
@@ -633,7 +641,7 @@ PhysicalResultSink
 ----PhysicalTopN[LOCAL_SORT]
 ------hashJoin[INNER_JOIN] hashCondition=((subq.id = t3.id)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((subq.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+----------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t2]
 --------PhysicalOlapScan[t3]
 
@@ -643,7 +651,7 @@ PhysicalResultSink
 ----PhysicalTopN[LOCAL_SORT]
 ------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t3.id)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+----------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t2]
 --------PhysicalOlapScan[t3]
 
@@ -654,7 +662,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t3.id)) otherCondition=()
 ----------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t2.id)) otherCondition=()
-------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 ----------PhysicalOlapScan[t3]
 
@@ -663,10 +671,10 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
-----------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t3.id)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t2.id)) otherCondition=()
 ------------filter((t1.id > 100))
---------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+--------------PhysicalOlapScan[t1]
 ------------filter((t2.id > 100))
 --------------PhysicalOlapScan[t2]
 ----------filter((t3.id > 100))

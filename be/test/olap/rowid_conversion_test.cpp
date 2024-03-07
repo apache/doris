@@ -65,7 +65,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* k_engine = nullptr;
+static StorageEngine* engine_ref = nullptr;
 
 class TestRowIdConversion : public testing::TestWithParam<std::tuple<KeysType, bool, bool, bool>> {
 protected:
@@ -73,23 +73,23 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
         doris::EngineOptions options;
-        k_engine = new StorageEngine(options);
-        ExecEnv::GetInstance()->set_storage_engine(k_engine);
+        auto engine = std::make_unique<StorageEngine>(options);
+        engine_ref = engine.get();
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
     }
 
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-            ExecEnv::GetInstance()->set_storage_engine(nullptr);
-        }
+        engine_ref = nullptr;
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
@@ -186,9 +186,9 @@ protected:
         }
         auto writer_context = create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX,
                                                            {version, version});
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
-        EXPECT_TRUE(s.ok());
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
@@ -206,7 +206,7 @@ protected:
                 }
                 num_rows++;
             }
-            s = rowset_writer->add_block(&block);
+            auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_TRUE(s.ok());
@@ -277,7 +277,7 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
+        TabletSharedPtr tablet(new Tablet(*engine_ref, tablet_meta, nullptr));
         static_cast<void>(tablet->init());
         return tablet;
     }
@@ -326,14 +326,11 @@ protected:
         // create output rowset writer
         auto writer_context = create_rowset_writer_context(
                 tablet_schema, NONOVERLAPPING, 3456, {0, input_rowsets.back()->end_version()});
-        std::unique_ptr<RowsetWriter> output_rs_writer;
-        Status s;
-        if (is_vertical_merger) {
-            s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
-        } else {
-            s = RowsetFactory::create_rowset_writer(writer_context, false, &output_rs_writer);
-        }
-        ASSERT_TRUE(s.ok()) << s;
+
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context,
+                                                       is_vertical_merger);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto output_rs_writer = std::move(res).value();
 
         // merge input rowset
         TabletSharedPtr tablet = create_tablet(*tablet_schema, enable_unique_key_merge_on_write);
@@ -349,12 +346,13 @@ protected:
         Merger::Statistics stats;
         RowIdConversion rowid_conversion;
         stats.rowid_conversion = &rowid_conversion;
+        Status s;
         if (is_vertical_merger) {
             s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
-                                               tablet_schema, input_rs_readers,
+                                               *tablet_schema, input_rs_readers,
                                                output_rs_writer.get(), 10000000, &stats);
         } else {
-            s = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
+            s = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), &stats);
         }
         EXPECT_TRUE(s.ok());

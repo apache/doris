@@ -39,15 +39,13 @@ public:
               _num_senders(running_sink_operators),
               _num_sources(num_sources) {}
     virtual ~Exchanger() = default;
-    virtual Status get_block(RuntimeState* state, vectorized::Block* block,
-                             SourceState& source_state,
+    virtual Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                              LocalExchangeSourceLocalState& local_state) = 0;
-    virtual Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
+    virtual Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                         LocalExchangeSinkLocalState& local_state) = 0;
     virtual ExchangeType get_type() const = 0;
 
 protected:
-    friend struct LocalExchangeSourceDependency;
     friend struct LocalExchangeSharedState;
     friend struct ShuffleBlockWrapper;
     friend class LocalExchangeSourceLocalState;
@@ -89,10 +87,10 @@ public:
         _data_queue.resize(num_partitions);
     }
     ~ShuffleExchanger() override = default;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                 LocalExchangeSinkLocalState& local_state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, SourceState& source_state,
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
@@ -104,7 +102,7 @@ protected:
         _data_queue.resize(num_partitions);
     }
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, SourceState source_state,
+                       vectorized::Block* block, bool eos,
                        LocalExchangeSinkLocalState& local_state);
 
     std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> _data_queue;
@@ -130,10 +128,10 @@ public:
         _data_queue.resize(num_partitions);
     }
     ~PassthroughExchanger() override = default;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                 LocalExchangeSinkLocalState& local_state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, SourceState& source_state,
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::PASSTHROUGH; }
 
@@ -149,10 +147,10 @@ public:
         _data_queue.resize(num_partitions);
     }
     ~PassToOneExchanger() override = default;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                 LocalExchangeSinkLocalState& local_state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, SourceState& source_state,
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::PASS_TO_ONE; }
 
@@ -168,10 +166,10 @@ public:
         _data_queue.resize(num_partitions);
     }
     ~BroadcastExchanger() override = default;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                 LocalExchangeSinkLocalState& local_state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, SourceState& source_state,
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::BROADCAST; }
 
@@ -183,38 +181,27 @@ private:
 // a copy of ShuffleExchanger and PassthroughExchanger.
 class AdaptivePassthroughExchanger : public Exchanger {
 public:
-    using PartitionedBlock =
-            std::pair<std::shared_ptr<ShuffleBlockWrapper>,
-                      std::tuple<std::shared_ptr<std::vector<uint32_t>>, size_t, size_t>>;
     ENABLE_FACTORY_CREATOR(AdaptivePassthroughExchanger);
     AdaptivePassthroughExchanger(int running_sink_operators, int num_partitions)
             : Exchanger(running_sink_operators, num_partitions) {
-        _passthrough_data_queue.resize(num_partitions);
-        _shuffle_data_queue.resize(num_partitions);
+        _data_queue.resize(num_partitions);
     }
-    Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                 LocalExchangeSinkLocalState& local_state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, SourceState& source_state,
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::ADAPTIVE_PASSTHROUGH; }
 
 private:
-    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block,
-                             SourceState source_state, LocalExchangeSinkLocalState& local_state);
-    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
+    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+                             LocalExchangeSinkLocalState& local_state);
+    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                          LocalExchangeSinkLocalState& local_state);
-
-    bool _passthrough_get_block(RuntimeState* state, vectorized::Block* block,
-                                SourceState& source_state,
-                                LocalExchangeSourceLocalState& local_state);
-    bool _shuffle_get_block(RuntimeState* state, vectorized::Block* block,
-                            SourceState& source_state, LocalExchangeSourceLocalState& local_state);
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, SourceState source_state,
+                       vectorized::Block* block, bool eos,
                        LocalExchangeSinkLocalState& local_state);
-    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _passthrough_data_queue;
-    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> _shuffle_data_queue;
+    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
 
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;

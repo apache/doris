@@ -2,10 +2,10 @@
 -- !select --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
@@ -15,23 +15,23 @@ PhysicalResultSink
 ------------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
-------------------------------PhysicalDistribute
+------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[orders]
-------------------------------PhysicalDistribute
+------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------filter((p_name like '%green%'))
 ------------------------------------PhysicalOlapScan[part]
---------------------------PhysicalDistribute
+--------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[partsupp]
-----------------------PhysicalDistribute
+----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[supplier]
-------------------PhysicalDistribute
+------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[nation]
 

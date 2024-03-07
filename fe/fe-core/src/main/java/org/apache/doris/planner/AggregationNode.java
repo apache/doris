@@ -205,8 +205,10 @@ public class AggregationNode extends PlanNode {
         for (Expr groupingExpr : groupingExprs) {
             long numDistinct = groupingExpr.getNumDistinctValues();
             // TODO: remove these before 1.0
-            LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
-                    numDistinct));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
+                        numDistinct));
+            }
             if (numDistinct == -1) {
                 cardinality = -1;
                 break;
@@ -214,16 +216,22 @@ public class AggregationNode extends PlanNode {
             cardinality *= numDistinct;
         }
         // take HAVING predicate into account
-        LOG.debug("Agg: cardinality=" + Long.toString(cardinality));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Agg: cardinality=" + Long.toString(cardinality));
+        }
         if (cardinality > 0) {
             cardinality = Math.round((double) cardinality * computeOldSelectivity());
-            LOG.debug("sel=" + Double.toString(computeOldSelectivity()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("sel=" + Double.toString(computeOldSelectivity()));
+            }
         }
         // if we ended up with an overflow, the estimate is certain to be wrong
         if (cardinality < 0) {
             cardinality = -1;
         }
-        LOG.debug("stats Agg: cardinality=" + Long.toString(cardinality));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats Agg: cardinality=" + Long.toString(cardinality));
+        }
     }
 
     private void updateplanNodeName() {
@@ -374,6 +382,7 @@ public class AggregationNode extends PlanNode {
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         for (int i = 0; i < groupingExprs.size(); i++) {
             aggInfo.getOutputTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
+            aggInfo.getIntermediateTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
             aggInfo.getOutputTupleDesc().computeMemLayout();
         }
     }

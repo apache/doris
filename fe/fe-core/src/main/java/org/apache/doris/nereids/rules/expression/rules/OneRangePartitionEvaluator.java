@@ -458,7 +458,7 @@ public class OneRangePartitionEvaluator
     @Override
     public EvaluateRangeResult visitNot(Not not, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(not, context);
-        if (result.isRejectNot()) {
+        if (result.isRejectNot() && !result.result.equals(BooleanLiteral.TRUE)) {
             Map<Slot, ColumnRange> newRanges = Maps.newHashMap();
             for (Map.Entry<Slot, ColumnRange> entry : result.childrenResult.get(0).columnRanges.entrySet()) {
                 Slot slot = entry.getKey();

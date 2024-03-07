@@ -76,7 +76,7 @@ Status VStatisticsIterator::next_batch(Block* block) {
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
             for (int i = 0; i < columns.size(); ++i) {
-                columns[i]->resize(size);
+                columns[i]->insert_many_defaults(size);
             }
         } else {
             for (int i = 0; i < columns.size(); ++i) {
@@ -292,7 +292,7 @@ Status VMergeIteratorContext::_load_next_block() {
         }
         for (auto it = _block_list.begin(); it != _block_list.end(); it++) {
             if (it->use_count() == 1) {
-                static_cast<void>(block_reset(*it));
+                RETURN_IF_ERROR(block_reset(*it));
                 _block = *it;
                 _block_list.erase(it);
                 break;
@@ -300,7 +300,7 @@ Status VMergeIteratorContext::_load_next_block() {
         }
         if (_block == nullptr) {
             _block = std::make_shared<Block>();
-            static_cast<void>(block_reset(_block));
+            RETURN_IF_ERROR(block_reset(_block));
         }
         Status st = _iter->next_batch(_block.get());
         if (!st.ok()) {

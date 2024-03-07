@@ -17,6 +17,13 @@
 
 version: "3"
 
+networks:
+  doris--kafka--network:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.45.0.0/24
+
 services:
     doris--zookeeper:
         image: wurstmeister/zookeeper
@@ -24,6 +31,8 @@ services:
         container_name: doris--zookeeper
         ports:
             - ${DOCKER_ZOOKEEPER_EXTERNAL_PORT}:2181
+        networks:
+            - doris--kafka--network
     doris--kafka:
         image: wurstmeister/kafka 
         restart: always
@@ -39,4 +48,5 @@ services:
             KAFKA_BROKER_ID: 1
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
-            
+        networks:
+            - doris--kafka--network

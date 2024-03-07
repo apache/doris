@@ -16,4 +16,7 @@
 -- under the License.
 
 create database doris_test;
+create database DORIS;
+create database Doris;
+create database doris;
 create database show_test_do_not_modify;

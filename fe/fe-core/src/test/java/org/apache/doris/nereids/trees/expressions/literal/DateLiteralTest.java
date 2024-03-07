@@ -28,14 +28,6 @@ import java.util.function.Consumer;
 class DateLiteralTest {
     @Test
     void reject() {
-        // TODO: reject them.
-        // Now parse them as date + offset.
-        // PG parse them as date + offset, MySQL parse them as date + time (rubbish behavior!)
-        // So strange! reject these strange case.
-        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01-01"));
-        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01-1"));
-        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01+01"));
-        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01+1"));
         Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01 01:00:00.000000"));
         Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01 00:01:00.000000"));
         Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01 00:00:01.000000"));
@@ -212,6 +204,12 @@ class DateLiteralTest {
         new DateLiteral("2020.02.01 00.00.00");
         new DateTimeV2Literal("2020.02.01 00.00.00.1");
         new DateTimeV2Literal("2020.02.01 00.00.00.000001");
-        Assertions.assertThrows(AnalysisException.class, () -> new DateTimeV2Literal("2020.02.01 00.00.00.0000001"));
+        new DateTimeV2Literal("2020.02.01 00.00.00.0000001");
+    }
+
+    @Test
+    void testSuffixSpace() {
+        new DateLiteral("2016-07-02  ");
+        new DateLiteral("2016-07-02 00:00:00  ");
     }
 }

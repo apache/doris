@@ -63,7 +63,7 @@ namespace doris::vectorized {
 class ColumnConst final : public COWHelper<IColumn, ColumnConst> {
 private:
     friend class COWHelper<IColumn, ColumnConst>;
-
+    using Self = ColumnConst;
     WrappedPtr data;
     size_t s;
 
@@ -73,7 +73,9 @@ private:
 public:
     ColumnPtr convert_to_full_column() const;
 
-    ColumnPtr convert_to_full_column_if_const() const override { return convert_to_full_column(); }
+    ColumnPtr convert_to_full_column_if_const() const override {
+        return convert_to_full_column()->convert_to_full_column_if_const();
+    }
 
     ColumnPtr remove_low_cardinality() const;
 
@@ -175,9 +177,6 @@ public:
         data->update_hash_with_value(0, hash);
     }
 
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
-
     // (TODO.Amory) here may not use column_const update hash, and PrimitiveType is not used.
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset = 0,
@@ -190,7 +189,7 @@ public:
     size_t filter(const Filter& filter) override;
 
     ColumnPtr replicate(const Offsets& offsets) const override;
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
+
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -223,7 +222,7 @@ public:
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
+        assert_cast<Self&>(*res).resize(selector.size());
     }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }

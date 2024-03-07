@@ -30,7 +30,7 @@ suite("nereids_tvf") {
     """
 
     sql """
-        select QueryId from queries() where `Sql` like "%test_queries_tvf%";
+        select QueryId from active_queries() where `Sql` like "%test_queries_tvf%";
     """
 
     sql """

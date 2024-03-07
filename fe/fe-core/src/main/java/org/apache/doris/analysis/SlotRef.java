@@ -21,8 +21,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -91,7 +94,7 @@ public class SlotRef extends Expr {
         this.desc = desc;
         this.type = desc.getType();
         // TODO(zc): label is meaningful
-        this.label = null;
+        this.label = desc.getLabel();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
@@ -163,6 +166,10 @@ public class SlotRef extends Expr {
         this.desc = desc;
     }
 
+    public void setAnalyzed(boolean analyzed) {
+        isAnalyzed = analyzed;
+    }
+
     public boolean columnEqual(Expr srcExpr) {
         Preconditions.checkState(srcExpr instanceof SlotRef);
         SlotRef srcSlotRef = (SlotRef) srcExpr;
@@ -208,7 +215,9 @@ public class SlotRef extends Expr {
     @Override
     public void computeOutputColumn(Analyzer analyzer) {
         outputColumn = desc.getSlotOffset();
-        LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        }
     }
 
     @Override
@@ -246,12 +255,8 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (needToMysql) {
-            if (col != null) {
-                return col;
-            } else {
-                return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
-            }
+        if (needExternalSql) {
+            return toExternalSqlImpl();
         }
 
         if (disableTableName && label != null) {
@@ -259,9 +264,12 @@ public class SlotRef extends Expr {
         }
 
         StringBuilder sb = new StringBuilder();
-
+        String subColumnPaths = "";
+        if (subColPath != null && !subColPath.isEmpty()) {
+            subColumnPaths = "." + String.join(".", subColPath);
+        }
         if (tblName != null) {
-            return tblName.toSql() + "." + label;
+            return tblName.toSql() + "." + label + subColumnPaths;
         } else if (label != null) {
             if (ConnectContext.get() != null
                     && ConnectContext.get().getState().isNereids()
@@ -293,6 +301,26 @@ public class SlotRef extends Expr {
             return sb.toString();
         } else {
             return "<slot " + desc.getId().asInt() + ">" + sb.toString();
+        }
+    }
+
+    private String toExternalSqlImpl() {
+        if (col != null) {
+            if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
+                    .equals(TableType.ODBC)) {
+                if (inputTable instanceof JdbcTable) {
+                    return ((JdbcTable) inputTable).getProperRemoteColumnName(
+                            ((JdbcTable) inputTable).getJdbcTableType(), col);
+                } else if (inputTable instanceof OdbcTable) {
+                    return JdbcTable.databaseProperName(((OdbcTable) inputTable).getOdbcTableType(), col);
+                } else {
+                    return col;
+                }
+            } else {
+                return col;
+            }
+        } else {
+            return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
         }
     }
 

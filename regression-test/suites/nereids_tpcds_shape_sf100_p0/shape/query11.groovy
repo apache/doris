@@ -29,6 +29,7 @@ suite("query11") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
     def ds = """with year_total as (
  select c_customer_id customer_id
        ,c_first_name customer_first_name

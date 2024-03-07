@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
@@ -64,23 +63,31 @@ public class TabletStatMgr extends MasterDaemon {
                     address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                     client = ClientPool.backendPool.borrowObject(address);
                     TTabletStatResult result = client.getTabletStat();
-                    LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(),
-                            result.getTabletsStatsSize());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(),
+                                result.getTabletsStatsSize());
+                    }
                     updateTabletStat(backend.getId(), result);
                     ok = true;
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     LOG.warn("task exec error. backend[{}]", backend.getId(), e);
-                } finally {
+                }
+
+                try {
                     if (ok) {
                         ClientPool.backendPool.returnObject(address, client);
                     } else {
                         ClientPool.backendPool.invalidateObject(address, client);
                     }
+                } catch (Throwable e) {
+                    LOG.warn("client pool recyle error. backend[{}]", backend.getId(), e);
                 }
             });
         }).join();
-        LOG.debug("finished to get tablet stat of all backends. cost: {} ms",
-                (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("finished to get tablet stat of all backends. cost: {} ms",
+                    (System.currentTimeMillis() - start));
+        }
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
@@ -92,7 +99,8 @@ public class TabletStatMgr extends MasterDaemon {
             }
             List<Table> tableList = db.getTables();
             for (Table table : tableList) {
-                if (table.getType() != TableType.OLAP) {
+                // Will process OlapTable and MTMV
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
@@ -123,8 +131,10 @@ public class TabletStatMgr extends MasterDaemon {
                             index.setRowCount(indexRowCount);
                         } // end for indices
                     } // end for partitions
-                    LOG.debug("finished to set row num for table: {} in database: {}",
-                             table.getName(), db.getFullName());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("finished to set row num for table: {} in database: {}",
+                                 table.getName(), db.getFullName());
+                    }
                 } finally {
                     table.writeUnlock();
                 }

@@ -63,7 +63,7 @@ public class CancelExportStmtTest extends TestWithFeService {
                 labelStringLiteral);
         CancelExportStmt stmt = new CancelExportStmt(null, labelBinaryPredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE `label` = 'doris_test_label'",
+        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label')",
                 stmt.toString());
 
         SlotRef labelSlotRefUpper = new SlotRef(null, "LABEL");
@@ -71,7 +71,7 @@ public class CancelExportStmtTest extends TestWithFeService {
                 labelStringLiteral);
         CancelExportStmt stmtUpper = new CancelExportStmt(null, labelBinaryPredicateUpper);
         stmtUpper.analyze(analyzer);
-        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE `LABEL` = 'doris_test_label'",
+        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE (`LABEL` = 'doris_test_label')",
                 stmtUpper.toString());
 
         StringLiteral stateStringLiteral = new StringLiteral("PENDING");
@@ -79,7 +79,7 @@ public class CancelExportStmtTest extends TestWithFeService {
                 stateStringLiteral);
         stmt = new CancelExportStmt(null, stateBinaryPredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE `state` = 'PENDING'", stmt.toString());
+        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE (`state` = 'PENDING')", stmt.toString());
 
         LikePredicate labelLikePredicate = new LikePredicate(LikePredicate.Operator.LIKE, labelSlotRef,
                 labelStringLiteral);
@@ -93,7 +93,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt = new CancelExportStmt(null, compoundAndPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL EXPORT FROM testDb WHERE `label` = 'doris_test_label' AND `state` = 'PENDING'",
+                "CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label') AND (`state` = 'PENDING')",
                 stmt.toString());
 
         CompoundPredicate compoundOrPredicate = new CompoundPredicate(Operator.OR, labelBinaryPredicate,
@@ -101,7 +101,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt = new CancelExportStmt(null, compoundOrPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL EXPORT FROM testDb WHERE `label` = 'doris_test_label' OR `state` = 'PENDING'",
+                "CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label') OR (`state` = 'PENDING')",
                 stmt.toString());
     }
 
@@ -351,4 +351,3 @@ public class CancelExportStmtTest extends TestWithFeService {
         Assert.assertTrue(job8.getState() == ExportJobState.CANCELLED);
     }
 }
-

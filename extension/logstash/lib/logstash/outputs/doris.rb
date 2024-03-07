@@ -68,6 +68,20 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    config :timezone, :validate => :string, :default => ""
    # memory limit of a stream load
    config :exec_mem_limit, :validate => :number, :default => -1
+   # Specify the format of imported data, csv and json are supported.
+   config :format, :validate => ['csv', 'json', 'csv_with_names', 'csv_with_names_and_types', 'parquet', 'orc'], :default => "csv"
+   # jsonpaths example: jsonpaths => ["$.id", "$.type", "$.actor.id", "$.actor.login"]
+   config :jsonpaths, :validate => :array, :default => []
+   # Specify the root node of the json document
+   config :json_root, :validate => :string, :default => ""
+   # Boolean, true means the json will be parsed in the first row of the schema, turn on this option to improve the efficiency of json importing.
+   config :fuzzy_parse, :validate => :boolean, :default => false
+   # Parse json data converts numeric types to strings.
+   config :num_as_string, :validate => :boolean, :default => false
+   # true means support for reading one json object per line
+   config :read_json_by_line, :validate => :boolean, :default => false
+   #  
+
 
    # Custom headers to use
    # format is `headers => ["X-My-Header", "%{host}"]`
@@ -287,6 +301,13 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       if @columns != ""
           headers["columns"] ||= @columns
       end
+      headers["format"] = @format if @format != ""
+      headers["jsonpaths"] = @jsonpaths if @jsonpaths != []
+      headers["json_root"] = @json_root if @json_root != ""
+      headers["fuzzy_parse"] = @fuzzy_parse if @fuzzy_parse != ""
+      headers["num_as_string"] = @num_as_string if @num_as_string != ""
+      headers["read_json_by_line"] = @read_json_by_line if @read_json_by_line != ""
+  
       headers
    end
 end # end of class LogStash::Outputs::Doris

@@ -27,7 +27,7 @@ under the License.
 
 # Installation and Deployment
 
-This topic is about the hardware and software environment needed to deploy Doris, the recommended deployment mode, cluster scaling, and common problems occur in creating and running clusters.
+This topic is about the hardware and software environment needed to deploy Doris, the recommended deployment mode, cluster scaling, and common problems occuring when creating and running clusters.
 
 Before continue reading, you might want to compile Doris following the instructions in the [Compile](https://doris.apache.org/docs/dev/install/source-install/compilation-general/) topic.
 
@@ -35,7 +35,7 @@ Before continue reading, you might want to compile Doris following the instructi
 
 ### Overview
 
-Doris, as an open source OLAP database with an MPP architecture, can run on most mainstream commercial servers. For you to take full advantage of the high concurrency and high availability of Doris, we recommend that your computer meet the following requirements:
+Doris, an open source OLAP database with an MPP architecture, can run on most mainstream commercial servers. For you to take full advantage of the high concurrency and high availability of Doris, we recommend that your computer meet the following requirements:
 
 #### Linux Operating System Version Requirements
 
@@ -48,7 +48,7 @@ Doris, as an open source OLAP database with an MPP architecture, can run on most
 
 | Soft | Version | 
 |---|---|
-| Java | 1.8  |
+| Java | 1.8 (exact)  |
 | GCC  | 4.8.2 and above |
 
 #### OS Installation Requirements
@@ -77,15 +77,15 @@ Both ext4 and xfs file systems are supported.
 
 | Module | CPU | Memory | Disk | Network | Number of Instances |
 |---|---|---|---|---|---|
-| Frontend | 8 core + | 8GB + | SSD or SATA, 10GB + * | Gigabit Network Card | 1|
+| Frontend | 8 core + | 8GB + | SSD or SATA, 10GB + * | Gigabit Network Card | 1 |
 | Backend | 8 core + | 16GB + | SSD or SATA, 50GB + * | Gigabit Network Card | 1-3*|
 
 #### Production Environment
 
 | Module | CPU | Memory | Disk | Network | Number of Instances (Minimum Requirements) |
 |---|---|---|---|---|--------------------------------------------|
-| Frontend | 16 core + | 64GB + | SSD or RAID card, 100GB + * | 10,000 Mbp network card | 1-3*                                       |
-| Backend | 16 core + | 64GB + | SSD or SATA, 100G + * | 10-100 Mbp network card | 3 *                                        |
+| Frontend | 16 core + | 64GB + | SSD or RAID card, 100GB + * | 10,000 Mbp network card | 1-3* |
+| Backend | 16 core + | 64GB + | SSD or SATA, 100G + * | 10-100 Mbp network card | 3 * |
 
 > Note 1:
 > 
@@ -98,7 +98,7 @@ Both ext4 and xfs file systems are supported.
 > Note 2: Number of FE nodes
 > 
 > 1. FE nodes are divided into Followers and Observers based on their roles. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, too.)
-> 2. The number of FE nodes should be at least 1 (1 Follower). If you deploy 1 Follower and 1 Observer, you can achieve high read availability; if you deploy 3 Followers, you can achieve high read-write  availability (HA).
+> 2. The number of FE nodes should be at least 1 (1 Follower). If you deploy 1 Follower and 1 Observer, you can achieve high read availability; if you deploy 3 Followers, you can achieve high read-write availability (HA).
 > 3. Although multiple BEs can be deployed on one machine, **only one instance** is recommended to be deployed, and **only one FE** can be deployed at the same time. If 3 copies of data are required, at least 3 machines are required to deploy a BE instance (instead of 1 machine deploying 3 BE instances). **The clocks of the servers where multiple FEs are located must be consistent (up to 5 seconds of clock deviation is allowed)**.
 > 4. According to past experience, for business that requires high cluster availability (e.g. online service providers), we recommend that you deploy 3 Followers and 1-3 Observers; for offline business, we recommend that you deploy 1 Follower and 1-3 Observers.
 

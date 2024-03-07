@@ -20,8 +20,9 @@
 
 #pragma once
 
-#include <string.h>
-
+#include <bit>
+#include <cstdint>
+#include <cstring>
 #include <type_traits>
 
 template <typename T>
@@ -39,4 +40,32 @@ template <typename T>
 void unaligned_store(void* address, const typename std::enable_if<true, T>::type& src) {
     static_assert(std::is_trivially_copyable_v<T>);
     memcpy(address, &src, sizeof(src));
+}
+
+inline void reverse_memcpy(void* dst, const void* src, size_t size) {
+    uint8_t* uint_dst = reinterpret_cast<uint8_t*>(dst) + size; // Perform addition here
+    const uint8_t* uint_src = reinterpret_cast<const uint8_t*>(src);
+
+    while (size) {
+        --uint_dst;
+        *uint_dst = *uint_src;
+        ++uint_src;
+        --size;
+    }
+}
+
+template <std::endian endian, typename T>
+inline T unaligned_load_endian(const void* address) {
+    T res {};
+    if constexpr (std::endian::native == endian) {
+        memcpy(&res, address, sizeof(res));
+    } else {
+        reverse_memcpy(&res, address, sizeof(res));
+    }
+    return res;
+}
+
+template <typename T>
+inline T unaligned_load_little_endian(const void* address) {
+    return unaligned_load_endian<std::endian::little, T>(address);
 }

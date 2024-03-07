@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] Inverted Index
+# Inverted Index
 
 <version since="2.0.0">
  
@@ -35,7 +35,7 @@ From version 2.0.0, Doris implemented inverted index to support fulltext search 
 
 ## Glossary
 
-- [inverted index](https://en.wikipedia.org/wiki/Inverted_index) is a index techlogy used in information retirval commonly. It split text into word terms and construct a term to doc index. This index is called inverted index and can be used to find the docs where a specific term appears.
+- [inverted index](https://en.wikipedia.org/wiki/Inverted_index) is a index techlogy used in information retrieval commonly. It split text into word terms and construct a term to doc index. This index is called inverted index and can be used to find the docs where a specific term appears.
 
 
 ## Basic Principles
@@ -51,9 +51,12 @@ The features for inverted index is as follows:
 
 - add fulltext search on text(string, varchar, char) field
   - MATCH_ALL matches all keywords, MATCH_ANY matches any keywords
+  - support phrase query MATCH_PHRASE
+  - support phrase + prefix query MATCH_PHRASE_PREFIX
+  - support regexp query MATCH_REGEXP
   - support fulltext on array of text field
   - support english, chinese and mixed unicode word parser
-- accelerate normal equal, range query, replacing bitmap index in the future
+- accelerate normal equal, range query, replacing bitmap index
   - suport =, !=, >, >=, <, <= on text, numeric, datetime types
   - suport =, !=, >, >=, <, <= on array of text, numeric, datetime types
 - complete suport for logic combination
@@ -181,6 +184,15 @@ SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword1 keyword2';
 -- 1.4 find rows that logmsg contains both keyword1 and keyword2, and in the order of keyword1 appearing first and keyword2 appearing later.
 SELECT * FROM table_name WHERE logmsg MATCH_PHRASE 'keyword1 keyword2';
 
+-- 1.5 perform prefix matching on the last word "keyword2" while maintaining the order of words, defaulting to finding 50 prefix words (controlled by the session variable inverted_index_max_expansions)
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE_PREFIX 'keyword1 keyword2';
+
+-- 1.6 If only one word is entered, it degrades to a prefix query, defaulting to finding 50 prefix words (controlled by the session variable inverted_index_max_expansions)
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE_PREFIX 'keyword1';
+
+-- 1.7 perform regex matching on the tokenized words, defaulting to matching 50 tokens (controlled by the session variable inverted_index_max_expansions)
+SELECT * FROM table_name WHERE logmsg MATCH_REGEXP 'key*';
+
 -- 2. normal equal, range query
 SELECT * FROM table_name WHERE id = 123;
 SELECT * FROM table_name WHERE ts > '2023-01-01 00:00:00';
@@ -191,7 +203,7 @@ SELECT * FROM table_name WHERE op_type IN ('add', 'delete');
 
 To evaluate the actual effects of tokenization or to tokenize a block of text, the `tokenize` function can be utilized.
 ```sql
-mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained");
+mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained"');
 +-----------------------------------------------------------------------------------+
 | tokenize('武汉长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')       |
 +-----------------------------------------------------------------------------------+
@@ -199,7 +211,7 @@ mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="f
 +-----------------------------------------------------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained");
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained"');
 +--------------------------------------------------------------------------------------+
 | tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')        |
 +--------------------------------------------------------------------------------------+
@@ -207,7 +219,7 @@ mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"
 +--------------------------------------------------------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="coarse_grained");
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="coarse_grained"');
 +----------------------------------------------------------------------------------------+
 | tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="coarse_grained"')        |
 +----------------------------------------------------------------------------------------+
@@ -215,7 +227,7 @@ mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"
 +----------------------------------------------------------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> SELECT TOKENIZE('I love CHINA','"parser"="english");
+mysql> SELECT TOKENIZE('I love CHINA','"parser"="english"');
 +------------------------------------------------+
 | tokenize('I love CHINA', '"parser"="english"') |
 +------------------------------------------------+
@@ -223,7 +235,7 @@ mysql> SELECT TOKENIZE('I love CHINA','"parser"="english");
 +------------------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> SELECT TOKENIZE('I love CHINA 我爱我的祖国','"parser"="unicode");
+mysql> SELECT TOKENIZE('I love CHINA 我爱我的祖国','"parser"="unicode"');
 +-------------------------------------------------------------------+
 | tokenize('I love CHINA 我爱我的祖国', '"parser"="unicode"')       |
 +-------------------------------------------------------------------+
@@ -341,7 +353,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ANY 'OLAP';
 1 row in set (0.02 sec)
 ```
 
-- Semilarly, count on 'OLTP' shows 0.07s vs 0.01s. Due to the cache in Doris, both LIKE and MATCH_ANY is faster, but there is still 7x speedup.
+- Similarly, count on 'OLTP' shows 0.07s vs 0.01s. Due to the cache in Doris, both LIKE and MATCH_ANY is faster, but there is still 7x speedup.
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE comment LIKE '%OLTP%';
 +---------+
@@ -382,7 +394,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ALL 'OLAP OLTP';
 ```
 
 - search for at least one of 'OLAP' or 'OLTP', 0.12s vs 0.01s，12x speedup
-  - using MATCH_ALL if you only need at least one of the keywords appears
+  - using MATCH_ANY if you only need at least one of the keywords appears
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE comment LIKE '%OLAP%' OR comment LIKE '%OLTP%';
 +---------+

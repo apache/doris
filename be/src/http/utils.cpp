@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <memory>
 #include <ostream>
 #include <vector>
@@ -38,6 +39,8 @@
 #include "http/http_status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "olap/wal/wal_manager.h"
+#include "runtime/exec_env.h"
 #include "util/path_util.h"
 #include "util/url_coding.h"
 
@@ -190,20 +193,15 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req) {
     HttpChannel::send_reply(req, result_str);
 }
 
-bool load_size_smaller_than_wal_limit(HttpRequest* req) {
+bool load_size_smaller_than_wal_limit(int64_t content_length) {
     // 1. req->header(HttpHeaders::CONTENT_LENGTH) will return streamload content length. If it is empty or equels to 0, it means this streamload
     // is a chunked streamload and we are not sure its size.
     // 2. if streamload content length is too large, like larger than 80% of the WAL constrain.
     //
     // This two cases, we are not certain that the Write-Ahead Logging (WAL) constraints allow for writing down
     // these blocks within the limited space. So we need to set group_commit = false to avoid dead lock.
-    if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-        size_t body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
-        // TODO(Yukang): change it to WalManager::wal_limit
-        return (body_bytes <= config::wal_max_disk_size * 0.8) && (body_bytes != 0);
-    } else {
-        return false;
-    }
+    size_t max_available_size = ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
+    return (content_length < 0.8 * max_available_size);
 }
 
 } // namespace doris

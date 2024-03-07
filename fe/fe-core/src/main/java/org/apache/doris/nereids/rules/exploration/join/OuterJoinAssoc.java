@@ -59,7 +59,6 @@ public class OuterJoinAssoc extends OneExplorationRuleFactory {
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left()))
                 .when(topJoin -> checkCondition(topJoin, topJoin.left().left().getOutputSet()))
-                .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin())
                 .thenApply(ctx -> {
                     LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topJoin = ctx.root;
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
@@ -79,14 +78,14 @@ public class OuterJoinAssoc extends OneExplorationRuleFactory {
                                 .addAll(topJoin.getOtherJoinConjuncts()).build();
                         Set<Slot> notNullSlots = ExpressionUtils.inferNotNullSlots(on,
                                 ctx.cascadesContext);
-                        if (!conditionSlot.equals(notNullSlots)) {
+                        if (conditionSlot.isEmpty() || !conditionSlot.equals(notNullSlots)) {
                             return null;
                         }
                     }
 
-                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c, null);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
-                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(a, newBottomJoin);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(a, newBottomJoin, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     setReorderContext(newTopJoin, newBottomJoin);
                     return newTopJoin;

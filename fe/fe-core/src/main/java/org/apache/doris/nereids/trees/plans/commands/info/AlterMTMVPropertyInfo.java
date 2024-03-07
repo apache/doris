@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -52,30 +52,8 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
 
     private void analyzeProperties() {
         for (String key : properties.keySet()) {
-            if (PropertyAnalyzer.PROPERTIES_GRACE_PERIOD.equals(key)) {
-                String gracePeriod = properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
-                try {
-                    Long.parseLong(gracePeriod);
-                } catch (NumberFormatException e) {
-                    throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                            "valid grace_period: " + properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
-                }
-            } else if (PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM.equals(key)) {
-                String refreshPartitionNum = properties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM);
-                try {
-                    Integer.parseInt(refreshPartitionNum);
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException(
-                            "valid refresh_partition_num: " + properties
-                                    .get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
-                }
-            } else if (PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES.equals(key)) {
-                // nothing
-            } else {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException("illegal key:" + key);
-            }
+            MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
         }
-
     }
 
     public Map<String, String> getProperties() {

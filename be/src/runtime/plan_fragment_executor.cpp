@@ -92,10 +92,11 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _closed(false),
           _is_report_success(false),
           _is_report_on_cancel(true),
-          _collect_query_statistics_with_every_batch(false),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
     _report_thread_future = _report_thread_promise.get_future();
     _start_time = VecDateTimeValue::local_time();
+    _query_statistics = std::make_shared<QueryStatistics>();
+    _query_ctx->register_query_statistics(_query_statistics);
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
@@ -112,7 +113,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
-    if (request.__isset.query_options) {
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
         _timeout_second = request.query_options.execution_timeout;
     }
 
@@ -125,14 +126,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals = _query_ctx->query_globals;
-    _runtime_state =
-            RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
-    _runtime_state->set_query_ctx(_query_ctx.get());
+    _runtime_state = RuntimeState::create_unique(params, request.query_options, query_globals,
+                                                 _exec_env, _query_ctx.get());
     _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
-    static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -148,6 +147,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
     if (request.__isset.wal_id) {
         _runtime_state->set_wal_id(request.wal_id);
+    }
+    if (request.__isset.content_length) {
+        _runtime_state->set_content_length(request.content_length);
     }
 
     if (request.query_options.__isset.is_report_success) {
@@ -228,11 +230,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         if (sink_profile != nullptr) {
             profile()->add_child(sink_profile, true, nullptr);
         }
-
-        _collect_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
     } else {
         // _sink is set to nullptr
         _sink.reset(nullptr);
@@ -251,11 +248,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
-
-    _query_statistics.reset(new QueryStatistics(request.query_options.query_type));
-    if (_sink != nullptr) {
-        _sink->set_query_statistics(_query_statistics);
-    }
     return Status::OK();
 }
 
@@ -315,7 +307,13 @@ Status PlanFragmentExecutor::open() {
 Status PlanFragmentExecutor::open_vectorized_internal() {
     SCOPED_TIMER(profile()->total_time_counter());
     {
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        ThreadCpuStopWatch cpu_time_stop_watch;
+        cpu_time_stop_watch.start();
+        Defer defer {[&]() {
+            int64_t cpu_time = cpu_time_stop_watch.elapsed_time();
+            _fragment_cpu_timer->update(cpu_time);
+        }};
+
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
         RETURN_IF_CANCELLED(_runtime_state);
         if (_sink == nullptr) {
@@ -328,15 +326,17 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 
         auto st = Status::OK();
 
+        int64_t old_cpu_time = cpu_time_stop_watch.elapsed_time();
         while (!eos) {
+            Defer defer {[&]() {
+                int64_t current_cpu_time = cpu_time_stop_watch.elapsed_time();
+                int64_t delta_time = current_cpu_time - old_cpu_time;
+                _query_statistics->add_cpu_nanos(delta_time);
+                old_cpu_time = current_cpu_time;
+            }};
             RETURN_IF_CANCELLED(_runtime_state);
             st = get_vectorized_internal(block.get(), &eos);
             RETURN_IF_ERROR(st);
-
-            // Collect this plan and sub plan statistics, and send to parent plan.
-            if (_collect_query_statistics_with_every_batch) {
-                _collect_query_statistics();
-            }
 
             if (!eos || block->rows() > 0) {
                 st = _sink->send(runtime_state(), block.get());
@@ -348,7 +348,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         }
     }
     {
-        _collect_query_statistics();
         Status status;
         {
             std::lock_guard<std::mutex> l(_status_lock);
@@ -425,44 +424,6 @@ bool PlanFragmentExecutor::is_timeout(const VecDateTimeValue& now) const {
         return true;
     }
     return false;
-}
-
-void PlanFragmentExecutor::_collect_query_statistics() {
-    _query_statistics->clear();
-    Status status;
-    /// TODO(yxc):
-    // The judgment of enable_local_exchange here is a bug, it should not need to be checked. I will fix this later.
-    bool _is_local = false;
-    if (_runtime_state->query_options().__isset.enable_local_exchange) {
-        _is_local = _runtime_state->query_options().enable_local_exchange;
-    }
-
-    if (_is_local) {
-        if (_runtime_state->num_per_fragment_instances() == 1) {
-            status = _plan->collect_query_statistics(_query_statistics.get());
-        } else {
-            status = _plan->collect_query_statistics(_query_statistics.get(),
-                                                     _runtime_state->per_fragment_instance_idx());
-        }
-    } else {
-        status = _plan->collect_query_statistics(_query_statistics.get());
-    }
-
-    if (!status.ok()) {
-        LOG(INFO) << "collect query statistics failed, st=" << status;
-        return;
-    }
-    _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
-    if (_runtime_state->backend_id() != -1) {
-        _collect_node_statistics();
-    }
-}
-
-void PlanFragmentExecutor::_collect_node_statistics() {
-    DCHECK(_runtime_state->backend_id() != -1);
-    NodeStatistics* node_statistics =
-            _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->set_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {
@@ -555,8 +516,7 @@ void PlanFragmentExecutor::send_report(bool done) {
             _runtime_state.get(),
             std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
             std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
-                      std::placeholders::_2),
-            _dml_query_statistics()};
+                      std::placeholders::_2)};
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
@@ -664,7 +624,7 @@ void PlanFragmentExecutor::close() {
             }
         }
 
-        if (_is_report_success) {
+        if (_runtime_state->enable_profile()) {
             std::stringstream ss;
             // Compute the _local_time_percent before pretty_print the runtime_profile
             // Before add this operation, the print out like that:

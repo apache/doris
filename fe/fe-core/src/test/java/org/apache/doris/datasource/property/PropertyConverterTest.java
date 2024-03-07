@@ -34,9 +34,9 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -55,6 +55,7 @@ import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -76,7 +77,7 @@ public class PropertyConverterTest extends TestWithFeService {
 
         List<String> withoutPrefix = ImmutableList.of("endpoint", "access_key", "secret_key");
         checkSet.addAll(withoutPrefix);
-        checkSet.addAll(S3Properties.Env.REQUIRED_FIELDS);
+        checkSet.addAll(Arrays.asList(S3Properties.ENDPOINT, S3Properties.ACCESS_KEY, S3Properties.SECRET_KEY));
         expectedCredential.put("access_key", "akk");
         expectedCredential.put("secret_key", "skk");
     }
@@ -432,25 +433,27 @@ public class PropertyConverterTest extends TestWithFeService {
         String catalogName = "hms_glue_old";
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
-        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
+        Map<String, String> properties = catalog.getProperties();
         Assertions.assertEquals(properties.size(), 20);
+        Assertions.assertEquals("s3.us-east-1.amazonaws.com", properties.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(hdProps.size(), 29);
 
         String query = "create catalog hms_glue properties (\n"
-                    + "    'type'='hms',\n"
-                    + "    'hive.metastore.type'='glue',\n"
-                    + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                    + "    'glue.endpoint' = 'glue.us-east-1.amazonaws.com',\n"
-                    + "    'glue.access_key' = 'akk',\n"
-                    + "    'glue.secret_key' = 'skk'\n"
-                    + ");";
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.type'='glue',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'glue.endpoint' = 'glue.us-east-1.amazonaws.com.cn',\n"
+                + "    'glue.access_key' = 'akk',\n"
+                + "    'glue.secret_key' = 'skk'\n"
+                + ");";
         catalogName = "hms_glue";
         CreateCatalogStmt analyzedStmtNew = createStmt(query);
         HMSExternalCatalog catalogNew = createAndGetCatalog(analyzedStmtNew, catalogName);
-        Map<String, String> propertiesNew = catalogNew.getCatalogProperty().getProperties();
+        Map<String, String> propertiesNew = catalogNew.getProperties();
         Assertions.assertEquals(propertiesNew.size(), 20);
+        Assertions.assertEquals("s3.us-east-1.amazonaws.com.cn", propertiesNew.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdPropsNew = catalogNew.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(hdPropsNew.size(), 29);

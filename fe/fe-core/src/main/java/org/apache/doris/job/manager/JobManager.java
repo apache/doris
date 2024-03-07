@@ -36,7 +36,6 @@ import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.scheduler.JobScheduler;
-import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.loadv2.JobState;
 
 import com.google.common.collect.Lists;
@@ -120,31 +119,58 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
+    /**
+     * unregister job by job id,this method will delete job from job map
+     * we need to check job status, if job status is running, we need to stop it
+     * and cancel all running task
+     */
     public void unregisterJob(Long jobId) throws JobException {
-        writeLock();
+        checkJobExist(jobId);
+        T dropJob = jobMap.get(jobId);
+        dropJob(dropJob, dropJob.getJobName());
+    }
+
+    /**
+     * unregister job by job name,this method will delete job from job map
+     *
+     * @param jobName  job name
+     * @param ifExists is is true, if job not exist,we will ignore job not exist exception, else throw exception
+     */
+    public void unregisterJob(String jobName, boolean ifExists) throws JobException {
         try {
-            checkJobExist(jobId);
-            jobMap.get(jobId).setJobStatus(JobStatus.STOPPED);
-            jobMap.get(jobId).cancelAllTasks();
-            jobMap.get(jobId).logFinalOperation();
-            jobMap.get(jobId).onUnRegister();
-            jobMap.remove(jobId);
-        } finally {
-            writeUnlock();
+            T dropJob = null;
+            for (T job : jobMap.values()) {
+                if (job.getJobName().equals(jobName)) {
+                    dropJob = job;
+                }
+            }
+            if (dropJob == null && ifExists) {
+                return;
+            }
+            dropJob(dropJob, jobName);
+        } catch (Exception e) {
+            log.error("drop job error, jobName:" + jobName, e);
+            throw new JobException("unregister job error, jobName:" + jobName);
         }
     }
 
-    public void unregisterJob(String jobName) throws JobException {
-        for (T a : jobMap.values()) {
-            if (a.getJobName().equals(jobName)) {
-                try {
-                    unregisterJob(a.getJobId());
-                } catch (JobException e) {
-                    throw new JobException("unregister job error, jobName:" + jobName);
-                }
-            }
+    private void dropJob(T dropJob, String jobName) throws JobException {
+        if (dropJob == null) {
+            throw new JobException("job not exist, jobName:" + jobName);
         }
-
+        //is job status is running, we need to stop it and cancel all running task
+        // since job only running in master, we don't need to write update metadata log
+        if (dropJob.getJobStatus().equals(JobStatus.RUNNING)) {
+            dropJob.updateJobStatus(JobStatus.STOPPED);
+        }
+        writeLock();
+        try {
+            // write delete log
+            dropJob.logDeleteOperation();
+            jobMap.remove(dropJob.getJobId());
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
@@ -157,10 +183,6 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
                 try {
-                    if (jobStatus.equals(JobStatus.STOPPED)) {
-                        unregisterJob(a.getJobId());
-                        return;
-                    }
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
                     throw new JobException("unregister job error, jobName:" + jobName);
@@ -214,12 +236,14 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         return jobTypes.contains(job.getJobType());
     }
 
-    public List<? extends AbstractTask> queryTasks(Long jobId) throws JobException {
-        checkJobExist(jobId);
-        return jobMap.get(jobId).queryAllTasks();
-    }
-
+    /**
+     * Actively trigger job execution tasks, tasks type is manual
+     *
+     * @param jobId   job id
+     * @param context Context parameter information required by some tasks executed this time
+     */
     public void triggerJob(long jobId, C context) throws JobException {
+        log.info("trigger job, job id is {}", jobId);
         checkJobExist(jobId);
         jobScheduler.schedulerInstantJob(jobMap.get(jobId), TaskType.MANUAL, context);
     }
@@ -241,18 +265,31 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 .add("msg", "replay update scheduler job").build());
     }
 
-    public void replayEndJob(T replayJob) throws JobException {
+    /**
+     * Replay delete load job. we need to remove job from job map
+     */
+    public void replayDeleteJob(T replayJob) throws JobException {
         T job = jobMap.get(replayJob.getJobId());
         if (null == job) {
             return;
         }
+        jobMap.remove(replayJob.getJobId());
         job.onReplayEnd(replayJob);
     }
 
+    /**
+     * Cancel task by task id, if task is running, cancel it
+     * if job not exist, throw JobException exception job not exist
+     * if task not exist, throw JobException exception task not exist
+     *
+     * @param jobName job name
+     * @param taskId  task id
+     */
     public void cancelTaskById(String jobName, Long taskId) throws JobException {
         for (T job : jobMap.values()) {
             if (job.getJobName().equals(jobName)) {
                 job.cancelTaskById(taskId);
+                job.logUpdateOperation();
                 return;
             }
         }
@@ -347,6 +384,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
+    //todo it's not belong to JobManager
     public void cancelLoadJob(CancelLoadStmt cs)
             throws JobException, AnalysisException, DdlException {
         String dbName = cs.getDbName();
@@ -376,7 +414,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
         for (InsertJob loadJob : unfinishedLoadJob) {
             try {
-                unregisterJob(loadJob.getJobId());
+                alterJobStatus(loadJob.getJobId(), JobStatus.STOPPED);
             } catch (JobException e) {
                 log.warn("Fail to cancel job, its label: {}", loadJob.getLabelName());
             }

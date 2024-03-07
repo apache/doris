@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_memtable_flush_fault") {
+suite("test_memtable_flush_fault", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllBEs()
     def testTable = "test_memtable_flush_fault"
     sql """ DROP TABLE IF EXISTS ${testTable}"""

@@ -92,7 +92,7 @@ suite("test_auto_range_partition") {
     sql """
         CREATE TABLE `${tblName3}` (
             `k1` INT,
-            `k2` DATETIMEV2(3),
+            `k2` DATETIMEV2(3) NOT NULL,
             `k3` DATETIMEV2(6)
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)

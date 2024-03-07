@@ -19,6 +19,7 @@
 
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
 
 namespace doris::vectorized {
 
@@ -154,6 +155,11 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
                                        ColumnUInt8::Container& result) const {
+    DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchAny not support execute_match");
+    })
+
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -199,6 +205,11 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
                                        ColumnUInt8::Container& result) const {
+    DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchAll not support execute_match");
+    })
+
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -250,6 +261,11 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                                           InvertedIndexCtx* inverted_index_ctx,
                                           const ColumnArray::Offsets64* array_offsets,
                                           ColumnUInt8::Container& result) const {
+    DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchPhrase not support execute_match");
+    })
+
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -311,12 +327,77 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
     return Status::OK();
 }
 
+Status FunctionMatchPhrasePrefix::execute_match(
+        const std::string& column_name, const std::string& match_query_str, size_t input_rows_count,
+        const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
+        const ColumnArray::Offsets64* array_offsets, ColumnUInt8::Container& result) const {
+    DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchPhrasePrefix not support execute_match");
+    })
+
+    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
+    if (inverted_index_ctx) {
+        parser_type = inverted_index_ctx->parser_type;
+    }
+
+    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
+                                                                        match_query_str);
+    std::vector<std::string> query_tokens;
+    doris::segment_v2::InvertedIndexReader::get_analyse_result(
+            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
+            doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+
+    if (query_tokens.empty()) {
+        LOG(WARNING) << fmt::format(
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str, inverted_index_parser_type_to_string(parser_type));
+        return Status::OK();
+    }
+
+    int32_t current_src_array_offset = 0;
+    for (size_t i = 0; i < input_rows_count; i++) {
+        std::vector<std::string> data_tokens =
+                analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
+                                   current_src_array_offset);
+
+        for (size_t j = 0; j < data_tokens.size() - query_tokens.size() + 1; j++) {
+            if (data_tokens[j] == query_tokens[0] || query_tokens.size() == 1) {
+                bool match = true;
+                for (size_t k = 0; k < query_tokens.size(); k++) {
+                    const std::string& data_token = data_tokens[j + k];
+                    const std::string& query_token = query_tokens[k];
+                    if (k == query_tokens.size() - 1) {
+                        if (data_token.compare(0, query_token.size(), query_token) != 0) {
+                            match = false;
+                            break;
+                        }
+                    } else {
+                        if (data_token != query_token) {
+                            match = false;
+                            break;
+                        }
+                    }
+                }
+                if (match) {
+                    result[i] = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
 void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchAny>();
     factory.register_function<FunctionMatchAll>();
     factory.register_function<FunctionMatchPhrase>();
     factory.register_function<FunctionMatchPhrasePrefix>();
     factory.register_function<FunctionMatchRegexp>();
+    factory.register_function<FunctionMatchPhraseEdge>();
     factory.register_function<FunctionMatchElementEQ>();
     factory.register_function<FunctionMatchElementLT>();
     factory.register_function<FunctionMatchElementGT>();

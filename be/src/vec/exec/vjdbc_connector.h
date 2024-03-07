@@ -43,6 +43,7 @@ class IColumn;
 class VExprContext;
 
 struct JdbcConnectorParam {
+    int64_t catalog_id;
     std::string driver_path;
     std::string driver_class;
     std::string resource_name;
@@ -54,6 +55,11 @@ struct JdbcConnectorParam {
     std::string table_name;
     bool use_transaction;
     TOdbcTableType::type table_type;
+    int32_t connection_pool_min_size;
+    int32_t connection_pool_max_size;
+    int32_t connection_pool_max_wait_time;
+    int32_t connection_pool_max_life_time;
+    bool connection_pool_keep_alive;
 
     const TupleDescriptor* tuple_desc = nullptr;
 };
@@ -125,13 +131,16 @@ private:
                                   int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
+    jobject _get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType);
 
     bool _closed = false;
+    jclass _executor_factory_clazz;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;
     jclass _executor_string_clazz;
     jobject _executor_obj;
+    jmethodID _executor_factory_ctor_id;
     jmethodID _executor_ctor_id;
     jmethodID _executor_stmt_write_id;
     jmethodID _executor_read_id;

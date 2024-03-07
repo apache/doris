@@ -37,25 +37,16 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ResultSinkOperator final : public DataSinkOperator<ResultSinkOperatorBuilder> {
+class ResultSinkOperator final : public DataSinkOperator<vectorized::VResultSink> {
 public:
     ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
 
     bool can_write() override;
 };
 
-class ResultSinkDependency final : public Dependency {
-public:
-    using SharedState = BasicSharedState;
-    ENABLE_FACTORY_CREATOR(ResultSinkDependency);
-    ResultSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "ResultSinkDependency", true, query_ctx) {}
-    ~ResultSinkDependency() override = default;
-};
-
-class ResultSinkLocalState final : public PipelineXSinkLocalState<ResultSinkDependency> {
+class ResultSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
-    using Base = PipelineXSinkLocalState<ResultSinkDependency>;
+    using Base = PipelineXSinkLocalState<BasicSharedState>;
 
 public:
     ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -85,8 +76,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
     friend class ResultSinkLocalState;

@@ -1,4 +1,4 @@
-SELECT
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
   CAST(C.var["C_CUSTKEY"] AS INT),
   CAST(C.var["C_NAME"] AS TEXT),
   SUM(CAST(L.var["L_EXTENDEDPRICE"] AS DOUBLE) * (1 - CAST(L.var["L_DISCOUNT"] AS DOUBLE))) AS REVENUE,

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.TableIf;
@@ -32,11 +31,15 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -54,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Update mv by partition
@@ -72,9 +76,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * @return command
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<Long> partitionIds,
-            Map<OlapTable, String> tableWithPartKey) {
+            Map<TableIf, String> tableWithPartKey) {
         NereidsParser parser = new NereidsParser();
-        Map<OlapTable, Set<Expression>> predicates =
+        Map<TableIf, Set<Expression>> predicates =
                 constructTableWithPredicates(mv, partitionIds, tableWithPartKey);
         List<String> parts = constructPartsForMv(mv, partitionIds);
         Plan plan = parser.parseSingle(mv.getQuerySql());
@@ -94,12 +98,12 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 .collect(ImmutableList.toImmutableList());
     }
 
-    private static Map<OlapTable, Set<Expression>> constructTableWithPredicates(MTMV mv,
-            Set<Long> partitionIds, Map<OlapTable, String> tableWithPartKey) {
+    private static Map<TableIf, Set<Expression>> constructTableWithPredicates(MTMV mv,
+            Set<Long> partitionIds, Map<TableIf, String> tableWithPartKey) {
         Set<PartitionItem> items = partitionIds.stream()
                 .map(id -> mv.getPartitionInfo().getItem(id))
                 .collect(ImmutableSet.toImmutableSet());
-        ImmutableMap.Builder<OlapTable, Set<Expression>> builder = new ImmutableMap.Builder<>();
+        ImmutableMap.Builder<TableIf, Set<Expression>> builder = new ImmutableMap.Builder<>();
         tableWithPartKey.forEach((table, colName) ->
                 builder.put(table, constructPredicates(items, colName))
         );
@@ -113,37 +117,56 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    private static Expression convertPartitionKeyToLiteral(PartitionKey key) {
+        return Literal.fromLegacyLiteral(key.getKeys().get(0),
+                Type.fromPrimitiveType(key.getTypes().get(0)));
+    }
+
     private static Expression convertPartitionItemToPredicate(PartitionItem item, Slot col) {
         if (item instanceof ListPartitionItem) {
             List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
-                    .map(key -> Literal.fromLegacyLiteral(key.getKeys().get(0),
-                            Type.fromPrimitiveType(key.getTypes().get(0))))
+                    .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
                     .collect(ImmutableList.toImmutableList());
-            return new InPredicate(col, inValues);
+            List<Expression> predicates = new ArrayList<>();
+            if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
+                inValues = inValues.stream()
+                        .filter(e -> !(e instanceof NullLiteral))
+                        .collect(Collectors.toList());
+                Expression isNullPredicate = new IsNull(col);
+                predicates.add(isNullPredicate);
+            }
+            if (!inValues.isEmpty()) {
+                predicates.add(new InPredicate(col, inValues));
+            }
+            if (predicates.isEmpty()) {
+                return BooleanLiteral.of(true);
+            }
+            return ExpressionUtils.or(predicates);
         } else {
             Range<PartitionKey> range = item.getItems();
             List<Expression> exprs = new ArrayList<>();
-            if (range.hasLowerBound()) {
+            if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 PartitionKey key = range.lowerEndpoint();
-                exprs.add(new GreaterThanEqual(col, Literal.fromLegacyLiteral(key.getKeys().get(0),
-                        Type.fromPrimitiveType(key.getTypes().get(0)))));
+                exprs.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key)));
             }
-            if (range.hasUpperBound()) {
+            if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 PartitionKey key = range.upperEndpoint();
-                exprs.add(new LessThan(col, Literal.fromLegacyLiteral(key.getKeys().get(0),
-                        Type.fromPrimitiveType(key.getTypes().get(0)))));
+                exprs.add(new LessThan(col, convertPartitionKeyToLiteral(key)));
+            }
+            if (exprs.isEmpty()) {
+                return BooleanLiteral.of(true);
             }
             return ExpressionUtils.and(exprs);
         }
     }
 
-    static class PredicateAdder extends DefaultPlanRewriter<Map<OlapTable, Set<Expression>>> {
+    static class PredicateAdder extends DefaultPlanRewriter<Map<TableIf, Set<Expression>>> {
         @Override
-        public Plan visitUnboundRelation(UnboundRelation unboundRelation, Map<OlapTable, Set<Expression>> predicates) {
+        public Plan visitUnboundRelation(UnboundRelation unboundRelation, Map<TableIf, Set<Expression>> predicates) {
             List<String> tableQualifier = RelationUtil.getQualifierName(ConnectContext.get(),
                     unboundRelation.getNameParts());
             TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv());
-            if (table instanceof OlapTable && predicates.containsKey(table)) {
+            if (predicates.containsKey(table)) {
                 return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.get(table))),
                         unboundRelation);
             }

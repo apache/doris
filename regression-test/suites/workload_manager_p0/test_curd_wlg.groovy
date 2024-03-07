@@ -64,6 +64,8 @@ suite("test_crud_wlg") {
     """
 
     sql "ADMIN SET FRONTEND CONFIG ('enable_workload_group' = 'true');"
+    sql "ADMIN SET FRONTEND CONFIG ('enable_alter_queue_prop_sync' = 'true');"
+    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '100');"
 
     sql "create workload group if not exists normal " +
             "properties ( " +
@@ -80,12 +82,14 @@ suite("test_crud_wlg") {
     sql "alter workload group normal properties ( 'max_queue_size'='0' );"
     sql "alter workload group normal properties ( 'queue_timeout'='0' );"
     sql "alter workload group normal properties ( 'cpu_hard_limit'='1%' );"
+    sql "alter workload group normal properties ( 'scan_thread_num'='-1' );"
 
     sql "set workload_group=normal;"
 
     // test cpu_share
     qt_cpu_share """ select count(1) from ${table_name} """
 
+    sql "alter workload group normal properties ( 'scan_thread_num'='16' );"
     sql "alter workload group normal properties ( 'cpu_share'='20' );"
 
     qt_cpu_share_2 """ select count(1) from ${table_name} """
@@ -94,6 +98,12 @@ suite("test_crud_wlg") {
         sql "alter workload group normal properties ( 'cpu_share'='-2' );"
 
         exception "requires a positive integer"
+    }
+
+    test {
+        sql "alter workload group normal properties ( 'scan_thread_num'='0' );"
+
+        exception "scan_thread_num must be a positive integer or -1"
     }
 
     sql "drop workload group if exists test_group;"
@@ -107,7 +117,7 @@ suite("test_crud_wlg") {
             ");"
     sql "set workload_group=test_group;"
 
-    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
+    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
 
     // test memory_limit
     test {
@@ -118,7 +128,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'memory_limit'='11%' );"
     qt_mem_limit_1 """ select count(1) from ${table_name} """
-    qt_mem_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
+    qt_mem_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
 
     // test enable_memory_overcommit
     test {
@@ -131,7 +141,7 @@ suite("test_crud_wlg") {
     qt_mem_overcommit_1 """ select count(1) from ${table_name} """
     sql "alter workload group test_group properties ( 'enable_memory_overcommit'='false' );"
     qt_mem_overcommit_2 """ select count(1) from ${table_name} """
-    qt_mem_overcommit_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
+    qt_mem_overcommit_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
 
     // test cpu_hard_limit
     test {
@@ -150,7 +160,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'cpu_hard_limit'='20%' );"
     qt_cpu_hard_limit_1 """ select count(1) from ${table_name} """
-    qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
+    qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
 
     // test query queue
     test {
@@ -173,7 +183,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'max_concurrency'='100' );"
     qt_queue_1 """ select count(1) from ${table_name} """
-    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
+    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
 
     // test create group failed
     // failed for cpu_share
@@ -251,7 +261,7 @@ suite("test_crud_wlg") {
     }
 
     // test show workload groups
-    qt_select_tvf_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
+    qt_select_tvf_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
 
     // test auth
     sql """drop user if exists test_wlg_user"""
@@ -278,11 +288,10 @@ suite("test_crud_wlg") {
     }
 
     // test query queue limit
-    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '500');"
     sql "set workload_group=test_group;"
     sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
     sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
-    Thread.sleep(5000);
+    Thread.sleep(10000)
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
@@ -305,7 +314,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'max_queue_size'='1' );"
     sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
-    Thread.sleep(5000);
+    Thread.sleep(10000)
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
@@ -313,9 +322,8 @@ suite("test_crud_wlg") {
     }
 
     sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
-    Thread.sleep(5000);
-    sql "select 1;"
+    Thread.sleep(10000)
+    sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
     sql "set workload_group=normal;"
     sql "drop workload group test_group;"
-    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '5000');"
 }

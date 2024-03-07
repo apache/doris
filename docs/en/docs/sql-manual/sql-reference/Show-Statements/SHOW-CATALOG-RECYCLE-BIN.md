@@ -50,6 +50,8 @@ The meaning of each column is as follows:
         TableId：             id of table
         PartitionId：         id of partition
         DropTime：            drop time of meta information
+        DataSize：            the amount of data. If the type is database, this value includes the data size of the recycled tables and partitions in the database
+        RemoteDataSize：      the amount of data on remote storage(hdfs or object storage). If the type is database, this value includes the remote data size of the recycled tables and partitions in the database
 ```
 
 ### Example

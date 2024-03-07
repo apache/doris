@@ -53,8 +53,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -82,6 +85,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -93,6 +98,7 @@ import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -177,8 +183,8 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalJoin<Plan, Plan> lj = new LogicalJoin<>(using.getJoinType() == JoinType.CROSS_JOIN
                             ? JoinType.INNER_JOIN : using.getJoinType(),
                             using.getHashJoinConjuncts(),
-                            using.getOtherJoinConjuncts(), using.getHint(), using.getMarkJoinSlotReference(),
-                            using.children());
+                            using.getOtherJoinConjuncts(), using.getDistributeHint(), using.getMarkJoinSlotReference(),
+                            using.children(), null);
                     List<Expression> unboundSlots = lj.getHashJoinConjuncts();
                     Set<String> slotNames = new HashSet<>();
                     List<Slot> leftOutput = new ArrayList<>(lj.left().getOutput());
@@ -210,7 +216,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     for (int i = 0; i < size; i++) {
                         hashEqExpr.add(new EqualTo(leftSlots.get(i), rightSlots.get(i)));
                     }
-                    return lj.withJoinConjuncts(hashEqExpr, lj.getOtherJoinConjuncts());
+                    return lj.withJoinConjuncts(hashEqExpr, lj.getOtherJoinConjuncts(), null);
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
@@ -227,8 +233,8 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
-                            hashJoinConjuncts, cond, join.getHint(), join.getMarkJoinSlotReference(),
-                            join.children());
+                            hashJoinConjuncts, cond, join.getDistributeHint(), join.getMarkJoinSlotReference(),
+                            join.children(), null);
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
@@ -587,7 +593,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     // we need to do cast before set operation, because we maybe use these slot to do shuffle
                     // so, we must cast it before shuffle to get correct hash code.
                     List<List<NamedExpression>> childrenProjections = setOperation.collectChildrenProjections();
-                    ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
+                    Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
                     Builder<Plan> newChildren = ImmutableList.builder();
                     for (int i = 0; i < childrenProjections.size(); i++) {
                         Plan newChild;
@@ -608,14 +614,15 @@ public class BindExpression implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_GENERATE_SLOT.build(
-                logicalGenerate().thenApply(ctx -> {
+                logicalGenerate().when(AbstractPlan::canBind).thenApply(ctx -> {
                     LogicalGenerate<Plan> generate = ctx.root;
                     List<Function> boundSlotGenerators
                             = bindSlot(generate.getGenerators(), generate.child(), ctx.cascadesContext);
                     List<Function> boundFunctionGenerators = boundSlotGenerators.stream()
                             .map(f -> bindTableGeneratingFunction((UnboundFunction) f, ctx.root, ctx.cascadesContext))
                             .collect(Collectors.toList());
-                    Builder<Slot> slotBuilder = ImmutableList.builder();
+                    ImmutableList.Builder<Slot> slotBuilder = ImmutableList.builder();
+                    List<Alias> expandAlias = Lists.newArrayList();
                     for (int i = 0; i < generate.getGeneratorOutput().size(); i++) {
                         Function generator = boundFunctionGenerators.get(i);
                         UnboundSlot slot = (UnboundSlot) generate.getGeneratorOutput().get(i);
@@ -624,8 +631,34 @@ public class BindExpression implements AnalysisRuleFactory {
                         Slot boundSlot = new SlotReference(slot.getNameParts().get(1), generator.getDataType(),
                                 generator.nullable(), ImmutableList.of(slot.getNameParts().get(0)));
                         slotBuilder.add(boundSlot);
+                        // the boundSlot may has two situation:
+                        // 1. the expandColumnsAlias is not empty, we should use make boundSlot expand to multi alias
+                        // 2. the expandColumnsAlias is empty, we should use origin boundSlot
+                        if (generate.getExpandColumnAlias() != null && i < generate.getExpandColumnAlias().size()
+                                && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))) {
+                            // if the alias is not empty, we should bind it with struct_element as child expr with alias
+                            // struct_element(#expand_col#k, #k) as #k
+                            // struct_element(#expand_col#v, #v) as #v
+                            List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
+                            for (int idx = 0; idx < fields.size(); ++idx) {
+                                expandAlias.add(new Alias(new StructElement(
+                                        boundSlot, new StringLiteral(fields.get(idx).getName())),
+                                        generate.getExpandColumnAlias().get(i).get(idx)));
+                            }
+                        }
                     }
-                    return new LogicalGenerate<>(boundFunctionGenerators, slotBuilder.build(), generate.child());
+                    LogicalGenerate ret = new LogicalGenerate<>(
+                            boundFunctionGenerators, slotBuilder.build(), generate.child());
+                    if (expandAlias.size() > 0) {
+                        // we need a project to deal with explode(map) to struct with field alias
+                        // project should contains: generator.child slot + expandAlias
+                        List<NamedExpression> allProjectSlots = generate.child().getOutput().stream()
+                                .map(NamedExpression.class::cast)
+                                .collect(Collectors.toList());
+                        allProjectSlots.addAll(expandAlias);
+                        return new LogicalProject<>(allProjectSlots, ret);
+                    }
+                    return ret;
                 })
             ),
             RuleType.BINDING_UNBOUND_TVF_RELATION_FUNCTION.build(

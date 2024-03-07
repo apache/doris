@@ -30,7 +30,7 @@ public:
                           const RowDescriptor& row_descriptor, VExprContextSPtrs& conjuncts);
     ~RuntimeFilterConsumer() = default;
 
-    Status init(RuntimeState* state, bool is_global = false);
+    Status init(RuntimeState* state, bool need_local_merge = false);
 
     // Try to append late arrived runtime filters.
     // Return num of filters which are applied already.
@@ -42,7 +42,7 @@ public:
 
 protected:
     // Register and get all runtime filters at Init phase.
-    Status _register_runtime_filter(bool is_global);
+    Status _register_runtime_filter(bool need_local_merge);
     // Get all arrived runtime filters at Open phase.
     Status _acquire_runtime_filter();
     // Append late-arrival runtime filters to the vconjunct_ctx.

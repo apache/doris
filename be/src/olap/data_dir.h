@@ -31,7 +31,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "io/fs/file_system.h"
 #include "olap/olap_common.h"
 #include "util/metrics.h"
 
@@ -42,14 +41,16 @@ class TabletManager;
 class TxnManager;
 class OlapMeta;
 class RowsetIdGenerator;
+class StorageEngine;
+
+const char* const kTestFilePath = ".testfile";
 
 // A DataDir used to manage data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {
 public:
-    DataDir(const std::string& path, int64_t capacity_bytes = -1,
-            TStorageMedium::type storage_medium = TStorageMedium::HDD,
-            TabletManager* tablet_manager = nullptr, TxnManager* txn_manager = nullptr);
+    DataDir(StorageEngine& engine, const std::string& path, int64_t capacity_bytes = -1,
+            TStorageMedium::type storage_medium = TStorageMedium::HDD);
     ~DataDir();
 
     Status init();
@@ -57,8 +58,6 @@ public:
 
     const std::string& path() const { return _path; }
     size_t path_hash() const { return _path_hash; }
-
-    const io::FileSystemSPtr& fs() const { return _fs; }
 
     bool is_used() const { return _is_used; }
     int32_t cluster_id() const { return _cluster_id; }
@@ -82,7 +81,9 @@ public:
     Status set_cluster_id(int32_t cluster_id);
     void health_check();
 
-    uint64_t get_shard();
+    uint64_t get_shard() {
+        return _current_shard.fetch_add(1, std::memory_order_relaxed) % MAX_SHARD_NUM;
+    }
 
     OlapMeta* get_meta() { return _meta; }
 
@@ -127,15 +128,18 @@ public:
 
     void update_remote_data_size(int64_t size);
 
-    size_t disk_capacity() const;
-
-    size_t disk_available() const;
-
-    size_t tablet_num() const;
+    size_t tablet_size() const;
 
     void disks_compaction_score_increment(int64_t delta);
 
     void disks_compaction_num_increment(int64_t delta);
+
+    double get_usage(int64_t incoming_data_size) const {
+        return _disk_capacity_bytes == 0
+                       ? 0
+                       : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
+                                 (double)_disk_capacity_bytes;
+    }
 
     // Move tablet to trash.
     Status move_to_trash(const std::string& tablet_path);
@@ -147,8 +151,6 @@ private:
 
     Status _check_disk();
     Status _read_and_write_test_file();
-    Status read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
-    Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
     // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
     // process will log fatal.
@@ -163,10 +165,10 @@ private:
 private:
     std::atomic<bool> _stop_bg_worker = false;
 
+    StorageEngine& _engine;
     std::string _path;
     size_t _path_hash;
 
-    io::FileSystemSPtr _fs;
     // the actual available capacity of the disk of this data dir
     size_t _available_bytes;
     // the actual capacity of the disk of this data dir
@@ -175,22 +177,18 @@ private:
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
-    TabletManager* _tablet_manager = nullptr;
-    TxnManager* _txn_manager = nullptr;
     int32_t _cluster_id;
     bool _cluster_id_incomplete = false;
     // This flag will be set true if this store was not in root path when reloading
     bool _to_be_deleted;
 
-    // used to protect _current_shard and _tablet_set
+    static constexpr uint64_t MAX_SHARD_NUM = 1024;
+    std::atomic<uint64_t> _current_shard {0};
+    // used to protect and _tablet_set
     mutable std::mutex _mutex;
-    uint64_t _current_shard;
     std::set<TabletInfo> _tablet_set;
 
-    static const uint32_t MAX_SHARD_NUM = 1024;
-
     OlapMeta* _meta = nullptr;
-    RowsetIdGenerator* _id_generator = nullptr;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity = nullptr;

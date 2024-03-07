@@ -38,7 +38,7 @@ suite("test_build_mtmv") {
             id BIGINT,
             username VARCHAR(20)
         )
-        DISTRIBUTED BY HASH(id) BUCKETS 10 
+        DISTRIBUTED BY HASH(id) BUCKETS 10
         PROPERTIES (
             "replication_num" = "1"
         );
@@ -52,7 +52,7 @@ suite("test_build_mtmv") {
             id BIGINT,
             pv BIGINT
         )
-        DISTRIBUTED BY HASH(id) BUCKETS 10 
+        DISTRIBUTED BY HASH(id) BUCKETS 10
         PROPERTIES (
             "replication_num" = "1"
         );
@@ -87,6 +87,10 @@ suite("test_build_mtmv") {
     def showCreateTableResult = sql """show create table ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 2\nPROPERTIES"))
+
+    def descTableAllResult = sql """desc ${mvName} all"""
+    logger.info("descTableAllResult: " + descTableAllResult.toString())
+    assertTrue(descTableAllResult.toString().contains("${mvName}"))
 
     // if not exist
     try {
@@ -488,13 +492,15 @@ suite("test_build_mtmv") {
     }
 
     // not allow use mv modify property of table
-    try {
-        sql """
-            alter Materialized View ${mvName} set("replication_num" = "1");
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
+    if (!isCloudMode()) {
+        try {
+            sql """
+                alter Materialized View ${mvName} set("replication_num" = "1");
+                """
+            Assert.fail();
+        } catch (Exception e) {
+            log.info(e.getMessage())
+        }
     }
 
     // alter rename
@@ -576,4 +582,59 @@ suite("test_build_mtmv") {
   sql """
       DROP MATERIALIZED VIEW ${mvName}
      """
+
+    // test build mv which containing literal varchar field
+    sql """
+    drop table if exists lineitem
+    """
+    sql """
+    CREATE TABLE IF NOT EXISTS lineitem (
+      l_orderkey    INTEGER NOT NULL,
+      l_partkey     INTEGER NOT NULL,
+      l_suppkey     INTEGER NOT NULL,
+      l_linenumber  INTEGER NOT NULL,
+      l_quantity    DECIMALV3(15,2) NOT NULL,
+      l_extendedprice  DECIMALV3(15,2) NOT NULL,
+      l_discount    DECIMALV3(15,2) NOT NULL,
+      l_tax         DECIMALV3(15,2) NOT NULL,
+      l_returnflag  CHAR(1) NOT NULL,
+      l_linestatus  CHAR(1) NOT NULL,
+      l_shipdate    DATE NOT NULL,
+      l_commitdate  DATE NOT NULL,
+      l_receiptdate DATE NOT NULL,
+      l_shipinstruct CHAR(25) NOT NULL,
+      l_shipmode     CHAR(10) NOT NULL,
+      l_comment      VARCHAR(44) NOT NULL
+    )
+    DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
+    PARTITION BY RANGE(l_shipdate) (
+    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
+    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
+    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
+    )
+    DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
+    PROPERTIES (
+      "replication_num" = "1"
+    )
+    """
+
+    sql """
+    insert into lineitem values
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
+    (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
+    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
+    (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
+    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
+    """
+
+    sql """DROP MATERIALIZED VIEW IF EXISTS test_varchar_literal_mv;"""
+    sql """
+        CREATE MATERIALIZED VIEW test_varchar_literal_mv
+            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            select case when l_orderkey > 1 then "一二三四" else "五六七八" end as field_1 from lineitem;
+    """
+    qt_desc_mv """desc test_varchar_literal_mv;"""
 }

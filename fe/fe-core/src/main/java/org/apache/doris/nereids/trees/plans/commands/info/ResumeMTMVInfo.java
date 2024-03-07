@@ -69,4 +69,11 @@ public class ResumeMTMVInfo {
     public TableNameInfo getMvName() {
         return mvName;
     }
+
+    @Override
+    public String toString() {
+        return "ResumeMTMVInfo{"
+                + "mvName=" + mvName
+                + '}';
+    }
 }

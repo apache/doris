@@ -105,6 +105,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     int nested_level = 0;
     bool has_quote = false;
     std::vector<Slice> slices;
+    slices.reserve(10);
     slice.trim_prefix();
     slices.emplace_back(slice);
     size_t slice_size = slice.size;
@@ -126,9 +127,10 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
             --nested_level;
         } else if (!has_quote && nested_level == 0 && c == options.collection_delim) {
             // if meet collection_delimiter and not in quote, we can make it as an item.
-            slices.back().remove_suffix(slice_size - idx);
+            auto& last_slice = slices.back();
+            last_slice.remove_suffix(slice_size - idx);
             // we do not handle item in array is empty,just return error
-            if (slices.back().empty()) {
+            if (last_slice.empty()) {
                 return Status::InvalidArgument("here has item in Array({}) is empty!",
                                                slice.to_string());
             }

@@ -118,10 +118,12 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
                                        "append failed in unplanned kafka pipe");
 
         ++_unplanned_row_cnt;
-        size_t threshold = config::multi_table_batch_plan_threshold;
-        if (_unplanned_row_cnt >= threshold) {
-            LOG(INFO) << fmt::format("unplanned row cnt={} reach threshold={}, plan them",
-                                     _unplanned_row_cnt, threshold);
+        if (_unplanned_row_cnt >= _row_threshold ||
+            _unplanned_pipes.size() >= _wait_tables_threshold) {
+            LOG(INFO) << fmt::format(
+                    "unplanned row cnt={} reach row_threshold={} or wait_plan_table_threshold={}, "
+                    "plan them",
+                    _unplanned_row_cnt, _row_threshold, _wait_tables_threshold);
             Status st = request_and_exec_plans();
             _unplanned_row_cnt = 0;
             if (!st.ok()) {
@@ -162,6 +164,7 @@ Status MultiTablePipe::request_and_exec_plans() {
     request.__set_loadId(_ctx->id.to_thrift());
     request.fileType = TFileType::FILE_STREAM;
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
+    request.__set_memtable_on_sink_node(_ctx->memtable_on_sink_node);
     // no need to register new_load_stream_mgr coz it is already done in routineload submit task
 
     // plan this load
@@ -206,7 +209,7 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                              _unplanned_pipes.size(), _planned_pipes.size(), params.size());
     _unplanned_pipes.clear();
 
-    _inflight_plan_cnt += params.size();
+    _inflight_cnt += params.size();
     for (auto& plan : params) {
         if (!plan.__isset.table_name ||
             _planned_pipes.find(plan.table_name) == _planned_pipes.end()) {
@@ -260,20 +263,9 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                         _status = *status;
                     }
 
-                    --_inflight_plan_cnt;
-                    if (_inflight_plan_cnt == 0 && is_consume_finished()) {
-                        _ctx->number_total_rows = _number_total_rows;
-                        _ctx->number_loaded_rows = _number_loaded_rows;
-                        _ctx->number_filtered_rows = _number_filtered_rows;
-                        _ctx->number_unselected_rows = _number_unselected_rows;
-                        _ctx->commit_infos = _tablet_commit_infos;
-                        LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
-                                  << _ctx->number_total_rows
-                                  << " number_loaded_rows=" << _ctx->number_loaded_rows
-                                  << " number_filtered_rows=" << _ctx->number_filtered_rows
-                                  << " number_unselected_rows=" << _ctx->number_unselected_rows;
-                        _ctx->promise.set_value(
-                                _status); // when all done, finish the routine load task
+                    auto inflight_cnt = _inflight_cnt.fetch_sub(1);
+                    if (inflight_cnt == 1 && is_consume_finished()) {
+                        _handle_consumer_finished();
                     }
                 }));
     }
@@ -299,6 +291,19 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
 }
 
 #endif
+
+void MultiTablePipe::_handle_consumer_finished() {
+    _ctx->number_total_rows = _number_total_rows;
+    _ctx->number_loaded_rows = _number_loaded_rows;
+    _ctx->number_filtered_rows = _number_filtered_rows;
+    _ctx->number_unselected_rows = _number_unselected_rows;
+    _ctx->commit_infos = _tablet_commit_infos;
+    LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
+              << _ctx->number_total_rows << " number_loaded_rows=" << _ctx->number_loaded_rows
+              << " number_filtered_rows=" << _ctx->number_filtered_rows
+              << " number_unselected_rows=" << _ctx->number_unselected_rows;
+    _ctx->promise.set_value(_status); // when all done, finish the routine load task
+}
 
 Status MultiTablePipe::put_pipe(const TUniqueId& pipe_id,
                                 std::shared_ptr<io::StreamLoadPipe> pipe) {

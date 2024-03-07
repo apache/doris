@@ -100,6 +100,14 @@ public class RoleManager implements Writable, GsonPostProcessable {
         roles.remove(qualifiedRole);
     }
 
+    private void replaceResourceLevel(Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> map, PrivLevel type) {
+        List<Entry<ResourcePattern, PrivBitSet>> clusterSet = map.get(PrivLevel.RESOURCE);
+        if (clusterSet != null && !clusterSet.isEmpty()) {
+            map.remove(PrivLevel.RESOURCE);
+            map.put(type, clusterSet);
+        }
+    }
+
     public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs,
             Map<ColPrivilegeKey, Set<String>> colPrivileges, boolean errOnNonExist)
             throws DdlException {
@@ -151,7 +159,13 @@ public class RoleManager implements Writable, GsonPostProcessable {
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
             info.add(Joiner.on(", ").join(Env.getCurrentEnv().getAuth().getRoleUsers(role.getRoleName())));
+
+            Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> clusterMap = role.getClusterPatternToPrivs()
+                    .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
+            replaceResourceLevel(clusterMap, PrivLevel.CLUSTER);
+
             Map<PrivLevel, String> infoMap =
+                    Stream.concat(
                     Stream.concat(
                             role.getTblPatternToPrivs().entrySet().stream()
                                     .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
@@ -162,6 +176,8 @@ public class RoleManager implements Writable, GsonPostProcessable {
                                     role.getWorkloadGroupPatternToPrivs().entrySet().stream()
                                             .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
                                             .entrySet().stream())
+                    ),
+                    clusterMap.entrySet().stream()
                     ).collect(Collectors.toMap(Entry::getKey, entry -> {
                                 if (entry.getKey() == PrivLevel.GLOBAL) {
                                     return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
@@ -173,7 +189,8 @@ public class RoleManager implements Writable, GsonPostProcessable {
                                 }
                             }, (s1, s2) -> s1 + " " + s2
                     ));
-            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE)
+            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
+                        PrivLevel.CLUSTER)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {
@@ -260,8 +277,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
             return roleManager;
         } else {
             String json = Text.readString(in);
-            RoleManager rm = GsonUtils.GSON.fromJson(json, RoleManager.class);
-            return rm;
+            return GsonUtils.GSON.fromJson(json, RoleManager.class);
         }
     }
 

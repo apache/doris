@@ -30,6 +30,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -42,10 +43,12 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -67,7 +70,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -84,7 +86,7 @@ import java.util.stream.Collectors;
 @EqualsAndHashCode(callSuper = true)
 @Data
 @Slf4j
-public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
+public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> implements GsonPostProcessable {
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Id", ScalarType.createStringType()),
@@ -156,6 +158,31 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
     // max save task num, do we need to config it?
     private static final int MAX_SAVE_TASK_NUM = 100;
 
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (null == plans) {
+            plans = new ArrayList<>();
+        }
+        if (null == idToTasks) {
+            idToTasks = new ConcurrentHashMap<>();
+        }
+        if (null == loadStatistic) {
+            loadStatistic = new LoadStatistic();
+        }
+        if (null == finishedTaskIds) {
+            finishedTaskIds = new HashSet<>();
+        }
+        if (null == errorTabletInfos) {
+            errorTabletInfos = new ArrayList<>();
+        }
+        if (null == commitInfos) {
+            commitInfos = new ArrayList<>();
+        }
+        if (null == historyTaskIdList) {
+            historyTaskIdList = new ConcurrentLinkedQueue<>();
+        }
+    }
+
     /**
      * load job type
      */
@@ -192,18 +219,18 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
                      Long createTimeMs,
                      String executeSql) {
         super(getNextJobId(), jobName, jobStatus, dbName, comment, createUser,
-                jobConfig, createTimeMs, executeSql, null);
+                jobConfig, createTimeMs, executeSql);
         this.dbId = ConnectContext.get().getCurrentDbId();
     }
 
     public InsertJob(ConnectContext ctx,
-                      StmtExecutor executor,
-                      String labelName,
-                      List<InsertIntoTableCommand> plans,
-                      Set<String> sinkTableNames,
-                      Map<String, String> properties,
-                      String comment,
-                      JobExecutionConfiguration jobConfig) {
+                     StmtExecutor executor,
+                     String labelName,
+                     List<InsertIntoTableCommand> plans,
+                     Set<String> sinkTableNames,
+                     Map<String, String> properties,
+                     String comment,
+                     JobExecutionConfiguration jobConfig) {
         super(getNextJobId(), labelName, JobStatus.RUNNING, null,
                 comment, ctx.getCurrentUserIdentity(), jobConfig);
         this.ctx = ctx;
@@ -219,9 +246,11 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
 
     @Override
     public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
+        List<InsertTask> newTasks = new ArrayList<>();
         if (plans.isEmpty()) {
             InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
             idToTasks.put(task.getTaskId(), task);
+            newTasks.add(task);
             recordTask(task.getTaskId());
         } else {
             // use for load stmt
@@ -231,11 +260,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
                 }
                 InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
                 idToTasks.put(task.getTaskId(), task);
+                newTasks.add(task);
                 recordTask(task.getTaskId());
             }
         }
-        initTasks(idToTasks.values(), taskType);
-        return new ArrayList<>(idToTasks.values());
+        initTasks(newTasks, taskType);
+        return new ArrayList<>(newTasks);
     }
 
     public void recordTask(long id) {
@@ -244,14 +274,15 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
         }
         if (CollectionUtils.isEmpty(historyTaskIdList)) {
             historyTaskIdList = new ConcurrentLinkedQueue<>();
-            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
             historyTaskIdList.add(id);
+            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
             return;
         }
         historyTaskIdList.add(id);
         if (historyTaskIdList.size() >= Config.max_persistence_task_count) {
             historyTaskIdList.poll();
         }
+        Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
 
     @Override
@@ -292,22 +323,44 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
         }
         //TODO it's will be refactor, we will storage task info in job inner and query from it
         List<Long> taskIdList = new ArrayList<>(this.historyTaskIdList);
+        if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+            Collections.reverse(taskIdList);
+            return queryLoadTasksByTaskIds(taskIdList);
+        }
+        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIdList);
+        if (CollectionUtils.isEmpty(loadJobs)) {
+            return new ArrayList<>();
+        }
+        List<InsertTask> tasks = new ArrayList<>();
+        loadJobs.forEach(loadJob -> {
+            InsertTask task;
+            try {
+                task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
+                task.setCreateTimeMs(loadJob.getCreateTimestamp());
+            } catch (MetaNotFoundException e) {
+                log.warn("load job not found, job id is {}", loadJob.getId());
+                return;
+            }
+            task.setJobId(getJobId());
+            task.setTaskId(loadJob.getId());
+            task.setJobInfo(loadJob);
+            tasks.add(task);
+        });
+        return tasks;
 
-        Collections.reverse(taskIdList);
-        return queryLoadTasksByTaskIds(taskIdList);
     }
 
     public List<InsertTask> queryLoadTasksByTaskIds(List<Long> taskIdList) {
         if (taskIdList.isEmpty()) {
             return new ArrayList<>();
         }
-        List<InsertTask> jobs = new ArrayList<>();
+        List<InsertTask> tasks = new ArrayList<>();
         taskIdList.forEach(id -> {
             if (null != idToTasks.get(id)) {
-                jobs.add(idToTasks.get(id));
+                tasks.add(idToTasks.get(id));
             }
         });
-        return jobs;
+        return tasks;
     }
 
     @Override
@@ -326,14 +379,11 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
     }
 
     @Override
-    public void onTaskFail(InsertTask task) {
-        try {
-            updateJobStatus(JobStatus.STOPPED);
+    public void onTaskFail(InsertTask task) throws JobException {
+        if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
             this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, task.getErrMsg());
-        } catch (JobException e) {
-            throw new RuntimeException(e);
         }
-        getRunningTasks().remove(task);
+        super.onTaskFail(task);
     }
 
     @Override
@@ -458,14 +508,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
             return Long.parseLong(properties.get(LoadStmt.TIMEOUT_PROPERTY));
         }
         return Config.broker_load_default_timeout_second;
-    }
-
-
-    public static InsertJob readFields(DataInput in) throws IOException {
-        String jsonJob = Text.readString(in);
-        InsertJob job = GsonUtils.GSON.fromJson(jsonJob, InsertJob.class);
-        job.setRunningTasks(new ArrayList<>());
-        return job;
     }
 
     @Override

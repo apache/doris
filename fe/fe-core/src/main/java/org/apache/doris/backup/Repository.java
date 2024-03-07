@@ -424,7 +424,9 @@ public class Repository implements Writable {
 
         for (RemoteFile remoteFile : result) {
             if (remoteFile.isFile()) {
-                LOG.debug("get snapshot path{} which is not a dir", remoteFile);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get snapshot path{} which is not a dir", remoteFile);
+                }
                 continue;
             }
 
@@ -453,7 +455,9 @@ public class Repository implements Writable {
                 joinPrefix(PREFIX_IDX, info.getIndexId()),
                 joinPrefix(PREFIX_COMMON, info.getTabletId()),
                 joinPrefix(PREFIX_COMMON, info.getSchemaHash()));
-        LOG.debug("get remote tablet snapshot path: {}", path);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get remote tablet snapshot path: {}", path);
+        }
         return path;
     }
 
@@ -528,8 +532,10 @@ public class Repository implements Writable {
         if (fileSystem instanceof BrokerFileSystem) {
             // this may be a retry, so we should first delete remote file
             String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
-            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}",
-                    localFilePath, tmpRemotePath, finalRemotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}",
+                        localFilePath, tmpRemotePath, finalRemotePath);
+            }
             st = fileSystem.delete(tmpRemotePath);
             if (!st.ok()) {
                 return st;
@@ -552,7 +558,9 @@ public class Repository implements Writable {
                 return st;
             }
         } else if (fileSystem instanceof S3FileSystem) {
-            LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            }
             st = fileSystem.delete(finalRemotePath);
             if (!st.ok()) {
                 return st;
@@ -564,7 +572,9 @@ public class Repository implements Writable {
                 return st;
             }
         } else if (fileSystem instanceof DFSFileSystem) {
-            LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            }
             st = fileSystem.delete(finalRemotePath);
             if (!st.ok()) {
                 return st;
@@ -599,7 +609,9 @@ public class Repository implements Writable {
 
         String remoteFilePathWithChecksum = replaceFileNameWithChecksumFileName(remoteFilePath,
                 remoteFiles.get(0).getName());
-        LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
+        }
 
         // 1. get checksum from remote file name
         Pair<String, String> pair = decodeFileNameWithChecksum(remoteFilePathWithChecksum);
@@ -743,7 +755,9 @@ public class Repository implements Writable {
             // get all timestamp
             // path eg: /location/__palo_repository_repo_name/__ss_my_snap/__info_*
             String infoFilePath = assembleJobInfoFilePath(snapshotName, -1);
-            LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
+            }
             List<RemoteFile> results = Lists.newArrayList();
             Status st = fileSystem.list(infoFilePath + "*", results);
             if (!st.ok()) {

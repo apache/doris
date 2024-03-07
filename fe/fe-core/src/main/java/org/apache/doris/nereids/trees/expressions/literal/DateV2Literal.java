@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.StandardDateFormat;
@@ -78,18 +79,42 @@ public class DateV2Literal extends DateLiteral {
 
     /**
      * 2020-01-01
-     * @return 2020-01-01 24:00:00
+     * @return 2020-01-01 00:00:00
      */
     public DateTimeV2Literal toBeginOfTheDay() {
-        return new DateTimeV2Literal(year, month, day, 0, 0, 0);
+        return toBeginOfTheDay(DateTimeV2Type.SYSTEM_DEFAULT);
     }
 
     /**
      * 2020-01-01
      * @return 2020-01-01 00:00:00
      */
+    public DateTimeV2Literal toBeginOfTheDay(DateTimeV2Type dateType) {
+        return new DateTimeV2Literal(dateType, year, month, day, 0, 0, 0, 000000);
+    }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 23:59:59
+     */
     public DateTimeV2Literal toEndOfTheDay() {
-        return new DateTimeV2Literal(year, month, day, 24, 0, 0);
+        return toEndOfTheDay(DateTimeV2Type.SYSTEM_DEFAULT);
+    }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 23:59:59.9[scale]
+     */
+    public DateTimeV2Literal toEndOfTheDay(DateTimeV2Type dateType) {
+        long microSecond = 0;
+        // eg. scale == 4 -> 999900
+        for (int i = 0; i < 6; ++i) {
+            microSecond *= 10;
+            if (i < dateType.getScale()) {
+                microSecond += 9;
+            }
+        }
+        return new DateTimeV2Literal(dateType, year, month, day, 23, 59, 59, microSecond);
     }
 
     /**

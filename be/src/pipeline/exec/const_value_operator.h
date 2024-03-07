@@ -36,7 +36,7 @@ public:
     bool is_source() const override { return true; }
 };
 
-class ConstValueOperator final : public SourceOperator<ConstValueOperatorBuilder> {
+class ConstValueOperator final : public SourceOperator<vectorized::VUnionNode> {
 public:
     ConstValueOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
             : SourceOperator(operator_builder, node) {}

@@ -458,7 +458,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.bitmap_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "No matching function with signature"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -493,7 +493,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.bitmap_table where id2 = 1;",
-                "Unsupported bitmap type in expression: `id2` = 1"
+                "Unsupported bitmap type in expression: (`id2` = 1)"
         );
 
     }
@@ -507,7 +507,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.hll_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "No matching function with signature"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -547,7 +547,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.hll_table where id2 = 1",
-                "Hll type dose not support operand: `id2` = 1"
+                "Hll type dose not support operand: (`id2` = 1)"
         );
     }
 
@@ -650,7 +650,7 @@ public class QueryPlanTest extends TestWithFeService {
         ConnectContext.get().getSessionVariable().setRewriteCountDistinct(false);
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ count(distinct id2) from test.bitmap_table";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains(Type.OnlyMetricTypeErrorMsg));
+        Assert.assertTrue(explainString.contains("No matching function with signature"));
     }
 
     @Test
@@ -732,8 +732,8 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> <slot 0> > 1"));
-        Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("<slot 12> <slot 0> > 1"));
+        Assert.assertFalse(explainString.contains("`join1`.`id` > 1"));
 
         /*
         // test left join: right table where predicate.
@@ -752,8 +752,8 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left join join2 on join1.id = join2.id\n"
                 + "and join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
-        Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("`join2`.`id` > 1"));
+        Assert.assertFalse(explainString.contains("`join1`.`id` > 1"));
 
         /*
         // test inner join: left table where predicate, both push down left table and right table
@@ -770,8 +770,8 @@ public class QueryPlanTest extends TestWithFeService {
                 + "join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
-        Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("`join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("`join2`.`id` > 1"));
 
         /*
         // test inner join: right table where predicate, both push down left table and right table
@@ -788,8 +788,8 @@ public class QueryPlanTest extends TestWithFeService {
 
                 + "join join2 on join1.id = join2.id\n" + "and 1 < join2.id;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
-        Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("`join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("`join2`.`id` > 1"));
 
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "join join2 on join1.id = join2.value\n"
@@ -803,31 +803,31 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left anti join join2 on join1.id = join2.id\n"
                 + "and join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
-        Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("`join2`.`id` > 1"));
+        Assert.assertFalse(explainString.contains("`join1`.`id` > 1"));
 
         // test semi join, right table join predicate, only push to right table
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "left semi join join2 on join1.id = join2.id\n"
                 + "and join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
-        Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("`join2`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("`join1`.`id` > 1"));
 
         // test anti join, left table join predicate, left table couldn't push down
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "left anti join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> <slot 0> > 1"));
-        Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("<slot 7> <slot 0> > 1"));
+        Assert.assertFalse(explainString.contains("`join1`.`id` > 1"));
 
         // test semi join, left table join predicate, only push to left table
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "left semi join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("`join1`.`id` > 1"));
 
         /*
         // test anti join, left table where predicate, only push to left table
@@ -1036,15 +1036,15 @@ public class QueryPlanTest extends TestWithFeService {
     public void testOrCompoundPredicateFold() throws Exception {
         String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from baseall where (k1 > 1) or (k1 > 1 and k2 < 1)";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
+        Assert.assertTrue(explainString.contains("`k1` > 1"));
 
         queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from  baseall where (k1 > 1 and k2 < 1) or  (k1 > 1)";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("PREDICATES: `k1` > 1\n"));
+        Assert.assertTrue(explainString.contains("`k1` > 1"));
 
         queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from  baseall where (k1 > 1) or (k1 > 1)";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
+        Assert.assertTrue(explainString.contains("`k1` > 1"));
     }
 
     @Test
@@ -1677,7 +1677,7 @@ public class QueryPlanTest extends TestWithFeService {
         //default format
         String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where from_unixtime(query_time) > '2021-03-02 10:01:28'";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999 AND `query_time` > 1614650488"));
+        Assert.assertTrue(explainString.contains("(`query_time` <= 253402271999) AND (`query_time` > 1614650488)"));
     }
 
     @Disabled
@@ -1811,7 +1811,7 @@ public class QueryPlanTest extends TestWithFeService {
         // false or e ==> e
         String sql1 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where 2=-2 OR query_time=0;";
         String explainString1 = getSQLPlanOrErrorMsg("EXPLAIN " + sql1);
-        Assert.assertTrue(explainString1.contains("PREDICATES: `query_time` = 0"));
+        Assert.assertTrue(explainString1.contains("`query_time` = 0"));
 
         //true or e ==> true
         String sql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where -5=-5 OR query_time=0;";
@@ -1826,18 +1826,18 @@ public class QueryPlanTest extends TestWithFeService {
         //e or false ==> e
         String sql4 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where -5!=-5 OR query_time=0;";
         String explainString4 = getSQLPlanOrErrorMsg("EXPLAIN " + sql4);
-        Assert.assertTrue(explainString4.contains("PREDICATES: `query_time` = 0"));
+        Assert.assertTrue(explainString4.contains("`query_time` = 0"));
 
 
         // true and e ==> e
         String sql5 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where -5=-5 AND query_time=0;";
         String explainString5 = getSQLPlanOrErrorMsg("EXPLAIN " + sql5);
-        Assert.assertTrue(explainString5.contains("PREDICATES: `query_time` = 0"));
+        Assert.assertTrue(explainString5.contains("`query_time` = 0"));
 
         // e and true ==> e
         String sql6 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where query_time=0 AND -5=-5;";
         String explainString6 = getSQLPlanOrErrorMsg("EXPLAIN " + sql6);
-        Assert.assertTrue(explainString6.contains("PREDICATES: `query_time` = 0"));
+        Assert.assertTrue(explainString6.contains("`query_time` = 0"));
 
         // false and e ==> false
         String sql7 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where -5!=-5 AND query_time=0;";
@@ -1852,12 +1852,12 @@ public class QueryPlanTest extends TestWithFeService {
         // (false or expr1) and (false or expr2) ==> expr1 and expr2
         String sql9 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where (-2=2 or query_time=2) and (-2=2 or stmt_id=2);";
         String explainString9 = getSQLPlanOrErrorMsg("EXPLAIN " + sql9);
-        Assert.assertTrue(explainString9.contains("PREDICATES: `query_time` = 2 AND `stmt_id` = 2"));
+        Assert.assertTrue(explainString9.contains("(`query_time` = 2) AND (`stmt_id` = 2)"));
 
         // false or (expr and true) ==> expr
         String sql10 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where (2=-2) OR (query_time=0 AND 1=1);";
         String explainString10 = getSQLPlanOrErrorMsg("EXPLAIN " + sql10);
-        Assert.assertTrue(explainString10.contains("PREDICATES: `query_time` = 0"));
+        Assert.assertTrue(explainString10.contains("`query_time` = 0"));
     }
 
     @Test
@@ -1885,11 +1885,11 @@ public class QueryPlanTest extends TestWithFeService {
                 + "     \"max_file_size\" = \"500MB\" );";
         String explainStr = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         if (Config.enable_date_conversion) {
-            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07' AND"
-                    + " `date` <= '2021-10-11'"));
+            Assert.assertTrue(explainStr.contains("(`date` >= '2021-10-07') AND"
+                    + " (`date` <= '2021-10-11')"));
         } else {
-            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00' AND"
-                    + " `date` <= '2021-10-11 00:00:00'"));
+            Assert.assertTrue(explainStr.contains("(`date` >= '2021-10-07 00:00:00') AND"
+                    + " (`date` <= '2021-10-11 00:00:00')"));
         }
     }
 
@@ -2237,7 +2237,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2 or scan_bytes = 2) and scan_bytes in (2, 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `scan_bytes` = 2 AND `scan_bytes` IN (2, 3)\n"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR (`scan_bytes` = 2) AND `scan_bytes` IN (2, 3)\n"));
 
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2) and (scan_bytes = 2 or scan_bytes = 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
@@ -2254,7 +2254,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.getSessionVariable().setRewriteOrToInPredicateThreshold(100);
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` = 1 OR `query_time` = 2 OR `query_time` IN (3, 4)\n"));
+        Assert.assertTrue(explainString.contains("PREDICATES: (`query_time` = 1) OR (`query_time` = 2) OR `query_time` IN (3, 4)\n"));
         connectContext.getSessionVariable().setRewriteOrToInPredicateThreshold(2);
 
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
@@ -2264,7 +2264,7 @@ public class QueryPlanTest extends TestWithFeService {
         //test we can handle `!=` and `not in`
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2 or query_time!= 3 or query_time not in (5, 6))";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `query_time` != 3 OR `query_time` NOT IN (5, 6)\n"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR (`query_time` != 3) OR `query_time` NOT IN (5, 6)\n"));
 
         //test we can handle merge 2 or more columns
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2 or scan_rows = 3 or scan_rows = 4)";
@@ -2284,8 +2284,8 @@ public class QueryPlanTest extends TestWithFeService {
                 + "      or (db not in ('x', 'y')) ";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(
-                "PREDICATES: `query_id` = `client_ip` "
-                        + "AND (`stmt_id` IN (1, 2, 3) OR `user` = 'abc' AND `state` IN ('a', 'b', 'c', 'd')) "
+                "PREDICATES: (`query_id` = `client_ip`) "
+                        + "AND (`stmt_id` IN (1, 2, 3) OR (`user` = 'abc') AND `state` IN ('a', 'b', 'c', 'd')) "
                         + "OR (`db` NOT IN ('x', 'y'))\n"));
 
         //ExtractCommonFactorsRule may generate more expr, test the rewriteOrToIn applied on generated exprs
@@ -2293,7 +2293,7 @@ public class QueryPlanTest extends TestWithFeService {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(
                 "PREDICATES: `state` IN ('a', 'b') AND `stmt_id` IN (1, 2) AND"
-                        + " `stmt_id` = 1 AND `state` = 'a' OR `stmt_id` = 2 AND `state` = 'b'\n"
+                        + " (`stmt_id` = 1) AND (`state` = 'a') OR (`stmt_id` = 2) AND (`state` = 'b')\n"
         ));
     }
 }

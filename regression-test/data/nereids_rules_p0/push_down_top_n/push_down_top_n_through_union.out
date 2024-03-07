@@ -70,7 +70,7 @@ PhysicalResultSink
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------PhysicalOlapScan[table1] apply RFs: RF0
+--------------PhysicalOlapScan[table1]
 --------------PhysicalOlapScan[table1]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]

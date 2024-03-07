@@ -135,11 +135,12 @@ suite("load_colddata_to_hdfs") {
         """
     }
 
+    String hdfsFs = getHdfsFs()
     sql """
         CREATE RESOURCE IF NOT EXISTS ${resource_name}
         PROPERTIES (
             "type"="hdfs",
-            "fs.defaultFS"="127.0.0.1:8120",
+            "fs.defaultFS"="${hdfsFs}",
             "hadoop.username"="hive",
             "hadoop.password"="hive",
             "dfs.nameservices" = "my_ha",

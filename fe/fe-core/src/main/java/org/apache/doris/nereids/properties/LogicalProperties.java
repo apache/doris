@@ -45,7 +45,8 @@ public class LogicalProperties {
     protected final Supplier<FunctionalDependencies> fdSupplier;
     private Integer hashCode = null;
 
-    public LogicalProperties(Supplier<List<Slot>> outputSupplier, Supplier<FunctionalDependencies> fdSupplier) {
+    public LogicalProperties(Supplier<List<Slot>> outputSupplier,
+            Supplier<FunctionalDependencies> fdSupplier) {
         this(outputSupplier, fdSupplier, ImmutableList::of);
     }
 
@@ -56,7 +57,8 @@ public class LogicalProperties {
      *                       throw exception for which children have UnboundRelation
      */
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<FunctionalDependencies> fdSupplier, Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
+            Supplier<FunctionalDependencies> fdSupplier,
+            Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );

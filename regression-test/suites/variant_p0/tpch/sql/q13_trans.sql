@@ -1,4 +1,4 @@
-SELECT
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
   C_COUNT,
   COUNT(*) AS CUSTDIST
 FROM (

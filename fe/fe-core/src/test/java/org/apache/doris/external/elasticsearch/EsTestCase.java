@@ -26,6 +26,7 @@ import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.meta.MetaContext;
 
 import org.junit.BeforeClass;

@@ -28,14 +28,14 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.SQLDialectUtils;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -49,8 +49,11 @@ import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
+import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.plugin.DialectConverterPlugin;
+import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.thrift.TMasterOpRequest;
@@ -60,6 +63,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -69,6 +73,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import javax.annotation.Nullable;
 
 /**
  * Process one connection, the life cycle is the same as connection
@@ -89,6 +94,10 @@ public abstract class ConnectProcessor {
         this.ctx = context;
     }
 
+    public ConnectContext getConnectContext() {
+        return ctx;
+    }
+
     // change current database of this session.
     protected void handleInitDb(String fullDbName) {
         String catalogName = null;
@@ -102,6 +111,19 @@ public abstract class ConnectProcessor {
         } else if (dbNames.length > 2) {
             ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
             return;
+        }
+
+        //  mysql client
+        if (Config.isCloudMode()) {
+            try {
+                dbName = ((CloudEnv) ctx.getEnv()).analyzeCloudCluster(dbName, ctx);
+            } catch (DdlException e) {
+                ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+                return;
+            }
+            if (dbName == null || dbName.isEmpty()) {
+                return;
+            }
         }
 
         // check catalog and db exists
@@ -148,7 +170,9 @@ public abstract class ConnectProcessor {
     }
 
     protected void handleStmtClose(int stmtId) {
-        LOG.debug("close stmt id: {}", stmtId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("close stmt id: {}", stmtId);
+        }
         ConnectContext.get().removePrepareStmt(String.valueOf(stmtId));
         // No response packet is sent back to the client, see
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_close.html
@@ -161,28 +185,33 @@ public abstract class ConnectProcessor {
 
     protected void auditAfterExec(String origStmt, StatementBase parsedStmt,
             Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        if (Config.enable_bdbje_debug_mode) {
+            return;
+        }
         AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
     }
 
     // only throw an exception when there is a problem interacting with the requesting client
     protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) {
+        try {
+            executeQuery(mysqlCommand, originStmt);
+        } catch (Exception ignored) {
+            // saved use handleQueryException
+        }
+    }
+
+    public void executeQuery(MysqlCommand mysqlCommand, String originStmt) throws Exception {
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         }
 
-        String convertedStmt = SQLDialectUtils.convertStmtWithDialect(originStmt, ctx, mysqlCommand);
-
+        String convertedStmt = convertOriginStmt(originStmt);
         String sqlHash = DigestUtils.md5Hex(convertedStmt);
         ctx.setSqlHash(sqlHash);
-        ctx.getAuditEventBuilder().reset();
-        ctx.getAuditEventBuilder()
-                .setTimestamp(System.currentTimeMillis())
-                .setClientIp(ctx.getClientIP())
-                .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
-                .setSqlHash(ctx.getSqlHash());
 
         List<StatementBase> stmts = null;
         Exception nereidsParseException = null;
+        long parseSqlStartTime = System.currentTimeMillis();
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
@@ -193,8 +222,10 @@ public abstract class ConnectProcessor {
                 return;
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
-                LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
-                        e.getMessage(), convertedStmt);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                            e.getMessage(), convertedStmt);
+                }
                 nereidsParseException = e;
             }
         }
@@ -225,6 +256,7 @@ public abstract class ConnectProcessor {
                 LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", convertedStmt);
             }
         }
+        long parseSqlFinishTime = System.currentTimeMillis();
 
         boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
         for (int i = 0; i < stmts.size(); ++i) {
@@ -239,6 +271,8 @@ public abstract class ConnectProcessor {
             parsedStmt.setOrigStmt(new OriginStatement(convertedStmt, i));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
+            executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
+            executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
             ctx.setExecutor(executor);
 
             try {
@@ -264,7 +298,8 @@ public abstract class ConnectProcessor {
                         break;
                     }
                 }
-                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
+                        true);
                 // execute failed, skip remaining stmts
                 if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                     break;
@@ -273,11 +308,31 @@ public abstract class ConnectProcessor {
                 handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
                         executor.getQueryStatisticsForAuditLog());
                 // execute failed, skip remaining stmts
-                break;
+                throw throwable;
             }
-
         }
+    }
 
+    private String convertOriginStmt(String originStmt) {
+        String convertedStmt = originStmt;
+        @Nullable Dialect sqlDialect = Dialect.getByName(ctx.getSessionVariable().getSqlDialect());
+        if (sqlDialect != null && sqlDialect != Dialect.DORIS) {
+            PluginMgr pluginMgr = Env.getCurrentEnv().getPluginMgr();
+            List<DialectConverterPlugin> plugins = pluginMgr.getActiveDialectPluginList(sqlDialect);
+            for (DialectConverterPlugin plugin : plugins) {
+                try {
+                    String convertedSql = plugin.convertSql(originStmt, ctx.getSessionVariable());
+                    if (StringUtils.isNotEmpty(convertedSql)) {
+                        convertedStmt = convertedSql;
+                        break;
+                    }
+                } catch (Throwable throwable) {
+                    LOG.warn("Convert sql with dialect {} failed, plugin: {}, sql: {}, use origin sql.",
+                                sqlDialect, plugin.getClass().getSimpleName(), originStmt, throwable);
+                }
+            }
+        }
+        return convertedStmt;
     }
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
@@ -316,7 +371,9 @@ public abstract class ConnectProcessor {
 
     // analyze the origin stmt and return multi-statements
     protected List<StatementBase> parse(String originStmt) throws AnalysisException, DdlException {
-        LOG.debug("the originStmts are: {}", originStmt);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("the originStmts are: {}", originStmt);
+        }
         // Parse statement with parser generated by CUP&FLEX
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
@@ -326,7 +383,9 @@ public abstract class ConnectProcessor {
             throw new AnalysisException("Please check your sql, we meet an error when parsing.", e);
         } catch (AnalysisException | DdlException e) {
             String errorMessage = parser.getErrorMsg(originStmt);
-            LOG.debug("origin stmt: {}; Analyze error message: {}", originStmt, parser.getErrorMsg(originStmt), e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("origin stmt: {}; Analyze error message: {}", originStmt, parser.getErrorMsg(originStmt), e);
+            }
             if (errorMessage == null) {
                 throw e;
             } else {
@@ -412,19 +471,27 @@ public abstract class ConnectProcessor {
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
-                packet = executor.getOutputPacket();
+                if (executor.sendProxyQueryResult()) {
+                    packet = getResultPacket();
+                } else {
+                    packet = executor.getOutputPacket();
+                }
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
                 if (packet == null) {
-                    LOG.debug("packet == null");
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("packet == null");
+                    }
                     return;
                 }
             }
         } else {
             packet = getResultPacket();
             if (packet == null) {
-                LOG.debug("packet == null");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("packet == null");
+                }
                 return;
             }
         }
@@ -561,8 +628,12 @@ public abstract class ConnectProcessor {
             result.setStatusCode(ctx.getState().getErrorCode().getCode());
             result.setErrMessage(ctx.getState().getErrorMessage());
         }
-        if (executor != null && executor.getProxyResultSet() != null) {
-            result.setResultSet(executor.getProxyResultSet().tothrift());
+        if (executor != null) {
+            if (executor.getProxyShowResultSet() != null) {
+                result.setResultSet(executor.getProxyShowResultSet().tothrift());
+            } else if (!executor.getProxyQueryResultBufList().isEmpty()) {
+                result.setQueryResultBufList(executor.getProxyQueryResultBufList());
+            }
         }
         return result;
     }
@@ -572,5 +643,3 @@ public abstract class ConnectProcessor {
         throw new NotImplementedException("Not Impl processOnce");
     }
 }
-
-

@@ -41,13 +41,14 @@ jobs:
             "${COMMENT_BODY}" == *'run compile'* ||
             "${COMMENT_BODY}" == *'run beut'* ||
             "${COMMENT_BODY}" == *'run feut'* ||
+            "${COMMENT_BODY}" == *'run cloudut'* ||
             "${COMMENT_BODY}" == *'run p0'* ||
             "${COMMENT_BODY}" == *'run p1'* ||
             "${COMMENT_BODY}" == *'run external'* ||
-            "${COMMENT_BODY}" == *'run pipelinex_p0'* ||
-            "${COMMENT_BODY}" == *'run clickbench'* ||
+            "${COMMENT_BODY}" == *'run cloud_p0'* ||
+            "${COMMENT_BODY}" == *'run cloud_p1'* ||
             "${COMMENT_BODY}" == *'run arm'* ||
-            "${COMMENT_BODY}" == *'run tpch'* ]]; then
+            "${COMMENT_BODY}" == *'run performance'* ]]; then
             echo "comment_trigger=true" | tee -a "$GITHUB_OUTPUT"
         else
             echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
@@ -63,7 +64,7 @@ jobs:
         echo "TARGET_BRANCH='${TARGET_BRANCH}'" | tee -a "$GITHUB_OUTPUT"
         echo "COMMENT_BODY='${COMMENT_BODY}'" | tee -a "$GITHUB_OUTPUT"
 
-        reg="run (buildall|compile|p0|p1|feut|beut|external|clickbench|pipelinex_p0|arm|tpch)( [1-9]*[0-9]+)*"
+        reg="run (buildall|compile|p0|p1|feut|beut|cloudut|external|clickbench|cloud_p0|cloud_p1|arm|performance)( [1-9]*[0-9]+)*"
         COMMENT_TRIGGER_TYPE="$(echo -e "${COMMENT_BODY}" | xargs | grep -E "${reg}" | awk -F' ' '{print $2}' | sed -n 1p | sed 's/\r//g')"
         COMMENT_REPEAT_TIMES="$(echo -e "${COMMENT_BODY}" | xargs | grep -E "${reg}" | awk -F' ' '{print $3}' | sed -n 1p | sed 's/\r//g')"
         echo "COMMENT_TRIGGER_TYPE=${COMMENT_TRIGGER_TYPE}" | tee -a "$GITHUB_OUTPUT"
@@ -90,22 +91,18 @@ jobs:
           else
             echo "changed_be_ut=false" | tee -a "$GITHUB_OUTPUT"
           fi
-          if file_changed_ckb; then
-            echo "changed_ckb=true" | tee -a "$GITHUB_OUTPUT"
-            echo "changed_tpch=true" | tee -a "$GITHUB_OUTPUT"
+          if file_changed_cloud_ut; then
+            echo "changed_cloud_ut=true" | tee -a "$GITHUB_OUTPUT"
           else
-            echo "changed_ckb=false" | tee -a "$GITHUB_OUTPUT"
-            echo "changed_tpch=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_cloud_ut=false" | tee -a "$GITHUB_OUTPUT"
           fi
           if file_changed_regression_p0; then
             echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
             echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
-            echo "changed_pipelinex_p0=true" | tee -a "$GITHUB_OUTPUT"
             echo "changed_arm=true" | tee -a "$GITHUB_OUTPUT"
           else
             echo "changed_p0=false" | tee -a "$GITHUB_OUTPUT"
             echo "changed_external=false" | tee -a "$GITHUB_OUTPUT"
-            echo "changed_pipelinex_p0=false" | tee -a "$GITHUB_OUTPUT"
             echo "changed_arm=false" | tee -a "$GITHUB_OUTPUT"
           fi
           if file_changed_regression_p1; then
@@ -113,17 +110,33 @@ jobs:
           else
             echo "changed_p1=false" | tee -a "$GITHUB_OUTPUT"
           fi
+          if file_changed_performance; then
+            echo "changed_performance=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_performance=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_cloud_p0; then
+            echo "changed_cloud_p0=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_cloud_p0=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_cloud_p1; then
+            echo "changed_cloud_p1=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_cloud_p1=false" | tee -a "$GITHUB_OUTPUT"
+          fi
         else
           echo "INFO: failed to _get_pr_changed_files, default trigger all"
           echo "changed_fe_ut=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_be_ut=true" | tee -a "$GITHUB_OUTPUT"
-          echo "changed_ckb=true" | tee -a "$GITHUB_OUTPUT"
-          echo "changed_tpch=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_cloud_ut=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
-          echo "changed_pipelinex_p0=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_arm=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_p1=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_performance=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_cloud_p0=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_cloud_p1=true" | tee -a "$GITHUB_OUTPUT"
         fi
 
     # - name: "Setup tmate session"
@@ -153,6 +166,18 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "beut" \
+          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+
+    - name: "Trigger or Skip cloudut"
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["cloudut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      run: |
+        source ./regression-test/pipeline/common/teamcity-utils.sh
+        set -x
+        trigger_or_skip_build \
+          "${{ steps.changes.outputs.changed_cloud_ut }}" \
+          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+          "cloudut" \
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip compile"
@@ -213,20 +238,57 @@ jobs:
           "external" \
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
-    - name: "Trigger or Skip pipelinex_p0"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["pipelinex_p0", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+    - name: "Trigger or Skip cloud_p0"
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["cloud_p0", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
-          echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger pipelinex_p0" && exit
+          echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger cloud_p0" && exit
         fi
         set -x
-        trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_pipelinex_p0 }}" \
-          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "pipelinex_p0" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ]]; then
+          echo "PR target branch in (master), need run cloud_p0"
+          trigger_or_skip_build \
+            "${{ steps.changes.outputs.changed_cloud_p0 }}" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "cloud_p0" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        else
+          echo "PR target branch not in (master), skip run cloud_p0"
+          trigger_or_skip_build \
+            "false" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "cloud_p0" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        fi
+
+    - name: "Trigger or Skip cloud_p1"
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["cloud_p1", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      run: |
+        source ./regression-test/pipeline/common/teamcity-utils.sh
+        if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
+          echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger cloud_p1" && exit
+        fi
+        set -x
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ]]; then
+          echo "PR target branch in (master), need run cloud_p1"
+          trigger_or_skip_build \
+            "${{ steps.changes.outputs.changed_cloud_p1 }}" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "cloud_p1" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        else
+          echo "PR target branch not in (master), skip run cloud_p1"
+          trigger_or_skip_build \
+            "false" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "cloud_p1" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        fi
 
     - name: "Trigger or Skip arm"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["arm", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
@@ -240,29 +302,26 @@ jobs:
           "arm" \
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
-    - name: "Trigger or Skip clickbench"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["clickbench", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+    - name: "Trigger or Skip performance"
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
-        trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_ckb }}" \
-          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "clickbench" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
-
-    - name: "Trigger or Skip tpch"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["tpch", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
-      run: |
-        source ./regression-test/pipeline/common/teamcity-utils.sh
-        if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
-          echo "COMMENT_TRIGGER_TYPE is buildall, trigger clickbench is enough, clickbench will trigger tpch" && exit
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.0'" ]]; then
+          echo "PR target branch in (master, branch-2.0), need run performance"
+          trigger_or_skip_build \
+            "${{ steps.changes.outputs.changed_performance }}" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "performance" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        else
+          echo "PR target branch not in (master, branch-2.0), skip run performance"
+          trigger_or_skip_build \
+            "false" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "performance" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         fi
-        set -x
-        trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_tpch }}" \
-          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "tpch" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"

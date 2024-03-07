@@ -27,7 +27,7 @@ under the License.
 亲爱的社区小伙伴们，我们很高兴地向大家宣布，Apache Doris 2.0-Beta 版本已于 2023 年 7 月 3 日正式发布！**在 2.0-Beta 版本中有超过 255 位贡献者为 Apache Doris 提交了超过 3500 个优化与修复**，欢迎大家下载使用！
 
 > 下载链接：[https://doris.apache.org/download](https://doris.apache.org/download)
-> 
+>
 > GitHub 源码：[https://github.com/apache/doris/tree/branch-2.0](https://github.com/apache/doris/tree/branch-2.0)
 
 
@@ -50,7 +50,7 @@ under the License.
 
 秉持着“**将易用性留给用户、将复杂性留给自己**”的原则，为了克服以上一系列挑战，从理论基础到工程实现、从理想业务场景到极端异常 Case、从内部测试通过到大规模生产可用，我们耗费了更多的时间与精力在功能的开发、验证、持续迭代与精益求精上。值得庆祝的是，在经过近半年的开发、测试与稳定性调优后，Apache Doris 终于迎来了 2.0-Beta 版本的正式发布！而这一版本的成功发布也使得我们的愿景离现实更进一步！
 
-  
+
 
 
 # 盲测性能 10 倍以上提升！
@@ -91,7 +91,7 @@ under the License.
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/pipeline-execution-engine](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/pipeline-execution-engine)
 
-如何开启：` Set enable_pipeline_engine = true  `该功能在 Apache Doris 2.0 版本中将默认开启，BE 在进行查询执行时默认将 SQL 的执行模型转变 Pipeline 的执行方式。`parallel_pipeline_task_num`代表了 SQL 查询进行查询并发的 Pipeline Task 数目。Apache Doris 默认配置为`0`，此时 Apache Doris 会自动感知每个 BE 的 CPU 核数并把并发度设置为 CPU 核数的一半，用户也可以实际根据自己的实际情况进行调整。对于从老版本升级的用户，建议用户将该参数设置成老版本中`parallel_fragment_exec_instance_num`的值。
+如何开启：` Set enable_pipeline_engine = true  `该功能在 Apache Doris 2.0 版本中将默认开启，BE 在进行查询执行时默认将 SQL 的执行模型转变 Pipeline 的执行方式。`parallel_pipeline_task_num`代表了 SQL 查询进行查询并发的 Pipeline Task 数目。Apache Doris 默认配置为`0`，此时 Apache Doris 会自动感知每个 BE 的 CPU 核数并把并发度设置为 CPU 核数的一半，用户也可以根据自己的实际情况进行调整。对于从老版本升级的用户，建议用户将该参数设置成老版本中`parallel_fragment_exec_instance_num`的值。
 
 # 查询稳定性进一步提升
 

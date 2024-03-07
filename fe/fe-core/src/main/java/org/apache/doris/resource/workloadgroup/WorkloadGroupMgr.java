@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -55,6 +56,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -68,6 +70,8 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
             .add(WorkloadGroup.MAX_CONCURRENCY).add(WorkloadGroup.MAX_QUEUE_SIZE)
             .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
+            .add(WorkloadGroup.SCAN_THREAD_NUM).add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
+            .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
             .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
@@ -125,11 +129,20 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 currentQueryQueue.resetQueueProperty(newPropQq.getMaxConcurrency(), newPropQq.getMaxQueueSize(),
                         newPropQq.getQueueTimeout(), newPropQq.getPropVersion());
             }
-            LOG.debug(currentQueryQueue.debugString()); // for test debug
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(currentQueryQueue.debugString()); // for test debug
+            }
         }
     }
 
     public WorkloadGroupMgr() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(WorkloadGroup.CPU_SHARE, "1024");
+        properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+        WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(1, DEFAULT_GROUP_NAME, properties);
+        nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
+        idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
     }
 
     public static WorkloadGroupMgr read(DataInput in) throws IOException {
@@ -151,19 +164,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    private void checkWorkloadGroupEnabled() throws DdlException {
-        if (!Config.enable_workload_group) {
-            throw new DdlException(
-                    "WorkloadGroup is disabled, you can set config enable_workload_group = true to enable it");
-        }
-    }
-
-    public void init() {
-        if (Config.enable_workload_group || Config.use_fuzzy_session_variable /* for github workflow */) {
-            checkAndCreateDefaultGroup();
-        }
     }
 
     public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
@@ -241,32 +241,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return groupName;
     }
 
-    private void checkAndCreateDefaultGroup() {
-        WorkloadGroup defaultWorkloadGroup = null;
-        writeLock();
-        try {
-            if (nameToWorkloadGroup.containsKey(DEFAULT_GROUP_NAME)) {
-                return;
-            }
-            Map<String, String> properties = Maps.newHashMap();
-            properties.put(WorkloadGroup.CPU_SHARE, "1024");
-            properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
-            properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-            defaultWorkloadGroup = WorkloadGroup.create(DEFAULT_GROUP_NAME, properties);
-            nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
-            idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
-            Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(defaultWorkloadGroup);
-        } catch (DdlException e) {
-            LOG.warn("Create workload group " + DEFAULT_GROUP_NAME + " fail");
-        } finally {
-            writeUnlock();
-        }
-        LOG.info("Create workload group success: {}", defaultWorkloadGroup);
-    }
-
     public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         WorkloadGroup workloadGroup = WorkloadGroup.create(stmt.getWorkloadGroupName(), stmt.getProperties());
         String workloadGroupName = workloadGroup.getName();
         writeLock();
@@ -276,6 +251,10 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                     return;
                 }
                 throw new DdlException("workload group " + workloadGroupName + " already exist");
+            }
+            if (idToWorkloadGroup.size() >= Config.workload_group_max_num) {
+                throw new DdlException(
+                        "workload group number can not be exceed " + Config.workload_group_max_num);
             }
             checkGlobalUnlock(workloadGroup, null);
             nameToWorkloadGroup.put(workloadGroupName, workloadGroup);
@@ -323,8 +302,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void alterWorkloadGroup(AlterWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         String workloadGroupName = stmt.getWorkloadGroupName();
         Map<String, String> properties = stmt.getProperties();
         WorkloadGroup newWorkloadGroup;
@@ -338,6 +315,10 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             checkGlobalUnlock(newWorkloadGroup, currentWorkloadGroup);
             nameToWorkloadGroup.put(workloadGroupName, newWorkloadGroup);
             idToWorkloadGroup.put(newWorkloadGroup.getId(), newWorkloadGroup);
+            // NOTE: used for regression test query queue
+            if (Config.enable_alter_queue_prop_sync) {
+                resetQueryQueueProp();
+            }
             Env.getCurrentEnv().getEditLog().logAlterWorkloadGroup(newWorkloadGroup);
         } finally {
             writeUnlock();
@@ -346,8 +327,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         String workloadGroupName = stmt.getWorkloadGroupName();
         if (DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
             throw new DdlException("Dropping default workload group " + workloadGroupName + " is not allowed");
@@ -422,13 +401,20 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public List<List<String>> getResourcesInfo() {
+    public List<List<String>> getResourcesInfo(PatternMatcher matcher) {
         UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
-        return procNode.fetchResult(currentUserIdentity).getRows();
+        List<List<String>> rows = procNode.fetchResult(currentUserIdentity).getRows();
+        for (Iterator<List<String>> it = rows.iterator(); it.hasNext(); ) {
+            List<String> row = it.next();
+            if (matcher != null && !matcher.match(row.get(1))) {
+                it.remove();
+            }
+        }
+        return rows;
     }
 
-    public List<List<String>> getResourcesInfo(TUserIdentity tcurrentUserIdentity) {
-        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+    public List<List<String>> getResourcesInfo(TUserIdentity tCurrentUserIdentity) {
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tCurrentUserIdentity);
         return procNode.fetchResult(currentUserIdentity).getRows();
     }
 

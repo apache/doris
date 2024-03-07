@@ -21,11 +21,12 @@ package org.apache.doris.hudi;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopUGI;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.util.WeakIdentityHashMap;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.log4j.Logger;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.sources.Filter;
@@ -34,7 +35,6 @@ import scala.collection.Iterator;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.security.PrivilegedExceptionAction;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +61,6 @@ public class HudiJniScanner extends JniScanner {
     private final HoodieSplit split;
     private final ScanPredicate[] predicates;
     private final ClassLoader classLoader;
-    private final UserGroupInformation ugi;
 
     private long getRecordReaderTimeNs = 0;
     private Iterator<InternalRow> recordIterator;
@@ -138,7 +137,6 @@ public class HudiJniScanner extends JniScanner {
                     predicates = new ScanPredicate[0];
                 }
             }
-            ugi = Utils.getUserGroupInformation(split.hadoopConf());
         } catch (Exception e) {
             LOG.error("Failed to initialize hudi scanner, split params:\n" + debugString, e);
             throw e;
@@ -176,14 +174,9 @@ public class HudiJniScanner extends JniScanner {
             cleanResolverLock.readLock().lock();
             try {
                 lastUpdateTime.set(System.currentTimeMillis());
-                if (ugi != null) {
-                    recordIterator = ugi.doAs(
-                            (PrivilegedExceptionAction<Iterator<InternalRow>>) () -> new MORSnapshotSplitReader(
-                                    split).buildScanIterator(new Filter[0]));
-                } else {
-                    recordIterator = new MORSnapshotSplitReader(split)
-                            .buildScanIterator(new Filter[0]);
-                }
+                recordIterator = HadoopUGI.ugiDoAs(
+                        AuthenticationConfig.getKerberosConfig(split.hadoopConf()), () -> new MORSnapshotSplitReader(
+                                split).buildScanIterator(new Filter[0]));
                 if (AVRO_RESOLVER_CACHE != null && AVRO_RESOLVER_CACHE.get() != null) {
                     cachedResolvers.computeIfAbsent(Thread.currentThread().getId(),
                             threadId -> AVRO_RESOLVER_CACHE.get());

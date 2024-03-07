@@ -30,9 +30,7 @@ namespace doris {
 // only used in Runtime Filter
 class MinMaxFuncBase {
 public:
-    virtual void insert(const void* data) = 0;
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
-    virtual bool find(void* data) = 0;
     virtual void* get_max() = 0;
     virtual void* get_min() = 0;
     // assign minmax data
@@ -48,66 +46,56 @@ public:
     MinMaxNumFunc() = default;
     ~MinMaxNumFunc() override = default;
 
-    void insert(const void* data) override {
-        if (data == nullptr) {
-            return;
-        }
-
-        T val_data = *reinterpret_cast<const T*>(data);
-
-        if constexpr (NeedMin) {
-            if (val_data < _min) {
-                _min = val_data;
-            }
-        }
-
-        if constexpr (NeedMax) {
-            if (val_data > _max) {
-                _max = val_data;
-            }
-        }
-    }
-
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
         if (column->empty()) {
             return;
         }
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
-            const auto& col = nullable->get_nested_column();
-            const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
-
-            if constexpr (std::is_same_v<T, StringRef>) {
-                const auto& column_string = assert_cast<const vectorized::ColumnString&>(col);
-                for (size_t i = start; i < column->size(); i++) {
-                    if (!nullmap[i]) {
-                        if constexpr (NeedMin) {
-                            _min = std::min(_min, column_string.get_data_at(i));
-                        }
-                        if constexpr (NeedMax) {
-                            _max = std::max(_max, column_string.get_data_at(i));
-                        }
-                    }
-                }
+            const auto& col = nullable->get_nested_column_ptr();
+            const auto& nullmap = nullable->get_null_map_data();
+            if (nullable->has_null()) {
+                update_batch(col, nullmap, start);
             } else {
-                const T* data = (T*)col.get_raw_data().data;
-                for (size_t i = start; i < column->size(); i++) {
-                    if (!nullmap[i]) {
-                        if constexpr (NeedMin) {
-                            _min = std::min(_min, *(data + i));
-                        }
-                        if constexpr (NeedMax) {
-                            _max = std::max(_max, *(data + i));
-                        }
-                    }
+                update_batch(col, start);
+            }
+        } else {
+            update_batch(column, start);
+        }
+    }
+
+    void update_batch(const vectorized::ColumnPtr& column, size_t start) {
+        const auto size = column->size();
+        if constexpr (std::is_same_v<T, StringRef>) {
+            const auto& column_string = assert_cast<const vectorized::ColumnString&>(*column);
+            for (size_t i = start; i < size; i++) {
+                if constexpr (NeedMin) {
+                    _min = std::min(_min, column_string.get_data_at(i));
+                }
+                if constexpr (NeedMax) {
+                    _max = std::max(_max, column_string.get_data_at(i));
                 }
             }
         } else {
-            if constexpr (std::is_same_v<T, StringRef>) {
-                const auto& column_string = assert_cast<const vectorized::ColumnString&>(*column);
-                for (size_t i = start; i < column->size(); i++) {
+            const T* data = (T*)column->get_raw_data().data;
+            for (size_t i = start; i < size; i++) {
+                if constexpr (NeedMin) {
+                    _min = std::min(_min, *(data + i));
+                }
+                if constexpr (NeedMax) {
+                    _max = std::max(_max, *(data + i));
+                }
+            }
+        }
+    }
+
+    void update_batch(const vectorized::ColumnPtr& column, const vectorized::NullMap& nullmap,
+                      size_t start) {
+        const auto size = column->size();
+        if constexpr (std::is_same_v<T, StringRef>) {
+            const auto& column_string = assert_cast<const vectorized::ColumnString&>(*column);
+            for (size_t i = start; i < size; i++) {
+                if (!nullmap[i]) {
                     if constexpr (NeedMin) {
                         _min = std::min(_min, column_string.get_data_at(i));
                     }
@@ -115,9 +103,11 @@ public:
                         _max = std::max(_max, column_string.get_data_at(i));
                     }
                 }
-            } else {
-                const T* data = (T*)column->get_raw_data().data;
-                for (size_t i = start; i < column->size(); i++) {
+            }
+        } else {
+            const T* data = (T*)column->get_raw_data().data;
+            for (size_t i = start; i < size; i++) {
+                if (!nullmap[i]) {
                     if constexpr (NeedMin) {
                         _min = std::min(_min, *(data + i));
                     }
@@ -127,25 +117,6 @@ public:
                 }
             }
         }
-    }
-
-    bool find(void* data) override {
-        if (data == nullptr) {
-            return false;
-        }
-
-        T val_data = *reinterpret_cast<T*>(data);
-        if constexpr (NeedMin) {
-            if (val_data < _min) {
-                return false;
-            }
-        }
-        if constexpr (NeedMax) {
-            if (val_data > _max) {
-                return false;
-            }
-        }
-        return true;
     }
 
     Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {

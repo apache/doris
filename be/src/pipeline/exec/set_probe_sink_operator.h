@@ -54,7 +54,7 @@ private:
 };
 
 template <bool is_intersect>
-class SetProbeSinkOperator : public StreamingOperator<SetProbeSinkOperatorBuilder<is_intersect>> {
+class SetProbeSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
 public:
     SetProbeSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* set_node);
 
@@ -67,31 +67,14 @@ private:
     int _child_id;
 };
 
-class SetProbeSinkDependency final : public Dependency {
-public:
-    using SharedState = SetSharedState;
-    SetProbeSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SetProbeSinkDependency", true, query_ctx) {}
-    ~SetProbeSinkDependency() override = default;
-
-    void set_cur_child_id(int id) {
-        _child_idx = id;
-        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
-        block();
-    }
-
-private:
-    int _child_idx {0};
-};
-
 template <bool is_intersect>
 class SetProbeSinkOperatorX;
 
 template <bool is_intersect>
-class SetProbeSinkLocalState final : public PipelineXSinkLocalState<SetProbeSinkDependency> {
+class SetProbeSinkLocalState final : public PipelineXSinkLocalState<SetSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SetProbeSinkLocalState);
-    using Base = PipelineXSinkLocalState<SetProbeSinkDependency>;
+    using Base = PipelineXSinkLocalState<SetSharedState>;
     using Parent = SetProbeSinkOperatorX<is_intersect>;
 
     SetProbeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -142,12 +125,13 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
+
+    std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);

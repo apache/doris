@@ -28,7 +28,7 @@ under the License.
 
 Bucket Shuffle Join is a new function officially added in Doris 0.14. The purpose is to provide local optimization for some join queries to reduce the time-consuming of data transmission between nodes and speed up the query.
 
-It's design, implementation can be referred to [ISSUE 4394](https://github.com/apache/incubator-doris/issues/4394)。
+It's design, implementation can be referred to [ISSUE 4394](https://github.com/apache/incubator-doris/issues/4394).
 
 ## Noun Interpretation
 
@@ -91,7 +91,7 @@ You can use the `explain` command to check whether the join is a Bucket Shuffle 
 |   |  equal join conjunct: `test`.`k1` = `baseall`.`k1`                                         
 ```
 
-The join type indicates that the join method to be used is：`BUCKET_SHUFFLE`。
+The join type indicates that the join method to be used is：`BUCKET_SHUFFLE`.
 
 ## Planning rules of Bucket Shuffle Join
 

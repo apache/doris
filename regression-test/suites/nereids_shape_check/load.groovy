@@ -53,7 +53,7 @@ suite("broadcastJoin") {
     sql "set enable_nereids_planner=true"
     sql "set forbid_unknown_col_stats=true"
     sql "set enable_fallback_to_original_planner=false"
-
+    sql "set runtime_filter_type=4"
     sql """
     alter table t1 modify column code set stats('row_count'='7846', 'ndv'='10000', 'num_nulls'='0', 'min_value'='999999', 'max_value'='999999', 'data_size'='5.7');
     """

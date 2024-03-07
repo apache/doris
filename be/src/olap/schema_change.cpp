@@ -20,19 +20,24 @@
 #include <algorithm>
 #include <exception>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <roaring/roaring.hh>
 #include <tuple>
 #include <utility>
 
+#include "cloud/cloud_schema_change_job.h"
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
+#include "olap/base_tablet.h"
 #include "olap/data_dir.h"
 #include "olap/delete_handler.h"
 #include "olap/field.h"
@@ -60,8 +65,10 @@
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/trace.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -84,7 +91,7 @@ constexpr int ALTER_TABLE_BATCH_SIZE = 4064;
 
 class MultiBlockMerger {
 public:
-    MultiBlockMerger(TabletSharedPtr tablet) : _tablet(tablet), _cmp(tablet) {}
+    MultiBlockMerger(BaseTabletSPtr tablet) : _tablet(tablet), _cmp(*tablet) {}
 
     Status merge(const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
                  RowsetWriter* rowset_writer, uint64_t* merged_rows) {
@@ -223,7 +230,7 @@ private:
     };
 
     struct RowRefComparator {
-        RowRefComparator(TabletSharedPtr tablet) : _num_columns(tablet->num_key_columns()) {}
+        RowRefComparator(const BaseTablet& tablet) : _num_columns(tablet.num_key_columns()) {}
 
         int compare(const RowRef& lhs, const RowRef& rhs) const {
             return lhs.block->compare_at(lhs.position, rhs.position, _num_columns, *rhs.block, -1);
@@ -236,7 +243,7 @@ private:
         const size_t _num_columns;
     };
 
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     RowRefComparator _cmp;
 };
 
@@ -292,6 +299,11 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
+            if (ref_block->get_by_position(result_column_id).column == nullptr) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "{} result column is nullptr",
+                        ref_block->get_by_position(result_column_id).name);
+            }
             ref_block->replace_by_position_if_const(result_column_id);
 
             if (ref_block->get_by_position(result_column_id).column->size() != row_size) {
@@ -357,8 +369,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
 // This check is to prevent schema-change from causing data loss
 Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
-                                       vectorized::ColumnPtr new_column,
-                                       AlterTabletType type) const {
+                                       vectorized::ColumnPtr new_column, AlterTabletType type) {
     if (ref_column->size() != new_column->size()) {
         return Status::InternalError(
                 "column size is changed, ref_column_size={}, new_column_size={}",
@@ -423,53 +434,39 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
 }
 
 Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                                   TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
+                                   BaseTabletSPtr new_tablet, BaseTabletSPtr base_tablet,
                                    TabletSchemaSPtr base_tablet_schema,
                                    TabletSchemaSPtr new_tablet_schema) {
-    // In some cases, there may be more than one type of rowset in a tablet,
-    // in which case the conversion cannot be done directly by linked schema change,
-    // but requires direct schema change to rewrite the data.
-    if (rowset_reader->type() != rowset_writer->type()) {
-        LOG(INFO) << "the type of rowset " << rowset_reader->rowset()->rowset_id()
-                  << " in base tablet is not same as type " << rowset_writer->type()
-                  << ", use direct schema change.";
-        return SchemaChangeHandler::get_sc_procedure(_changer, false, true)
-                ->process(rowset_reader, rowset_writer, new_tablet, base_tablet, base_tablet_schema,
-                          new_tablet_schema);
-    } else {
-        Status status = rowset_writer->add_rowset_for_linked_schema_change(rowset_reader->rowset());
-        if (!status) {
-            LOG(WARNING) << "fail to convert rowset."
-                         << ", new_tablet=" << new_tablet->tablet_id()
-                         << ", version=" << rowset_writer->version().first << "-"
-                         << rowset_writer->version().second << ", error status " << status;
-            return status;
-        }
-        // copy delete bitmap to new tablet.
-        if (new_tablet->keys_type() == UNIQUE_KEYS &&
-            new_tablet->enable_unique_key_merge_on_write()) {
-            DeleteBitmap origin_delete_bitmap(base_tablet->tablet_id());
-            base_tablet->tablet_meta()->delete_bitmap().subset(
-                    {rowset_reader->rowset()->rowset_id(), 0, 0},
-                    {rowset_reader->rowset()->rowset_id(), UINT32_MAX, INT64_MAX},
-                    &origin_delete_bitmap);
-            for (auto& iter : origin_delete_bitmap.delete_bitmap) {
-                int ret = new_tablet->tablet_meta()->delete_bitmap().set(
-                        {rowset_writer->rowset_id(), std::get<1>(iter.first),
-                         std::get<2>(iter.first)},
-                        iter.second);
-                DCHECK(ret == 1);
-            }
-        }
-        return Status::OK();
+    Status status = rowset_writer->add_rowset_for_linked_schema_change(rowset_reader->rowset());
+    if (!status) {
+        LOG(WARNING) << "fail to convert rowset."
+                     << ", new_tablet=" << new_tablet->tablet_id()
+                     << ", version=" << rowset_writer->version().first << "-"
+                     << rowset_writer->version().second << ", error status " << status;
+        return status;
     }
+    // copy delete bitmap to new tablet.
+    if (new_tablet->keys_type() == UNIQUE_KEYS && new_tablet->enable_unique_key_merge_on_write()) {
+        DeleteBitmap origin_delete_bitmap(base_tablet->tablet_id());
+        base_tablet->tablet_meta()->delete_bitmap().subset(
+                {rowset_reader->rowset()->rowset_id(), 0, 0},
+                {rowset_reader->rowset()->rowset_id(), UINT32_MAX, INT64_MAX},
+                &origin_delete_bitmap);
+        for (auto& iter : origin_delete_bitmap.delete_bitmap) {
+            int ret = new_tablet->tablet_meta()->delete_bitmap().set(
+                    {rowset_writer->rowset_id(), std::get<1>(iter.first), std::get<2>(iter.first)},
+                    iter.second);
+            DCHECK(ret == 1);
+        }
+    }
+    return Status::OK();
 }
 
 Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
-                                             RowsetWriter* rowset_writer,
-                                             TabletSharedPtr new_tablet,
+                                             RowsetWriter* rowset_writer, BaseTabletSPtr new_tablet,
                                              TabletSchemaSPtr base_tablet_schema,
                                              TabletSchemaSPtr new_tablet_schema) {
+    bool eof = false;
     do {
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
@@ -477,21 +474,22 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                break;
+                eof = true;
+            } else {
+                return st;
             }
-            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
-    } while (true);
+    } while (!eof);
 
     RETURN_IF_ERROR(rowset_writer->flush());
     return Status::OK();
 }
 
-VSchemaChangeWithSorting::VSchemaChangeWithSorting(const BlockChanger& changer,
-                                                   size_t memory_limitation)
+VBaseSchemaChangeWithSorting::VBaseSchemaChangeWithSorting(const BlockChanger& changer,
+                                                           size_t memory_limitation)
         : _changer(changer),
           _memory_limitation(memory_limitation),
           _temp_delta_versions(Version::mock()) {
@@ -499,42 +497,29 @@ VSchemaChangeWithSorting::VSchemaChangeWithSorting(const BlockChanger& changer,
             fmt::format("VSchemaChangeWithSorting:changer={}", std::to_string(int64(&changer))));
 }
 
-Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
-                                                RowsetWriter* rowset_writer,
-                                                TabletSharedPtr new_tablet,
-                                                TabletSchemaSPtr base_tablet_schema,
-                                                TabletSchemaSPtr new_tablet_schema) {
+Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
+                                                    RowsetWriter* rowset_writer,
+                                                    BaseTabletSPtr new_tablet,
+                                                    TabletSchemaSPtr base_tablet_schema,
+                                                    TabletSchemaSPtr new_tablet_schema) {
     // for internal sorting
     std::vector<std::unique_ptr<vectorized::Block>> blocks;
-
-    // for external sorting
-    // src_rowsets to store the rowset generated by internal sorting
-    std::vector<RowsetSharedPtr> src_rowsets;
-    std::vector<PendingRowsetGuard> pending_rs_guards;
-
-    Defer defer {[&]() {
-        // remove the intermediate rowsets generated by internal sorting
-        for (auto& row_set : src_rowsets) {
-            StorageEngine::instance()->add_unused_rowset(row_set);
-        }
-    }};
 
     RowsetSharedPtr rowset = rowset_reader->rowset();
     SegmentsOverlapPB segments_overlap = rowset->rowset_meta()->segments_overlap();
     int64_t newest_write_timestamp = rowset->newest_write_timestamp();
     _temp_delta_versions.first = _temp_delta_versions.second;
-
+    _src_rowsets.clear(); // init _src_rowsets
     auto create_rowset = [&]() -> Status {
         if (blocks.empty()) {
             return Status::OK();
         }
 
-        auto [rowset, guard] = DORIS_TRY(_internal_sorting(
+        auto rowset = DORIS_TRY(_internal_sorting(
                 blocks, Version(_temp_delta_versions.second, _temp_delta_versions.second),
                 newest_write_timestamp, new_tablet, BETA_ROWSET, segments_overlap,
                 new_tablet_schema));
-        src_rowsets.push_back(std::move(rowset));
-        pending_rs_guards.push_back(std::move(guard));
+        _src_rowsets.push_back(std::move(rowset));
         for (auto& block : blocks) {
             _mem_tracker->release(block->allocated_bytes());
         }
@@ -547,14 +532,16 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
 
+    bool eof = false;
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                break;
+                eof = true;
+            } else {
+                return st;
             }
-            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
@@ -578,23 +565,23 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         // move unique ptr
         blocks.push_back(vectorized::Block::create_unique(new_tablet_schema->create_block()));
         swap(blocks.back(), new_block);
-    } while (true);
+    } while (!eof);
 
     RETURN_IF_ERROR(create_rowset());
 
-    if (src_rowsets.empty()) {
+    if (_src_rowsets.empty()) {
         RETURN_IF_ERROR(rowset_writer->flush());
     } else {
         RETURN_IF_ERROR(
-                _external_sorting(src_rowsets, rowset_writer, new_tablet, new_tablet_schema));
+                _external_sorting(_src_rowsets, rowset_writer, new_tablet, new_tablet_schema));
     }
 
     return Status::OK();
 }
 
-Result<std::pair<RowsetSharedPtr, PendingRowsetGuard>> VSchemaChangeWithSorting::_internal_sorting(
+Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
         const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
-        int64_t newest_write_timestamp, TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
+        int64_t newest_write_timestamp, BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
         SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) {
     uint64_t merged_rows = 0;
     MultiBlockMerger merger(new_tablet);
@@ -614,18 +601,48 @@ Result<std::pair<RowsetSharedPtr, PendingRowsetGuard>> VSchemaChangeWithSorting:
     } else {
         rowset_writer = std::move(result).value();
     }
-    auto guard = StorageEngine::instance()->pending_local_rowsets().add(context.rowset_id);
     RETURN_IF_ERROR_RESULT(merger.merge(blocks, rowset_writer.get(), &merged_rows));
     _add_merged_rows(merged_rows);
     RowsetSharedPtr rowset;
     RETURN_IF_ERROR_RESULT(rowset_writer->build(rowset));
-    return std::make_pair(std::move(rowset), std::move(guard));
+    return rowset;
 }
 
-Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
-                                                   RowsetWriter* rowset_writer,
-                                                   TabletSharedPtr new_tablet,
-                                                   TabletSchemaSPtr new_tablet_schema) {
+Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
+        const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
+        int64_t newest_write_timestamp, BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
+        SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) {
+    uint64_t merged_rows = 0;
+    MultiBlockMerger merger(new_tablet);
+    RowsetWriterContext context;
+    context.version = version;
+    context.rowset_state = VISIBLE;
+    context.segments_overlap = segments_overlap;
+    context.tablet_schema = new_tablet_schema;
+    context.original_tablet_schema = new_tablet_schema;
+    context.newest_write_timestamp = newest_write_timestamp;
+    context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    // TODO(plat1ko): Use monad op
+    if (auto result = new_tablet->create_rowset_writer(context, false); !result.has_value())
+            [[unlikely]] {
+        return unexpected(std::move(result).error());
+    } else {
+        rowset_writer = std::move(result).value();
+    }
+    auto guard = _local_storage_engine.pending_local_rowsets().add(context.rowset_id);
+    _pending_rs_guards.push_back(std::move(guard));
+    RETURN_IF_ERROR_RESULT(merger.merge(blocks, rowset_writer.get(), &merged_rows));
+    _add_merged_rows(merged_rows);
+    RowsetSharedPtr rowset;
+    RETURN_IF_ERROR_RESULT(rowset_writer->build(rowset));
+    return rowset;
+}
+
+Status VBaseSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
+                                                       RowsetWriter* rowset_writer,
+                                                       BaseTabletSPtr new_tablet,
+                                                       TabletSchemaSPtr new_tablet_schema) {
     std::vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : src_rowsets) {
         RowsetReaderSharedPtr rs_reader;
@@ -635,93 +652,116 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 
     Merger::Statistics stats;
     RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
-                                           new_tablet_schema, rs_readers, rowset_writer, &stats));
+                                           *new_tablet_schema, rs_readers, rowset_writer, &stats));
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();
 }
 
-Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
+Status VLocalSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
+                                                     RowsetWriter* rowset_writer,
+                                                     BaseTabletSPtr new_tablet,
+                                                     TabletSchemaSPtr base_tablet_schema,
+                                                     TabletSchemaSPtr new_tablet_schema) {
+    Defer defer {[&]() {
+        // remove the intermediate rowsets generated by internal sorting
+        for (auto& row_set : _src_rowsets) {
+            _local_storage_engine.add_unused_rowset(row_set);
+        }
+    }};
+    _pending_rs_guards.clear();
+    return VBaseSchemaChangeWithSorting::_inner_process(rowset_reader, rowset_writer, new_tablet,
+                                                        base_tablet_schema, new_tablet_schema);
+}
+
+Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
     if (!request.__isset.desc_tbl) {
         return Status::Error<INVALID_ARGUMENT>(
                 "desc_tbl is not set. Maybe the FE version is not equal to the BE "
                 "version.");
+    }
+    if (_base_tablet == nullptr) {
+        return Status::Error<TABLE_NOT_FOUND>("fail to find base tablet. base_tablet={}",
+                                              request.base_tablet_id);
+    }
+    if (_new_tablet == nullptr) {
+        return Status::Error<TABLE_NOT_FOUND>("fail to find new tablet. new_tablet={}",
+                                              request.new_tablet_id);
     }
 
     LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;
 
-    TabletSharedPtr base_tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
-    if (base_tablet == nullptr) {
-        return Status::Error<TABLE_NOT_FOUND>("fail to find base tablet. base_tablet={}",
-                                              request.base_tablet_id);
-    }
     // Lock schema_change_lock util schema change info is stored in tablet header
-    std::unique_lock<std::mutex> schema_change_lock(base_tablet->get_schema_change_lock(),
+    std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
                                                     std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED>("failed to obtain schema change lock. base_tablet={}",
                                               request.base_tablet_id);
     }
 
-    Status res = _do_process_alter_tablet_v2(request);
+    Status res = _do_process_alter_tablet(request);
     LOG(INFO) << "finished alter tablet process, res=" << res;
     return res;
 }
 
-std::shared_mutex SchemaChangeHandler::_mutex;
-std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
+SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
+                                 const TAlterTabletReqV2& request)
+        : _local_storage_engine(local_storage_engine) {
+    _base_tablet = _local_storage_engine.tablet_manager()->get_tablet(request.base_tablet_id);
+    _new_tablet = _local_storage_engine.tablet_manager()->get_tablet(request.new_tablet_id);
+    if (_base_tablet && _new_tablet) {
+        _base_tablet_schema = std::make_shared<TabletSchema>();
+        _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
+        // During a schema change, the extracted columns of a variant should not be included in the tablet schema.
+        // This is because the schema change for a variant needs to ignore the extracted columns.
+        // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
+        // the complete variant is constructed by reading all the sub-columns of the variant.
+        _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_extracted_columns();
+    }
+}
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.
 // In alter task v2, FE will call BE to create tablet and send an alter task to BE to convert historical data.
 // The admin should upgrade all BE and then upgrade FE.
 // Should delete the old code after upgrade finished.
-Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2& request) {
-    Status res = Status::OK();
-    TabletSharedPtr base_tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
-    if (base_tablet == nullptr) {
-        return Status::Error<TABLE_NOT_FOUND>("fail to find base tablet. base_tablet={}",
-                                              request.base_tablet_id);
-    }
-
-    signal::tablet_id = base_tablet->get_table_id();
-
-    // new tablet has to exist
-    TabletSharedPtr new_tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(request.new_tablet_id);
-    if (new_tablet == nullptr) {
-        return Status::Error<TABLE_NOT_FOUND>("fail to find new tablet. new_tablet={}",
-                                              request.new_tablet_id);
-    }
+Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& request) {
+    Status res;
+    signal::tablet_id = _base_tablet->get_table_id();
 
     // check if tablet's state is not_ready, if it is ready, it means the tablet already finished
     // check whether the tablet's max continuous version == request.version
-    if (new_tablet->tablet_state() != TABLET_NOTREADY) {
-        res = _validate_alter_result(new_tablet, request);
-        LOG(INFO) << "tablet's state=" << new_tablet->tablet_state()
+    if (_new_tablet->tablet_state() != TABLET_NOTREADY) {
+        res = _validate_alter_result(request);
+        LOG(INFO) << "tablet's state=" << _new_tablet->tablet_state()
                   << " the convert job already finished, check its version"
                   << " res=" << res;
         return res;
     }
+    _new_tablet->set_alter_failed(false);
+    Defer defer([this] {
+        // if tablet state is not TABLET_RUNNING when return, indicates that alter has failed.
+        if (_new_tablet->tablet_state() != TABLET_RUNNING) {
+            _new_tablet->set_alter_failed(true);
+        }
+    });
 
     LOG(INFO) << "finish to validate alter tablet request. begin to convert data from base tablet "
                  "to new tablet"
-              << " base_tablet=" << base_tablet->tablet_id()
-              << " new_tablet=" << new_tablet->tablet_id();
+              << " base_tablet=" << _base_tablet->tablet_id()
+              << " new_tablet=" << _new_tablet->tablet_id();
 
-    std::shared_lock base_migration_rlock(base_tablet->get_migration_lock(), std::try_to_lock);
+    std::shared_lock base_migration_rlock(_base_tablet->get_migration_lock(), std::try_to_lock);
     if (!base_migration_rlock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED>(
-                "SchemaChangeHandler::_do_process_alter_tablet_v2 get lock failed");
+                "SchemaChangeJob::_do_process_alter_tablet get lock failed");
     }
-    std::shared_lock new_migration_rlock(new_tablet->get_migration_lock(), std::try_to_lock);
+    std::shared_lock new_migration_rlock(_new_tablet->get_migration_lock(), std::try_to_lock);
     if (!new_migration_rlock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED>(
-                "SchemaChangeHandler::_do_process_alter_tablet_v2 get lock failed");
+                "SchemaChangeJob::_do_process_alter_tablet get lock failed");
     }
 
     std::vector<Version> versions_to_be_changed;
@@ -733,21 +773,13 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     // delete handlers for new tablet
     DeleteHandler delete_handler;
     std::vector<ColumnId> return_columns;
-    // Create a new tablet schema, should merge with dropped columns in light weight schema change
-    TabletSchemaSPtr base_tablet_schema = std::make_shared<TabletSchema>();
-    base_tablet_schema->copy_from(*base_tablet->tablet_schema());
-    if (!request.columns.empty() && request.columns[0].col_unique_id >= 0) {
-        base_tablet_schema->clear_columns();
-        for (const auto& column : request.columns) {
-            base_tablet_schema->append_column(TabletColumn(column));
-        }
-    }
+
     // Use tablet schema directly from base tablet, they are the newest schema, not contain
     // dropped column during light weight schema change.
     // But the tablet schema in base tablet maybe not the latest from FE, so that if fe pass through
     // a tablet schema, then use request schema.
-    size_t num_cols = request.columns.empty() ? base_tablet->tablet_schema()->num_columns()
-                                              : request.columns.size();
+    size_t num_cols =
+            request.columns.empty() ? _base_tablet_schema->num_columns() : request.columns.size();
     return_columns.resize(num_cols);
     for (int i = 0; i < num_cols; ++i) {
         return_columns[i] = i;
@@ -756,16 +788,16 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     // begin to find deltas to convert from base tablet to new tablet so that
     // obtain base tablet and new tablet's push lock and header write lock to prevent loading data
     {
-        std::lock_guard<std::mutex> base_tablet_lock(base_tablet->get_push_lock());
-        std::lock_guard<std::mutex> new_tablet_lock(new_tablet->get_push_lock());
-        std::lock_guard<std::shared_mutex> base_tablet_wlock(base_tablet->get_header_lock());
+        std::lock_guard base_tablet_lock(_base_tablet->get_push_lock());
+        std::lock_guard new_tablet_lock(_new_tablet->get_push_lock());
+        std::lock_guard base_tablet_wlock(_base_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        std::lock_guard<std::shared_mutex> new_tablet_wlock(new_tablet->get_header_lock());
+        std::lock_guard<std::shared_mutex> new_tablet_wlock(_new_tablet->get_header_lock());
 
         do {
             RowsetSharedPtr max_rowset;
             // get history data to be converted and it will check if there is hold in base tablet
-            if (!_get_versions_to_be_changed(base_tablet, &versions_to_be_changed, &max_rowset)) {
+            if (!_get_versions_to_be_changed(&versions_to_be_changed, &max_rowset)) {
                 LOG(WARNING) << "fail to get version to be changed. res=" << res;
                 break;
             }
@@ -781,10 +813,10 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             // before calculating version_to_be_changed,
             // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
             LOG(INFO) << "begin to remove all data from new tablet to prevent rewrite."
-                      << " new_tablet=" << new_tablet->tablet_id();
+                      << " new_tablet=" << _new_tablet->tablet_id();
             std::vector<RowsetSharedPtr> rowsets_to_delete;
             std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
-            new_tablet->acquire_version_and_rowsets(&version_rowsets);
+            _new_tablet->acquire_version_and_rowsets(&version_rowsets);
             std::sort(version_rowsets.begin(), version_rowsets.end(),
                       [](const std::pair<Version, RowsetSharedPtr>& l,
                          const std::pair<Version, RowsetSharedPtr>& r) {
@@ -804,15 +836,15 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
-            RETURN_IF_ERROR(new_tablet->modify_rowsets(empty_vec, rowsets_to_delete));
+            RETURN_IF_ERROR(_new_tablet->modify_rowsets(empty_vec, rowsets_to_delete));
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
-            new_tablet->set_cumulative_layer_point(-1);
+            _new_tablet->set_cumulative_layer_point(-1);
             // save tablet meta
-            new_tablet->save_meta();
+            _new_tablet->save_meta();
             for (auto& rowset : rowsets_to_delete) {
                 // do not call rowset.remove directly, using gc thread to delete it
-                StorageEngine::instance()->add_unused_rowset(rowset);
+                _local_storage_engine.add_unused_rowset(rowset);
             }
 
             // init one delete handler
@@ -821,7 +853,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // acquire data sources correspond to history versions
-            RETURN_IF_ERROR(base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits));
+            RETURN_IF_ERROR(
+                    _base_tablet->capture_rs_readers_unlocked(versions_to_be_changed, &rs_splits));
             if (rs_splits.empty()) {
                 res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>(
                         "fail to acquire all data sources. version_num={}, data_source_num={}",
@@ -834,30 +867,30 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 if (!rs_meta->has_delete_predicate() || rs_meta->start_version() > end_version) {
                     continue;
                 }
-                base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
+                _base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
                 del_preds.push_back(rs_meta);
             }
-            res = delete_handler.init(base_tablet_schema, del_preds, end_version);
+            res = delete_handler.init(_base_tablet_schema, del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
-                             << base_tablet->tablet_id() << ", end_version=" << end_version;
+                             << _base_tablet->tablet_id() << ", end_version=" << end_version;
                 break;
             }
 
             reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
-            reader_context.tablet_schema = base_tablet_schema;
+            reader_context.tablet_schema = _base_tablet_schema;
             reader_context.need_ordered_result = true;
             reader_context.delete_handler = &delete_handler;
             reader_context.return_columns = &return_columns;
             reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
-            reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
+            reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
-            reader_context.delete_bitmap = &base_tablet->tablet_meta()->delete_bitmap();
+            reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
             reader_context.version = Version(0, end_version);
             for (auto& rs_split : rs_splits) {
                 res = rs_split.rs_reader->init(&reader_context);
                 if (!res) {
-                    LOG(WARNING) << "failed to init rowset reader: " << base_tablet->tablet_id();
+                    LOG(WARNING) << "failed to init rowset reader: " << _base_tablet->tablet_id();
                     break;
                 }
             }
@@ -872,19 +905,11 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 
         RETURN_IF_ERROR(
                 DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
-        sc_params.base_tablet = base_tablet;
-        sc_params.new_tablet = new_tablet;
-        // During a schema change, the extracted columns of a variant should not be included in the tablet schema.
-        // This is because the schema change for a variant needs to ignore the extracted columns.
-        // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
-        // the complete variant is constructed by reading all the sub-columns of the variant.
-        sc_params.new_tablet_schema = new_tablet->tablet_schema()->copy_without_extracted_columns();
         sc_params.ref_rowset_readers.reserve(rs_splits.size());
         for (RowSetSplits& split : rs_splits) {
             sc_params.ref_rowset_readers.emplace_back(split.rs_reader);
         }
         sc_params.delete_handler = &delete_handler;
-        sc_params.base_tablet_schema = base_tablet_schema;
         sc_params.be_exec_version = request.be_exec_version;
         DCHECK(request.__isset.alter_tablet_type);
         switch (request.alter_tablet_type) {
@@ -912,129 +937,81 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         }
         {
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
-            _tablet_ids_in_converting.insert(new_tablet->tablet_id());
+            _tablet_ids_in_converting.insert(_new_tablet->tablet_id());
         }
-        res = _convert_historical_rowsets(sc_params);
+        int64_t real_alter_version = 0;
+        sc_params.enable_unique_key_merge_on_write =
+                _new_tablet->enable_unique_key_merge_on_write();
+        res = _convert_historical_rowsets(sc_params, &real_alter_version);
         {
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
-            _tablet_ids_in_converting.erase(new_tablet->tablet_id());
+            _tablet_ids_in_converting.erase(_new_tablet->tablet_id());
         }
         if (!res) {
             break;
         }
 
-        // For unique with merge-on-write table, should process delete bitmap here.
-        // 1. During double write, the newly imported rowsets does not calculate
-        // delete bitmap and publish successfully.
-        // 2. After conversion, calculate delete bitmap for the rowsets imported
-        // during double write. During this period, new data can still be imported
-        // witout calculating delete bitmap and publish successfully.
-        // 3. Block the new publish, calculate the delete bitmap of the
-        // incremental rowsets.
-        // 4. Switch the tablet status to TABLET_RUNNING. The newly imported
-        // data will calculate delete bitmap.
-        if (new_tablet->keys_type() == UNIQUE_KEYS &&
-            new_tablet->enable_unique_key_merge_on_write()) {
-            // step 2
-            int64_t max_version = new_tablet->max_version().second;
-            std::vector<RowsetSharedPtr> rowsets;
-            if (end_version < max_version) {
-                LOG(INFO)
-                        << "alter table for unique with merge-on-write, calculate delete bitmap of "
-                        << "double write rowsets for version: " << end_version + 1 << "-"
-                        << max_version;
-                RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets(
-                        {end_version + 1, max_version}, &rowsets));
-            }
-            for (auto rowset_ptr : rowsets) {
-                if (rowset_ptr->version().second <= end_version) {
-                    continue;
-                }
-                std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
-                std::shared_lock<std::shared_mutex> wrlock(new_tablet->get_header_lock());
-                RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
-            }
-
-            // step 3
-            std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
-            std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
-            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-            int64_t new_max_version = new_tablet->max_version_unlocked().second;
-            rowsets.clear();
-            if (max_version < new_max_version) {
-                LOG(INFO)
-                        << "alter table for unique with merge-on-write, calculate delete bitmap of "
-                        << "incremental rowsets for version: " << max_version + 1 << "-"
-                        << new_max_version;
-                RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets(
-                        {max_version + 1, new_max_version}, &rowsets));
-            }
-            for (auto rowset_ptr : rowsets) {
-                if (rowset_ptr->version().second <= max_version) {
-                    continue;
-                }
-                RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
-            }
-
-            // step 4
-            res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
+        if (_new_tablet->keys_type() == UNIQUE_KEYS &&
+            _new_tablet->enable_unique_key_merge_on_write()) {
+            res = _calc_delete_bitmap_for_mow_table(real_alter_version);
             if (!res) {
                 break;
             }
-            new_tablet->save_meta();
         } else {
             // set state to ready
-            std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+            std::lock_guard<std::shared_mutex> new_wlock(_new_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-            res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
+            res = _new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {
                 break;
             }
-            new_tablet->save_meta();
+            _new_tablet->save_meta();
         }
     } while (false);
 
     if (res) {
         // _validate_alter_result should be outside the above while loop.
         // to avoid requiring the header lock twice.
-        res = _validate_alter_result(new_tablet, request);
+        res = _validate_alter_result(request);
     }
 
     // if failed convert history data, then just remove the new tablet
     if (!res) {
-        LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->tablet_id()
-                     << ", drop new_tablet=" << new_tablet->tablet_id();
+        LOG(WARNING) << "failed to alter tablet. base_tablet=" << _base_tablet->tablet_id()
+                     << ", drop new_tablet=" << _new_tablet->tablet_id();
         // do not drop the new tablet and its data. GC thread will
     }
 
     return res;
 }
 
-bool SchemaChangeHandler::tablet_in_converting(int64_t tablet_id) {
+bool SchemaChangeJob::tablet_in_converting(int64_t tablet_id) {
     std::shared_lock rdlock(_mutex);
     return _tablet_ids_in_converting.find(tablet_id) != _tablet_ids_in_converting.end();
 }
 
-Status SchemaChangeHandler::_get_versions_to_be_changed(
-        TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed,
-        RowsetSharedPtr* max_rowset) {
-    RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
+Status SchemaChangeJob::_get_versions_to_be_changed(std::vector<Version>* versions_to_be_changed,
+                                                    RowsetSharedPtr* max_rowset) {
+    RowsetSharedPtr rowset = _base_tablet->get_rowset_with_max_version();
     if (rowset == nullptr) {
         return Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>("Tablet has no version. base_tablet={}",
-                                                          base_tablet->tablet_id());
+                                                          _base_tablet->tablet_id());
     }
     *max_rowset = rowset;
 
-    RETURN_IF_ERROR(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                             versions_to_be_changed, false, false));
+    RETURN_IF_ERROR(_base_tablet->capture_consistent_versions_unlocked(
+            Version(0, rowset->version().second), versions_to_be_changed, false, false));
 
     return Status::OK();
 }
 
-Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
+// The `real_alter_version` parameter indicates that the version of [0-real_alter_version] is
+// converted from a base tablet, only used for the mow table now.
+Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc_params,
+                                                    int64_t* real_alter_version) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
-              << " base_tablet=" << sc_params.base_tablet->tablet_id()
-              << ", new_tablet=" << sc_params.new_tablet->tablet_id();
+              << " base_tablet=" << _base_tablet->tablet_id()
+              << ", new_tablet=" << _new_tablet->tablet_id();
 
     // find end version
     int32_t end_version = -1;
@@ -1044,35 +1021,35 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         }
     }
 
-    // Add filter information in change, and filter column information will be set in _parse_request
+    // Add filter information in change, and filter column information will be set in parse_request
     // And filter some data every time the row block changes
-    BlockChanger changer(sc_params.new_tablet_schema, *sc_params.desc_tbl);
+    BlockChanger changer(_new_tablet_schema, *sc_params.desc_tbl);
 
     bool sc_sorting = false;
     bool sc_directly = false;
 
     // a.Parse the Alter request and convert it into an internal representation
-    Status res = _parse_request(sc_params, &changer, &sc_sorting, &sc_directly);
+    Status res = parse_request(sc_params, _base_tablet_schema.get(), _new_tablet_schema.get(),
+                               &changer, &sc_sorting, &sc_directly);
     LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
-              << ", sc_directly: " << sc_directly
-              << ", base_tablet=" << sc_params.base_tablet->tablet_id()
-              << ", new_tablet=" << sc_params.new_tablet->tablet_id();
+              << ", sc_directly: " << sc_directly << ", base_tablet=" << _base_tablet->tablet_id()
+              << ", new_tablet=" << _new_tablet->tablet_id();
 
     auto process_alter_exit = [&]() -> Status {
         {
             // save tablet meta here because rowset meta is not saved during add rowset
-            std::lock_guard<std::shared_mutex> new_wlock(sc_params.new_tablet->get_header_lock());
+            std::lock_guard new_wlock(_new_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-            sc_params.new_tablet->save_meta();
+            _new_tablet->save_meta();
         }
         if (res) {
             Version test_version(0, end_version);
-            res = sc_params.new_tablet->check_version_integrity(test_version);
+            res = _new_tablet->check_version_integrity(test_version);
         }
 
         LOG(INFO) << "finish converting rowsets for new_tablet from base_tablet. "
-                  << "base_tablet=" << sc_params.base_tablet->tablet_id()
-                  << ", new_tablet=" << sc_params.new_tablet->tablet_id();
+                  << "base_tablet=" << _base_tablet->tablet_id()
+                  << ", new_tablet=" << _new_tablet->tablet_id();
         return res;
     };
 
@@ -1088,40 +1065,35 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
     }
 
     // b. Generate historical data converter
-    auto sc_procedure = get_sc_procedure(changer, sc_sorting, sc_directly);
+    auto sc_procedure = _get_sc_procedure(changer, sc_sorting, sc_directly);
 
     // c.Convert historical data
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
-        VLOG_TRACE << "begin to convert a history rowset. version=" << rs_reader->version().first
-                   << "-" << rs_reader->version().second;
-
         // set status for monitor
         // As long as there is a new_table as running, ref table is set as running
         // NOTE If the first sub_table fails first, it will continue to go as normal here
-        TabletSharedPtr new_tablet = sc_params.new_tablet;
         // When tablet create new rowset writer, it may change rowset type, in this case
         // linked schema change will not be used.
         RowsetWriterContext context;
         context.version = rs_reader->version();
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
-        context.tablet_schema = sc_params.new_tablet_schema;
-        context.original_tablet_schema = sc_params.new_tablet_schema;
+        context.tablet_schema = _new_tablet_schema;
+        context.original_tablet_schema = _new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
-        auto result = new_tablet->create_rowset_writer(context, false);
+        auto result = _new_tablet->create_rowset_writer(context, false);
         if (!result.has_value()) {
             res = Status::Error<ROWSET_BUILDER_INIT>("create_rowset_writer failed, reason={}",
                                                      result.error().to_string());
             return process_alter_exit();
         }
         auto rowset_writer = std::move(result).value();
-        auto pending_rs_guard = StorageEngine::instance()->add_pending_rowset(context);
+        auto pending_rs_guard = _local_storage_engine.add_pending_rowset(context);
 
-        if (res = sc_procedure->process(rs_reader, rowset_writer.get(), sc_params.new_tablet,
-                                        sc_params.base_tablet, sc_params.base_tablet_schema,
-                                        sc_params.new_tablet_schema);
+        if (res = sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet, _base_tablet,
+                                        _base_tablet_schema, _new_tablet_schema);
             !res) {
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"
@@ -1130,31 +1102,32 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         }
         // Add the new version of the data to the header
         // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
-        std::lock_guard<std::mutex> lock(sc_params.new_tablet->get_push_lock());
+        std::lock_guard lock(_new_tablet->get_push_lock());
         RowsetSharedPtr new_rowset;
         if (!(res = rowset_writer->build(new_rowset)).ok()) {
             LOG(WARNING) << "failed to build rowset, exit alter process";
             return process_alter_exit();
         }
-        res = sc_params.new_tablet->add_rowset(new_rowset);
+        res = _new_tablet->add_rowset(new_rowset);
         if (res.is<PUSH_VERSION_ALREADY_EXIST>()) {
             LOG(WARNING) << "version already exist, version revert occurred. "
-                         << "tablet=" << sc_params.new_tablet->tablet_id() << ", version='"
+                         << "tablet=" << _new_tablet->tablet_id() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
-            StorageEngine::instance()->add_unused_rowset(new_rowset);
+            _local_storage_engine.add_unused_rowset(new_rowset);
             res = Status::OK();
         } else if (!res) {
             LOG(WARNING) << "failed to register new version. "
-                         << " tablet=" << sc_params.new_tablet->tablet_id()
+                         << " tablet=" << _new_tablet->tablet_id()
                          << ", version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second;
-            StorageEngine::instance()->add_unused_rowset(new_rowset);
+            _local_storage_engine.add_unused_rowset(new_rowset);
             return process_alter_exit();
         } else {
-            VLOG_NOTICE << "register new version. tablet=" << sc_params.new_tablet->tablet_id()
+            VLOG_NOTICE << "register new version. tablet=" << _new_tablet->tablet_id()
                         << ", version=" << rs_reader->version().first << "-"
                         << rs_reader->version().second;
         }
+        *real_alter_version = rs_reader->version().second;
 
         VLOG_TRACE << "succeed to convert a history version."
                    << " version=" << rs_reader->version().first << "-"
@@ -1169,24 +1142,16 @@ static const std::string WHERE_SIGN_LOWER = to_lower("__DORIS_WHERE_SIGN__");
 
 // @static
 // Analyze the mapping of the column and the mapping of the filter key
-Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
-                                           BlockChanger* changer, bool* sc_sorting,
-                                           bool* sc_directly) {
+Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
+                                      TabletSchema* base_tablet_schema,
+                                      TabletSchema* new_tablet_schema, BlockChanger* changer,
+                                      bool* sc_sorting, bool* sc_directly) {
     changer->set_type(sc_params.alter_tablet_type);
     changer->set_compatible_version(sc_params.be_exec_version);
 
-    TabletSharedPtr base_tablet = sc_params.base_tablet;
-    TabletSharedPtr new_tablet = sc_params.new_tablet;
-    TabletSchemaSPtr base_tablet_schema = sc_params.base_tablet_schema;
     const std::unordered_map<std::string, AlterMaterializedViewParam>& materialized_function_map =
             sc_params.materialized_params_map;
     DescriptorTbl desc_tbl = *sc_params.desc_tbl;
-
-    if (sc_params.alter_tablet_type == ROLLUP) {
-        *sc_directly = true;
-    }
-
-    TabletSchemaSPtr new_tablet_schema = sc_params.new_tablet_schema;
 
     // set column mapping
     for (int i = 0, new_schema_size = new_tablet_schema->num_columns(); i < new_schema_size; ++i) {
@@ -1238,23 +1203,21 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
 
         LOG(INFO) << "A column with default value will be added after schema changing. "
                   << "column=" << new_column.name()
-                  << ", default_value=" << new_column.default_value() << " to table "
-                  << new_tablet->get_table_id();
+                  << ", default_value=" << new_column.default_value();
     }
 
     if (materialized_function_map.contains(WHERE_SIGN_LOWER)) {
         changer->set_where_expr(materialized_function_map.find(WHERE_SIGN_LOWER)->second.expr);
     }
 
-    // Check if re-aggregation is needed.
-    *sc_sorting = false;
     // If the reference sequence of the Key column is out of order, it needs to be reordered
     int num_default_value = 0;
 
-    for (int i = 0, new_schema_size = new_tablet->num_key_columns(); i < new_schema_size; ++i) {
+    for (int i = 0, new_schema_size = new_tablet_schema->num_key_columns(); i < new_schema_size;
+         ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
 
-        if (column_mapping->expr == nullptr) {
+        if (!column_mapping->has_reference()) {
             num_default_value++;
             continue;
         }
@@ -1280,7 +1243,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     //      old keys:    A   B   C   D
     //      new keys:    A   B
     if (new_tablet_schema->keys_type() != KeysType::DUP_KEYS &&
-        new_tablet->num_key_columns() < base_tablet_schema->num_key_columns()) {
+        new_tablet_schema->num_key_columns() < base_tablet_schema->num_key_columns()) {
         // this is a table with aggregate key type, and num of key columns in new schema
         // is less, which means the data in new tablet should be more aggregated.
         // so we use sorting schema change to sort and merge the data.
@@ -1288,37 +1251,35 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
-    if (new_tablet->enable_unique_key_merge_on_write() &&
-        new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
+    if (sc_params.alter_tablet_type == ROLLUP) {
         *sc_directly = true;
         return Status::OK();
     }
 
-    if (base_tablet_schema->num_short_key_columns() != new_tablet->num_short_key_columns()) {
+    if (sc_params.enable_unique_key_merge_on_write &&
+        new_tablet_schema->num_key_columns() > base_tablet_schema->num_key_columns()) {
+        *sc_directly = true;
+        return Status::OK();
+    }
+
+    if (base_tablet_schema->num_short_key_columns() != new_tablet_schema->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
         return Status::OK();
     }
 
-    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
-        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
-        if (column_mapping->expr == nullptr) {
-            continue;
-        } else {
-            *sc_directly = true;
-            return Status::OK();
-        }
-    }
-
     if (!sc_params.delete_handler->empty()) {
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
+        return Status::OK();
     }
 
-    if (base_tablet->tablet_meta()->preferred_rowset_type() !=
-        new_tablet->tablet_meta()->preferred_rowset_type()) {
-        // If the base_tablet and new_tablet rowset types are different, just use directly type
-        *sc_directly = true;
+    for (size_t i = 0; i < new_tablet_schema->num_columns(); ++i) {
+        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
+        if (column_mapping->expr != nullptr) {
+            *sc_directly = true;
+            return Status::OK();
+        }
     }
 
     // if rs_reader has remote files, link schema change is not supported,
@@ -1336,9 +1297,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     return Status::OK();
 }
 
-Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
-                                                 const TabletColumn& column_schema,
-                                                 const std::string& value) {
+Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
+                                             const TabletColumn& column_schema,
+                                             const std::string& value) {
     if (auto field = WrapperField::create(column_schema); field.has_value()) {
         column_mapping->default_value = field.value();
     } else {
@@ -1355,11 +1316,10 @@ Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
     return Status::OK();
 }
 
-Status SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_tablet,
-                                                   const TAlterTabletReqV2& request) {
+Status SchemaChangeJob::_validate_alter_result(const TAlterTabletReqV2& request) {
     Version max_continuous_version = {-1, 0};
-    new_tablet->max_continuous_version_from_beginning(&max_continuous_version);
-    LOG(INFO) << "find max continuous version of tablet=" << new_tablet->tablet_id()
+    _new_tablet->max_continuous_version_from_beginning(&max_continuous_version);
+    LOG(INFO) << "find max continuous version of tablet=" << _new_tablet->tablet_id()
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second;
     if (max_continuous_version.second < request.alter_version) {
@@ -1369,16 +1329,78 @@ Status SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_tablet,
 
     std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
     {
-        std::shared_lock rdlock(new_tablet->get_header_lock());
-        new_tablet->acquire_version_and_rowsets(&version_rowsets);
+        std::shared_lock rdlock(_new_tablet->get_header_lock());
+        _new_tablet->acquire_version_and_rowsets(&version_rowsets);
     }
     for (auto& pair : version_rowsets) {
         RowsetSharedPtr rowset = pair.second;
         if (!rowset->check_file_exist()) {
             return Status::Error<FILE_NOT_EXIST>(
-                    "SchemaChangeHandler::_validate_alter_result meet invalid rowset");
+                    "SchemaChangeJob::_validate_alter_result meet invalid rowset");
         }
     }
+    return Status::OK();
+}
+
+// For unique with merge-on-write table, should process delete bitmap here.
+// 1. During double write, the newly imported rowsets does not calculate
+// delete bitmap and publish successfully.
+// 2. After conversion, calculate delete bitmap for the rowsets imported
+// during double write. During this period, new data can still be imported
+// witout calculating delete bitmap and publish successfully.
+// 3. Block the new publish, calculate the delete bitmap of the
+// incremental rowsets.
+// 4. Switch the tablet status to TABLET_RUNNING. The newly imported
+// data will calculate delete bitmap.
+Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version) {
+    DBUG_EXECUTE_IF("SchemaChangeJob._calc_delete_bitmap_for_mow_table.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.1))) {
+            LOG_WARNING("SchemaChangeJob._calc_delete_bitmap_for_mow_table.random_failed");
+            return Status::InternalError("debug schema change calc delete bitmap random failed");
+        }
+    });
+
+    // can't do compaction when calc delete bitmap, if the rowset being calculated does
+    // a compaction, it may cause the delete bitmap to be missed.
+    std::lock_guard base_compaction_lock(_new_tablet->get_base_compaction_lock());
+    std::lock_guard cumu_compaction_lock(_new_tablet->get_cumulative_compaction_lock());
+
+    // step 2
+    int64_t max_version = _new_tablet->max_version().second;
+    std::vector<RowsetSharedPtr> rowsets;
+    if (alter_version < max_version) {
+        LOG(INFO) << "alter table for unique with merge-on-write, calculate delete bitmap of "
+                  << "double write rowsets for version: " << alter_version + 1 << "-" << max_version
+                  << " new_tablet=" << _new_tablet->tablet_id();
+        std::shared_lock rlock(_new_tablet->get_header_lock());
+        RETURN_IF_ERROR(_new_tablet->capture_consistent_rowsets_unlocked(
+                {alter_version + 1, max_version}, &rowsets));
+    }
+    for (auto rowset_ptr : rowsets) {
+        std::lock_guard rwlock(_new_tablet->get_rowset_update_lock());
+        std::shared_lock rlock(_new_tablet->get_header_lock());
+        RETURN_IF_ERROR(Tablet::update_delete_bitmap_without_lock(_new_tablet, rowset_ptr));
+    }
+
+    // step 3
+    std::lock_guard rwlock(_new_tablet->get_rowset_update_lock());
+    std::lock_guard new_wlock(_new_tablet->get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+    int64_t new_max_version = _new_tablet->max_version_unlocked();
+    rowsets.clear();
+    if (max_version < new_max_version) {
+        LOG(INFO) << "alter table for unique with merge-on-write, calculate delete bitmap of "
+                  << "incremental rowsets for version: " << max_version + 1 << "-"
+                  << new_max_version << " new_tablet=" << _new_tablet->tablet_id();
+        RETURN_IF_ERROR(_new_tablet->capture_consistent_rowsets_unlocked(
+                {max_version + 1, new_max_version}, &rowsets));
+    }
+    for (auto&& rowset_ptr : rowsets) {
+        RETURN_IF_ERROR(Tablet::update_delete_bitmap_without_lock(_new_tablet, rowset_ptr));
+    }
+    // step 4
+    RETURN_IF_ERROR(_new_tablet->set_tablet_state(TabletState::TABLET_RUNNING));
+    _new_tablet->save_meta();
     return Status::OK();
 }
 

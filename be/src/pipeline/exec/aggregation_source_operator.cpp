@@ -17,6 +17,7 @@
 
 #include "aggregation_source_operator.h"
 
+#include <memory>
 #include <string>
 
 #include "common/exception.h"
@@ -49,9 +50,6 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
     _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     auto& p = _parent->template cast<AggSourceOperatorX>();
-    if (p._is_streaming) {
-        _shared_state->data_queue->set_source_dependency(_dependency);
-    }
     if (p._without_key) {
         if (p._needs_finalize) {
             _executor.get_result = std::bind<Status>(&AggLocalState::_get_without_key_result, this,
@@ -88,17 +86,16 @@ Status AggLocalState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
 }
 
 Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
-                                                            vectorized::Block* block,
-                                                            SourceState& source_state) {
+                                                            vectorized::Block* block, bool* eos) {
     if (_shared_state->spill_context.has_data) {
-        return _serialize_with_serialized_key_result_with_spilt_data(state, block, source_state);
+        return _serialize_with_serialized_key_result_with_spilt_data(state, block, eos);
     } else {
-        return _serialize_with_serialized_key_result_non_spill(state, block, source_state);
+        return _serialize_with_serialized_key_result_non_spill(state, block, eos);
     }
 }
 
 Status AggLocalState::_serialize_with_serialized_key_result_with_spilt_data(
-        RuntimeState* state, vectorized::Block* block, SourceState& source_state) {
+        RuntimeState* state, vectorized::Block* block, bool* eos) {
     CHECK(!_shared_state->spill_context.stream_ids.empty());
     CHECK(_shared_state->spill_partition_helper != nullptr)
             << "_spill_partition_helper should not be null";
@@ -114,14 +111,12 @@ Status AggLocalState::_serialize_with_serialized_key_result_with_spilt_data(
         _shared_state->aggregate_data_container->init_once();
     }
 
-    RETURN_IF_ERROR(_serialize_with_serialized_key_result_non_spill(state, block, source_state));
-    if (source_state == SourceState::FINISHED) {
-        source_state = _shared_state->spill_context.read_cursor ==
-                                       _shared_state->spill_partition_helper->partition_count
-                               ? SourceState::FINISHED
-                               : SourceState::DEPEND_ON_SOURCE;
+    RETURN_IF_ERROR(_serialize_with_serialized_key_result_non_spill(state, block, eos));
+    if (*eos) {
+        *eos = _shared_state->spill_context.read_cursor ==
+               _shared_state->spill_partition_helper->partition_count;
     }
-    CHECK(!block->empty() || source_state == SourceState::FINISHED);
+    CHECK(!block->empty() || *eos);
     return Status::OK();
 }
 
@@ -141,13 +136,13 @@ Status AggLocalState::_reset_hash_table() {
                     }
                 });
 
-                ss.aggregate_data_container.reset(new vectorized::AggregateDataContainer(
+                ss.aggregate_data_container = std::make_unique<vectorized::AggregateDataContainer>(
                         sizeof(typename HashTableType::key_type),
                         ((ss.total_size_of_aggregate_states + ss.align_aggregate_states - 1) /
                          ss.align_aggregate_states) *
-                                ss.align_aggregate_states));
-                hash_table = HashTableType();
-                ss.agg_arena_pool.reset(new vectorized::Arena);
+                                ss.align_aggregate_states);
+                agg_method.hash_table.reset(new HashTableType());
+                ss.agg_arena_pool = std::make_unique<vectorized::Arena>();
                 return Status::OK();
             },
             ss.agg_data->method_variant);
@@ -155,7 +150,7 @@ Status AggLocalState::_reset_hash_table() {
 
 Status AggLocalState::_serialize_with_serialized_key_result_non_spill(RuntimeState* state,
                                                                       vectorized::Block* block,
-                                                                      SourceState& source_state) {
+                                                                      bool* eos) {
     SCOPED_TIMER(_serialize_result_timer);
     auto& shared_state = *_shared_state;
     int key_size = _shared_state->probe_expr_ctxs.size();
@@ -220,10 +215,10 @@ Status AggLocalState::_serialize_with_serialized_key_result_non_spill(RuntimeSta
                                     agg_method.hash_table->template get_null_key_data<
                                             vectorized::AggregateDataPtr>();
                             ++num_rows;
-                            source_state = SourceState::FINISHED;
+                            *eos = true;
                         }
                     } else {
-                        source_state = SourceState::FINISHED;
+                        *eos = true;
                     }
                 }
 
@@ -267,16 +262,16 @@ Status AggLocalState::_serialize_with_serialized_key_result_non_spill(RuntimeSta
 }
 
 Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                                      SourceState& source_state) {
+                                                      bool* eos) {
     if (_shared_state->spill_context.has_data) {
-        return _get_result_with_spilt_data(state, block, source_state);
+        return _get_result_with_spilt_data(state, block, eos);
     } else {
-        return _get_result_with_serialized_key_non_spill(state, block, source_state);
+        return _get_result_with_serialized_key_non_spill(state, block, eos);
     }
 }
 
 Status AggLocalState::_get_result_with_spilt_data(RuntimeState* state, vectorized::Block* block,
-                                                  SourceState& source_state) {
+                                                  bool* eos) {
     CHECK(!_shared_state->spill_context.stream_ids.empty());
     CHECK(_shared_state->spill_partition_helper != nullptr)
             << "_spill_partition_helper should not be null";
@@ -292,14 +287,12 @@ Status AggLocalState::_get_result_with_spilt_data(RuntimeState* state, vectorize
         _shared_state->aggregate_data_container->init_once();
     }
 
-    RETURN_IF_ERROR(_get_result_with_serialized_key_non_spill(state, block, source_state));
-    if (source_state == SourceState::FINISHED) {
-        source_state = _shared_state->spill_context.read_cursor ==
-                                       _shared_state->spill_partition_helper->partition_count
-                               ? SourceState::FINISHED
-                               : SourceState::DEPEND_ON_SOURCE;
+    RETURN_IF_ERROR(_get_result_with_serialized_key_non_spill(state, block, eos));
+    if (*eos) {
+        *eos = _shared_state->spill_context.read_cursor ==
+               _shared_state->spill_partition_helper->partition_count;
     }
-    CHECK(!block->empty() || source_state == SourceState::FINISHED);
+    CHECK(!block->empty() || *eos);
     return Status::OK();
 }
 
@@ -326,7 +319,7 @@ Status AggLocalState::_merge_spilt_data() {
 
 Status AggLocalState::_get_result_with_serialized_key_non_spill(RuntimeState* state,
                                                                 vectorized::Block* block,
-                                                                SourceState& source_state) {
+                                                                bool* eos) {
     auto& shared_state = *_shared_state;
     // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
     bool mem_reuse = shared_state.make_nullable_keys.empty() && block->mem_reuse();
@@ -404,10 +397,10 @@ Status AggLocalState::_get_result_with_serialized_key_non_spill(RuntimeState* st
                                 shared_state.aggregate_evaluators[i]->insert_result_info(
                                         mapped + shared_state.offsets_of_aggregate_states[i],
                                         value_columns[i].get());
-                            source_state = SourceState::FINISHED;
+                            *eos = true;
                         }
                     } else {
-                        source_state = SourceState::FINISHED;
+                        *eos = true;
                     }
                 }
             },
@@ -430,14 +423,14 @@ Status AggLocalState::_get_result_with_serialized_key_non_spill(RuntimeState* st
 }
 
 Status AggLocalState::_serialize_without_key(RuntimeState* state, vectorized::Block* block,
-                                             SourceState& source_state) {
+                                             bool* eos) {
     auto& shared_state = *_shared_state;
     // 1. `child(0)->rows_returned() == 0` mean not data from child
     // in level two aggregation node should return NULL result
     //    level one aggregation node set `eos = true` return directly
     SCOPED_TIMER(_serialize_result_timer);
     if (UNLIKELY(_shared_state->input_num_rows == 0)) {
-        source_state = SourceState::FINISHED;
+        *eos = true;
         return Status::OK();
     }
     block->clear();
@@ -470,12 +463,12 @@ Status AggLocalState::_serialize_without_key(RuntimeState* state, vectorized::Bl
     }
 
     block->set_columns(std::move(value_columns));
-    source_state = SourceState::FINISHED;
+    *eos = true;
     return Status::OK();
 }
 
 Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::Block* block,
-                                              SourceState& source_state) {
+                                              bool* eos) {
     auto& shared_state = *_shared_state;
     DCHECK(_agg_data->without_key != nullptr);
     block->clear();
@@ -523,26 +516,24 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
     }
 
     block->set_columns(std::move(columns));
-    source_state = SourceState::FINISHED;
+    *eos = true;
     return Status::OK();
 }
 
 AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                       const DescriptorTbl& descs, bool is_streaming)
+                                       const DescriptorTbl& descs)
         : Base(pool, tnode, operator_id, descs),
-          _is_streaming(is_streaming),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
-Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                     SourceState& source_state) {
+Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    RETURN_IF_ERROR(local_state._executor.get_result(state, block, source_state));
+    RETURN_IF_ERROR(local_state._executor.get_result(state, block, eos));
     local_state.make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     return Status::OK();
 }
 

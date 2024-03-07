@@ -44,16 +44,14 @@ ExecEnv::~ExecEnv() {
     destroy();
 }
 
-// TODO(plat1ko): template <class Engine>
+#ifdef BE_TEST
+void ExecEnv::set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine) {
+    _storage_engine = std::move(engine);
+}
+#endif // BE_TEST
+
 Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
-    BaseTabletSPtr tablet;
-    std::string err;
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
-    if (tablet == nullptr) {
-        return unexpected(
-                Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err));
-    }
-    return tablet;
+    return GetInstance()->storage_engine().get_tablet(tablet_id);
 }
 
 const std::string& ExecEnv::token() const {

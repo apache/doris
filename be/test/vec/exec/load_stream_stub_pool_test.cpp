@@ -22,8 +22,6 @@
 
 namespace doris {
 
-namespace stream_load {
-
 class LoadStreamStubPoolTest : public testing::Test {
 public:
     LoadStreamStubPoolTest() = default;
@@ -50,5 +48,4 @@ TEST_F(LoadStreamStubPoolTest, test) {
     EXPECT_EQ(0, pool.templates_size());
 }
 
-} // namespace stream_load
 } // namespace doris

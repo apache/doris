@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class DataGenOperator : public SourceOperator<DataGenOperatorBuilder> {
+class DataGenOperator : public SourceOperator<vectorized::VDataGenFunctionScanNode> {
 public:
     DataGenOperator(OperatorBuilderBase* operator_builder, ExecNode* datagen_node);
 
@@ -73,8 +73,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
 

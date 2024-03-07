@@ -104,6 +104,10 @@ public class FunctionName implements Writable {
         this.db = db;
     }
 
+    public void setFn(String fn) {
+        this.fn = fn;
+    }
+
     public String getFunction() {
         return fn;
     }

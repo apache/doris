@@ -22,23 +22,24 @@
 #include "common/status.h"
 #include "olap/compaction.h"
 #include "olap/rowset/pending_rowset_helper.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
 
 namespace doris {
 
+class DataDir;
+
 //  SingleReplicaCompaction is used to fetch peer replica compaction result.
-class SingleReplicaCompaction : public Compaction {
+class SingleReplicaCompaction final : public CompactionMixin {
 public:
-    SingleReplicaCompaction(const TabletSharedPtr& tablet, const CompactionType& compaction_type);
+    SingleReplicaCompaction(StorageEngine& engine, const TabletSharedPtr& tablet,
+                            CompactionType compaction_type);
     ~SingleReplicaCompaction() override;
 
     Status prepare_compact() override;
-    Status execute_compact_impl() override;
+    Status execute_compact() override;
 
 protected:
-    Status pick_rowsets_to_compact() override;
-    std::string compaction_name() const override { return "single replica compaction"; }
+    Status pick_rowsets_to_compact();
+    std::string_view compaction_name() const override { return "single replica compaction"; }
     ReaderType compaction_type() const override {
         return (_compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                        ? ReaderType::READER_CUMULATIVE_COMPACTION
@@ -59,12 +60,10 @@ private:
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
                            const std::string& local_path);
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
-    Status _finish_clone(const string& clone_dir, const Version& version);
+    Status _finish_clone(const std::string& clone_dir, const Version& version);
+    std::string _mask_token(const std::string& str);
     CompactionType _compaction_type;
 
-    DISALLOW_COPY_AND_ASSIGN(SingleReplicaCompaction);
-
-private:
     std::vector<PendingRowsetGuard> _pending_rs_guards;
 };
 

@@ -66,7 +66,7 @@ None
 {
     "msg":"success",
     "code":0,
-    "data":["databese list" / "table list" / "table schema"],
+    "data":["database list" / "table list" / "table schema"],
     "count":0
 }
 ```

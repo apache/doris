@@ -1,4 +1,4 @@
-SELECT
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
   CAST(L.var["L_SHIPMODE"] AS TEXT),
   SUM(CASE
       WHEN CAST(O.var["O_ORDERPRIORITY"] AS TEXT) = '1-URGENT'

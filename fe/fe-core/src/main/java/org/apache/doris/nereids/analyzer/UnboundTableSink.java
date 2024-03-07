@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -135,6 +136,11 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD
         Preconditions.checkArgument(children.size() == 1, "UnboundOlapTableSink only accepts one child");
         return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate,
                 dmlCommandType, groupExpression, Optional.empty(), children.get(0));
+    }
+
+    @Override
+    public UnboundTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
+        throw new UnboundException("could not call withOutputExprs on UnboundTableSink");
     }
 
     @Override

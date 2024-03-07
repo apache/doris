@@ -46,7 +46,7 @@ private:
 };
 
 // Now local exchange is not supported since VDataStreamRecvr is considered as a pipeline broker.
-class ExchangeSinkOperator final : public DataSinkOperator<ExchangeSinkOperatorBuilder> {
+class ExchangeSinkOperator final : public DataSinkOperator<vectorized::VDataStreamSender> {
 public:
     ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink, int mult_cast_id);
     Status init(const TDataSink& tsink) override;
@@ -64,49 +64,9 @@ private:
     int _mult_cast_id = -1;
 };
 
-class ExchangeSinkQueueDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
-    ExchangeSinkQueueDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "ResultQueueDependency", true, query_ctx) {}
-    ~ExchangeSinkQueueDependency() override = default;
-};
-
-/**
- * We use this to control the execution for local exchange.
- *              +---------------+                                    +---------------+                               +---------------+
- *              | ExchangeSink1 |                                    | ExchangeSink2 |                               | ExchangeSink3 |
- *              +---------------+                                    +---------------+                               +---------------+
- *                     |                                                    |                                               |
- *                     |                       +----------------------------+----------------------------------+            |
- *                     +----+------------------|------------------------------------------+                    |            |
- *                          |                  |                 +------------------------|--------------------|------------+-----+
- *          Dependency 1-1  |   Dependency 2-1 |  Dependency 3-1 |         Dependency 1-2 |    Dependency 2-2  |  Dependency 3-2  |
- *                    +----------------------------------------------+               +----------------------------------------------+
- *                    |  queue1              queue2          queue3  |               |  queue1              queue2          queue3  |
- *                    |                   LocalRecvr                 |               |                   LocalRecvr                 |
- *                    +----------------------------------------------+               +----------------------------------------------+
- *                         +-----------------+                                                        +------------------+
- *                         | ExchangeSource1 |                                                        | ExchangeSource2 |
- *                         +-----------------+                                                        +------------------+
- */
-class LocalExchangeChannelDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
-    LocalExchangeChannelDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "LocalExchangeChannelDependency", true, query_ctx) {}
-    ~LocalExchangeChannelDependency() override = default;
-};
-
-class LocalExchangeMemLimitDependency final : public Dependency {
-    ENABLE_FACTORY_CREATOR(LocalExchangeMemLimitDependency);
-    LocalExchangeMemLimitDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "LocalExchangeMemLimitDependency", true, query_ctx) {}
-    ~LocalExchangeMemLimitDependency() override = default;
-};
-class ExchangeSinkLocalState final : public PipelineXSinkLocalState<AndDependency> {
+class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
-    using Base = PipelineXSinkLocalState<AndDependency>;
+    using Base = PipelineXSinkLocalState<>;
 
 public:
     ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -119,6 +79,16 @@ public:
                 state->get_query_ctx());
     }
 
+    std::vector<Dependency*> dependencies() const override {
+        std::vector<Dependency*> dep_vec;
+        dep_vec.push_back(_queue_dependency.get());
+        if (_broadcast_dependency) {
+            dep_vec.push_back(_broadcast_dependency.get());
+        }
+        std::for_each(_local_channels_dependency.begin(), _local_channels_dependency.end(),
+                      [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
+        return dep_vec;
+    }
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
@@ -183,7 +153,6 @@ private:
     // Used to counter send bytes under local data exchange
     RuntimeProfile::Counter* _local_bytes_send_counter = nullptr;
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
 
     RuntimeProfile::Counter* _wait_queue_timer = nullptr;
     RuntimeProfile::Counter* _wait_broadcast_buffer_timer = nullptr;
@@ -195,9 +164,28 @@ private:
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
-    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
-    std::shared_ptr<Dependency> _broadcast_dependency;
-    std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
+    std::shared_ptr<Dependency> _queue_dependency = nullptr;
+    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
+
+    /**
+     * We use this to control the execution for local exchange.
+     *              +---------------+                                    +---------------+                               +---------------+
+     *              | ExchangeSink1 |                                    | ExchangeSink2 |                               | ExchangeSink3 |
+     *              +---------------+                                    +---------------+                               +---------------+
+     *                     |                                                    |                                               |
+     *                     |                       +----------------------------+----------------------------------+            |
+     *                     +----+------------------|------------------------------------------+                    |            |
+     *                          |                  |                 +------------------------|--------------------|------------+-----+
+     *          Dependency 1-1  |   Dependency 2-1 |  Dependency 3-1 |         Dependency 1-2 |    Dependency 2-2  |  Dependency 3-2  |
+     *                    +----------------------------------------------+               +----------------------------------------------+
+     *                    |  queue1              queue2          queue3  |               |  queue1              queue2          queue3  |
+     *                    |                   LocalRecvr                 |               |                   LocalRecvr                 |
+     *                    +----------------------------------------------+               +----------------------------------------------+
+     *                         +-----------------+                                                        +------------------+
+     *                         | ExchangeSource1 |                                                        | ExchangeSource2 |
+     *                         +-----------------+                                                        +------------------+
+     */
+    std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;
 
@@ -208,8 +196,7 @@ class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalSt
 public:
     ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
                           const TDataStreamSink& sink,
-                          const std::vector<TPlanFragmentDestination>& destinations,
-                          bool send_query_statistics_with_every_batch);
+                          const std::vector<TPlanFragmentDestination>& destinations);
     Status init(const TDataSink& tsink) override;
 
     RuntimeState* state() { return _state; }
@@ -217,13 +204,10 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
-
-    Status try_close(RuntimeState* state, Status exec_status) override;
 
 private:
     friend class ExchangeSinkLocalState;
@@ -249,7 +233,6 @@ private:
     PBlock _pb_block2;
 
     const std::vector<TPlanFragmentDestination> _dests;
-    const bool _send_query_statistics_with_every_batch;
 
     std::unique_ptr<MemTracker> _mem_tracker;
     // Identifier of the destination plan node.

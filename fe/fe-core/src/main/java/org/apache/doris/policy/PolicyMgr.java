@@ -26,6 +26,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -143,6 +144,31 @@ public class PolicyMgr implements Writable {
     }
 
     /**
+     * Create policy through http api.
+     **/
+    public void addPolicy(Policy policy) throws UserException {
+        writeLock();
+        try {
+            boolean storagePolicyExists = false;
+            if (PolicyTypeEnum.STORAGE == policy.getType()) {
+                // The name of the storage policy remains globally unique until it is renamed by user.
+                // So we could just compare the policy name to check if there are redundant ones.
+                // Otherwise two storage policy share one same name but with different resource name
+                // will not be filtered. See github #25025 for more details.
+                storagePolicyExists = getPoliciesByType(PolicyTypeEnum.STORAGE)
+                        .stream().anyMatch(p -> p.getPolicyName().equals(policy.getPolicyName()));
+            }
+            if (storagePolicyExists || existPolicy(policy)) {
+                throw new DdlException("the policy " + policy.getPolicyName() + " already create");
+            }
+            unprotectedAdd(policy);
+            Env.getCurrentEnv().getEditLog().logCreatePolicy(policy);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
      * Drop policy through stmt.
      **/
     public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
@@ -153,9 +179,14 @@ public class PolicyMgr implements Writable {
                 List<Table> tables = db.getTables();
                 for (Table table : tables) {
                     if (table instanceof OlapTable) {
-                        if (((OlapTable) table).getStoragePolicy().equals(dropPolicyLog.getPolicyName())) {
-                            throw new DdlException("the policy " + dropPolicyLog.getPolicyName() + " is used by table: "
+                        OlapTable olapTable = (OlapTable) table;
+                        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                        for (Long partitionId : olapTable.getPartitionIds()) {
+                            String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
+                            if (policyName.equals(dropPolicyLog.getPolicyName())) {
+                                throw new DdlException("the policy " + policyName + " is used by table: "
                                     + table.getName());
+                            }
                         }
                     }
                 }
@@ -285,6 +316,9 @@ public class PolicyMgr implements Writable {
             if (policy.matchPolicy(log)) {
                 if (policy instanceof StoragePolicy) {
                     ((StoragePolicy) policy).removeResourceReference();
+                    StoragePolicy storagePolicy = (StoragePolicy) policy;
+                    LOG.info("the policy {} with id {} resource {} has been dropped",
+                            storagePolicy.getPolicyName(), storagePolicy.getId(), storagePolicy.getStorageResource());
                 }
                 if (policy instanceof RowPolicy) {
                     dropTablePolicies((RowPolicy) policy);

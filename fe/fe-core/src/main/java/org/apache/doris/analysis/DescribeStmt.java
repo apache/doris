@@ -136,26 +136,7 @@ public class DescribeStmt extends ShowStmt {
                                 ? FeConstants.null_string : column.getDefaultValue(),
                         "NONE"
                 );
-                if (column.getOriginType().isDatetimeV2()) {
-                    StringBuilder typeStr = new StringBuilder("DATETIME");
-                    if (((ScalarType) column.getOriginType()).getScalarScale() > 0) {
-                        typeStr.append("(").append(((ScalarType) column.getOriginType()).getScalarScale()).append(")");
-                    }
-                    row.set(1, typeStr.toString());
-                } else if (column.getOriginType().isDateV2()) {
-                    row.set(1, "DATE");
-                } else if (column.getOriginType().isDecimalV3()) {
-                    StringBuilder typeStr = new StringBuilder("DECIMAL");
-                    ScalarType sType = (ScalarType) column.getOriginType();
-                    int scale = sType.getScalarScale();
-                    int precision = sType.getScalarPrecision();
-                    // not default
-                    if (scale > 0 && precision != 9) {
-                        typeStr.append("(").append(precision).append(", ").append(scale)
-                                .append(")");
-                    }
-                    row.set(1, typeStr.toString());
-                }
+                row.set(1, column.getOriginType().hideVersionForVersionColumn(false));
                 totalRows.add(row);
             }
             return;
@@ -187,7 +168,7 @@ public class DescribeStmt extends ShowStmt {
                 // show base table schema only
                 String procString = "/catalogs/" + catalog.getId() + "/" + db.getId() + "/" + table.getId() + "/"
                         + TableProcDir.INDEX_SCHEMA + "/";
-                if (table.getType() == TableType.OLAP) {
+                if (table instanceof OlapTable) {
                     procString += ((OlapTable) table).getBaseIndexId();
                 } else {
                     if (partitionNames != null) {
@@ -212,7 +193,7 @@ public class DescribeStmt extends ShowStmt {
                 }
             } else {
                 Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
-                if (table.getType() == TableType.OLAP) {
+                if (table instanceof OlapTable) {
                     isOlapTable = true;
                     OlapTable olapTable = (OlapTable) table;
                     Set<String> bfColumns = olapTable.getCopiedBfColumns();
@@ -363,7 +344,9 @@ public class DescribeStmt extends ShowStmt {
                                     getDb(), getTableName(), Sets.newHashSet(row.get(0)), PrivPredicate.SHOW);
                     res.add(row);
                 } catch (UserException e) {
-                    LOG.debug(e.getMessage());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(e.getMessage());
+                    }
                 }
             }
             return res;

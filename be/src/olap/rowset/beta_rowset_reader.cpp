@@ -56,7 +56,7 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
 }
 
 void BetaRowsetReader::reset_read_options() {
-    _read_options.delete_condition_predicates = std::make_shared<AndBlockColumnPredicate>();
+    _read_options.delete_condition_predicates = AndBlockColumnPredicate::create_shared();
     _read_options.column_predicates.clear();
     _read_options.col_id_to_predicates.clear();
     _read_options.del_predicates_for_zone_map.clear();
@@ -154,19 +154,32 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         for (auto pred : *(_read_context->predicates)) {
             if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
                 _read_options.col_id_to_predicates.insert(
-                        {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+                        {pred->column_id(), AndBlockColumnPredicate::create_shared()});
             }
-            auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
             _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
-                    single_column_block_predicate);
+                    SingleColumnBlockPredicate::create_unique(pred));
         }
     }
 
     if (_read_context->predicates_except_leafnode_of_andnode != nullptr) {
-        _read_options.column_predicates_except_leafnode_of_andnode.insert(
-                _read_options.column_predicates_except_leafnode_of_andnode.end(),
-                _read_context->predicates_except_leafnode_of_andnode->begin(),
-                _read_context->predicates_except_leafnode_of_andnode->end());
+        bool should_push_down = true;
+        bool should_push_down_value_predicates = _should_push_down_value_predicates();
+        for (auto pred : *_read_context->predicates_except_leafnode_of_andnode) {
+            if (_rowset->keys_type() == UNIQUE_KEYS && !should_push_down_value_predicates &&
+                !_read_context->tablet_schema->column(pred->column_id()).is_key()) {
+                VLOG_DEBUG << "do not push down except_leafnode_of_andnode value pred "
+                           << pred->debug_string();
+                should_push_down = false;
+                break;
+            }
+        }
+
+        if (should_push_down) {
+            _read_options.column_predicates_except_leafnode_of_andnode.insert(
+                    _read_options.column_predicates_except_leafnode_of_andnode.end(),
+                    _read_context->predicates_except_leafnode_of_andnode->begin(),
+                    _read_context->predicates_except_leafnode_of_andnode->end());
+        }
     }
 
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
@@ -193,11 +206,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             for (auto pred : *(_read_context->value_predicates)) {
                 if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
                     _read_options.col_id_to_predicates.insert(
-                            {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+                            {pred->column_id(), AndBlockColumnPredicate::create_shared()});
                 }
-                auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
                 _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
-                        single_column_block_predicate);
+                        SingleColumnBlockPredicate::create_unique(pred));
             }
         }
     }
@@ -205,6 +217,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.tablet_schema = _read_context->tablet_schema;
     _read_options.record_rowids = _read_context->record_rowids;
     _read_options.use_topn_opt = _read_context->use_topn_opt;
+    _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;

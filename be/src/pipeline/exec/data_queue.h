@@ -28,8 +28,7 @@
 #include "util/spinlock.h"
 #include "vec/core/block.h"
 
-namespace doris {
-namespace pipeline {
+namespace doris::pipeline {
 
 class Dependency;
 
@@ -53,7 +52,7 @@ public:
     bool is_finish(int child_idx = 0);
     bool is_all_finish();
 
-    bool has_enough_space_to_push(int child_idx = 0);
+    bool has_enough_space_to_push();
     bool has_data_or_finished(int child_idx = 0);
     bool remaining_has_data();
 
@@ -61,7 +60,7 @@ public:
     int64_t max_size_of_queue() const { return _max_size_of_queue; }
 
     bool data_exhausted() const { return _data_exhausted; }
-    void set_source_dependency(Dependency* source_dependency) {
+    void set_source_dependency(std::shared_ptr<Dependency> source_dependency) {
         _source_dependency = source_dependency;
     }
     void set_sink_dependency(Dependency* sink_dependency, int child_idx) {
@@ -72,11 +71,6 @@ public:
     void set_source_block();
 
 private:
-    friend class AggSourceDependency;
-    friend class UnionSourceDependency;
-    friend class AggSinkDependency;
-    friend class UnionSinkDependency;
-
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
     std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _queue_blocks;
 
@@ -105,10 +99,9 @@ private:
     static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
 
     // data queue is multi sink one source
-    Dependency* _source_dependency = nullptr;
+    std::shared_ptr<Dependency> _source_dependency = nullptr;
     std::vector<Dependency*> _sink_dependencies;
     SpinLock _source_lock;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

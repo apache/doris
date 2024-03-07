@@ -40,10 +40,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
-// SHOW LOAD STATUS statement used to get status of load job.
+// SHOW BUILD INDEX statement used to get status of build index job.
 //
 // syntax:
-//      SHOW LOAD [FROM db] [LIKE mask]
+//      SHOW BUILD INDEX [FROM db] [WHERE <condition>]
+//          [ORDER BY [DESC|ASC] [NULLS LAST |  NULLS FIRST]]] [ LIMIT 1, 100]
 public class ShowBuildIndexStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowBuildIndexStmt.class);
 
@@ -96,9 +97,7 @@ public class ShowBuildIndexStmt extends ShowStmt {
         }
 
         // analyze where clause if not null
-        if (whereClause != null) {
-            analyzeSubPredicate(whereClause);
-        }
+        analyzeSubPredicate(whereClause);
 
         // order by
         if (orderByElements != null && !orderByElements.isEmpty()) {
@@ -125,7 +124,9 @@ public class ShowBuildIndexStmt extends ShowStmt {
         sb.append(db.getId());
         sb.append("/build_index");
 
-        LOG.debug("process SHOW PROC '{}';", sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("process SHOW PROC '{}';", sb.toString());
+        }
         // create show proc stmt
         // '/jobs/db_name/build_index/
         node = ProcService.getInstance().open(sb.toString());

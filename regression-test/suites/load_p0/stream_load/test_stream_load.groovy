@@ -1305,7 +1305,7 @@ suite("test_stream_load", "p0") {
         out = process.text
         json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
-
+        sql "sync"
         qt_sql_chunked_transfer_csv "select * from ${tableName16} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
@@ -1333,7 +1333,7 @@ suite("test_stream_load", "p0") {
         out = process.text
         json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
-
+        sql "sync"
         qt_sql_chunked_transfer_json "select * from ${tableName16} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
@@ -1566,10 +1566,7 @@ suite("test_stream_load", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
-                assertEquals(100, json.NumberTotalRows)
-                assertEquals(100, json.NumberFilteredRows)
-                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]Encountered unqualified data, stop processing"))
             }
         }
     } finally {

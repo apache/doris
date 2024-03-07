@@ -47,9 +47,9 @@ FE 的配置项有两种方式进行查看：
 
 2. 通过命令查看
 
-   FE 启动后，可以在 MySQL 客户端中，通过以下命令查看 FE 的配置项，具体语法参照[ADMIN-SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG.md)：
+   FE 启动后，可以在 MySQL 客户端中，通过以下命令查看 FE 的配置项，具体语法参照[SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/SHOW-CONFIG.md)：
 
-   `ADMIN SHOW FRONTEND CONFIG;`
+   `SHOW FRONTEND CONFIG;`
 
    结果中各列含义如下：
 
@@ -74,7 +74,7 @@ FE 的配置项有两种方式进行配置：
 
    `ADMIN SET FRONTEND CONFIG ("fe_config_name" = "fe_config_value");`
 
-   不是所有配置项都支持动态配置。可以通过 `ADMIN SHOW FRONTEND CONFIG;` 命令结果中的 `IsMutable` 列查看是否支持动态配置。
+   不是所有配置项都支持动态配置。可以通过 `SHOW FRONTEND CONFIG;` 命令结果中的 `IsMutable` 列查看是否支持动态配置。
 
    如果是修改 `MasterOnly` 的配置项，则该命令会直接转发给 Master FE 并且仅修改 Master FE 中对应的配置项。
 
@@ -92,7 +92,7 @@ FE 的配置项有两种方式进行配置：
 
 1. 修改 `async_pending_load_task_pool_size`
 
-   通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
+   通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
 
    `async_pending_load_task_pool_size=20`
 
@@ -100,7 +100,7 @@ FE 的配置项有两种方式进行配置：
 
 2. 修改 `dynamic_partition_enable`
 
-   通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且是 Master FE 独有配置。则首先我们可以连接到任意 FE，执行如下命令修改配置：
+   通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且是 Master FE 独有配置。则首先我们可以连接到任意 FE，执行如下命令修改配置：
 
    ```text
    ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true");`
@@ -110,14 +110,14 @@ FE 的配置项有两种方式进行配置：
 
    ```text
    set forward_to_master=true;
-   ADMIN SHOW FRONTEND CONFIG;
+   SHOW FRONTEND CONFIG;
    ```
 
    通过以上方式修改后，如果 Master FE 重启或进行了 Master 切换，则配置将失效。可以通过在 `fe.conf` 中直接添加配置项，并重启 FE 后，永久生效该配置项。
 
 3. 修改 `max_distribution_pruner_recursion_depth`
 
-   通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
+   通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
 
    同样，我们可以通过动态修改配置的命令修改该配置。因为该配置不是 Master FE 独有配置，所以需要单独连接到不同的 FE，进行动态修改配置的操作，这样才能保证所有 FE 都使用了修改后的配置值
 
@@ -688,6 +688,18 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 http header size 配置参数
 
+#### `http_sql_submitter_max_worker_threads`
+
+默认值：2
+
+http请求处理/api/query中sql任务的最大线程池
+
+#### `http_load_submitter_max_worker_threads`
+
+默认值：2
+
+http请求处理/api/upload任务的最大线程池
+
 ### 查询引擎
 
 #### `default_max_query_instances`
@@ -900,7 +912,7 @@ http header size 配置参数
 
 这将限制哈希分布修剪器的最大递归深度。 例如：其中 a  in（5 个元素）和 b in（4 个元素）和 c in（3 个元素）和 d in（2 个元素）。 a/b/c/d 是分布式列，所以递归深度为 5 * 4 * 3 * 2 = 120，大于 100， 因此该分发修剪器将不起作用，只会返回所有 buckets。  增加深度可以支持更多元素的分布修剪，但可能会消耗更多的 CPU
 
-通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
+通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
 
 同样，我们可以通过动态修改配置的命令修改该配置。因为该配置不是 Master FE 独有配置，所以需要单独连接到不同的 FE，进行动态修改配置的操作，这样才能保证所有 FE 都使用了修改后的配置值
 
@@ -1495,7 +1507,7 @@ NORMAL 优先级挂起加载作业的并发数。
 
 #### `label_keep_max_second`
 
-默认值：3 * 24 * 3600  (3天)
+默认值：`3 * 24 * 3600`  (3天)
 
 是否可以动态配置：true
 
@@ -1647,7 +1659,7 @@ sys_log_dir:
 
 默认值：INFO
 
-日志级别，可选项：INFO, WARNING, ERROR, FATAL
+日志级别，可选项：INFO, WARN, ERROR, FATAL
 
 #### `sys_log_roll_num`
 
@@ -2128,7 +2140,7 @@ tablet 状态更新间隔
 
 #### `storage_flood_stage_left_capacity_bytes`
 
-默认值： 1 * 1024 * 1024 * 1024 (1GB)
+默认值： `1 * 1024 * 1024 * 1024` (1GB)
 
 是否可以动态配置：true
 
@@ -2327,7 +2339,7 @@ multi catalog 并发文件扫描线程数
 
 #### `file_scan_node_split_size`
 
-默认值：256 * 1024 * 1024
+默认值：`256 * 1024 * 1024`
 
 是否可以动态配置：true
 
@@ -2420,7 +2432,7 @@ FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 #### `dpp_bytes_per_reduce`
 
-默认值：100 * 1024 * 1024L (100M)
+默认值：`100 * 1024 * 1024L` (100M)
 
 #### `dpp_default_cluster`
 

@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -26,16 +27,34 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 public class ShowWorkloadGroupsStmt extends ShowStmt {
 
-    public ShowWorkloadGroupsStmt() {}
+    private String pattern;
+    // TODO: not supported yet
+    private Expr whereClause;
+
+    public ShowWorkloadGroupsStmt(String pattern, Expr where) {
+        this.pattern = pattern;
+        this.whereClause = where;
+    }
+
+    public String getPattern() {
+        return pattern;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        if (this.whereClause != null) {
+            throw new AnalysisException("Where clause is not supported in show workload groups statement");
+        }
     }
 
     @Override
     public String toSql() {
-        return "SHOW RESOURCE GROUPS";
+        String sql = "SHOW WORKLOAD GROUPS";
+        if (this.pattern != null) {
+            sql += " LIKE '" + pattern + "'";
+        }
+        return sql;
     }
 
     @Override

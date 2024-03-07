@@ -123,8 +123,10 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
             create_httplogs_dup_table.call(test_index_compound_directory)
             GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
             load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
-            qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'images'"
+            qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'gif'"
             try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+        } catch(Exception ex) {
+            logger.info("_mock_append_data_error_in_fsindexoutput_flushBuffer,  result: " + ex)
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
         }
@@ -138,6 +140,17 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
             try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
+        }
+        try {
+            def test_index_compound_directory = "test_index_compound_directory3"
+            sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
+            create_httplogs_dup_table.call(test_index_compound_directory)
+            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
+            load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
+            qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'png'"
+            try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
         }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")

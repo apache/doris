@@ -15,16 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.datasource.hive.event;
 
+import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -77,7 +79,7 @@ public abstract class MetastoreEvent {
 
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
         this.event = event;
-        this.dbName = event.getDbName();
+        this.dbName = event.getDbName().toLowerCase(Locale.ROOT);
         this.tblName = event.getTableName();
         this.eventId = event.getEventId();
         this.eventTime = event.getEventTime() * 1000L;
@@ -204,7 +206,9 @@ public abstract class MetastoreEvent {
         }
         String formatString = LOG_FORMAT_EVENT_ID_TYPE + logFormattedStr;
         Object[] formatArgs = getLogFormatArgs(args);
-        LOG.debug(formatString, formatArgs);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(formatString, formatArgs);
+        }
     }
 
     protected String getPartitionName(Map<String, String> part, List<String> partitionColNames) {
@@ -225,6 +229,13 @@ public abstract class MetastoreEvent {
             name.append(part.get(colName));
         }
         return name.toString();
+    }
+
+    /**
+     * Create a MetaIdMapping list from the event if the event is a create/add/drop event
+     */
+    protected List<MetaIdMappingsLog.MetaIdMapping> transferToMetaIdMappings() {
+        return ImmutableList.of();
     }
 
     @Override

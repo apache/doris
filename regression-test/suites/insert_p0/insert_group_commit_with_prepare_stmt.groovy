@@ -18,10 +18,15 @@
 import com.mysql.cj.ServerPreparedQuery
 import com.mysql.cj.jdbc.ConnectionImpl
 import com.mysql.cj.jdbc.JdbcStatement
-import com.mysql.cj.jdbc.ServerPreparedStatement
+import com.mysql.cj.jdbc.ServerPreparedStatement;
 import com.mysql.cj.jdbc.StatementImpl
+import com.mysql.cj.jdbc.result.ResultSetImpl
+import com.mysql.cj.jdbc.result.ResultSetInternalMethods
 
 import java.lang.reflect.Field
+import java.sql.ResultSet
+import java.util.ArrayList
+import java.util.List
 import java.util.concurrent.CopyOnWriteArrayList
 
 suite("insert_group_commit_with_prepare_stmt") {
@@ -72,22 +77,38 @@ suite("insert_group_commit_with_prepare_stmt") {
         stmt.addBatch()
     }
 
-    def group_commit_insert = { stmt, expected_row_count ->
+    def group_commit_insert = { stmt, expected_row_count, reuse_plan = false ->
         def result = stmt.executeBatch()
         logger.info("insert result: " + result)
         def results = ((StatementImpl) stmt).results
-        if (results == null) {
-            logger.warn("result is null")
-            return
-        }
-        def serverInfo = results.getServerInfo()
-        logger.info("result server info: " + serverInfo)
-        if (result != expected_row_count) {
-            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count)
+        if (results != null) {
+            def serverInfo = results.getServerInfo()
+            logger.info("result server info: " + serverInfo)
+            if (result != expected_row_count) {
+                logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count)
+            }
+            assertTrue(serverInfo.contains("'status':'PREPARE'"))
+            assertTrue(serverInfo.contains("'label':'group_commit_"))
+            assertEquals(reuse_plan, serverInfo.contains("reuse_group_commit_plan"))
+        } else {
+            // for batch insert
+            ConnectionImpl connection = (ConnectionImpl) stmt.getConnection()
+            Field field = ConnectionImpl.class.getDeclaredField("openStatements")
+            field.setAccessible(true)
+            CopyOnWriteArrayList<JdbcStatement> openStatements = (CopyOnWriteArrayList<JdbcStatement>) field.get(connection)
+            for (JdbcStatement openStatement : openStatements) {
+                ServerPreparedStatement serverPreparedStatement = (ServerPreparedStatement) openStatement;
+                Field field2 = StatementImpl.class.getDeclaredField("results");
+                field2.setAccessible(true);
+                ResultSet resultSet = (ResultSetInternalMethods) field2.get(serverPreparedStatement);
+                if (resultSet != null) {
+                    ResultSetImpl resultSetImpl = (ResultSetImpl) resultSet;
+                    String serverInfo = resultSetImpl.getServerInfo();
+                    logger.info("serverInfo = " + serverInfo);
+                }
+            }
         }
         // assertEquals(result, expected_row_count)
-        assertTrue(serverInfo.contains("'status':'PREPARE'"))
-        assertTrue(serverInfo.contains("'label':'group_commit_"))
     }
 
     def getStmtId = { stmt ->
@@ -140,12 +161,12 @@ suite("insert_group_commit_with_prepare_stmt") {
             insert_prepared insert_stmt, 2, null, 20
             insert_prepared insert_stmt, 3, "c", null
             insert_prepared insert_stmt, 4, "d", 40
-            group_commit_insert insert_stmt, 3
+            group_commit_insert insert_stmt, 3, true
             assertEquals(stmtId, getStmtId(insert_stmt))
 
             insert_prepared insert_stmt, 5, "e", null
             insert_prepared insert_stmt, 6, "f", 40
-            group_commit_insert insert_stmt, 2
+            group_commit_insert insert_stmt, 2, true
             assertEquals(stmtId, getStmtId(insert_stmt))
 
             getRowCount(6)
@@ -161,7 +182,7 @@ suite("insert_group_commit_with_prepare_stmt") {
 
             insert_prepared_partial insert_stmt, 'e', 7, 0
             insert_prepared_partial insert_stmt, null, 8, 0
-            group_commit_insert insert_stmt, 2
+            group_commit_insert insert_stmt, 2, true
             assertEquals(stmtId2, getStmtId(insert_stmt))
 
             getRowCount(7)

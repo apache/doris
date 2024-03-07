@@ -57,9 +57,11 @@ suite("test_alter_partition") {
 
     // modify in_memory property
     // https://github.com/apache/doris/pull/18731
-    test {
-        sql """ALTER TABLE ${tbName} MODIFY PARTITION p201701 SET ("in_memory" = "true");"""
-        exception "Not support set 'in_memory'='true' now!"
+    if (!isCloudMode()) {
+        test {
+            sql """ALTER TABLE ${tbName} MODIFY PARTITION p201701 SET ("in_memory" = "true");"""
+            exception "Not support set 'in_memory'='true' now!"
+        }
     }
     sql "DROP TABLE IF EXISTS ${tbName} FORCE"
 }

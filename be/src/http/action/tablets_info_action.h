@@ -26,9 +26,10 @@ namespace doris {
 class HttpRequest;
 
 class ExecEnv;
+class StorageEngine;
 
 // Get BE tablets info from http API.
-class TabletsInfoAction : public HttpHandlerWithAuth {
+class TabletsInfoAction final : public HttpHandlerWithAuth {
 public:
     TabletsInfoAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 

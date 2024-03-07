@@ -18,10 +18,10 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 
 #include "CLucene/SharedHeader.h"
+#include "CLucene/_SharedHeader.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/path.h"
 #include "util/debug_points.h"
 #include "util/slice.h"
 
@@ -47,17 +47,14 @@
 #include <CLucene/store/RAMDirectory.h>
 #include <CLucene/util/Misc.h>
 #include <assert.h>
-// IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <glog/logging.h>
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
 
-#include <algorithm>
 #include <filesystem>
 #include <iostream>
-#include <memory>
 #include <mutex>
 #include <utility>
 
@@ -76,14 +73,10 @@
         LOG(WARNING) << err;                                     \
         _CLTHROWA(CL_ERR_IO, err.c_str());                       \
     }
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
-const char* WRITE_LOCK_FILE = "write.lock";
-const char* COMPOUND_FILE_EXTENSION = ".idx";
-const int64_t MAX_HEADER_DATA_SIZE = 1024 * 128; // 128k
-
-bool DorisCompoundDirectory::disableLocks = false;
+const char* const DorisCompoundDirectory::WRITE_LOCK_FILE = "write.lock";
+const char* const DorisCompoundDirectory::COMPOUND_FILE_EXTENSION = ".idx";
 
 DorisCompoundFileWriter::DorisCompoundFileWriter(CL_NS(store)::Directory* dir) {
     if (dir == nullptr) {
@@ -113,12 +106,12 @@ void DorisCompoundFileWriter::sort_files(std::vector<FileInfo>& file_infos) {
     });
 }
 
-void DorisCompoundFileWriter::writeCompoundFile() {
+size_t DorisCompoundFileWriter::writeCompoundFile() {
     // list files in current dir
     std::vector<std::string> files;
     directory->list(&files);
     // remove write.lock file
-    auto it = std::find(files.begin(), files.end(), WRITE_LOCK_FILE);
+    auto it = std::find(files.begin(), files.end(), DorisCompoundDirectory::WRITE_LOCK_FILE);
     if (it != files.end()) {
         files.erase(it);
     }
@@ -127,7 +120,7 @@ void DorisCompoundFileWriter::writeCompoundFile() {
     for (auto file : files) {
         FileInfo file_info;
         file_info.filename = file;
-        file_info.filesize = ((DorisCompoundDirectory*)directory)->fileLength(file.c_str());
+        file_info.filesize = directory->fileLength(file.c_str());
         sorted_files.emplace_back(std::move(file_info));
     }
     sort_files(sorted_files);
@@ -136,10 +129,11 @@ void DorisCompoundFileWriter::writeCompoundFile() {
 
     io::Path cfs_path(((DorisCompoundDirectory*)directory)->getCfsDirName());
     auto idx_path = cfs_path.parent_path();
-    std::string idx_name = std::string(cfs_path.stem().c_str()) + COMPOUND_FILE_EXTENSION;
+    std::string idx_name =
+            std::string(cfs_path.stem().c_str()) + DorisCompoundDirectory::COMPOUND_FILE_EXTENSION;
     // write file entries to ram directory to get header length
     lucene::store::RAMDirectory ram_dir;
-    auto out_idx = ram_dir.createOutput(idx_name.c_str());
+    auto* out_idx = ram_dir.createOutput(idx_name.c_str());
     if (out_idx == nullptr) {
         LOG(WARNING) << "Write compound file error: RAMDirectory output is nullptr.";
         _CLTHROWA(CL_ERR_IO, "Create RAMDirectory output error");
@@ -158,7 +152,7 @@ void DorisCompoundFileWriter::writeCompoundFile() {
         ram_output->writeLong(0);               // data offset
         ram_output->writeLong(file.filesize);   // file length
         header_file_length += file.filesize;
-        if (header_file_length <= MAX_HEADER_DATA_SIZE) {
+        if (header_file_length <= DorisCompoundDirectory::MAX_HEADER_DATA_SIZE) {
             copyFile(file.filename.c_str(), ram_output.get(), ram_buffer, buffer_length);
             header_file_count++;
         }
@@ -169,14 +163,15 @@ void DorisCompoundFileWriter::writeCompoundFile() {
     ram_dir.close();
 
     auto compound_fs = ((DorisCompoundDirectory*)directory)->getCompoundFileSystem();
-    auto out_dir = DorisCompoundDirectory::getDirectory(compound_fs, idx_path.c_str(), false);
+    auto* out_dir = DorisCompoundDirectoryFactory::getDirectory(compound_fs, idx_path.c_str());
 
-    auto out = out_dir->createOutput(idx_name.c_str());
+    auto* out = out_dir->createOutput(idx_name.c_str());
     if (out == nullptr) {
         LOG(WARNING) << "Write compound file error: CompoundDirectory output is nullptr.";
         _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
     }
     std::unique_ptr<lucene::store::IndexOutput> output(out);
+    size_t start = output->getFilePointer();
     output->writeVInt(file_count);
     // write file entries
     int64_t data_offset = header_len;
@@ -209,7 +204,10 @@ void DorisCompoundFileWriter::writeCompoundFile() {
     // NOTE: need to decrease ref count, but not to delete here,
     // because index cache may get the same directory from DIRECTORIES
     _CLDECDELETE(out_dir)
+    auto compound_file_size = output->getFilePointer() - start;
     output->close();
+    //LOG(INFO) << (idx_path / idx_name).c_str() << " size:" << compound_file_size;
+    return compound_file_size;
 }
 
 void DorisCompoundFileWriter::copyFile(const char* fileName, lucene::store::IndexOutput* output,
@@ -277,7 +275,7 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
     if (buffer_size == -1) {
         buffer_size = CL_NS(store)::BufferedIndexOutput::BUFFER_SIZE;
     }
-    SharedHandle* h = _CLNEW SharedHandle(path);
+    auto* h = _CLNEW SharedHandle(path);
 
     io::FileReaderOptions reader_options;
     reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
@@ -401,7 +399,15 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
 
 void DorisCompoundDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem,
                                                  const char* path) {
-    Status status = fileSystem->create_file(path, &_writer);
+    io::FileWriterOptions opts {.create_empty_file = false};
+    Status status = fileSystem->create_file(path, &_writer, &opts);
+    DBUG_EXECUTE_IF(
+            "DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
+            "init",
+            {
+                status = Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "debug point: test throw error in fsindexoutput init mock error");
+            })
     if (!status.ok()) {
         _writer.reset(nullptr);
         auto err = "Create compound file error: " + status.to_string();
@@ -519,10 +525,12 @@ DorisCompoundDirectory::DorisCompoundDirectory() {
 }
 
 void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _path,
+                                  bool use_compound_file_writer,
                                   lucene::store::LockFactory* lock_factory,
                                   const io::FileSystemSPtr& cfs, const char* cfs_path) {
     fs = _fs;
     directory = _path;
+    useCompoundFileWriter = use_compound_file_writer;
 
     if (cfs == nullptr) {
         compound_fs = fs;
@@ -534,17 +542,12 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     } else {
         cfs_directory = _path;
     }
-    bool doClearLockID = false;
 
     if (lock_factory == nullptr) {
         lock_factory = _CLNEW lucene::store::NoLockFactory();
     }
 
-    setLockFactory(lock_factory);
-
-    if (doClearLockID) {
-        lockFactory->setLockPrefix(nullptr);
-    }
+    lucene::store::Directory::setLockFactory(lock_factory);
 
     // It's fail checking directory existence in S3.
     if (fs->type() == io::FileSystemType::S3) {
@@ -557,24 +560,6 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
         LOG(WARNING) << e;
         _CLTHROWA(CL_ERR_IO, e.c_str());
     }
-}
-
-void DorisCompoundDirectory::create() {
-    std::lock_guard<std::mutex> wlock(_this_lock);
-
-    //clear old files
-    std::vector<std::string> files;
-    lucene::util::Misc::listFiles(directory.c_str(), files, false);
-    std::vector<std::string>::iterator itr = files.begin();
-    while (itr != files.end()) {
-        if (CL_NS(index)::IndexReader::isLuceneFile(itr->c_str())) {
-            if (unlink((directory + PATH_DELIMITERA + *itr).c_str()) == -1) {
-                _CLTHROWA(CL_ERR_IO, "Couldn't delete file ");
-            }
-        }
-        itr++;
-    }
-    lockFactory->clearLock(CL_NS(index)::IndexWriter::WRITE_LOCK_NAME);
 }
 
 void DorisCompoundDirectory::priv_getFN(char* buffer, const char* name) const {
@@ -619,45 +604,6 @@ const char* DorisCompoundDirectory::getCfsDirName() const {
     return cfs_directory.c_str();
 }
 
-DorisCompoundDirectory* DorisCompoundDirectory::getDirectory(const io::FileSystemSPtr& fs,
-                                                             const char* file,
-                                                             bool use_compound_file_writer,
-                                                             const io::FileSystemSPtr& cfs_fs,
-                                                             const char* cfs_file) {
-    DorisCompoundDirectory* dir =
-            getDirectory(fs, file, (lucene::store::LockFactory*)nullptr, cfs_fs, cfs_file);
-    dir->useCompoundFileWriter = use_compound_file_writer;
-    return dir;
-}
-
-//static
-DorisCompoundDirectory* DorisCompoundDirectory::getDirectory(
-        const io::FileSystemSPtr& _fs, const char* _file, lucene::store::LockFactory* lock_factory,
-        const io::FileSystemSPtr& _cfs, const char* _cfs_file) {
-    const char* cfs_file = _cfs_file;
-    if (cfs_file == nullptr) {
-        cfs_file = _file;
-    }
-    DorisCompoundDirectory* dir = nullptr;
-    if (!_file || !*_file) {
-        _CLTHROWA(CL_ERR_IO, "Invalid directory");
-    }
-
-    const char* file = _file;
-
-    bool exists = false;
-    LOG_AND_THROW_IF_ERROR(_fs->exists(file, &exists), "Get directory exists IO error")
-    if (!exists) {
-        LOG_AND_THROW_IF_ERROR(_fs->create_directory(file),
-                               "Get directory create directory IO error")
-    }
-
-    dir = _CLNEW DorisCompoundDirectory();
-    dir->init(_fs, file, lock_factory, _cfs, cfs_file);
-
-    return dir;
-}
-
 int64_t DorisCompoundDirectory::fileModified(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     struct stat buf;
@@ -698,9 +644,9 @@ bool DorisCompoundDirectory::openInput(const char* name, lucene::store::IndexInp
 
 void DorisCompoundDirectory::close() {
     if (useCompoundFileWriter) {
-        DorisCompoundFileWriter* cfsWriter = _CLNEW DorisCompoundFileWriter(this);
+        auto* cfsWriter = _CLNEW DorisCompoundFileWriter(this);
         // write compound file
-        cfsWriter->writeCompoundFile();
+        compound_file_size = cfsWriter->writeCompoundFile();
         // delete index path, which contains separated inverted index files
         deleteDirectory();
         _CLDELETE(cfsWriter)
@@ -738,8 +684,7 @@ void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
     if (exists) {
         LOG_AND_THROW_IF_ERROR(fs->delete_directory(nu), fmt::format("Delete {} IO error", nu))
     }
-    LOG_AND_THROW_IF_ERROR(fs->rename_dir(old, nu),
-                           fmt::format("Rename {} to {} IO error", old, nu))
+    LOG_AND_THROW_IF_ERROR(fs->rename(old, nu), fmt::format("Rename {} to {} IO error", old, nu))
 }
 
 lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* name) {
@@ -754,10 +699,12 @@ lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* nam
         LOG_AND_THROW_IF_ERROR(fs->exists(fl, &exists), "Create output file exists IO error")
         assert(!exists);
     }
-    auto ret = _CLNEW FSIndexOutput();
+    auto* ret = _CLNEW FSIndexOutput();
     try {
         ret->init(fs, fl);
     } catch (CLuceneError& err) {
+        ret->close();
+        _CLDELETE(ret)
         LOG(WARNING) << "FSIndexOutput init error: " << err.what();
         _CLTHROWA(CL_ERR_IO, "FSIndexOutput init error");
     }
@@ -768,5 +715,226 @@ std::string DorisCompoundDirectory::toString() const {
     return std::string("DorisCompoundDirectory@") + this->directory;
 }
 
-} // namespace segment_v2
-} // namespace doris
+/**
+ * DorisRAMCompoundDirectory
+ */
+DorisRAMCompoundDirectory::DorisRAMCompoundDirectory() {
+    filesMap = _CLNEW FileMap(true, true);
+    this->sizeInBytes = 0;
+}
+
+DorisRAMCompoundDirectory::~DorisRAMCompoundDirectory() {
+    _CLDELETE(lockFactory);
+    _CLDELETE(filesMap);
+}
+
+void DorisRAMCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _path,
+                                     bool use_compound_file_writer,
+                                     lucene::store::LockFactory* lock_factory,
+                                     const io::FileSystemSPtr& cfs, const char* cfs_path) {
+    fs = _fs;
+    directory = _path;
+    useCompoundFileWriter = use_compound_file_writer;
+
+    if (cfs == nullptr) {
+        compound_fs = fs;
+    } else {
+        compound_fs = cfs;
+    }
+    if (cfs_path != nullptr) {
+        cfs_directory = cfs_path;
+    } else {
+        cfs_directory = _path;
+    }
+
+    lucene::store::Directory::setLockFactory(_CLNEW lucene::store::SingleInstanceLockFactory());
+}
+
+bool DorisRAMCompoundDirectory::list(std::vector<std::string>* names) const {
+    std::lock_guard<std::mutex> wlock(_this_lock);
+    auto itr = filesMap->begin();
+    while (itr != filesMap->end()) {
+        names->emplace_back(itr->first);
+        ++itr;
+    }
+    return true;
+}
+
+bool DorisRAMCompoundDirectory::fileExists(const char* name) const {
+    std::lock_guard<std::mutex> wlock(_this_lock);
+    return filesMap->exists((char*)name);
+}
+
+int64_t DorisRAMCompoundDirectory::fileModified(const char* name) const {
+    std::lock_guard<std::mutex> wlock(_this_lock);
+    auto* f = filesMap->get((char*)name);
+    return f->getLastModified();
+}
+
+void DorisRAMCompoundDirectory::touchFile(const char* name) {
+    lucene::store::RAMFile* file = nullptr;
+    {
+        std::lock_guard<std::mutex> wlock(_this_lock);
+        file = filesMap->get((char*)name);
+    }
+    const uint64_t ts1 = file->getLastModified();
+    uint64_t ts2 = lucene::util::Misc::currentTimeMillis();
+
+    //make sure that the time has actually changed
+    while (ts1 == ts2) {
+        _LUCENE_SLEEP(1);
+        ts2 = lucene::util::Misc::currentTimeMillis();
+    };
+
+    file->setLastModified(ts2);
+}
+
+int64_t DorisRAMCompoundDirectory::fileLength(const char* name) const {
+    std::lock_guard<std::mutex> wlock(_this_lock);
+    auto* f = filesMap->get((char*)name);
+    return f->getLength();
+}
+
+bool DorisRAMCompoundDirectory::openInput(const char* name, lucene::store::IndexInput*& ret,
+                                          CLuceneError& error, int32_t bufferSize) {
+    std::lock_guard<std::mutex> wlock(_this_lock);
+    auto* file = filesMap->get((char*)name);
+    if (file == nullptr) {
+        error.set(CL_ERR_IO,
+                  "[DorisRAMCompoundDirectory::open] The requested file does not exist.");
+        return false;
+    }
+    ret = _CLNEW lucene::store::RAMInputStream(file);
+    return true;
+}
+
+void DorisRAMCompoundDirectory::close() {
+    // write compound file
+    DorisCompoundDirectory::close();
+
+    std::lock_guard<std::mutex> wlock(_this_lock);
+    filesMap->clear();
+    _CLDELETE(filesMap);
+}
+
+bool DorisRAMCompoundDirectory::doDeleteFile(const char* name) {
+    std::lock_guard<std::mutex> wlock(_this_lock);
+    auto itr = filesMap->find((char*)name);
+    if (itr != filesMap->end()) {
+        SCOPED_LOCK_MUTEX(this->THIS_LOCK);
+        sizeInBytes -= itr->second->sizeInBytes;
+        filesMap->removeitr(itr);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool DorisRAMCompoundDirectory::deleteDirectory() {
+    // do nothing, RAM dir do not have actual files
+    return true;
+}
+
+void DorisRAMCompoundDirectory::renameFile(const char* from, const char* to) {
+    std::lock_guard<std::mutex> wlock(_this_lock);
+    auto itr = filesMap->find((char*)from);
+
+    /* DSR:CL_BUG_LEAK:
+    ** If a file named $to already existed, its old value was leaked.
+    ** My inclination would be to prevent this implicit deletion with an
+    ** exception, but it happens routinely in CLucene's internals (e.g., during
+    ** IndexWriter.addIndexes with the file named 'segments'). */
+    if (filesMap->exists((char*)to)) {
+        auto itr1 = filesMap->find((char*)to);
+        SCOPED_LOCK_MUTEX(this->THIS_LOCK);
+        sizeInBytes -= itr1->second->sizeInBytes;
+        filesMap->removeitr(itr1);
+    }
+    if (itr == filesMap->end()) {
+        char tmp[1024];
+        snprintf(tmp, 1024, "cannot rename %s, file does not exist", from);
+        _CLTHROWT(CL_ERR_IO, tmp);
+    }
+    DCHECK(itr != filesMap->end());
+    auto* file = itr->second;
+    filesMap->removeitr(itr, false, true);
+    filesMap->put(strdup(to), file);
+}
+
+lucene::store::IndexOutput* DorisRAMCompoundDirectory::createOutput(const char* name) {
+    /* Check the $filesMap VoidMap to see if there was a previous file named
+    ** $name.  If so, delete the old RAMFile object, but reuse the existing
+    ** char buffer ($n) that holds the filename.  If not, duplicate the
+    ** supplied filename buffer ($name) and pass ownership of that memory ($n)
+    ** to $files. */
+    std::lock_guard<std::mutex> wlock(_this_lock);
+
+    // get the actual pointer to the output name
+    char* n = nullptr;
+    auto itr = filesMap->find(const_cast<char*>(name));
+    if (itr != filesMap->end()) {
+        n = itr->first;
+        lucene::store::RAMFile* rf = itr->second;
+        SCOPED_LOCK_MUTEX(this->THIS_LOCK);
+        sizeInBytes -= rf->sizeInBytes;
+        _CLDELETE(rf);
+    } else {
+        n = STRDUP_AtoA(name);
+    }
+
+    auto* file = _CLNEW lucene::store::RAMFile();
+    (*filesMap)[n] = file;
+
+    return _CLNEW lucene::store::RAMOutputStream(file);
+}
+
+std::string DorisRAMCompoundDirectory::toString() const {
+    return std::string("DorisRAMCompoundDirectory@") + this->directory;
+}
+
+const char* DorisRAMCompoundDirectory::getClassName() {
+    return "DorisRAMCompoundDirectory";
+}
+
+const char* DorisRAMCompoundDirectory::getObjectName() const {
+    return getClassName();
+}
+
+/**
+ * DorisCompoundDirectoryFactory
+ */
+DorisCompoundDirectory* DorisCompoundDirectoryFactory::getDirectory(
+        const io::FileSystemSPtr& _fs, const char* _file, bool use_compound_file_writer,
+        bool can_use_ram_dir, lucene::store::LockFactory* lock_factory,
+        const io::FileSystemSPtr& _cfs, const char* _cfs_file) {
+    const char* cfs_file = _cfs_file;
+    if (cfs_file == nullptr) {
+        cfs_file = _file;
+    }
+    DorisCompoundDirectory* dir = nullptr;
+    if (!_file || !*_file) {
+        _CLTHROWA(CL_ERR_IO, "Invalid directory");
+    }
+
+    const char* file = _file;
+
+    // Write by RAM directory
+    // 1. only write separated index files, which is can_use_ram_dir = true.
+    // 2. config::inverted_index_ram_dir_enable = true
+    if (config::inverted_index_ram_dir_enable && can_use_ram_dir) {
+        dir = _CLNEW DorisRAMCompoundDirectory();
+    } else {
+        bool exists = false;
+        LOG_AND_THROW_IF_ERROR(_fs->exists(file, &exists), "Get directory exists IO error")
+        if (!exists) {
+            LOG_AND_THROW_IF_ERROR(_fs->create_directory(file),
+                                   "Get directory create directory IO error")
+        }
+        dir = _CLNEW DorisCompoundDirectory();
+    }
+    dir->init(_fs, file, use_compound_file_writer, lock_factory, _cfs, cfs_file);
+
+    return dir;
+}
+
+} // namespace doris::segment_v2

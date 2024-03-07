@@ -50,10 +50,67 @@ function create_an_issue_comment() {
 
 function create_an_issue_comment_tpch() {
     local ISSUE_NUMBER="$1"
+    local COMMENT_BODY_SUMMARY="$2"
+    local COMMENT_BODY_DETAIL="$3"
+    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    COMMENT_BODY="
+<details>
+<summary>TPC-H: <b>${COMMENT_BODY_SUMMARY}</b></summary>
+
+\`\`\`
+machine: '${machine}'
+scripts: https://github.com/apache/doris/tree/master/tools/tpch-tools
+${COMMENT_BODY_DETAIL}
+\`\`\`
+</details>
+"
+    create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
+}
+
+function create_an_issue_comment_tpcds() {
+    local ISSUE_NUMBER="$1"
+    local COMMENT_BODY_SUMMARY="$2"
+    local COMMENT_BODY_DETAIL="$3"
+    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    COMMENT_BODY="
+<details>
+<summary>TPC-DS: <b>${COMMENT_BODY_SUMMARY}</b></summary>
+
+\`\`\`
+machine: '${machine}'
+scripts: https://github.com/apache/doris/tree/master/tools/tpcds-tools
+${COMMENT_BODY_DETAIL}
+\`\`\`
+</details>
+"
+    create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
+}
+
+function create_an_issue_comment_clickbench() {
+    local ISSUE_NUMBER="$1"
+    local COMMENT_BODY_SUMMARY="$2"
+    local COMMENT_BODY_DETAIL="$3"
+    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    COMMENT_BODY="
+<details>
+<summary>ClickBench: <b>${COMMENT_BODY_SUMMARY}</b></summary>
+
+\`\`\`
+machine: '${machine}'
+scripts: https://github.com/apache/doris/tree/master/tools/clickbench-tools
+${COMMENT_BODY_DETAIL}
+\`\`\`
+</details>
+"
+    create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
+}
+
+function create_an_issue_comment_load() {
+    local ISSUE_NUMBER="$1"
     local COMMENT_BODY="$2"
     local machine='aliyun_ecs.c7a.8xlarge_32C64G'
     COMMENT_BODY="
-TPC-H test result on machine: '${machine}'
+Load test result on machine: '${machine}'
 \`\`\`
 ${COMMENT_BODY}
 \`\`\`
@@ -216,6 +273,53 @@ file_changed_be_ut() {
     echo "return no need" && return 1
 }
 
+file_changed_cloud_ut() {
+    local all_files
+    all_files=$(cat all_files)
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
+    if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
+    for af in ${all_files}; do
+        if [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/test/'* ]]; then
+            echo "cloud-ut related file changed, return need" && return 0
+        fi
+    done
+    echo "return no need" && return 1
+}
+
+file_changed_cloud_p0() {
+    local all_files
+    all_files=$(cat all_files)
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
+    if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
+    for af in ${all_files}; do
+        if [[ "${af}" == 'be'* ]] ||
+            [[ "${af}" == 'bin'* ]] ||
+            [[ "${af}" == 'conf'* ]] ||
+            [[ "${af}" == 'contrib'* ]] ||
+            [[ "${af}" == 'fe'* ]] ||
+            [[ "${af}" == 'fe_plugins'* ]] ||
+            [[ "${af}" == 'gensrc'* ]] ||
+            [[ "${af}" == 'regression-test'* ]] ||
+            [[ "${af}" == 'thirdparty'* ]] ||
+            [[ "${af}" == 'docker'* ]] ||
+            [[ "${af}" == 'ui'* ]] ||
+            [[ "${af}" == 'webroot'* ]] ||
+            [[ "${af}" == 'build.sh' ]] ||
+            [[ "${af}" == 'env.sh' ]] ||
+            [[ "${af}" == 'run-regression-test.sh' ]] ||
+            [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/test/'* ]]; then
+            echo "cloud-p0 related file changed, return need" && return 0
+        fi
+    done
+    echo "return no need" && return 1
+}
+
+file_changed_cloud_p1() {
+    file_changed_cloud_p0
+}
+
 file_changed_regression_p0() {
     local all_files
     all_files=$(cat all_files)
@@ -247,7 +351,7 @@ file_changed_regression_p1() {
     file_changed_regression_p0
 }
 
-file_changed_ckb() {
+file_changed_performance() {
     local all_files
     all_files=$(cat all_files)
     if _only_modified_regression_conf; then echo "return no need" && return 1; fi
@@ -264,9 +368,11 @@ file_changed_ckb() {
             [[ "${af}" == 'regression-test/pipeline/common/github-utils.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/common/doris-utils.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/common/oss-utils.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/performance/'* ]] ||
             [[ "${af}" == 'tools/tpch-tools/bin/run-tpch-queries.sh' ]] ||
+            [[ "${af}" == 'tools/tpcds-tools/bin/run-tpcds-queries.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/tpch/tpch-sf100/'* ]]; then
-            echo "clickbench performance related file changed, return need" && return 0
+            echo "performance related file changed, return need" && return 0
         fi
     done
     echo "return no need" && return 1

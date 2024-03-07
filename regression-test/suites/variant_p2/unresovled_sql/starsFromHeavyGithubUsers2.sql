@@ -1,16 +1,16 @@
 -- ERROR: crash not support replicate
 -- SELECT
---     cast(repo:name as string),
+--     cast(repo["name"] as string),
 --     count()
 -- FROM github_events
--- WHERE (type = 'WatchEvent') AND (cast(actor:login as string) IN
+-- WHERE (type = 'WatchEvent') AND (cast(actor["login"] as string) IN
 -- (
---     SELECT cast(actor:login as string)
+--     SELECT cast(actor["login"] as string)
 --     FROM github_events
---     WHERE (type = 'PullRequestEvent') AND (cast(payload:action as string) = 'opened')
---     GROUP BY cast(actor:login as string)
+--     WHERE (type = 'PullRequestEvent') AND (cast(payload["action"] as string) = 'opened')
+--     GROUP BY cast(actor["login"] as string)
 --     HAVING count() >= 2
 -- ))
--- GROUP BY cast(repo:name as string)
+-- GROUP BY cast(repo["name"] as string)
 -- ORDER BY 1, count() DESC, 1
 -- LIMIT 50

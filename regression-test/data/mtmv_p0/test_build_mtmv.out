@@ -60,3 +60,6 @@ zhangsang	200
 -- !select_union --
 11	111
 
+-- !desc_mv --
+field_1	VARCHAR(16)	No	false	\N	NONE
+

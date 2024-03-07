@@ -1,7 +1,7 @@
 ---
 {
 "title": "INET6_NTOA",
-"language": "en"
+"language": "zh-CN"
 }
 ---
 

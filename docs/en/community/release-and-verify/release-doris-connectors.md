@@ -44,9 +44,20 @@ First, see the [release preparation](./release-prepare.md) documentation to prep
 
 Let's take the release of Spark Connector 1.2.0 as an example.
 
-### 1. Prepare branch
+### 1. Prepare branch and tag
 
 Create a branch in the code base: release-1.2.0, and checkout to this branch.
+
+Modify the version revision in the pom to the version number to be released, which is 1.2.0. And submit this modification, for example:
+```
+git commit -a -m "Commit for release 1.2.0"
+```
+
+Create tag and push
+```
+git tag 1.2.0
+git push origin 1.2.0
+```
 
 ### 2. Release to Maven staging
 
@@ -57,8 +68,7 @@ Let's take Spark version 2.3 and scala version 2.11 as examples:
 mvn clean install \
 -Dspark.version=2.3.0 \
 -Dscala.version=2.11 \
--Dspark.major.version=2.3 \
--Drevision=1.2.0
+-Dspark.major.version=2.3
 ```
 >Note: For related parameters, please refer to the compilation command in the build.sh script, and revision is the version number to be released this time.
 
@@ -67,8 +77,7 @@ mvn deploy \
 -Papache-release \
 -Dspark.version=2.3.0 \
 -Dscala.version=2.11 \
--Dspark.major.version=2.3 \
--Drevision=1.2.0
+-Dspark.major.version=2.3 
 ```
 
 After successful execution, you can find the newly released version in [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories):

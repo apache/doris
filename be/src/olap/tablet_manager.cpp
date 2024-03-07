@@ -85,8 +85,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTE
 
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
 
-TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
+TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
+        : _engine(engine),
+          _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
                   "TabletMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
@@ -145,8 +146,8 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
     int32_t old_version, new_version;
     {
         std::shared_lock rdlock(existed_tablet->get_header_lock());
-        const RowsetSharedPtr old_rowset = existed_tablet->rowset_with_max_version();
-        const RowsetSharedPtr new_rowset = tablet->rowset_with_max_version();
+        const RowsetSharedPtr old_rowset = existed_tablet->get_rowset_with_max_version();
+        const RowsetSharedPtr new_rowset = tablet->get_rowset_with_max_version();
         // If new tablet is empty, it is a newly created schema change tablet.
         // the old tablet is dropped before add tablet. it should not exist old tablet
         if (new_rowset == nullptr) {
@@ -268,7 +269,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     int64_t tablet_id = request.tablet_id;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id
               << ", table_id=" << request.table_id << ", partition_id=" << request.partition_id
-              << ", replica_id=" << request.replica_id;
+              << ", replica_id=" << request.replica_id << ", stores.size=" << stores.size()
+              << ", first store=" << stores[0]->path();
 
     // when we create rollup tablet A(assume on shard-1) from tablet B(assume on shard-2)
     // we need use write lock on shard-1 and then use read lock on shard-2
@@ -340,7 +342,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
                                                   request.tablet_id);
     }
 
-    LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id;
+    LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id
+              << ", tablet_path=" << tablet->tablet_path();
     return Status::OK();
 }
 
@@ -501,7 +504,12 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             }
         }
 
-        TabletSharedPtr new_tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
+        if (tablet_meta->partition_id() <= 0) {
+            LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
+                         << tablet_meta->tablet_id();
+        }
+        TabletSharedPtr new_tablet =
+                std::make_shared<Tablet>(_engine, std::move(tablet_meta), data_dir);
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "CreateTabletFromMeta", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
         return new_tablet;
@@ -806,7 +814,6 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
                 "schema_hash={}, path={}, status={}",
                 tablet_id, schema_hash, data_dir->path(), status);
     }
-    tablet_meta->init_rs_metas_fs(data_dir->fs());
 
     // check if tablet meta is valid
     if (tablet_meta->tablet_id() != tablet_id || tablet_meta->schema_hash() != schema_hash) {
@@ -826,7 +833,11 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         tablet_meta->set_tablet_state(TABLET_RUNNING);
     }
 
-    TabletSharedPtr tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
+    if (tablet_meta->partition_id() == 0) {
+        LOG(WARNING) << "tablet=" << tablet_id << " load from meta but partition id eq 0";
+    }
+
+    TabletSharedPtr tablet = std::make_shared<Tablet>(_engine, std::move(tablet_meta), data_dir);
 
     // NOTE: method load_tablet_from_meta could be called by two cases as below
     // case 1: BE start;
@@ -982,13 +993,13 @@ Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     return res;
 }
 
-Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
+void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     DCHECK(tablets_info != nullptr);
     VLOG_NOTICE << "begin to build all report tablets info";
 
     // build the expired txn map first, outside the tablet map lock
     std::map<TabletInfo, std::vector<int64_t>> expire_txn_map;
-    StorageEngine::instance()->txn_manager()->build_expire_txn_map(&expire_txn_map);
+    _engine.txn_manager()->build_expire_txn_map(&expire_txn_map);
     LOG(INFO) << "find expired transactions for " << expire_txn_map.size() << " tablets";
 
     HistogramStat tablet_version_num_hist;
@@ -1021,7 +1032,6 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
     DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
             tablet_version_num_hist);
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
-    return Status::OK();
 }
 
 Status TabletManager::start_trash_sweep() {
@@ -1309,8 +1319,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
                                       col_idx_to_unique_id);
     if (request.__isset.storage_format) {
         if (request.storage_format == TStorageFormat::DEFAULT) {
-            (*tablet_meta)
-                    ->set_preferred_rowset_type(StorageEngine::instance()->default_rowset_type());
+            (*tablet_meta)->set_preferred_rowset_type(_engine.default_rowset_type());
         } else if (request.storage_format == TStorageFormat::V1) {
             (*tablet_meta)->set_preferred_rowset_type(ALPHA_ROWSET);
         } else if (request.storage_format == TStorageFormat::V2) {
@@ -1378,7 +1387,7 @@ TabletManager::tablets_shard& TabletManager::_get_tablets_shard(TTabletId tablet
 void TabletManager::get_tablets_distribution_on_different_disks(
         std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
         std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk) {
-    std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores();
+    std::vector<DataDir*> data_dirs = _engine.get_stores();
     std::map<int64_t, std::set<TabletInfo>> partition_tablet_map;
     {
         // When drop tablet, '_partition_tablet_map_lock' is locked in 'tablet_shard_lock'.
@@ -1387,25 +1396,23 @@ void TabletManager::get_tablets_distribution_on_different_disks(
         std::shared_lock rdlock(_partition_tablet_map_lock);
         partition_tablet_map = _partition_tablet_map;
     }
-    std::map<int64_t, std::set<TabletInfo>>::iterator partition_iter = partition_tablet_map.begin();
-    for (; partition_iter != partition_tablet_map.end(); ++partition_iter) {
+    for (auto& [partition_id, tablet_infos] : partition_tablet_map) {
         std::map<DataDir*, int64_t> tablets_num;
         std::map<DataDir*, std::vector<TabletSize>> tablets_info;
-        for (int i = 0; i < data_dirs.size(); i++) {
-            tablets_num[data_dirs[i]] = 0;
+        for (auto* data_dir : data_dirs) {
+            tablets_num[data_dir] = 0;
         }
-        int64_t partition_id = partition_iter->first;
-        std::set<TabletInfo>::iterator tablet_info_iter = (partition_iter->second).begin();
-        for (; tablet_info_iter != (partition_iter->second).end(); ++tablet_info_iter) {
+
+        for (const auto& tablet_info : tablet_infos) {
             // get_tablet() will hold 'tablet_shard_lock'
-            TabletSharedPtr tablet = get_tablet(tablet_info_iter->tablet_id);
+            TabletSharedPtr tablet = get_tablet(tablet_info.tablet_id);
             if (tablet == nullptr) {
                 continue;
             }
             DataDir* data_dir = tablet->data_dir();
             size_t tablet_footprint = tablet->tablet_footprint();
             tablets_num[data_dir]++;
-            TabletSize tablet_size(tablet_info_iter->tablet_id, tablet_footprint);
+            TabletSize tablet_size(tablet_info.tablet_id, tablet_footprint);
             tablets_info[data_dir].push_back(tablet_size);
         }
         tablets_num_on_disk[partition_id] = tablets_num;
@@ -1414,9 +1421,11 @@ void TabletManager::get_tablets_distribution_on_different_disks(
 }
 
 struct SortCtx {
-    SortCtx(TabletSharedPtr tablet, int64_t cooldown_timestamp, int64_t file_size)
+    SortCtx(TabletSharedPtr tablet, RowsetSharedPtr rowset, int64_t cooldown_timestamp,
+            int64_t file_size)
             : tablet(tablet), cooldown_timestamp(cooldown_timestamp), file_size(file_size) {}
     TabletSharedPtr tablet;
+    RowsetSharedPtr rowset;
     // to ensure the tablet with -1 would always be greater than other
     uint64_t cooldown_timestamp;
     int64_t file_size;
@@ -1429,6 +1438,7 @@ struct SortCtx {
 };
 
 void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
+                                         std::vector<RowsetSharedPtr>* rowsets,
                                          std::function<bool(const TabletSharedPtr&)> skip_tablet) {
     std::vector<SortCtx> sort_ctx_vec;
     std::vector<std::weak_ptr<Tablet>> candidates;
@@ -1436,14 +1446,16 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
                     filter_all_tablets);
     auto get_cooldown_tablet = [&sort_ctx_vec, &skip_tablet](std::weak_ptr<Tablet>& t) {
         const TabletSharedPtr& tablet = t.lock();
+        RowsetSharedPtr rowset = nullptr;
         if (UNLIKELY(nullptr == tablet)) {
             return;
         }
         std::shared_lock rdlock(tablet->get_header_lock());
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        if (!skip_tablet(tablet) && tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
-            sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
+        if (!skip_tablet(tablet) &&
+            (rowset = tablet->need_cooldown(&cooldown_timestamp, &file_size))) {
+            sort_ctx_vec.emplace_back(tablet, rowset, cooldown_timestamp, file_size);
         }
     };
     std::for_each(candidates.begin(), candidates.end(), get_cooldown_tablet);
@@ -1453,6 +1465,7 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
     for (SortCtx& ctx : sort_ctx_vec) {
         VLOG_DEBUG << "get cooldown tablet: " << ctx.tablet->tablet_id();
         tablets->push_back(std::move(ctx.tablet));
+        rowsets->push_back(std::move(ctx.rowset));
     }
 }
 

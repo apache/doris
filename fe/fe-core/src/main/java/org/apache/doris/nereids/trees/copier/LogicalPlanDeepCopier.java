@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
@@ -114,7 +115,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         Optional<MarkJoinSlotReference> markJoinSlotReference = apply.getMarkJoinSlotReference()
                 .map(m -> (MarkJoinSlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(m, context));
         return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, apply.isNeedAddSubOutputToProjects(), apply.isInProject(), left, right);
+                markJoinSlotReference, apply.isNeedAddSubOutputToProjects(), apply.isInProject(),
+                apply.isMarkJoinSlotNotNull(), left, right);
     }
 
     @Override
@@ -239,6 +241,18 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     }
 
     @Override
+    public Plan visitLogicalOdbcScan(LogicalOdbcScan odbcScan, DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(odbcScan.getRelationId())) {
+            return context.getRelationReplaceMap().get(odbcScan.getRelationId());
+        }
+        LogicalOdbcScan newOdbcScan = new LogicalOdbcScan(StatementScopeIdGenerator.newRelationId(),
+                odbcScan.getTable(), odbcScan.getQualifier());
+        updateReplaceMapWithOutput(odbcScan, newOdbcScan, context.exprIdReplaceMap);
+        context.putRelation(odbcScan.getRelationId(), newOdbcScan);
+        return newOdbcScan;
+    }
+
+    @Override
     public Plan visitLogicalEsScan(LogicalEsScan esScan, DeepCopierContext context) {
         if (context.getRelationReplaceMap().containsKey(esScan.getRelationId())) {
             return context.getRelationReplaceMap().get(esScan.getRelationId());
@@ -323,8 +337,11 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream()
                 .map(c -> ExpressionDeepCopier.INSTANCE.deepCopy(c, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts,
-                join.getHint(), join.getMarkJoinSlotReference(), children);
+        List<Expression> markJoinConjuncts = join.getMarkJoinConjuncts().stream()
+                .map(c -> ExpressionDeepCopier.INSTANCE.deepCopy(c, context))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                join.getDistributeHint(), join.getMarkJoinSlotReference(), children, join.getJoinReorderContext());
     }
 
     @Override

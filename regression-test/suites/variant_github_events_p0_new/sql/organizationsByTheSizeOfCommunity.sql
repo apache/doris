@@ -1,4 +1,4 @@
--- SELECT
+-- SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
 --     lower(split_part(cast(v["repo"]["name"] as string), '/', 1)) AS org,
 --     count(distinct cast(v["actor"]["login"] as string)) AS authors,
 --     count(distinct pr_author) AS pr_authors,

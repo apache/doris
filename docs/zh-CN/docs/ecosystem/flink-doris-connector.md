@@ -39,14 +39,14 @@ under the License.
 
 ## 版本兼容
 
-| Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
-| --------- | ----- | ------ | ---- | ----- |
-| 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.1     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.1     | 1.15  | 1.0+   | 8    | -         |
-| 1.3.0     | 1.16  | 1.0+   | 8    | -         |
-| 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
-| 1.5.0 | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
+| Connector Version | Flink Version       | Doris Version | Java Version | Scala Version |
+|-------------------|---------------------| ------ | ---- | ----- |
+| 1.0.3             | 1.11,1.12,1.13,1.14 | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.1             | 1.14                | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1             | 1.15                | 1.0+   | 8    | -         |
+| 1.3.0             | 1.16                | 1.0+   | 8    | -         |
+| 1.4.0             | 1.15,1.16,1.17      | 1.0+   | 8   |- |
+| 1.5.2             | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
 
 ## 使用
 
@@ -59,7 +59,7 @@ under the License.
 <dependency>
   <groupId>org.apache.doris</groupId>
   <artifactId>flink-doris-connector-1.16</artifactId>
-  <version>1.4.0</version>
+  <version>1.5.2</version>
 </dependency>  
 ```
 
@@ -314,14 +314,14 @@ ON a.city = c.city
 ### 通用配置项
 
 | Key                              | Default Value | Required | Comment                                                      |
-| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| -------------------------------- |---------------| -------- | ------------------------------------------------------------ |
 | fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔              |
 | benodes                          | --            | N        | Doris BE http 地址， 支持多个地址，使用逗号分隔，参考[#187](https://github.com/apache/doris-flink-connector/pull/187) |
 | jdbc-url                         | --            | N        | jdbc连接信息，如: jdbc:mysql://127.0.0.1:9030                |
 | table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                                       |
 | username                         | --            | Y        | 访问 Doris 的用户名                                          |
 | password                         | --            | Y        | 访问 Doris 的密码                                            |
-| auto-redirect                    | false         | N        | 是否重定向StreamLoad请求。开启后StreamLoad将通过FE写入，不再显示获取BE信息，同时也可通过开启该参数写入SelectDB Cloud |
+| auto-redirect                    | true          | N        | 是否重定向StreamLoad请求。开启后StreamLoad将通过FE写入，不再显示获取BE信息 |
 | doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                                  |
 | doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                              |
 | doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                              |
@@ -392,6 +392,26 @@ ON a.city = c.city
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## Flink 写入指标
+其中Counter类型的指标值为导入任务从开始到当前的累加值，可以在Flink Webui metrics中观察各表的各项指标。
+
+| Name                      | Metric Type | Description                                |
+| ------------------------- | ----------- | ------------------------------------------ |
+| totalFlushLoadBytes       | Counter     | 已经刷新导入的总字节数                     |
+| flushTotalNumberRows      | Counter     | 已经导入处理的总行数                       |
+| totalFlushLoadedRows      | Counter     | 已经成功导入的总行数                       |
+| totalFlushTimeMs          | Counter     | 已经成功导入完成的总时间                   |
+| totalFlushSucceededNumber | Counter     | 已经成功导入的次数                         |
+| totalFlushFailedNumber    | Counter     | 失败导入 的次数                            |
+| totalFlushFilteredRows    | Counter     | 数据质量不合格的总行数                     |
+| totalFlushUnselectedRows  | Counter     | 被 where 条件过滤的总行数                  |
+| beginTxnTimeMs            | Histogram   | 向Fe请求开始一个事务所花费的时间，单位毫秒 |
+| putDataTimeMs             | Histogram   | 向Fe请求获取导入数据执行计划所花费的时间   |
+| readDataTimeMs            | Histogram   | 读取数据所花费的时间                       |
+| writeDataTimeMs           | Histogram   | 执行写入数据操作所花费的时间               |
+| commitAndPublishTimeMs    | Histogram   | 向Fe请求提交并且发布事务所花费的时间       |
+| loadTimeMs                | Histogram   | 导入完成的时间                             |
 
 ## 使用FlinkSQL通过CDC接入Doris示例
 ```sql
@@ -512,7 +532,7 @@ insert into doris_sink select id,name,bank,age from cdc_mysql_source;
 | --postgres-conf         | Postgres CDCSource 配置，例如--postgres-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)查看所有配置Postgres-CDC，其中hostname/username/password/database-name/schema-name/slot.name 是必需的。 |
 | --sqlserver-conf        | SQLServer CDCSource 配置，例如--sqlserver-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)查看所有配置SQLServer-CDC，其中hostname/username/password/database-name/schema-name 是必需的。 |
 | --sink-conf             | Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。 |
-| --table-conf            | Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1 |
+| --table-conf            | Doris表的配置项，即properties中包含的内容（其中table-buckets例外，非properties属性）。 例如 `--table-conf replication_num=1`， 而 `--table-conf table-buckets="tbl1:10,tbl2:20,a.*:30,b.*:40,.*:50"`表示按照正则表达式顺序指定不同表的buckets数量，如果没有匹配到则采用BUCKETS AUTO建表。 |
 | --ignore-default-value  | 关闭同步mysql表结构的默认值。适用于同步mysql数据到doris时，字段有默认值，但实际插入数据为null情况。参考[#152](https://github.com/apache/doris-flink-connector/pull/152) |
 | --use-new-schema-change | 是否使用新的schema change，支持同步mysql多列变更、默认值。参考[#167](https://github.com/apache/doris-flink-connector/pull/167) |
 | --single-sink           | 是否使用单个Sink同步所有表，开启后也可自动识别上游新创建的表，自动创建表。 |
@@ -759,8 +779,12 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 
 14. **使用doris.filter.query出现org.apache.flink.table.api.SqlParserException: SQL parse failed. Encountered "xx" at line x, column xx**
 
-出现这个问题主要是条件varchar/string类型，需要加引号导致的，正确写法是 xxx = ''xxx'',这样Flink SQL 解析器会将两个连续的单引号解释为一个单引号字符,而不是字符串的结束，并将拼接后的字符串作为属性的值。
+出现这个问题主要是条件varchar/string类型，需要加引号导致的，正确写法是 xxx = ''xxx'',这样Flink SQL 解析器会将两个连续的单引号解释为一个单引号字符,而不是字符串的结束，并将拼接后的字符串作为属性的值。比如说：`t1 >= '2024-01-01'`，可以写成`'doris.filter.query' = 't1 >=''2024-01-01'''`。
 
 15. **如果出现Failed to connect to backend: http://host:webserver_port, 并且Be还是活着的**
 
-可能是因为你配置的be的ip，外部的Flink集群无法访问。这主要是因为当连接fe时，会通过fe解析出be的地址。例如，当你添加的be 地址为`127.0.0.1`,那么flink通过fe获取的be地址就为`127.0.0.1:webserver_port`, 此时Flink就会去访问这个地址。当出现这个问题时，可以通过在with属性中增加实际对应的be外部ip地`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`,整库同步则可增加`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。
+可能是因为你配置的be的ip，外部的Flink集群无法访问。这主要是因为当连接fe时，会通过fe解析出be的地址。例如，当你添加的be 地址为`127.0.0.1`，那么Flink通过fe获取的be地址就为`127.0.0.1:webserver_port`， 此时Flink就会去访问这个地址。当出现这个问题时，可以通过在with属性中增加实际对应的be外部ip地`'benodes' = "be_ip:webserver_port, be_ip:webserver_port..."`，整库同步则可增加`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。
+
+16. **如果使用整库同步 MySQL 数据到 Doris，出现 timestamp 类型与源数据相差多个小时**
+
+整库同步默认timezone="UTC+8"，如果你同步的数据不是该时区，可以尝试如下设置相对应的时区，例如：`--mysql-conf debezium.date.format.timestamp.zone="UTC+3"来解决。`

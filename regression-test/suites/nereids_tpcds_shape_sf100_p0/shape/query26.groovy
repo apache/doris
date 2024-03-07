@@ -29,6 +29,7 @@ suite("query26") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
     def ds = """select  i_item_id, 
         avg(cs_quantity) agg1,
         avg(cs_list_price) agg2,

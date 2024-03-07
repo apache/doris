@@ -23,15 +23,19 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 #include <stddef.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <random>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/tablet_info.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "runtime/descriptors.h"
@@ -41,10 +45,13 @@
 #include "runtime/types.h"
 #include "util/proto_util.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/sip_hash.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
+#include "vec/sink/vrow_distribution.h"
+#include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris::vectorized {
 
@@ -107,8 +114,7 @@ Status Channel<Parent>::init(RuntimeState* state) {
 }
 
 template <typename Parent>
-std::shared_ptr<pipeline::LocalExchangeChannelDependency>
-PipChannel<Parent>::get_local_channel_dependency() {
+std::shared_ptr<pipeline::Dependency> PipChannel<Parent>::get_local_channel_dependency() {
     if (!Channel<Parent>::_local_recvr) {
         if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -152,13 +158,7 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
 
         _local_recvr->add_block(&block, _parent->sender_id(), true);
         if (eos) {
-            /// TODO: Supported on pipelineX, we can hold QueryStatistics on the fragment instead of on instances.
-            if constexpr (std::is_same_v<VDataStreamSender, Parent>) {
-                _local_recvr->remove_sender(_parent->sender_id(), _be_number,
-                                            _parent->query_statisticsPtr(), exec_status);
-            } else {
-                _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
-            }
+            _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
         }
         return Status::OK();
     } else {
@@ -199,10 +199,6 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
     VLOG_ROW << "Channel<Parent>::send_batch() instance_id=" << print_id(_fragment_instance_id)
              << " dest_node=" << _dest_node_id << " to_host=" << _brpc_dest_addr.hostname
              << " _packet_seq=" << _packet_seq << " row_desc=" << _row_desc.debug_string();
-    if (_is_transfer_chain && (_send_query_statistics_with_every_batch || eos)) {
-        auto statistic = _brpc_request->mutable_query_statistics();
-        _parent->query_statistics()->to_pb(statistic);
-    }
 
     _brpc_request->set_eos(eos);
     if (!exec_status.ok()) {
@@ -289,14 +285,10 @@ Status Channel<Parent>::close_internal(Status exec_status) {
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (is_local()) {
             if (_recvr_is_valid()) {
-                if constexpr (std::is_same_v<VDataStreamSender, Parent>) {
-                    _local_recvr->remove_sender(_parent->sender_id(), _be_number,
-                                                _parent->query_statisticsPtr(), exec_status);
-                } else {
-                    _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
-                }
+                _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
             }
         } else {
+            // Non pipeline engine will send an empty eos block
             status = send_remote_block((PBlock*)nullptr, true, exec_status);
         }
     }
@@ -329,8 +321,7 @@ void Channel<Parent>::ch_roll_pb_block() {
 
 VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
                                      const RowDescriptor& row_desc, const TDataStreamSink& sink,
-                                     const std::vector<TPlanFragmentDestination>& destinations,
-                                     bool send_query_statistics_with_every_batch)
+                                     const std::vector<TPlanFragmentDestination>& destinations)
         : DataSink(row_desc),
           _sender_id(sender_id),
           _state(state),
@@ -345,27 +336,24 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::RANDOM ||
            sink.output_partition.type == TPartitionType::RANGE_PARTITIONED ||
+           sink.output_partition.type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED ||
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED);
 
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
     _enable_pipeline_exec = state->enable_pipeline_exec();
 
     for (int i = 0; i < destinations.size(); ++i) {
-        // Select first dest as transfer chain.
-        bool is_transfer_chain = (i == 0);
         const auto& fragment_instance_id = destinations[i].fragment_instance_id;
         if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
             fragment_id_to_channel_index.end()) {
             if (_enable_pipeline_exec) {
                 _channel_shared_ptrs.emplace_back(new PipChannel<VDataStreamSender>(
                         this, row_desc, destinations[i].brpc_server, fragment_instance_id,
-                        sink.dest_node_id, is_transfer_chain,
-                        send_query_statistics_with_every_batch));
+                        sink.dest_node_id));
             } else {
                 _channel_shared_ptrs.emplace_back(
                         new Channel(this, row_desc, destinations[i].brpc_server,
-                                    fragment_instance_id, sink.dest_node_id, is_transfer_chain,
-                                    send_query_statistics_with_every_batch));
+                                    fragment_instance_id, sink.dest_node_id));
             }
             fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
                                                  _channel_shared_ptrs.size() - 1);
@@ -388,8 +376,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
 
 VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
                                      const RowDescriptor& row_desc, PlanNodeId dest_node_id,
-                                     const std::vector<TPlanFragmentDestination>& destinations,
-                                     bool send_query_statistics_with_every_batch)
+                                     const std::vector<TPlanFragmentDestination>& destinations)
         : DataSink(row_desc),
           _sender_id(sender_id),
           _state(state),
@@ -405,9 +392,9 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
         const auto& fragment_instance_id = destinations[i].fragment_instance_id;
         if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
             fragment_id_to_channel_index.end()) {
-            _channel_shared_ptrs.emplace_back(
-                    new Channel(this, row_desc, destinations[i].brpc_server, fragment_instance_id,
-                                _dest_node_id, false, send_query_statistics_with_every_batch));
+            _channel_shared_ptrs.emplace_back(new Channel(this, row_desc,
+                                                          destinations[i].brpc_server,
+                                                          fragment_instance_id, _dest_node_id));
         }
         fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
                                              _channel_shared_ptrs.size() - 1);
@@ -433,6 +420,34 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
+    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        _txn_id = t_stream_sink.tablet_sink_txn_id;
+        _schema = std::make_shared<OlapTableSchemaParam>();
+        RETURN_IF_ERROR(_schema->init(t_stream_sink.tablet_sink_schema));
+        _vpartition = std::make_unique<VOlapTablePartitionParam>(
+                _schema, t_stream_sink.tablet_sink_partition);
+        RETURN_IF_ERROR(_vpartition->init());
+        auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
+        _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
+        _tablet_sink_tuple_desc =
+                _state->desc_tbl().get_tuple_descriptor(t_stream_sink.tablet_sink_tuple_id);
+        _tablet_sink_row_desc = _pool->add(new RowDescriptor(_tablet_sink_tuple_desc, false));
+        //_block_convertor no need init_autoinc_info here
+        _block_convertor =
+                std::make_unique<vectorized::OlapTableBlockConvertor>(_tablet_sink_tuple_desc);
+        _location = _pool->add(new OlapTableLocationParam(t_stream_sink.tablet_sink_location));
+        _row_distribution.init({.state = _state,
+                                .block_convertor = _block_convertor.get(),
+                                .tablet_finder = _tablet_finder.get(),
+                                .vpartition = _vpartition.get(),
+                                .add_partition_request_timer = _add_partition_request_timer,
+                                .txn_id = _txn_id,
+                                .pool = _pool,
+                                .location = _location,
+                                .vec_output_expr_ctxs = &_fake_expr_ctxs,
+                                .schema = _schema,
+                                .caller = (void*)this,
+                                .create_partition_callback = &empty_callback_function});
     } else {
         // UNPARTITIONED
     }
@@ -509,6 +524,8 @@ Status VDataStreamSender::open(RuntimeState* state) {
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         RETURN_IF_ERROR(_partitioner->open(state));
+    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        RETURN_IF_ERROR(_row_distribution.open(_tablet_sink_row_desc));
     }
 
     _compression_type = state->fragement_transmission_compression_type();
@@ -521,6 +538,25 @@ void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType 
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
     static_cast<void>(channel->close(state, Status::OK()));
+}
+
+Status VDataStreamSender::_send_new_partition_batch() {
+    if (_row_distribution.need_deal_batching()) { // maybe try_close more than 1 time
+        RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
+        Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
+
+        // these order is only.
+        //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
+        //  2. deal batched block
+        //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
+        _row_distribution.clear_batching_stats();
+        RETURN_IF_ERROR(this->send(_state, &tmp_block, false));
+        // Recovery back
+        _row_distribution._batching_block->set_mutable_columns(tmp_block.mutate_columns());
+        _row_distribution._batching_block->clear_column_data();
+        _row_distribution._deal_batched = false;
+    }
+    return Status::OK();
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
@@ -648,22 +684,57 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                                              (uint32_t*)_partitioner->get_channel_ids(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         }
+    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        // check out of limit
+        RETURN_IF_ERROR(_send_new_partition_batch());
+        if (UNLIKELY(block->rows() == 0)) {
+            return Status::OK();
+        }
+        std::shared_ptr<vectorized::Block> convert_block;
+        bool has_filtered_rows = false;
+        int64_t filtered_rows = 0;
+        _number_input_rows += block->rows();
+        RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
+                *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
+                _number_input_rows));
+
+        const auto& row_ids = _row_part_tablet_ids[0].row_ids;
+        const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
+        const auto& num_channels = _channels.size();
+        std::vector<std::vector<uint32>> channel2rows;
+        channel2rows.resize(num_channels);
+        for (int idx = 0; idx < row_ids.size(); ++idx) {
+            const auto& row = row_ids[idx];
+            const auto& tablet_id = tablet_ids[idx];
+            channel2rows[tablet_id % num_channels].emplace_back(row);
+        }
+
+        RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
+                                                  convert_block.get(),
+                                                  _enable_pipeline_exec ? eos : false));
+        if (eos) {
+            _row_distribution._deal_batched = true;
+            RETURN_IF_ERROR(_send_new_partition_batch());
+        }
     } else {
         // Range partition
         // 1. calculate range
         // 2. dispatch rows to channel
     }
-    return Status::OK();
-}
 
-Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
-    SCOPED_TIMER(_exec_timer);
-    _serializer.reset_block();
+    // If eos == true, then this is the last block, should close the channel in this step.
     Status final_st = Status::OK();
-    for (int i = 0; i < _channels.size(); ++i) {
-        Status st = _channels[i]->close(state, exec_status);
-        if (!st.ok() && final_st.ok()) {
-            final_st = st;
+    // For non-pipeline engine, there maybe an block in serializer, should wait for
+    if (eos && _enable_pipeline_exec) {
+        _serializer.reset_block();
+        for (int i = 0; i < _channels.size(); ++i) {
+            // For non-pipeline engine, this API maybe hang to wait last rpc.
+            // For pipeline engine, it will add block to exchange sink buffer,
+            // and then come into pending finish state.
+            Status st = _channels[i]->close(state, Status::OK());
+            if (!st.ok() && final_st.ok()) {
+                final_st = st;
+            }
         }
     }
     return final_st;
@@ -680,6 +751,12 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         {
             // send last block
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+            // non pipeline engin not pass eos in send function, and maybe have create partition at last block
+            // so at here to check again
+            if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+                _row_distribution._deal_batched = true;
+                RETURN_IF_ERROR(_send_new_partition_batch());
+            }
             if (_serializer.get_block() && _serializer.get_block()->rows() > 0) {
                 Block block = _serializer.get_block()->to_block();
                 RETURN_IF_ERROR(
@@ -712,11 +789,16 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
             }
         }
     }
-
+    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
+                                              _tablet_finder->num_filtered_rows());
+        _state->update_num_rows_load_unselected(
+                _tablet_finder->num_immutable_partition_filtered_rows());
+    }
     if (_peak_memory_usage_counter) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
-    static_cast<void>(DataSink::close(state, exec_status));
+    RETURN_IF_ERROR(DataSink::close(state, exec_status));
     return final_st;
 }
 
@@ -782,6 +864,9 @@ Status BlockSerializer<Parent>::serialize_block(const Block* src, PBlock* dest, 
         COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
         COUNTER_UPDATE(_parent->_compress_timer, src->get_compress_time());
+        _parent->get_query_statistics_ptr()->add_shuffle_send_bytes(compressed_bytes *
+                                                                    num_receivers);
+        _parent->get_query_statistics_ptr()->add_shuffle_send_rows(src->rows() * num_receivers);
     }
 
     return Status::OK();

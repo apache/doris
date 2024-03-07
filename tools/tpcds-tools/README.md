@@ -24,8 +24,9 @@ follow the steps below:
 
 ### 1. build tpc-ds dsdgen dsqgen tool.
 
-    export PATH=/usr/bin/:$PATH
     ./bin/build-tpcds-tools.sh
+
+    If the build failed in dbgen tools' compilation, update your GCC version or change all "TPC-DS_Tools_v3.2.0new.zip" in build-tpcds-dbgen.sh to "TPC-DS_Tools_v3.2.0.zip"
 
 ### 2. generate tpc-ds data. use -h for more infomations.
 

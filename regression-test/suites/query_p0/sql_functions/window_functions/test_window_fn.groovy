@@ -117,54 +117,59 @@ suite("test_window_fn", "arrow_flight_sql") {
 
     // first_value
     qt_sql """
-        select first_value(salary) over(order by salary range between UNBOUNDED preceding  and UNBOUNDED following), lead(salary, 1, 0) over(order by salary) as l, salary from ${tbName1} order by l, salary;
+        select first_value(salary) over(order by salary range between UNBOUNDED preceding  and UNBOUNDED following), lead(salary, 1, 0) over(order by salary) as l, salary from ${tbName1} order by 1, l, salary;
     """
     qt_sql """
-        select first_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following), last_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
+        select
+            first_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following)
+            , last_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following)
+            , salary, enroll_date
+        from ${tbName1}
+        order by 1, 2, salary, enroll_date;
     """
     qt_sql """
-        SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
+        SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by 1, four, ten;
     """
     qt_sql """
         SELECT first_value(unique1) over (order by four range between current row and unbounded following),  
-        last_value(unique1) over (order by four range between current row and unbounded following), unique1, four 
-        FROM ${tbName2} WHERE unique1 < 10 order by unique1, four;
+        last_value(unique1) over (order by four, unique1 desc range between current row and unbounded following), unique1, four
+        FROM ${tbName2} WHERE unique1 < 10 order by 1, 2, unique1, four;
     """
 
     // last_value
     qt_sql """
-        select last_value(salary) over(order by salary range between UNBOUNDED preceding and UNBOUNDED following), lag(salary, 1, 0) over(order by salary) as l, salary from ${tbName1} order by l, salary;
+        select last_value(salary) over(order by salary range between UNBOUNDED preceding and UNBOUNDED following), lag(salary, 1, 0) over(order by salary) as l, salary from ${tbName1} order by 1, l, salary;
     """
     qt_sql """
-        SELECT last_value(ten) OVER (ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+        SELECT last_value(ten) OVER (ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by 1, 2, 3;
     """
     qt_sql """
         SELECT last_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM
-        (SELECT * FROM ${tbName2} WHERE unique2 < 10 ORDER BY four, ten)s ORDER BY four, ten;
+        (SELECT * FROM ${tbName2} WHERE unique2 < 10 ORDER BY four, ten)s ORDER BY 1, 2, four, ten;
     """
     qt_sql """
         SELECT four, ten, sum(ten) over (partition by four order by ten), last_value(ten) over (partition by four order by ten) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, ten;
+        FROM (select distinct ten, four from ${tbName2}) ss order by four, ten, 3, 4;
     """
     qt_sql """
         SELECT four, ten, sum(ten) over (partition by four order by ten range between unbounded preceding and current row), 
         last_value(ten) over (partition by four order by ten range between unbounded preceding and current row) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, ten;
+        FROM (select distinct ten, four from ${tbName2}) ss order by four, ten, 3, 4;
     """
     qt_sql """
         SELECT four, ten, sum(ten) over (partition by four order by ten range between unbounded preceding and unbounded following), 
         last_value(ten) over (partition by four order by ten range between unbounded preceding and unbounded following) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, ten;
+        FROM (select distinct ten, four from ${tbName2}) ss order by four, ten, 3, 4;
     """
     qt_sql """
         SELECT four, ten/4 as two, sum(ten/4) over (partition by four order by ten/4 range between unbounded preceding and current row), 
         last_value(ten/4) over (partition by four order by ten/4 range between unbounded preceding and current row) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, two;
+        FROM (select distinct ten, four from ${tbName2}) ss order by 1, 2, four, two;
     """
     qt_sql """
         SELECT four, ten/4 as two, sum(ten/4) over (partition by four order by ten/4 rows between unbounded preceding and current row), 
         last_value(ten/4) over (partition by four order by ten/4 rows between unbounded preceding and current row) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, two;
+        FROM (select distinct ten, four from ${tbName2}) ss order by four, two, 3, 4;
     """
 
 
@@ -172,7 +177,7 @@ suite("test_window_fn", "arrow_flight_sql") {
     qt_sql """
         SELECT empno, depname, salary, bonus, depadj, MIN(bonus) OVER (ORDER BY empno), MAX(depadj) OVER () 
         FROM( SELECT *, CASE WHEN enroll_date < '2008-01-01' THEN 2008 - extract(YEAR FROM enroll_date) END * 500 AS bonus,         
-        CASE WHEN AVG(salary) OVER (PARTITION BY depname) < salary THEN 200 END AS depadj FROM ${tbName1})s order by empno;
+        CASE WHEN AVG(salary) OVER (PARTITION BY depname) < salary THEN 200 END AS depadj FROM ${tbName1})s order by empno, depname, salary, bonus, depadj;
     """
     qt_sql """
         select max(enroll_date) over (order by enroll_date range between UNBOUNDED preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
@@ -211,6 +216,12 @@ suite("test_window_fn", "arrow_flight_sql") {
     """
     qt_sql """
         SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
+    """
+    qt_sql """
+        SELECT percent_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
+    """
+    qt_sql """
+        SELECT cume_dist() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
     """
     qt_sql """
         select ten,   sum(unique1) + sum(unique2) as res,   rank() over (order by sum(unique1) + sum(unique2)) as rank from ${tbName2} group by ten order by ten;
@@ -263,7 +274,7 @@ suite("test_window_fn", "arrow_flight_sql") {
     """
     qt_sql """
         SELECT sum(unique1) over (order by four range between current row and unbounded following) as s, unique1, four 
-        FROM ${tbName2} WHERE unique1 < 10 order by s;
+        FROM ${tbName2} WHERE unique1 < 10 order by s, unique1;
     """
     qt_sql """
         SELECT count() OVER () FROM ${tbName2} limit 5;

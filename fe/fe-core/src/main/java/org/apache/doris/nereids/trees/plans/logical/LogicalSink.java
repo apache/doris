@@ -52,6 +52,8 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         return outputExprs;
     }
 
+    public abstract LogicalSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs);
+
     @Override
     public List<? extends Expression> getExpressions() {
         return outputExprs;

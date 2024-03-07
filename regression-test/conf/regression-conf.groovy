@@ -113,6 +113,7 @@ sqlserver_2022_port=1433
 clickhouse_22_port=8123
 doris_port=9030
 mariadb_10_port=3326
+db2_11_port=50000
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
@@ -191,6 +192,7 @@ extArrowFlightSqlPassword= ""
 
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
 
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.

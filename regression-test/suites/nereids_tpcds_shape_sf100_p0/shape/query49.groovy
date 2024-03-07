@@ -29,6 +29,7 @@ suite("query49") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
     def ds = """select  channel, item, return_ratio, return_rank, currency_rank from
  (select
  'web' as channel

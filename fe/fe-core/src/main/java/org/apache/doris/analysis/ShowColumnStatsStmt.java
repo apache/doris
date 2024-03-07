@@ -48,6 +48,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("column_name")
+                    .add("index_name")
                     .add("count")
                     .add("ndv")
                     .add("num_null")
@@ -135,7 +136,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
         return table;
     }
 
-    public ShowResultSet constructResultSet(List<Pair<String, ColumnStatistic>> columnStatistics) {
+    public ShowResultSet constructResultSet(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics) {
         List<List<String>> result = Lists.newArrayList();
         columnStatistics.forEach(p -> {
             if (p.second.isUnKnown) {
@@ -143,7 +144,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
             }
 
             List<String> row = Lists.newArrayList();
-            row.add(p.first);
+            row.add(p.first.first);
+            row.add(p.first.second);
             row.add(String.valueOf(p.second.count));
             row.add(String.valueOf(p.second.ndv));
             row.add(String.valueOf(p.second.numNulls));
@@ -152,7 +154,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
             row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
             ColStatsMeta colStatsMeta = Env.getCurrentEnv().getAnalysisManager().findColStatsMeta(table.getId(),
-                    p.first);
+                    p.first.first);
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisMethod));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisType));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.jobType));
@@ -177,5 +179,9 @@ public class ShowColumnStatsStmt extends ShowStmt {
 
     public boolean isCached() {
         return cached;
+    }
+
+    public boolean isAllColumns() {
+        return columnNames == null;
     }
 }
