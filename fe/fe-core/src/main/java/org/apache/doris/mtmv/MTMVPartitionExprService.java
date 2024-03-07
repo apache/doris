@@ -20,14 +20,19 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.common.AnalysisException;
 
+import java.util.Map;
+
 /**
  * Interface for materialized view partitioning function
  */
 public interface MTMVPartitionExprService {
 
-    String getRollUpIdentity(PartitionKeyDesc partitionKeyDesc) throws AnalysisException;
+    String getRollUpIdentity(PartitionKeyDesc partitionKeyDesc, Map<String, String> mvProperties)
+            throws AnalysisException;
 
     PartitionKeyDesc generateRollUpPartitionKeyDesc(
             PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo)
             throws AnalysisException;
+
+    void analyze(MTMVPartitionInfo mtmvPartitionInfo) throws AnalysisException;
 }

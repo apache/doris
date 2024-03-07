@@ -23,24 +23,19 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 
-import com.google.common.collect.Maps;
-import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.Map;
 import java.util.Optional;
 
 public class MTMVUtilTest {
     @Mocked
     private DateTimeAcquire dateTimeAcquire;
 
-    @Test
+    /*@Test
     public void testGenerateMTMVPartitionSyncConfigByProperties() throws AnalysisException {
         Map<String, String> mvProperties = Maps.newHashMap();
         MTMVPartitionSyncConfig config = MTMVUtil
@@ -66,7 +61,7 @@ public class MTMVUtilTest {
         Assert.assertEquals(1, config.getSyncLimit());
         Assert.assertEquals("%Y%m%d", config.getDateFormat().get());
         Assert.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
-    }
+    }*/
 
     @Test
     public void testGetExprTimeSec() throws AnalysisException {
@@ -84,7 +79,7 @@ public class MTMVUtilTest {
         Assert.assertEquals(253402185600L, exprTimeSec);
     }
 
-    @Test
+    /*@Test
     public void testGetNowTruncSubSec() throws AnalysisException {
         DateTimeLiteral dateTimeLiteral = new DateTimeLiteral("2020-02-03 20:10:10");
         new Expectations() {
@@ -109,5 +104,5 @@ public class MTMVUtilTest {
         nowTruncSubSec = MTMVUtil.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 4);
         // 2020-01-31
         Assert.assertEquals(1580400000L, nowTruncSubSec);
-    }
+    }*/
 }

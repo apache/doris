@@ -25,6 +25,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.mtmv.MTMVPartitionExprFactory;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -73,7 +74,6 @@ public class MTMVPartitionDefinition {
         }
         String partitionColName;
         if (this.partitionType == MTMVPartitionType.EXPR) {
-            // TODO: 2024/3/4 common method
             Expr expr = CreateTableInfo.convertToLegacyAutoPartitionExprs(Lists.newArrayList(functionCallExpression))
                     .get(0);
             partitionColName = getColNameFromExpr(expr);
@@ -85,6 +85,13 @@ public class MTMVPartitionDefinition {
         RelatedTableInfo relatedTableInfo = getRelatedTableInfo(planner, ctx, logicalQuery, partitionColName);
         mtmvPartitionInfo.setRelatedCol(relatedTableInfo.getColumn());
         mtmvPartitionInfo.setRelatedTable(relatedTableInfo.getTableInfo());
+        if (this.partitionType == MTMVPartitionType.EXPR) {
+            try {
+                MTMVPartitionExprFactory.getExprSerice(mtmvPartitionInfo.getExpr()).analyze(mtmvPartitionInfo);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException("expr illegality", e);
+            }
+        }
         return mtmvPartitionInfo;
     }
 

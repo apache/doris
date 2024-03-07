@@ -48,7 +48,7 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
         if (partitionType == PartitionType.RANGE) {
             lastResult.setDescs(rollUpRange(lastResult.getDescs(), mvPartitionInfo));
         } else if (partitionType == PartitionType.LIST) {
-            lastResult.setDescs(rollUpList(lastResult.getDescs(), mvPartitionInfo));
+            lastResult.setDescs(rollUpList(lastResult.getDescs(), mvPartitionInfo, mvProperties));
         } else {
             throw new AnalysisException("only RANGE/LIST partition support roll up");
         }
@@ -69,12 +69,13 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
      * @throws AnalysisException
      */
     private Map<PartitionKeyDesc, Set<Long>> rollUpList(Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs,
-            MTMVPartitionInfo mvPartitionInfo) throws AnalysisException {
+            MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties) throws AnalysisException {
         Map<String, Set<String>> identityToValues = Maps.newHashMap();
         Map<String, Set<Long>> identityToPartitionIds = Maps.newHashMap();
         MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprSerice(mvPartitionInfo.getExpr());
+
         for (Entry<PartitionKeyDesc, Set<Long>> entry : relatedPartitionDescs.entrySet()) {
-            String rollUpIdentity = exprSerice.getRollUpIdentity(entry.getKey());
+            String rollUpIdentity = exprSerice.getRollUpIdentity(entry.getKey(), mvProperties);
             if (identityToValues.containsKey(rollUpIdentity)) {
                 identityToValues.get(rollUpIdentity).addAll(getStringValues(entry.getKey()));
                 identityToPartitionIds.get(rollUpIdentity).addAll(entry.getValue());
