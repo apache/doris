@@ -154,6 +154,15 @@ public:
         IRuntimeFilter* filter = nullptr;
         std::unordered_set<UniqueId> arrive_id; // fragment_instance_id ?
         std::shared_ptr<ObjectPool> pool;
+
+        template <bool is_v2>
+        auto& get_target_info() {
+            if constexpr (is_v2) {
+                return targetv2_info;
+            } else {
+                return target_info;
+            }
+        }
     };
 
 private:
@@ -229,7 +238,7 @@ public:
     static const int kShardNum = 128;
 
 private:
-    uint32_t _get_controller_shard_idx(UniqueId& query_id) {
+    static uint32_t _get_controller_shard_idx(UniqueId& query_id) {
         return (uint32_t)query_id.hi % kShardNum;
     }
 
@@ -242,7 +251,7 @@ private:
     FilterControllerMap _filter_controller_map[kShardNum];
 };
 
-//There are two types of runtime filters:
+// There are two types of runtime filters:
 // one is global, originating from QueryContext,
 // and the other is local, originating from RuntimeState.
 // In practice, we have already distinguished between them through UpdateRuntimeFilterParamsV2/V1.

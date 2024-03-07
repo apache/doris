@@ -47,8 +47,8 @@ public:
         std::map<int, bool> has_in_filter;
 
         auto ignore_local_filter = [&](int filter_id) {
-            auto runtime_filter_mgr = _need_local_merge ? state->global_runtime_filter_mgr()
-                                                        : state->local_runtime_filter_mgr();
+            auto* runtime_filter_mgr = _need_local_merge ? state->global_runtime_filter_mgr()
+                                                         : state->local_runtime_filter_mgr();
 
             std::vector<IRuntimeFilter*> filters;
             RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(filter_id, filters));
