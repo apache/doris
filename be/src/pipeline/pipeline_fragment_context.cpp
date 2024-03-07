@@ -38,6 +38,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cloud/config.h"
 #include "exec/data_sink.h"
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
@@ -821,6 +822,10 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            if (config::is_cloud_mode()) {
+                return Status::InternalError(
+                        "Move memtable is not supported in cloud mode, please disable it.");
+            }
             sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
                                                                      _sink.get());
         } else {
