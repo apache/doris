@@ -95,7 +95,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     if (_context->partial_update_info && _context->partial_update_info->is_partial_update) {
         // check columns that used to do partial updates should not include variant
         for (int i : _context->partial_update_info->update_cids) {
-            const auto& col = _context->original_tablet_schema->columns()[i];
+            const auto& col = *_context->original_tablet_schema->columns()[i];
             if (!col.is_key() && col.name() != DELETE_SIGN) {
                 return Status::InvalidArgument(
                         "Not implement partial update for variant only support delete currently");
@@ -104,7 +104,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     } else {
         // find positions of variant columns
         for (int i = 0; i < _context->original_tablet_schema->columns().size(); ++i) {
-            if (_context->original_tablet_schema->columns()[i].is_variant_type()) {
+            if (_context->original_tablet_schema->columns()[i]->is_variant_type()) {
                 variant_column_pos.push_back(i);
             }
         }
