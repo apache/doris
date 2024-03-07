@@ -31,10 +31,12 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -55,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Update mv by partition
@@ -124,7 +127,21 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
                     .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
                     .collect(ImmutableList.toImmutableList());
-            return new InPredicate(col, inValues);
+            List<Expression> predicates = new ArrayList<>();
+            if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
+                inValues = inValues.stream()
+                        .filter(e -> !(e instanceof NullLiteral))
+                        .collect(Collectors.toList());
+                Expression isNullPredicate = new IsNull(col);
+                predicates.add(isNullPredicate);
+            }
+            if (!inValues.isEmpty()) {
+                predicates.add(new InPredicate(col, inValues));
+            }
+            if (predicates.isEmpty()) {
+                return BooleanLiteral.of(true);
+            }
+            return ExpressionUtils.or(predicates);
         } else {
             Range<PartitionKey> range = item.getItems();
             List<Expression> exprs = new ArrayList<>();
