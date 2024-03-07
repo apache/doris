@@ -21,14 +21,17 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <functional>
+#include <mutex>
 #include <string>
 
 #include "common/logging.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -129,6 +132,12 @@ void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() {
     }
     const bool should_wait = !_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0;
     if (!should_wait) {
+        _dependency->set_ready();
+    }
+}
+
+void VDataStreamRecvr::SenderQueue::set_dep_ready() {
+    if (_dependency) {
         _dependency->set_ready();
     }
 }
@@ -349,7 +358,10 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
           _is_closed(false),
           _profile(profile),
           _peak_memory_usage_counter(nullptr),
-          _enable_pipeline(state->enable_pipeline_exec()) {
+          _enable_pipeline(state->enable_pipeline_exec()),
+          _enable_pipelineX(state->enable_pipeline_x_exec()),
+          _local_mem_control_dependency(pipeline::Dependency::create_shared(
+                  0, 0, "ExchangeSinkLocalMemControl", true, state->get_query_ctx())) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
     _mem_tracker =
             std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id));
@@ -486,8 +498,21 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
 }
 
 void VDataStreamRecvr::update_blocks_memory_usage(int64_t size) {
+    std::lock_guard lc(_test_lock);
     _blocks_memory_usage->add(size);
+
     _blocks_memory_usage_current_value.fetch_add(size);
+    if (_enable_pipelineX) {
+        if (exceeds_limit(0)) {
+            _local_mem_control_dependency->block();
+            // try to wake up source
+            for (auto* queue : sender_queues()) {
+                queue->set_dep_ready();
+            }
+        } else {
+            _local_mem_control_dependency->set_ready();
+        }
+    }
 }
 
 void VDataStreamRecvr::close() {
@@ -498,6 +523,7 @@ void VDataStreamRecvr::close() {
     for (auto& it : _sender_to_local_channel_dependency) {
         it->set_ready();
     }
+    _local_mem_control_dependency->set_ready();
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();
     }

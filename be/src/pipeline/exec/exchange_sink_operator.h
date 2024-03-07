@@ -87,6 +87,11 @@ public:
         }
         std::for_each(_local_channels_dependency.begin(), _local_channels_dependency.end(),
                       [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
+
+        std::for_each(_local_exchange_mem_control_dependency.begin(),
+                      _local_exchange_mem_control_dependency.end(),
+                      [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
+
         return dep_vec;
     }
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -186,6 +191,9 @@ private:
      *                         +-----------------+                                                        +------------------+
      */
     std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
+
+    // from local recvr
+    std::vector<std::shared_ptr<Dependency>> _local_exchange_mem_control_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;
 

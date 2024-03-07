@@ -198,6 +198,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 _wait_channel_timer[dep_id] = ADD_CHILD_TIMER(
                         _profile, fmt::format("WaitForLocalExchangeBuffer{}", dep_id), timer_name);
                 dep_id++;
+                _local_exchange_mem_control_dependency.push_back(
+                        channel->local_recvr()->local_exchange_mem_control_dependency());
             }
         }
     }
