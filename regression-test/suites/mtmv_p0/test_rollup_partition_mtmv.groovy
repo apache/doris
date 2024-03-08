@@ -36,7 +36,7 @@ suite("test_rollup_partition_mtmv") {
         (
         PARTITION p_20200101 VALUES IN ("2020-01-01"),
         PARTITION p_20200102 VALUES IN ("2020-01-02"),
-        PARTITION p_20200102 VALUES IN ("2020-02-01")
+        PARTITION p_20200201 VALUES IN ("2020-02-01")
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
