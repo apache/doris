@@ -503,16 +503,16 @@ void ExecEnv::init_mem_tracker() {
 
 void ExecEnv::_register_metrics() {
     DORIS_REGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_thread_num,
-                               [this]() { return _send_batch_thread_pool->num_threads(); });
+                               [this]() { return _send_batch_thread_pool->num_threads(); })
 
     DORIS_REGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_queue_size,
-                               [this]() { return _send_batch_thread_pool->get_queue_size(); });
+                               [this]() { return _send_batch_thread_pool->get_queue_size(); })
 }
 
 void ExecEnv::_deregister_metrics() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_scanner_thread_pool_queue_size);
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_thread_num);
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_queue_size);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_scanner_thread_pool_queue_size)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_thread_num)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_queue_size)
 }
 
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.

@@ -49,7 +49,7 @@ ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
 }
 
 void ResultBufferMgr::stop() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_result_buffer_block_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_result_buffer_block_count)
     _stop_background_threads_latch.count_down();
     if (_clean_thread) {
         _clean_thread->join();

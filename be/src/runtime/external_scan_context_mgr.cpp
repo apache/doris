@@ -44,11 +44,11 @@ ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env)
     DORIS_REGISTER_HOOK_METRIC(g_adder_active_scan_context_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);
         return _active_contexts.size();
-    });
+    })
 }
 
 void ExternalScanContextMgr::stop() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_active_scan_context_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_active_scan_context_count)
     _stop_background_threads_latch.count_down();
     if (_keep_alive_reaper) {
         _keep_alive_reaper->join();

@@ -27,22 +27,22 @@ namespace doris {
 template <>
 BrpcClientCache<PBackendService_Stub>::BrpcClientCache() {
     DORIS_REGISTER_HOOK_METRIC(g_adder_brpc_endpoint_stub_count,
-                               [this]() { return _stub_map.size(); });
+                               [this]() { return _stub_map.size(); })
 }
 
 template <>
 BrpcClientCache<PBackendService_Stub>::~BrpcClientCache() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_brpc_endpoint_stub_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_brpc_endpoint_stub_count)
 }
 
 template <>
 BrpcClientCache<PFunctionService_Stub>::BrpcClientCache() {
     DORIS_REGISTER_HOOK_METRIC(g_adder_brpc_function_endpoint_stub_count,
-                               [this]() { return _stub_map.size(); });
+                               [this]() { return _stub_map.size(); })
 }
 
 template <>
 BrpcClientCache<PFunctionService_Stub>::~BrpcClientCache() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_brpc_function_endpoint_stub_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_brpc_function_endpoint_stub_count)
 }
 } // namespace doris

@@ -68,8 +68,8 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
 }
 
 void LoadChannelMgr::stop() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_load_channel_count);
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_load_channel_mem_consumption);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_load_channel_count)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_load_channel_mem_consumption)
     _stop_background_threads_latch.count_down();
     if (_load_channels_clean_thread) {
         _load_channels_clean_thread->join();

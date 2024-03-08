@@ -48,11 +48,11 @@ SmallFileMgr::SmallFileMgr(ExecEnv* env, const std::string& local_path)
     DORIS_REGISTER_HOOK_METRIC(g_adder_small_file_cache_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);
         return _file_cache.size();
-    });
+    })
 }
 
 SmallFileMgr::~SmallFileMgr() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_small_file_cache_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_small_file_cache_count)
 }
 
 Status SmallFileMgr::init() {

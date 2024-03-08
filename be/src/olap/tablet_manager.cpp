@@ -92,11 +92,11 @@ TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shar
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
     DORIS_REGISTER_HOOK_METRIC(g_adder_tablet_meta_mem_consumption,
-                               [this]() { return _tablet_meta_mem_tracker->consumption(); });
+                               [this]() { return _tablet_meta_mem_tracker->consumption(); })
 }
 
 TabletManager::~TabletManager() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_tablet_meta_mem_consumption);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_tablet_meta_mem_consumption)
 }
 
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,

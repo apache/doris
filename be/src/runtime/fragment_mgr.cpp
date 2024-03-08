@@ -113,7 +113,7 @@ using apache::thrift::transport::TTransportException;
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     DORIS_REGISTER_HOOK_METRIC(g_adder_fragment_instance_count,
-                               [this]() { return _fragment_instance_map.size(); });
+                               [this]() { return _fragment_instance_map.size(); })
     entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     REGISTER_INIT_UINT64_BVAR_METRIC(entity_, timeout_canceled_fragment_count,
                                      BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
@@ -133,7 +133,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
                 .build(&_thread_pool);
 
     DORIS_REGISTER_HOOK_METRIC(g_adder_fragment_thread_pool_queue_size,
-                               [this]() { return _thread_pool->get_queue_size(); });
+                               [this]() { return _thread_pool->get_queue_size(); })
     CHECK(s.ok()) << s.to_string();
 
     s = ThreadPoolBuilder("FragmentInstanceReportThreadPool")
@@ -147,8 +147,8 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
 FragmentMgr::~FragmentMgr() = default;
 
 void FragmentMgr::stop() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_fragment_instance_count);
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_fragment_thread_pool_queue_size);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_fragment_instance_count)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_fragment_thread_pool_queue_size)
     _stop_background_threads_latch.count_down();
     if (_cancel_thread) {
         _cancel_thread->join();

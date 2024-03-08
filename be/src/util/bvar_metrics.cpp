@@ -193,7 +193,10 @@ void BvarMetricEntity::register_hook(const std::string& name, const std::functio
 
 void BvarMetricEntity::deregister_hook(const std::string& name) {
     std::lock_guard<bthread::Mutex> l(mutex_);
-    hooks_.erase(name);
+    auto it = hooks_.find(name);
+    if (it != hooks_.end()) {
+        hooks_.erase(it);
+    }
 }
 
 void BvarMetricEntity::trigger_hook_unlocked(bool force) const {

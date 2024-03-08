@@ -48,11 +48,11 @@ BrokerMgr::BrokerMgr(ExecEnv* exec_env) : _exec_env(exec_env), _stop_background_
     DORIS_REGISTER_HOOK_METRIC(g_adder_broker_count, [this]() {
         // std::lock_guard<std::mutex> l(_mutex);
         return _broker_set.size();
-    });
+    })
 }
 
 void BrokerMgr::stop() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_broker_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_broker_count)
     _stop_background_threads_latch.count_down();
     if (_ping_thread) {
         _ping_thread->join();

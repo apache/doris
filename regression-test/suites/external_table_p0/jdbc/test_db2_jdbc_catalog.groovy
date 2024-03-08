@@ -37,7 +37,7 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
 
         try {
             db2_docker "CREATE SCHEMA doris_test;"
-            db2_docker "CREATE SCHEMA test;"            
+            db2_docker "CREATE SCHEMA test;"     
             db2_docker """CREATE TABLE doris_test.sample_table (
                 id_column INT GENERATED ALWAYS AS IDENTITY,
                 numeric_column NUMERIC,
@@ -254,21 +254,22 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
                           <description>An in-depth look at creating application
                           with XML</description>
                           </book>
-                          </catalog>');"""
 
+                          </catalog>');"""
 
             order_qt_sample_table_insert  """ select * except(ID_COLUMN) from ${sample_table} order by 1; """
 
             order_qt_desc_db "show databases from ${catalog_name};"
 
             order_qt_select_xml "select * from db2.TEST.BOOKS;"
-            
+   
             sql """ drop catalog if exists ${catalog_name} """
 
             db2_docker "DROP TABLE IF EXISTS doris_test.sample_table;"
             db2_docker "DROP SCHEMA doris_test restrict;"
             db2_docker "DROP TABLE IF EXISTS test.books;"
             db2_docker "DROP SCHEMA test restrict;"
+        
         } catch (Exception e) {
             e.printStackTrace()
         }

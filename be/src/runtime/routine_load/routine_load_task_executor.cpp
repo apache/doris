@@ -76,7 +76,7 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
 }
 
 void RoutineLoadTaskExecutor::stop() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_routine_load_task_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_routine_load_task_count)
     _thread_pool.shutdown();
     _thread_pool.join();
     _data_consumer_pool.stop();

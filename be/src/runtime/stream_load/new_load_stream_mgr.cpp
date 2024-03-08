@@ -25,10 +25,10 @@ NewLoadStreamMgr::NewLoadStreamMgr() {
     // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
     // actual size of all StreamLoadPipe.
     DORIS_REGISTER_HOOK_METRIC(g_adder_new_stream_load_pipe_count,
-                               [this]() { return _stream_map.size(); });
+                               [this]() { return _stream_map.size(); })
 }
 
 NewLoadStreamMgr::~NewLoadStreamMgr() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_new_stream_load_pipe_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_new_stream_load_pipe_count)
 }
 } // namespace doris

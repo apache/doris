@@ -159,7 +159,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
     DORIS_REGISTER_HOOK_METRIC(g_adder_unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
-    });
+    })
     _broken_paths = options.broken_paths;
 }
 

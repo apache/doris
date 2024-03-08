@@ -411,7 +411,8 @@ suite("test_unique_model_schema_value_change","p0") {
           sql getTableStatusSql
           time 60
      }, insertSql, true,"${tbName}")*/
-     
+
+
 
 
      /**

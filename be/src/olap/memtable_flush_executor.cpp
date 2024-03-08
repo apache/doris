@@ -255,8 +255,8 @@ void MemTableFlushExecutor::_register_metrics() {
 }
 
 void MemTableFlushExecutor::_deregister_metrics() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_flush_thread_pool_queue_size);
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_flush_thread_pool_thread_num);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_flush_thread_pool_queue_size)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_flush_thread_pool_thread_num)
 }
 
 } // namespace doris
