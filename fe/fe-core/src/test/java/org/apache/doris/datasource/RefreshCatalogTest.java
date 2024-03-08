@@ -87,7 +87,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         List<String> dbNames2 = test1.getDbNames();
         Assertions.assertEquals(4, dbNames2.size());
         ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
-        Assertions.assertEquals(27, infoDb.getTables().size());
+        Assertions.assertEquals(28, infoDb.getTables().size());
         TestExternalDatabase testDb = (TestExternalDatabase) test1.getDb("db1").get();
         Assertions.assertEquals(2, testDb.getTables().size());
 
