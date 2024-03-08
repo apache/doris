@@ -2974,7 +2974,7 @@ public class StmtExecutor {
         return exprToType(parsedStmt.getResultExprs());
     }
 
-    private HttpStreamParams generateStreamLoadNereidsPlan(TUniqueId queryId) {
+    private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {
         LOG.info("TUniqueId: {} generate stream load plan", queryId);
         context.setQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
@@ -3023,7 +3023,7 @@ public class StmtExecutor {
         return httpStreamParams;
     }
 
-    private HttpStreamParams generateStreamLoadLegacyPlan(TUniqueId queryId) throws Exception {
+    private HttpStreamParams generateHttpStreamLegacyPlan(TUniqueId queryId) throws Exception {
         // Due to executing Nereids, it needs to be reset
         planner = null;
         context.getState().setNereids(false);
@@ -3056,7 +3056,7 @@ public class StmtExecutor {
         try {
             if (sessionVariable.isEnableNereidsPlanner()) {
                 try {
-                    httpStreamParams = generateStreamLoadNereidsPlan(queryId);
+                    httpStreamParams = generateHttpStreamNereidsPlan(queryId);
                 } catch (NereidsException | ParseException e) {
                     if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                         MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
@@ -3087,12 +3087,12 @@ public class StmtExecutor {
                     // and audit log. So we need to reset state to OK if query cancel be processd by lagency.
                     context.getState().reset();
                     context.getState().setNereids(false);
-                    httpStreamParams = generateStreamLoadLegacyPlan(queryId);
+                    httpStreamParams = generateHttpStreamLegacyPlan(queryId);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
             } else {
-                httpStreamParams = generateStreamLoadLegacyPlan(queryId);
+                httpStreamParams = generateHttpStreamLegacyPlan(queryId);
             }
         } finally {
             // revert Session Value
