@@ -20,7 +20,6 @@ suite("test_unique_table_update","nonConcurrent") {
 
     def tableName = "test_unique_table_update"
  
-    // test successful group commit async load
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     sql """
