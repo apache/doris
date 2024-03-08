@@ -224,15 +224,13 @@ suite("test_rollup_partition_mtmv") {
     sql """
         CREATE TABLE `${tableName}` (
           `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `k2` varchar(200) NOT NULL COMMENT '\"数据灌入日期时间\"'
+          `k2` int NOT NULL COMMENT '\"数据灌入日期时间\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
         PARTITION BY range(`k2`)
         (
-        PARTITION p_20200101 VALUES [("2020-01-01"),("2020-01-02")),
-        PARTITION p_20200102 VALUES [("2020-01-02"),("2020-01-03")),
-        PARTITION p_20200201 VALUES [("2020-02-01"),("2020-02-02"))
+        PARTITION p_1 VALUES [(1),(2))
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
