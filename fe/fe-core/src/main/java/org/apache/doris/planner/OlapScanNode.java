@@ -1523,7 +1523,9 @@ public class OlapScanNode extends ScanNode {
                 .stream()
                 .map(sortNode -> sortNode.getId().asInt())
                 .collect(Collectors.toList());
-        msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
+        if (!topnFilterSourceNodeIds.isEmpty()) {
+            msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
+        }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
