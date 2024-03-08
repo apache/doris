@@ -245,7 +245,7 @@ protected:
             if (blocks_rows[i] == 0) {
                 /// Here write one empty block to ensure there are enough blocks in the file,
                 /// blocks' count should be equal with partition_count.
-                static_cast<void>(writer->write(block_to_write));
+                RETURN_IF_ERROR(writer->write(block_to_write));
                 continue;
             }
 

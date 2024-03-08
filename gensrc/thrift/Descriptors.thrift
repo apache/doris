@@ -234,7 +234,8 @@ struct TOlapTableSchemaParam {
     7: optional bool is_dynamic_schema // deprecated
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
-    10: optional bool is_strict_mode = false;
+    10: optional bool is_strict_mode = false
+    11: optional string auto_increment_column
 }
 
 struct TTabletLocation {
@@ -343,6 +344,12 @@ struct TMCTable {
   8: optional string tunnel_url
 }
 
+struct TTrinoConnectorTable {
+  1: optional string db_name
+  2: optional string table_name
+  3: optional map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -366,6 +373,7 @@ struct TTableDescriptor {
   19: optional THudiTable hudiTable
   20: optional TJdbcTable jdbcTable
   21: optional TMCTable mcTable
+  22: optional TTrinoConnectorTable trinoConnectorTable
 }
 
 struct TDescriptorTable {

@@ -39,7 +39,7 @@ using namespace ErrorCode;
 bvar::Adder<uint64_t> full_output_size("full_compaction", "output_size");
 
 CloudFullCompaction::CloudFullCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
-        : CloudCompactionMixin(engine, std::move(tablet),
+        : CloudCompactionMixin(engine, tablet,
                                "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
     auto uuid = UUIDGenerator::instance()->next_uuid();
     std::stringstream ss;

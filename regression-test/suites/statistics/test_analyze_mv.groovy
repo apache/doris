@@ -18,7 +18,7 @@
 suite("test_analyze_mv") {
 
     def wait_mv_finish = { db, table ->
-        while(true) {
+        for (int loop = 0; loop < 300; loop++) {
             Thread.sleep(1000)
             boolean finished = true;
             def result = sql """SHOW ALTER TABLE MATERIALIZED VIEW FROM ${db} WHERE tableName="${table}";"""
@@ -29,9 +29,10 @@ suite("test_analyze_mv") {
                 }
             }
             if (finished) {
-                break;
+                return;
             }
         }
+        throw new Exception("Wait mv finish timeout.")
     }
 
     def wait_row_count_reported = { db, table, expected ->
@@ -66,7 +67,7 @@ suite("test_analyze_mv") {
     }
 
     def wait_analyze_finish = { table ->
-        while(true) {
+        for (int loop = 0; loop < 300; loop++) {
             Thread.sleep(1000)
             boolean finished = true;
             def result = sql """SHOW ANALYZE ${table};"""
@@ -82,9 +83,10 @@ suite("test_analyze_mv") {
                 }
             }
             if (finished) {
-                break;
+                return;
             }
         }
+        throw new Exception("Wait analyze finish timeout.")
     }
 
     def verify_column_stats = { all_column_result, one_column_result ->

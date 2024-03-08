@@ -108,6 +108,13 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
             _seq_coder = get_key_coder(column.type());
         }
+        if (!_tablet_schema->auto_increment_column().empty()) {
+            _auto_inc_id_buffer =
+                    vectorized::GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
+                            _tablet_schema->db_id(), _tablet_schema->table_id(),
+                            _tablet_schema->column(_tablet_schema->auto_increment_column())
+                                    .unique_id());
+        }
         // encode the rowid into the primary key index
         if (!_tablet_schema->cluster_key_idxes().empty()) {
             const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
@@ -142,8 +149,9 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
     meta->set_frac(column.frac());
-    if (!column.path_info().empty()) {
-        column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    if (column.has_path_info()) {
+        column.path_info_ptr()->to_protobuf(meta->mutable_column_path_info(),
+                                            column.parent_unique_id());
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
@@ -491,7 +499,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     std::string error_column;
                     for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
                         const TabletColumn& col = _tablet_schema->column(cid);
-                        if (!col.has_default_value() && !col.is_nullable()) {
+                        if (!col.has_default_value() && !col.is_nullable() &&
+                            _tablet_schema->auto_increment_column() != col.name()) {
                             error_column = col.name();
                             break;
                         }
@@ -671,8 +680,20 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
-                static_cast<void>(old_value_block.get_by_position(i).type->from_string(
+                RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
                         rb, mutable_default_value_columns[i].get()));
+            }
+        }
+    }
+
+    // deal with partial update auto increment column when there no key in old block.
+    if (!_tablet_schema->auto_increment_column().empty()) {
+        if (_auto_inc_id_allocator.total_count < use_default_or_null_flag.size()) {
+            std::vector<std::pair<int64_t, size_t>> res;
+            RETURN_IF_ERROR(
+                    _auto_inc_id_buffer->sync_request_ids(use_default_or_null_flag.size(), &res));
+            for (auto [start, length] : res) {
+                _auto_inc_id_allocator.insert_ids(start, length);
             }
         }
     }
@@ -699,6 +720,12 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                     auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
                             mutable_full_columns[cids_missing[i]].get());
                     nullable_column->insert_null_elements(1);
+                } else if (_tablet_schema->auto_increment_column() == tablet_column.name()) {
+                    DCHECK(_opts.rowset_ctx->tablet_schema->column(tablet_column.name()).type() ==
+                           FieldType::OLAP_FIELD_TYPE_BIGINT);
+                    auto auto_inc_column = assert_cast<vectorized::ColumnInt64*>(
+                            mutable_full_columns[cids_missing[i]].get());
+                    auto_inc_column->insert(_auto_inc_id_allocator.next_id());
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value

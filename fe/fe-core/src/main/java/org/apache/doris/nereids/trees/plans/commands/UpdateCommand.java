@@ -50,6 +50,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -105,13 +106,21 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         checkTable(ctx);
 
         Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        Map<String, Expression> partialUpdateColNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo equalTo : assignments) {
             List<String> nameParts = ((UnboundSlot) equalTo.left()).getNameParts();
             checkAssignmentColumn(ctx, nameParts);
             colNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
+            partialUpdateColNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
+        }
+        // check if any key in update clause
+        if (targetTable.getFullSchema().stream().filter(Column::isKey)
+                .anyMatch(column -> partialUpdateColNameToExpression.containsKey(column.getName()))) {
+            throw new AnalysisException("Only value columns of unique table could be updated");
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
             if (!column.isVisible() && !column.isSequenceColumn()) {
@@ -119,12 +128,21 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             }
             if (colNameToExpression.containsKey(column.getName())) {
                 Expression expr = colNameToExpression.get(column.getName());
+                // when updating the sequence map column, the real sequence column need to set with the same value.
+                boolean isSequenceMapColumn = targetTable.hasSequenceCol()
+                        && targetTable.getSequenceMapCol() != null
+                        && column.getName().equalsIgnoreCase(targetTable.getSequenceMapCol());
+                if (setExpr == null && isSequenceMapColumn) {
+                    setExpr = expr;
+                }
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
                         : new UnboundAlias(expr));
                 colNameToExpression.remove(column.getName());
             } else {
-                if (column.hasOnUpdateDefaultValue()) {
+                if (column.isSequenceColumn() && setExpr != null) {
+                    selectItems.add(new UnboundAlias(setExpr, column.getName()));
+                } else if (column.hasOnUpdateDefaultValue()) {
                     Expression defualtValueExpression =
                             new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
                                     .toSqlWithoutTbl());
@@ -139,17 +157,40 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                     + String.join(", ", colNameToExpression.keySet()));
         }
 
-        logicalQuery = new LogicalProject<>(selectItems, logicalQuery);
+        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
+                && selectItems.size() < targetTable.getColumns().size()
+                && !targetTable.hasVariantColumns() && targetTable.getSequenceCol() == null
+                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10;
+
+        List<String> partialUpdateColNames = new ArrayList<>();
+        List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
+        if (isPartialUpdate) {
+            for (Column column : targetTable.getFullSchema()) {
+                Expression expr = new NereidsParser().parseExpression(tableName + "." + column.getName());
+                boolean existInExpr = false;
+                for (String colName : partialUpdateColNameToExpression.keySet()) {
+                    if (colName.equalsIgnoreCase(column.getName())) {
+                        expr = partialUpdateColNameToExpression.get(column.getName());
+                        existInExpr = true;
+                        break;
+                    }
+                }
+                if (column.isKey() || existInExpr) {
+                    partialUpdateSelectItems.add(expr instanceof UnboundSlot
+                            ? ((NamedExpression) expr)
+                            : new UnboundAlias(expr));
+                    partialUpdateColNames.add(column.getName());
+                }
+            }
+        }
+
+        logicalQuery = new LogicalProject<>(isPartialUpdate ? partialUpdateSelectItems : selectItems, logicalQuery);
         if (cte.isPresent()) {
             logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }
-
-        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
-                && selectItems.size() < targetTable.getColumns().size()
-                && !targetTable.hasVariantColumns();
-
         // make UnboundTableSink
-        return new UnboundTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
+        return new UnboundTableSink<>(nameParts, isPartialUpdate ? partialUpdateColNames : ImmutableList.of(),
+                ImmutableList.of(),
                 false, ImmutableList.of(), isPartialUpdate, DMLCommandType.UPDATE, logicalQuery);
     }
 

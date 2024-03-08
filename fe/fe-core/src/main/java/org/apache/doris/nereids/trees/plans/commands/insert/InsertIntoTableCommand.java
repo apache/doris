@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -103,7 +105,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
-    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    /**
+     * This function is used to generate the plan for Nereids.
+     * There are some load functions that only need to the plan, such as stream_load.
+     * Therefore, this section will be presented separately.
+     */
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -150,7 +157,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
-                    return;
+                    // return;
+                    throw new AnalysisException("group commit is not supported in Nereids now");
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
@@ -160,6 +168,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                                 : false;
                 insertExecutor.getCoordinator().getQueryOptions()
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+            } else if (physicalSink instanceof PhysicalHiveTableSink) {
+                HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
+                insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner, insertCtx);
             } else {
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support olap table");
@@ -175,6 +186,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
         // so we need to set this here
         executor.setCoord(insertExecutor.getCoordinator());
+        return insertExecutor;
+    }
+
+    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         insertExecutor.executeSingleInsert(executor, jobId);
     }
 

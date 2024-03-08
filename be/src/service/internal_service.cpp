@@ -748,9 +748,8 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     }
 }
 
-Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
-                                                PTabletKeyLookupResponse* response) {
-    // TODO(yuejing): use PointQueryExecutor lookup_util(_engine); instead
+Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
+                                            PTabletKeyLookupResponse* response) {
     PointQueryExecutor lookup_util;
     RETURN_IF_ERROR(lookup_util.init(request, response));
     RETURN_IF_ERROR(lookup_util.lookup_up());
@@ -761,10 +760,10 @@ Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* r
     return Status::OK();
 }
 
-void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* controller,
-                                             const PTabletKeyLookupRequest* request,
-                                             PTabletKeyLookupResponse* response,
-                                             google::protobuf::Closure* done) {
+void PInternalService::tablet_fetch_data(google::protobuf::RpcController* controller,
+                                         const PTabletKeyLookupRequest* request,
+                                         PTabletKeyLookupResponse* response,
+                                         google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
@@ -817,24 +816,24 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
 
             std::set<int32_t> column_ids;
             for (const auto& col : columns) {
-                column_ids.insert(col.unique_id());
+                column_ids.insert(col->unique_id());
             }
             filter_set.insert(std::move(column_ids));
 
             if (id_to_column.empty()) {
                 for (const auto& col : columns) {
-                    id_to_column.insert(std::pair {col.unique_id(), &col});
+                    id_to_column.insert(std::pair {col->unique_id(), col.get()});
                 }
             } else {
                 for (const auto& col : columns) {
-                    auto it = id_to_column.find(col.unique_id());
-                    if (it == id_to_column.end() || *(it->second) != col) {
+                    auto it = id_to_column.find(col->unique_id());
+                    if (it == id_to_column.end() || *(it->second) != *col) {
                         ColumnPB prev_col_pb;
                         ColumnPB curr_col_pb;
                         if (it != id_to_column.end()) {
                             it->second->to_schema_pb(&prev_col_pb);
                         }
-                        col.to_schema_pb(&curr_col_pb);
+                        col->to_schema_pb(&curr_col_pb);
                         std::stringstream ss;
                         ss << "consistency check failed: index{ " << index_id << " }"
                            << " got inconsistent schema, prev column: " << prev_col_pb.DebugString()
@@ -865,7 +864,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         entry->set_index_id(index_id);
         auto col_name_to_id = entry->mutable_col_name_to_id();
         for (const auto& column : columns) {
-            (*col_name_to_id)[column.name()] = column.unique_id();
+            (*col_name_to_id)[column->name()] = column->unique_id();
         }
     }
     response->mutable_status()->set_status_code(TStatusCode::OK);

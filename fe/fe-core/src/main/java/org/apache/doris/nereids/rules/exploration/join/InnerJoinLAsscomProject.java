@@ -62,7 +62,6 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
                 .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child(), enableLeftZigZag))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> join.left().isAllSlots())
                 .then(topJoin -> {
                     /* ********** init ********** */

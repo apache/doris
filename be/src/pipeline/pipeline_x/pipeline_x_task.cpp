@@ -271,7 +271,12 @@ Status PipelineXTask::execute(bool* eos) {
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+            try {
+                RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+            } catch (const Exception& e) {
+                return Status::InternalError(e.to_string() +
+                                             " task debug string: " + debug_string());
+            }
         } else {
             *eos = true;
         }

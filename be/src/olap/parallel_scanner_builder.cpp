@@ -17,9 +17,6 @@
 
 #include "parallel_scanner_builder.h"
 
-#include "cloud/cloud_meta_mgr.h"
-#include "cloud/cloud_tablet.h"
-#include "cloud/config.h"
 #include "olap/rowset/beta_rowset.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -43,17 +40,6 @@ template <typename ParentType>
 Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
         std::list<VScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
-
-    if (config::is_cloud_mode()) {
-        std::vector<std::function<Status()>> tasks;
-        tasks.reserve(_tablets.size());
-        for (auto&& [tablet, version] : _tablets) {
-            tasks.emplace_back([tablet, version]() {
-                return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
-            });
-        }
-        RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
-    }
 
     for (auto&& [tablet, version] : _tablets) {
         DCHECK(_all_rowsets.contains(tablet->tablet_id()));
