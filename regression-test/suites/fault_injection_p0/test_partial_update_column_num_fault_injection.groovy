@@ -20,7 +20,6 @@ suite("test_partial_update_column_num_fault_injection","nonConcurrent") {
 
     def tableName = "test_partial_update_column_num_fault_injection"
  
-    // test successful group commit async load
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     sql """
