@@ -93,7 +93,7 @@ public class QueryState {
     }
 
     public void setError(String errorMsg) {
-        this.setError(ErrorCoode.ERR_UNKNOWN_ERROR, errorMsg);
+        this.setError(ErrorCode.ERR_UNKNOWN_ERROR, errorMsg);
     }
 
     public void setError(ErrorCode code, String msg) {
