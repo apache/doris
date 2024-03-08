@@ -91,7 +91,7 @@ public class CloudTablet extends Tablet {
         if (isLatestReplicaAndDeleteOld(replica)) {
             replicas.add(replica);
             if (!isRestore) {
-                Env.getCurrentInvertedIndex().addCloudReplica(id, replica);
+                Env.getCurrentInvertedIndex().addReplica(id, replica);
             }
         }
     }
