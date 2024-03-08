@@ -287,8 +287,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     response->mutable_obj_info()->CopyFrom(instance.obj_info());
 }
 
-// The next avaiable vault id would be max(max(obj info id), max(vault id)) + 1.
-static std::string next_avaiable_vault_id(const InstanceInfoPB& instance) {
+// The next available vault id would be max(max(obj info id), max(vault id)) + 1.
+static std::string next_available_vault_id(const InstanceInfoPB& instance) {
     size_t vault_id = 0;
     auto cmp = [](size_t prev, const auto& last) {
         size_t last_id = 0;
@@ -317,7 +317,7 @@ static int add_hdfs_storage_valut(InstanceInfoPB& instance, TxnKv* txn_kv,
         return -1;
     }
     std::string key;
-    std::string vault_id = next_avaiable_vault_id(instance);
+    std::string vault_id = next_available_vault_id(instance);
     storage_vault_key({instance.instance_id(), vault_id}, &key);
     StorageVaultPB vault;
     vault.set_id(vault_id);
@@ -544,7 +544,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         ObjectStoreInfoPB last_item;
         last_item.set_ctime(time);
         last_item.set_mtime(time);
-        last_item.set_id(next_avaiable_vault_id(instance));
+        last_item.set_id(next_available_vault_id(instance));
         if (request->obj().has_user_id()) {
             last_item.set_user_id(request->obj().user_id());
         }
@@ -836,7 +836,7 @@ static int create_instance_with_object_info(const InstanceInfoPB& instance,
     obj_info->set_provider(obj.provider());
     std::ostringstream oss;
     // create instance's s3 conf, id = 1
-    obj_info->set_id(next_avaiable_vault_id(instance));
+    obj_info->set_id(next_available_vault_id(instance));
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
