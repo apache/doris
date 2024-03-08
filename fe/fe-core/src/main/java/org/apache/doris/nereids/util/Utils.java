@@ -224,6 +224,22 @@ public class Utils {
 
     /** allCombinations */
     public static <T> List<List<T>> allCombinations(List<List<T>> lists) {
+        if (lists.size() == 1) {
+            List<T> first = lists.get(0);
+            if (first.size() == 1) {
+                return lists;
+            }
+            List<List<T>> result = Lists.newArrayListWithCapacity(lists.size());
+            for (T item : first) {
+                result.add(ImmutableList.of(item));
+            }
+            return result;
+        } else {
+            return doAllCombinations(lists);
+        }
+    }
+
+    private static <T> List<List<T>> doAllCombinations(List<List<T>> lists) {
         int size = lists.size();
         if (size == 0) {
             return ImmutableList.of();

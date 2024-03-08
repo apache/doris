@@ -99,6 +99,8 @@ stmt :
      | create_procedure_stmt
      | declare_stmt
      | drop_procedure_stmt
+     | show_procedure_stmt
+     | show_create_procedure_stmt
      | exec_stmt
      | exit_stmt
      | fetch_stmt
@@ -333,6 +335,13 @@ create_procedure_stmt :
 drop_procedure_stmt:
       DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier
     ;
+show_procedure_stmt:
+      SHOW PROCEDURE STATUS (LIKE pattern=valueExpression | whereClause)?
+    ;
+
+show_create_procedure_stmt:
+      SHOW CREATE PROCEDURE name=multipartIdentifier
+    ;      
 
 create_routine_params :
        LEFT_PAREN RIGHT_PAREN
