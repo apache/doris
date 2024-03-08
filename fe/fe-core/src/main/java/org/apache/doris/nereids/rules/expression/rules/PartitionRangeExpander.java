@@ -126,7 +126,7 @@ public class PartitionRangeExpander {
         return expandedLists;
     }
 
-    private final boolean canExpandRange(Slot slot, Literal lower, Literal upper,
+    private boolean canExpandRange(Slot slot, Literal lower, Literal upper,
             long expandedCount, int expandThreshold) {
         DataType type = slot.getDataType();
         if (!type.isIntegerLikeType() && !type.isDateType() && !type.isDateV2Type()) {
@@ -188,7 +188,7 @@ public class PartitionRangeExpander {
             );
             long diffMillisSecond = endDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
                     - startDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
-            return (diffMillisSecond + ONE_DAY_MILLIS_SECOND - 1) / ONE_DAY_MILLIS_SECOND;
+            return (diffMillisSecond + ONE_DAY_MILLIS_SECOND + ONE_DAY_MILLIS_SECOND - 1) / ONE_DAY_MILLIS_SECOND;
         } else if (dataType.isDateV2Type()) {
             DateV2Literal startInclusiveDate = (DateV2Literal) startInclusive;
             DateV2Literal endExclusiveDate = (DateV2Literal) endExclusive;
@@ -205,14 +205,14 @@ public class PartitionRangeExpander {
             );
             long diffMillisSecond = endDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
                     - startDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
-            return (diffMillisSecond + ONE_DAY_MILLIS_SECOND - 1) / ONE_DAY_MILLIS_SECOND;
+            return (diffMillisSecond + ONE_DAY_MILLIS_SECOND + ONE_DAY_MILLIS_SECOND - 1) / ONE_DAY_MILLIS_SECOND;
         }
 
         // not enumerable
         return -1;
     }
 
-    private final Iterator<? extends Expression> enumerableIterator(
+    private Iterator<? extends Expression> enumerableIterator(
             Slot slot, Literal startInclusive, Literal endLiteral, boolean endExclusive) {
         DataType dataType = slot.getDataType();
         if (dataType.isIntegerLikeType()) {

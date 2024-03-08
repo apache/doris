@@ -196,9 +196,7 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public boolean equals(Object o) {
         if (o instanceof DateLiteral) {
-            DateLiteral that = (DateLiteral) o;
-            return year == that.year && month == that.month && day == that.day && hour == that.hour
-                    && minute == that.minute && second == that.second && microsecond == that.microsecond;
+            return compareLiteral((LiteralExpr) o) == 0;
         }
         return super.equals(o);
     }
@@ -645,16 +643,21 @@ public class DateLiteral extends LiteralExpr {
                 return diffDay < 0 ? -1 : 1;
             }
 
+            int typeAsInt = isDateType() ? 0 : 1;
+            int thatTypeAsInt = other.isDateType() ? 0 : 1;
+            int typeDiff = typeAsInt - thatTypeAsInt;
+            if (typeDiff != 0) {
+                return typeDiff;
+            }
+
             long hourMinuteSecond = hour * 10000 + minute * 100 + second;
             long otherHourMinuteSecond = other.hour * 10000 + other.minute * 100 + other.second;
             long diffSecond = hourMinuteSecond - otherHourMinuteSecond;
             if (diffSecond != 0) {
                 return diffSecond < 0 ? -1 : 1;
             }
-            long msDiff = this.microsecond - other.microsecond;
-            return msDiff < 0
-                    ? -1
-                    : msDiff == 0 ? 0 : 1;
+            long diff = getMicroPartWithinScale() - other.getMicroPartWithinScale();
+            return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
         }
         // date time will not overflow when doing addition and subtraction
         return getStringValue().compareTo(expr.getStringValue());
@@ -1759,6 +1762,15 @@ public class DateLiteral extends LiteralExpr {
             return i;
         }
         throw new InvalidFormatException("'" + value + "' is invalid");
+    }
+
+    private long getMicroPartWithinScale() {
+        if (type.isDatetimeV2()) {
+            int scale = ((ScalarType) type).getScalarScale();
+            return (long) (microsecond / SCALE_FACTORS[scale]);
+        } else {
+            return 0;
+        }
     }
 
     public void setMinValue() {
