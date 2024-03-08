@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
@@ -152,6 +153,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaProfilingScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_ACTIVE_TASKS:
         return SchemaBackendActiveTasksScanner::create_unique();
+    case TSchemaTableType::SCH_ACTIVE_QUERIES:
+        return SchemaActiveQueriesScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

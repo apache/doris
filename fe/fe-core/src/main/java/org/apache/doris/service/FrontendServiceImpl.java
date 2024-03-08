@@ -2301,6 +2301,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         switch (request.getSchemaTableName()) {
             case METADATA_TABLE:
                 return MetadataGenerator.getMetadataTable(request);
+            case SCHEMA_TABLE:
+                return MetadataGenerator.getSchemaTableData(request);
             default:
                 break;
         }

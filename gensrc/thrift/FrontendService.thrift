@@ -918,7 +918,8 @@ struct TInitExternalCtlMetaResult {
 
 enum TSchemaTableName {
   // BACKENDS = 0,
-  METADATA_TABLE = 1,
+  METADATA_TABLE = 1, // tvf
+  SCHEMA_TABLE = 2, // db information_schema's table
 }
 
 struct TMetadataTableRequestParams {

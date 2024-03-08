@@ -511,7 +511,7 @@ struct TTasksMetadataParams {
 
 struct TQueriesMetadataParams {
   1: optional string cluster_name
-  2: optional bool   relay_to_other_fe
+  2: optional bool relay_to_other_fe
   3: optional TMaterializedViewsMetadataParams materialized_views_params
   4: optional TJobsMetadataParams jobs_params
   5: optional TTasksMetadataParams tasks_params
