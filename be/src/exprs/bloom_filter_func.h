@@ -79,7 +79,10 @@ public:
         }
     }
 
-    void set_contain_null() { _contain_null = true; }
+    void set_contain_null() {
+        DCHECK(_null_aware);
+        _contain_null = true;
+    }
 
     bool contain_null() const { return _null_aware && _contain_null; }
 
@@ -97,8 +100,6 @@ public:
     void set_length(int64_t bloom_filter_length) { _bloom_filter_length = bloom_filter_length; }
 
     void set_build_bf_exactly(bool build_bf_exactly) { _build_bf_exactly = build_bf_exactly; }
-
-    void set_null_aware(bool null_aware) { _null_aware = null_aware; }
 
     Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
 
@@ -139,43 +140,38 @@ public:
         // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
         // call for `merge` function. So we just reuse this bloom filter, and we don't need to
         // allocate memory again.
-        if (_inited) {
-            DCHECK(bloomfilter_func != nullptr);
+        std::lock_guard<std::mutex> l(_lock);
+        if (!_inited) {
             auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-            if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-                return Status::InvalidArgument(
-                        "bloom filter size not the same: already allocated bytes {}, expected "
-                        "allocated bytes {}",
-                        _bloom_filter_alloced, other_func->_bloom_filter_alloced);
-            }
-            return _bloom_filter->merge(other_func->_bloom_filter.get());
-        }
-        {
-            std::lock_guard<std::mutex> l(_lock);
-            if (!_inited) {
-                auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-                DCHECK(_bloom_filter == nullptr);
-                DCHECK(bloomfilter_func != nullptr);
-                _bloom_filter = bloomfilter_func->_bloom_filter;
-                _bloom_filter_alloced = other_func->_bloom_filter_alloced;
-                _inited = true;
-                return Status::OK();
-            }
+            DCHECK(_bloom_filter == nullptr);
             DCHECK(bloomfilter_func != nullptr);
-            auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-            if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-                return Status::InvalidArgument(
-                        "bloom filter size not the same: already allocated bytes {}, expected "
-                        "allocated bytes {}",
-                        _bloom_filter_alloced, other_func->_bloom_filter_alloced);
-            }
-            return _bloom_filter->merge(other_func->_bloom_filter.get());
+            _bloom_filter = bloomfilter_func->_bloom_filter;
+            _bloom_filter_alloced = other_func->_bloom_filter_alloced;
+            _inited = true;
+            return Status::OK();
         }
+        DCHECK(bloomfilter_func != nullptr);
+        auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+        if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
+            return Status::InvalidArgument(
+                    "bloom filter size not the same: already allocated bytes {}, expected "
+                    "allocated bytes {}",
+                    _bloom_filter_alloced, other_func->_bloom_filter_alloced);
+        }
+        if (other_func->_bloom_filter->contain_null()) {
+            _bloom_filter->set_contain_null();
+        }
+        return _bloom_filter->merge(other_func->_bloom_filter.get());
     }
 
-    Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
+    Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size,
+                  bool contain_null) {
         if (_bloom_filter == nullptr) {
+            _null_aware = contain_null;
             _bloom_filter.reset(BloomFilterAdaptor::create(_null_aware));
+        }
+        if (contain_null) {
+            _bloom_filter->set_contain_null();
         }
 
         _bloom_filter_alloced = data_size;
@@ -185,6 +181,16 @@ public:
     void get_data(char** data, int* len) {
         *data = _bloom_filter->data();
         *len = _bloom_filter->size();
+    }
+
+    bool contain_null() const {
+        DCHECK(_bloom_filter);
+        return _bloom_filter->contain_null();
+    }
+
+    void set_contain_null() {
+        DCHECK(_bloom_filter);
+        _bloom_filter->set_contain_null();
     }
 
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
@@ -214,7 +220,6 @@ protected:
     std::mutex _lock;
     int64_t _bloom_filter_length;
     bool _build_bf_exactly = false;
-    bool _null_aware = false;
 };
 
 template <typename T, bool need_trim = false>
