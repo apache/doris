@@ -131,6 +131,7 @@ struct RuntimeFilterParams {
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
+    bool null_aware = false;
 };
 
 struct RuntimeFilterFuncBase {

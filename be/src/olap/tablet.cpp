@@ -83,7 +83,6 @@
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/primary_key_index.h"
-#include "olap/rowid_conversion.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -1379,8 +1378,8 @@ bool Tablet::do_tablet_meta_checkpoint() {
         }
         if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(),
                                                  rs_meta->rowset_id())) {
-            static_cast<void>(RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(),
-                                                        rs_meta->rowset_id()));
+            RETURN_FALSE_IF_ERROR(RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(),
+                                                            rs_meta->rowset_id()));
             VLOG_NOTICE << "remove rowset id from meta store because it is already persistent with "
                         << "tablet meta, rowset_id=" << rs_meta->rowset_id();
         }
@@ -1395,8 +1394,8 @@ bool Tablet::do_tablet_meta_checkpoint() {
         }
         if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(),
                                                  rs_meta->rowset_id())) {
-            static_cast<void>(RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(),
-                                                        rs_meta->rowset_id()));
+            RETURN_FALSE_IF_ERROR(RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(),
+                                                            rs_meta->rowset_id()));
             VLOG_NOTICE << "remove rowset id from meta store because it is already persistent with "
                         << "tablet meta, rowset_id=" << rs_meta->rowset_id();
         }
@@ -1404,7 +1403,7 @@ bool Tablet::do_tablet_meta_checkpoint() {
     }
 
     if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
-        static_cast<void>(TabletMetaManager::remove_old_version_delete_bitmap(
+        RETURN_FALSE_IF_ERROR(TabletMetaManager::remove_old_version_delete_bitmap(
                 _data_dir, tablet_id(), max_version_unlocked()));
     }
 
@@ -2301,61 +2300,6 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
     }
 }
 
-// The caller should hold _rowset_update_lock and _meta_lock lock.
-Status Tablet::update_delete_bitmap_without_lock(const TabletSharedPtr& self,
-                                                 const RowsetSharedPtr& rowset) {
-    DBUG_EXECUTE_IF("Tablet.update_delete_bitmap_without_lock.random_failed", {
-        if (rand() % 100 < (100 * dp->param("percent", 0.1))) {
-            LOG_WARNING("Tablet.update_delete_bitmap_without_lock.random_failed");
-            return Status::InternalError(
-                    "debug tablet update delete bitmap without lock random failed");
-        }
-    });
-    int64_t cur_version = rowset->end_version();
-    std::vector<segment_v2::SegmentSharedPtr> segments;
-    RETURN_IF_ERROR(std::dynamic_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
-
-    // If this rowset does not have a segment, there is no need for an update.
-    if (segments.empty()) {
-        LOG(INFO) << "[Schema Change or Clone] skip to construct delete bitmap tablet: "
-                  << self->tablet_id() << " cur max_version: " << cur_version;
-        return Status::OK();
-    }
-    RowsetIdUnorderedSet cur_rowset_ids;
-    RETURN_IF_ERROR(self->get_all_rs_id_unlocked(cur_version - 1, &cur_rowset_ids));
-    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(self->tablet_id());
-    RETURN_IF_ERROR(self->calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
-
-    std::vector<RowsetSharedPtr> specified_rowsets = self->get_rowset_by_ids(&cur_rowset_ids);
-    OlapStopWatch watch;
-    auto token = self->_engine.calc_delete_bitmap_executor()->create_token();
-    RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version - 1, token.get()));
-    RETURN_IF_ERROR(token->wait());
-    size_t total_rows = std::accumulate(
-            segments.begin(), segments.end(), 0,
-            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
-    LOG(INFO) << "[Schema Change or Clone] construct delete bitmap tablet: " << self->tablet_id()
-              << ", rowset_ids: " << cur_rowset_ids.size() << ", cur max_version: " << cur_version
-              << ", transaction_id: " << -1 << ", cost: " << watch.get_elapse_time_us()
-              << "(us), total rows: " << total_rows;
-    if (config::enable_merge_on_write_correctness_check) {
-        // check if all the rowset has ROWSET_SENTINEL_MARK
-        auto st = self->check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
-                                                        cur_rowset_ids, &specified_rowsets);
-        if (!st.ok()) {
-            LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
-        }
-        self->_remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
-    }
-    for (auto& iter : delete_bitmap->delete_bitmap) {
-        self->_tablet_meta->delete_bitmap().merge(
-                {std::get<0>(iter.first), std::get<1>(iter.first), cur_version}, iter.second);
-    }
-
-    return Status::OK();
-}
-
 CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
     return _engine.calc_delete_bitmap_executor();
 }
@@ -2377,112 +2321,8 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     return Status::OK();
 }
 
-void Tablet::calc_compaction_output_rowset_delete_bitmap(
-        const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
-        uint64_t start_version, uint64_t end_version, std::set<RowLocation>* missed_rows,
-        std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
-        const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
-    RowLocation src;
-    RowLocation dst;
-    for (auto& rowset : input_rowsets) {
-        src.rowset_id = rowset->rowset_id();
-        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
-            src.segment_id = seg_id;
-            DeleteBitmap subset_map(tablet_id());
-            input_delete_bitmap.subset({rowset->rowset_id(), seg_id, start_version},
-                                       {rowset->rowset_id(), seg_id, end_version}, &subset_map);
-            // traverse all versions and convert rowid
-            for (auto iter = subset_map.delete_bitmap.begin();
-                 iter != subset_map.delete_bitmap.end(); ++iter) {
-                auto cur_version = std::get<2>(iter->first);
-                for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
-                    src.row_id = *index;
-                    if (rowid_conversion.get(src, &dst) != 0) {
-                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler, "
-                                      << " src loaction: |" << src.rowset_id << "|"
-                                      << src.segment_id << "|" << src.row_id
-                                      << " version: " << cur_version;
-                        missed_rows->insert(src);
-                        continue;
-                    }
-                    VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
-                               << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
-                               << " src location: |" << src.rowset_id << "|" << src.segment_id
-                               << "|" << src.row_id << " start version: " << start_version
-                               << "end version" << end_version;
-                    (*location_map)[rowset].emplace_back(src, dst);
-                    output_rowset_delete_bitmap->add({dst.rowset_id, dst.segment_id, cur_version},
-                                                     dst.row_id);
-                }
-            }
-        }
-    }
-}
-
 void Tablet::merge_delete_bitmap(const DeleteBitmap& delete_bitmap) {
     _tablet_meta->delete_bitmap().merge(delete_bitmap);
-}
-
-Status Tablet::check_rowid_conversion(
-        RowsetSharedPtr dst_rowset,
-        const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
-                location_map) {
-    if (location_map.empty()) {
-        VLOG_DEBUG << "check_rowid_conversion, location_map is empty";
-        return Status::OK();
-    }
-    std::vector<segment_v2::SegmentSharedPtr> dst_segments;
-
-    RETURN_IF_ERROR(
-            std::dynamic_pointer_cast<BetaRowset>(dst_rowset)->load_segments(&dst_segments));
-    std::unordered_map<RowsetId, std::vector<segment_v2::SegmentSharedPtr>> input_rowsets_segment;
-
-    VLOG_DEBUG << "check_rowid_conversion, dst_segments size: " << dst_segments.size();
-    for (auto [src_rowset, locations] : location_map) {
-        std::vector<segment_v2::SegmentSharedPtr>& segments =
-                input_rowsets_segment[src_rowset->rowset_id()];
-        if (segments.empty()) {
-            RETURN_IF_ERROR(
-                    std::dynamic_pointer_cast<BetaRowset>(src_rowset)->load_segments(&segments));
-        }
-        for (auto& [src, dst] : locations) {
-            std::string src_key;
-            std::string dst_key;
-            Status s = segments[src.segment_id]->read_key_by_rowid(src.row_id, &src_key);
-            if (UNLIKELY(s.is<NOT_IMPLEMENTED_ERROR>())) {
-                LOG(INFO) << "primary key index of old version does not "
-                             "support reading key by rowid";
-                break;
-            }
-            if (UNLIKELY(!s)) {
-                LOG(WARNING) << "failed to get src key: |" << src.rowset_id << "|" << src.segment_id
-                             << "|" << src.row_id << " status: " << s;
-                DCHECK(false);
-                return s;
-            }
-
-            s = dst_segments[dst.segment_id]->read_key_by_rowid(dst.row_id, &dst_key);
-            if (UNLIKELY(!s)) {
-                LOG(WARNING) << "failed to get dst key: |" << dst.rowset_id << "|" << dst.segment_id
-                             << "|" << dst.row_id << " status: " << s;
-                DCHECK(false);
-                return s;
-            }
-
-            VLOG_DEBUG << "check_rowid_conversion, src: |" << src.rowset_id << "|" << src.segment_id
-                       << "|" << src.row_id << "|" << src_key << " dst: |" << dst.rowset_id << "|"
-                       << dst.segment_id << "|" << dst.row_id << "|" << dst_key;
-            if (UNLIKELY(src_key.compare(dst_key) != 0)) {
-                LOG(WARNING) << "failed to check key, src key: |" << src.rowset_id << "|"
-                             << src.segment_id << "|" << src.row_id << "|" << src_key
-                             << " dst key: |" << dst.rowset_id << "|" << dst.segment_id << "|"
-                             << dst.row_id << "|" << dst_key;
-                DCHECK(false);
-                return Status::InternalError("failed to check rowid conversion");
-            }
-        }
-    }
-    return Status::OK();
 }
 
 bool Tablet::check_all_rowset_segment() {

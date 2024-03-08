@@ -311,6 +311,7 @@ public:
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
             _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
+            _context.bloom_filter_func->set_null_aware(params->null_aware);
             return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
@@ -318,6 +319,7 @@ public:
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
             _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
+            _context.bloom_filter_func->set_null_aware(params->null_aware);
             return Status::OK();
         }
         case RuntimeFilterType::BITMAP_FILTER: {
@@ -1230,6 +1232,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
                                _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
+    }
+    if (desc->__isset.null_aware) {
+        params.null_aware = desc->null_aware;
     }
     if (_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
         if (!build_ctx->root()->type().is_bitmap_type()) {

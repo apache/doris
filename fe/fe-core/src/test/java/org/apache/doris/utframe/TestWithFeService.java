@@ -58,6 +58,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -65,10 +66,13 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
@@ -793,6 +797,30 @@ public abstract class TestWithFeService {
         checkAlterJob();
         // waiting table state to normal
         Thread.sleep(100);
+    }
+
+    protected void createMvByNereids(String sql) throws Exception {
+        new MockUp<EditLog>() {
+            @Mock
+            public void logCreateTable(CreateTableInfo info) {
+                System.out.println("skip log create table...");
+            }
+
+            @Mock
+            public void logCreateJob(AbstractJob job) {
+                System.out.println("skip log create job...");
+            }
+        };
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateMTMVCommand) {
+            ((CreateMTMVCommand) parsed).run(connectContext, stmtExecutor);
+        }
+        checkAlterJob();
+        // waiting table state to normal
+        Thread.sleep(1000);
+
     }
 
     private void updateReplicaPathHash() {

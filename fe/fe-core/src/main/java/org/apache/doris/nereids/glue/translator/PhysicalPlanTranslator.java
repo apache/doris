@@ -28,6 +28,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -118,6 +119,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -422,6 +424,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
         rootFragment.setSink(sink);
 
+        return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink,
+                                                   PlanTranslatorContext context) {
+        PlanFragment rootFragment = hiveTableSink.child().accept(this, context);
         return rootFragment;
     }
 
@@ -1227,6 +1236,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> markConjuncts = ImmutableList.of();
         boolean isHashJoinConjunctsEmpty = hashJoin.getHashJoinConjuncts().isEmpty();
         boolean isMarkJoinConjunctsEmpty = hashJoin.getMarkJoinConjuncts().isEmpty();
+        JoinOperator joinOperator = JoinType.toJoinOperator(joinType);
         if (isHashJoinConjunctsEmpty) {
             // if hash join conjuncts is empty, means mark join conjuncts must be EqualPredicate
             // BE should use mark join conjuncts to build hash table
@@ -1236,10 +1246,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
+            // in order to process semi/anti join with no hash conjunct and having mark conjunct effeciently
+            // we can use mark conjunct as hash conjunct with slight different behavior if meets null values
+            // so we use null aware semi/anti join to indicate it's a null aware hash conjunct
+            // it's unnecessary to introduce new join type like NULL_AWARE_LEFT_SEMI_JOIN in nereids
+            // so we translate the join type here to let be known if the hash conjunct is null aware
+            if (joinOperator == JoinOperator.LEFT_ANTI_JOIN) {
+                joinOperator = JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+            } else if (joinOperator == JoinOperator.LEFT_SEMI_JOIN) {
+                joinOperator = JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN;
+            }
         }
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftPlanRoot,
-                rightPlanRoot, JoinType.toJoinOperator(joinType), execEqConjuncts, Lists.newArrayList(), markConjuncts,
+                rightPlanRoot, joinOperator, execEqConjuncts, Lists.newArrayList(), markConjuncts,
                 null, null, null, hashJoin.isMarkJoin());
         hashJoinNode.setNereidsId(hashJoin.getId());
         hashJoinNode.setDistributeExprLists(distributeExprLists);

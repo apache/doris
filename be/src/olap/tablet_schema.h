@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
+#include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -39,7 +40,9 @@
 #include "runtime/descriptors.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/string_utils/string_utils.h"
+#include "vec/core/types.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -52,6 +55,9 @@ class IDataType;
 struct OlapTableIndexSchema;
 class TColumn;
 class TOlapTableIndex;
+class TabletColumn;
+
+using TabletColumnPtr = std::shared_ptr<TabletColumn>;
 
 class TabletColumn {
 public:
@@ -78,6 +84,7 @@ public:
     void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
+    bool is_auto_increment() const { return _is_auto_increment; }
     bool is_variant_type() const { return _type == FieldType::OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
@@ -109,6 +116,7 @@ public:
     void set_index_length(size_t index_length) { _index_length = index_length; }
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
+    void set_is_auto_increment(bool is_auto_increment) { _is_auto_increment = is_auto_increment; }
     void set_has_default_value(bool has) { _has_default_value = has; }
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
@@ -127,8 +135,8 @@ public:
     void add_sub_column(TabletColumn& sub_column);
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
-    const TabletColumn& get_sub_column(uint32_t i) const { return _sub_columns[i]; }
-    const std::vector<TabletColumn>& get_sub_columns() const { return _sub_columns; }
+    const TabletColumn& get_sub_column(uint32_t i) const { return *_sub_columns[i]; }
+    const std::vector<TabletColumnPtr>& get_sub_columns() const { return _sub_columns; }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
     friend bool operator!=(const TabletColumn& a, const TabletColumn& b);
@@ -142,16 +150,19 @@ public:
     bool is_row_store_column() const;
     std::string get_aggregation_name() const { return _aggregation_name; }
     bool get_result_is_nullable() const { return _result_is_nullable; }
-    const vectorized::PathInData& path_info() const { return _column_path; }
+    bool has_path_info() const { return _column_path != nullptr && !_column_path->empty(); }
+    const vectorized::PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
-    bool is_extracted_column() const { return !_column_path.empty() && _parent_col_unique_id > 0; };
+    bool is_extracted_column() const {
+        return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
+    };
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
     void append_sparse_column(TabletColumn column);
     const TabletColumn& sparse_column_at(size_t oridinal) const;
-    const std::vector<TabletColumn>& sparse_columns() const;
+    const std::vector<TabletColumnPtr>& sparse_columns() const;
     size_t num_sparse_columns() const { return _num_sparse_columns; }
 
 private:
@@ -167,34 +178,36 @@ private:
     FieldAggregationMethod _aggregation;
     std::string _aggregation_name;
     bool _is_nullable = false;
+    bool _is_auto_increment = false;
 
     bool _has_default_value = false;
     std::string _default_value;
 
     bool _is_decimal = false;
-    int32_t _precision;
-    int32_t _frac;
+    int32_t _precision = -1;
+    int32_t _frac = -1;
 
-    int32_t _length;
-    int32_t _index_length;
+    int32_t _length = -1;
+    int32_t _index_length = -1;
 
     bool _is_bf_column = false;
 
     bool _has_bitmap_index = false;
     bool _visible = true;
     int32_t _parent_col_unique_id = -1;
-    std::vector<TabletColumn> _sub_columns;
+    std::vector<TabletColumnPtr> _sub_columns;
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
-    vectorized::PathInData _column_path;
+    vectorized::PathInDataPtr _column_path;
 
     // Record information about columns merged into a sparse column within a variant
     // `{"id": 100, "name" : "jack", "point" : 3.9}`
     // If the information mentioned above is inserted into the variant column,
     // 'id' and 'name' are correctly extracted, while 'point' is merged into the sparse column due to its sparsity.
     // The path_info and type of 'point' will be recorded using the TabletColumn.
-    std::vector<TabletColumn> _sparse_cols;
+    // Use shared_ptr for reuse and reducing column memory usage
+    std::vector<TabletColumnPtr> _sparse_cols;
     size_t _num_sparse_columns = 0;
 };
 
@@ -236,7 +249,7 @@ public:
     void set_escaped_escaped_index_suffix_path(const std::string& name);
 
 private:
-    int64_t _index_id;
+    int64_t _index_id = -1;
     // Identify the different index with the same _index_id
     std::string _escaped_index_suffix_path;
     std::string _index_name;
@@ -279,8 +292,8 @@ public:
     Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
-    const std::vector<TabletColumn>& columns() const;
-    std::vector<TabletColumn>& mutable_columns();
+    void replace_column(size_t pos, TabletColumn new_col);
+    const std::vector<TabletColumnPtr>& columns() const;
     size_t num_columns() const { return _num_columns; }
     size_t num_key_columns() const { return _num_key_columns; }
     const std::vector<uint32_t>& cluster_key_idxes() const { return _cluster_key_idxes; }
@@ -337,9 +350,15 @@ public:
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     vectorized::Block create_block(bool ignore_dropped_col = true) const;
     void set_schema_version(int32_t version) { _schema_version = version; }
+    void set_auto_increment_column(const std::string& auto_increment_column) {
+        _auto_increment_column = auto_increment_column;
+    }
+    std::string auto_increment_column() const { return _auto_increment_column; }
 
     void set_table_id(int32_t table_id) { _table_id = table_id; }
     int32_t table_id() const { return _table_id; }
+    void set_db_id(int32_t db_id) { _db_id = db_id; }
+    int32_t db_id() const { return _db_id; }
     void build_current_tablet_schema(int64_t index_id, int32_t version,
                                      const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
@@ -371,7 +390,7 @@ public:
             if (str.size() > 1) {
                 str += ", ";
             }
-            str += p.first + "(" + std::to_string(_cols[p.second].unique_id()) + ")";
+            str += p.first.to_string() + "(" + std::to_string(_cols[p.second]->unique_id()) + ")";
         }
         str += "]";
         return str;
@@ -385,12 +404,12 @@ public:
                 str += ", ";
             }
             str += "(";
-            str += p.name();
+            str += p->name();
             str += ", ";
-            str += TabletColumn::get_string_by_field_type(p.type());
+            str += TabletColumn::get_string_by_field_type(p->type());
             str += ", ";
             str += "is_nullable:";
-            str += (p.is_nullable() ? "true" : "false");
+            str += (p->is_nullable() ? "true" : "false");
             str += ")";
         }
         str += "]";
@@ -411,12 +430,12 @@ private:
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
-    std::vector<TabletColumn> _cols;
+    std::vector<TabletColumnPtr> _cols;
 
     std::vector<TabletIndex> _indexes;
-    std::unordered_map<std::string, int32_t> _field_name_to_index;
+    std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
-    std::unordered_map<vectorized::PathInData, int32_t, vectorized::PathInData::Hash>
+    std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;
@@ -428,6 +447,7 @@ private:
     CompressKind _compress_kind = COMPRESS_NONE;
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     size_t _next_column_unique_id = 0;
+    std::string _auto_increment_column;
 
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
@@ -437,6 +457,7 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _schema_version = -1;
     int32_t _table_id = -1;
+    int32_t _db_id = -1;
     bool _disable_auto_compaction = false;
     bool _enable_single_replica_compaction = false;
     int64_t _mem_size = 0;
