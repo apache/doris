@@ -37,12 +37,12 @@ constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 
 static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_metadata,
                                   size_t* meta_size, io::IOContext* io_ctx) {
-    size_t default_buff_size = config::parquet_footer_read_size;                                  
+    size_t default_buff_size = config::parquet_footer_read_size;
     size_t file_size = file->size();
     size_t bytes_read = std::min(file_size, default_buff_size);
     std::unique_ptr<uint8_t[]> footer(new uint8_t[bytes_read]);
-    RETURN_IF_ERROR(
-            file->read_at(file_size - bytes_read, Slice(footer.get(), bytes_read), &bytes_read, io_ctx));
+    RETURN_IF_ERROR(file->read_at(file_size - bytes_read, Slice(footer.get(), bytes_read),
+                                  &bytes_read, io_ctx));
 
     // validate magic
     uint8_t* magic_ptr = footer.get() + bytes_read - 4;
