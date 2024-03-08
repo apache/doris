@@ -484,7 +484,7 @@ void SystemBvarMetrics::update_cpu_metrics() {
         LOG(WARNING) << "getline failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
     }
-
+    free line_ptr;
     fclose(fp);
 }
 
@@ -580,6 +580,7 @@ void SystemBvarMetrics::update_disk_metrics() {
         LOG(WARNING) << "getline failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
     }
+    free line_ptr;
     fclose(fp);
 }
 
@@ -612,6 +613,7 @@ void SystemBvarMetrics::update_net_metrics() {
         char buf[64];
         LOG(WARNING) << "read /proc/net/dev first two line failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
+        free line_ptr;
         fclose(fp);
         return;
     }
@@ -685,6 +687,7 @@ void SystemBvarMetrics::update_net_metrics() {
         LOG(WARNING) << "getline failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
     }
+    free line_ptr;
     fclose(fp);
 }
 
@@ -727,6 +730,7 @@ void SystemBvarMetrics::update_fd_metrics() {
         LOG(WARNING) << "getline failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
     }
+    free line_ptr;
     fclose(fp);
 }
 
@@ -761,6 +765,7 @@ void SystemBvarMetrics::update_snmp_metrics() {
         char buf[64];
         LOG(WARNING) << "failed to skip lines of /proc/net/snmp, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
+        free line_ptr;
         fclose(fp);
         return;
     }
@@ -779,6 +784,7 @@ void SystemBvarMetrics::update_snmp_metrics() {
         char buf[64];
         LOG(WARNING) << "failed to skip Tcp header line of /proc/net/snmp, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
+        free line_ptr;
         fclose(fp);
         return;
     }
@@ -788,6 +794,7 @@ void SystemBvarMetrics::update_snmp_metrics() {
     std::vector<std::string> metrics = strings::Split(line_ptr, " ");
     if (metrics.size() != headers.size()) {
         LOG(WARNING) << "invalid tcp metrics line: " << line_ptr;
+        free line_ptr;
         fclose(fp);
         return;
     }
@@ -805,6 +812,7 @@ void SystemBvarMetrics::update_snmp_metrics() {
         LOG(WARNING) << "getline failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
     }
+    free line_ptr;
     fclose(fp);
 }
 
@@ -842,6 +850,7 @@ void SystemBvarMetrics::update_load_avg_metrics() {
         LOG(WARNING) << "getline failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
     }
+    free line_ptr;
     fclose(fp);
 }
 
@@ -896,7 +905,7 @@ void SystemBvarMetrics::update_proc_metrics() {
         LOG(WARNING) << "getline failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
     }
-
+    free line_ptr;
     fclose(fp);
 }
 
@@ -938,7 +947,7 @@ void SystemBvarMetrics::get_metrics_from_proc_vmstat() {
         LOG(WARNING) << "getline failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
     }
-
+    free line_ptr;
     fclose(fp);
 }
 
@@ -972,7 +981,7 @@ void SystemBvarMetrics::get_cpu_name() {
         LOG(WARNING) << "getline failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
     }
-
+    free line_ptr;
     fclose(fp);
 }
 
