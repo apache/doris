@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.plans.ObjectId;
@@ -72,7 +73,8 @@ public class MaterializationContext {
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
      */
-    public MaterializationContext(MTMV mtmv, Plan mvScanPlan, List<Table> baseTables, List<Table> baseViews) {
+    public MaterializationContext(MTMV mtmv, Plan mvScanPlan, List<Table> baseTables, List<Table> baseViews,
+            CascadesContext cascadesContext) {
         this.mtmv = mtmv;
         this.mvScanPlan = mvScanPlan;
         this.baseTables = baseTables;
@@ -244,11 +246,9 @@ public class MaterializationContext {
     /**
      * MaterializationContext fromMaterializedView
      */
-    public static MaterializationContext fromMaterializedView(MTMV materializedView, Plan mvScanPlan) {
-        return new MaterializationContext(
-                materializedView,
-                mvScanPlan,
-                ImmutableList.of(),
-                ImmutableList.of());
+    public static MaterializationContext fromMaterializedView(MTMV materializedView, Plan mvScanPlan,
+            CascadesContext cascadesContext) {
+        return new MaterializationContext(materializedView, mvScanPlan, ImmutableList.of(), ImmutableList.of(),
+                cascadesContext);
     }
 }
