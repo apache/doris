@@ -89,7 +89,7 @@ public class MTMVPartitionDefinition {
             try {
                 MTMVPartitionExprFactory.getExprSerice(mtmvPartitionInfo.getExpr()).analyze(mtmvPartitionInfo);
             } catch (org.apache.doris.common.AnalysisException e) {
-                throw new AnalysisException("expr illegality", e);
+                throw new AnalysisException(e.getMessage(), e);
             }
         }
         return mtmvPartitionInfo;

@@ -241,7 +241,7 @@ public class CreateMTMVInfo {
             allPartitionDescs = MTMVPartitionUtil
                     .getPartitionDescsByRelatedTable(properties, mvPartitionInfo, mvProperties);
         } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException("getPartitionDescsByRelatedTable failed", e);
+            throw new AnalysisException(e.getMessage(), e);
         }
         if (allPartitionDescs.size() > ctx.getSessionVariable().getCreateTablePartitionMaxNum()) {
             throw new AnalysisException(String.format(
@@ -262,7 +262,7 @@ public class CreateMTMVInfo {
                 return null;
             }
         } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException("can not generate partitionDesc", e);
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 
@@ -287,7 +287,7 @@ public class CreateMTMVInfo {
                         throw new AnalysisException("can not contain VIEW");
                     }
                 } catch (org.apache.doris.common.AnalysisException e) {
-                    LOG.warn("can not get table, ", e);
+                    LOG.warn(e.getMessage(), e);
                 }
             }
         }
@@ -316,7 +316,7 @@ public class CreateMTMVInfo {
             try {
                 FeNameFormat.checkColumnName(colName);
             } catch (org.apache.doris.common.AnalysisException e) {
-                throw new AnalysisException(e.getMessage());
+                throw new AnalysisException(e.getMessage(), e);
             }
             if (colNames.contains(colName)) {
                 throw new AnalysisException("repeat cols:" + colName);
