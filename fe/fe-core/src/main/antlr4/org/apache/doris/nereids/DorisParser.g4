@@ -54,8 +54,7 @@ statementBase
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList (CLUSTER BY clusterKeys=identifierList)?)?
         (COMMENT STRING_LITERAL)?
-        ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST) (partitionKeys=identifierList | partitionExpr=functionCallExpression)
-          LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN)?
+        (partition=partitionTable)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         properties=propertyClause?
@@ -128,6 +127,19 @@ partitionSpec
     // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
     // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
     // | PARTITIONS WITH RECENT
+    ;
+
+partitionTable
+    : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST)? partitionList=identityOrFunctionList
+       (LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN))
+    ;
+
+identityOrFunctionList
+    : LEFT_PAREN identityOrFunction (COMMA partitions+=identityOrFunction)* RIGHT_PAREN
+    ;
+
+identityOrFunction
+    : (identifier | functionCallExpression)
     ;
 
 dataDesc
@@ -732,6 +744,7 @@ primaryExpression
       source=valueExpression RIGHT_PAREN                                                       #extract
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
+
 
 functionCallExpression
     : functionIdentifier
