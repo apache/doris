@@ -134,7 +134,7 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
             AS
             SELECT k1,day,region FROM ${catalog_name}.${hive_database}.${hive_table};
         """
-    def showPartitionsResult = sql """show partitions from ${mvName}"""
+    showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(1, showPartitionsResult.size())
     assertTrue(showPartitionsResult.toString().contains("_20380101"))
