@@ -2128,7 +2128,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isDisableFileCache() {
-        return disableFileCache;
+        return Config.isCloudMode() ? disableFileCache : false;
     }
 
     public void setDisableFileCache(boolean disableFileCache) {
