@@ -35,6 +35,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -55,6 +56,7 @@ import org.apache.doris.nereids.util.TypeUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
@@ -259,27 +261,32 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * Rewrite by rules and try to make output is the same after optimize by rules
      */
     protected Plan rewriteByRules(CascadesContext cascadesContext, Plan rewrittenPlan, Plan originPlan) {
+        List<Slot> originOutputs = originPlan.getOutput();
+        if (originOutputs.size() != rewrittenPlan.getOutput().size()) {
+            return null;
+        }
+        Map<Slot, ExprId> originSlotToRewrittenExprId = Maps.newHashMap();
+        for (int i = 0; i < originOutputs.size(); i++) {
+            originSlotToRewrittenExprId.put(originOutputs.get(i), rewrittenPlan.getOutput().get(i).getExprId());
+        }
         // run rbo job on mv rewritten plan
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
         Rewriter.getWholeTreeRewriter(rewrittenPlanContext).execute();
         rewrittenPlan = rewrittenPlanContext.getRewritePlan();
-        List<Slot> originPlanOutput = originPlan.getOutput();
-        List<Slot> rewrittenPlanOutput = rewrittenPlan.getOutput();
-        if (originPlanOutput.size() != rewrittenPlanOutput.size()) {
-            return null;
+
+        // for get right nullable after rewritten, we need this map
+        Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newHashMap();
+        for (Slot slot : rewrittenPlan.getOutput()) {
+            exprIdToNewRewrittenSlot.put(slot.getExprId(), slot);
         }
-        List<NamedExpression> expressions = new ArrayList<>();
-        // should add project above rewritten plan if top plan is not project, if aggregate above will nu
-        if (!isOutputValid(originPlan, rewrittenPlan)) {
-            for (int i = 0; i < originPlanOutput.size(); i++) {
-                expressions.add(((NamedExpression) normalizeExpression(originPlanOutput.get(i),
-                        rewrittenPlanOutput.get(i))));
-            }
-            return new LogicalProject<>(expressions, rewrittenPlan, false);
-        }
-        return rewrittenPlan;
+
+        // normalize nullable
+        ImmutableList<NamedExpression> convertNullable = originOutputs.stream()
+                .map(s -> normalizeExpression(s, exprIdToNewRewrittenSlot.get(originSlotToRewrittenExprId.get(s))))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalProject<>(convertNullable, rewrittenPlan);
     }
 
     /**
@@ -398,22 +405,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * Normalize expression with query, keep the consistency of exprId and nullable props with
      * query
      */
-    protected Expression normalizeExpression(Expression sourceExpression, Expression replacedExpression) {
-        if (sourceExpression instanceof NamedExpression
-                && replacedExpression.nullable() != sourceExpression.nullable()) {
+    private NamedExpression normalizeExpression(
+            NamedExpression sourceExpression, NamedExpression replacedExpression) {
+        Expression innerExpression = replacedExpression;
+        if (replacedExpression.nullable() != sourceExpression.nullable()) {
             // if enable join eliminate, query maybe inner join and mv maybe outer join.
             // If the slot is at null generate side, the nullable maybe different between query and view
             // So need to force to consistent.
-            replacedExpression = sourceExpression.nullable()
+            innerExpression = sourceExpression.nullable()
                     ? new Nullable(replacedExpression) : new NonNullable(replacedExpression);
         }
-        if (sourceExpression instanceof NamedExpression
-                && !sourceExpression.equals(replacedExpression)) {
-            NamedExpression sourceNamedExpression = (NamedExpression) sourceExpression;
-            replacedExpression = new Alias(sourceNamedExpression.getExprId(), replacedExpression,
-                    sourceNamedExpression.getName());
-        }
-        return replacedExpression;
+        return new Alias(sourceExpression.getExprId(), innerExpression, sourceExpression.getName());
     }
 
     /**
