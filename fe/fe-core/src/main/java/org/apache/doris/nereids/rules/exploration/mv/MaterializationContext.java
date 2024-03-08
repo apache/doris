@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVCache;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.plans.ObjectId;
@@ -47,7 +46,8 @@ import java.util.stream.Collectors;
 public class MaterializationContext {
 
     private static final Logger LOG = LogManager.getLogger(MaterializationContext.class);
-    private MTMV mtmv;
+
+    private final MTMV mtmv;
     // Should use stmt id generator in query context
     private final Plan mvScanPlan;
     private final List<Table> baseTables;
@@ -68,11 +68,7 @@ public class MaterializationContext {
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
      */
-    public MaterializationContext(MTMV mtmv,
-            Plan mvScanPlan,
-            CascadesContext cascadesContext,
-            List<Table> baseTables,
-            List<Table> baseViews) {
+    public MaterializationContext(MTMV mtmv, Plan mvScanPlan, List<Table> baseTables, List<Table> baseViews) {
         this.mtmv = mtmv;
         this.mvScanPlan = mvScanPlan;
         this.baseTables = baseTables;
@@ -91,8 +87,8 @@ public class MaterializationContext {
         // mv output expression shuttle, this will be used to expression rewrite
         this.mvExprToMvScanExprMapping = ExpressionMapping.generate(
                 ExpressionUtils.shuttleExpressionWithLineage(
-                        mtmvCache.getMvOutputExpressions(),
-                        mtmvCache.getLogicalPlan()),
+                        mtmvCache.getOriginalPlan().getOutput(),
+                        mtmvCache.getOriginalPlan()),
                 mvScanPlan.getExpressions());
         // copy the plan from cache, which the plan in cache may change
         this.mvPlan = mtmvCache.getLogicalPlan();
@@ -229,13 +225,10 @@ public class MaterializationContext {
     /**
      * MaterializationContext fromMaterializedView
      */
-    public static MaterializationContext fromMaterializedView(MTMV materializedView,
-            Plan mvScanPlan,
-            CascadesContext cascadesContext) {
+    public static MaterializationContext fromMaterializedView(MTMV materializedView, Plan mvScanPlan) {
         return new MaterializationContext(
                 materializedView,
                 mvScanPlan,
-                cascadesContext,
                 ImmutableList.of(),
                 ImmutableList.of());
     }
