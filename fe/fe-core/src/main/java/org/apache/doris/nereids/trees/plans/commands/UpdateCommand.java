@@ -169,7 +169,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 Expression expr = new NereidsParser().parseExpression(tableName + "." + column.getName());
                 boolean existInExpr = false;
                 for (String colName : partialUpdateColNameToExpression.keySet()) {
-                    if (Objects.equalsIgnoreCase(colName, column.getName())) {
+                    if (colName.equalsIgnoreCase(column.getName())) {
                         expr = partialUpdateColNameToExpression.get(column.getName());
                         existInExpr = true;
                         break;
