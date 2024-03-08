@@ -194,7 +194,7 @@ suite("test_rollup_partition_mtmv") {
         (
         PARTITION p_20200101 VALUES [("2020-01-01"),("2020-01-02")),
         PARTITION p_20200102 VALUES [("2020-01-02"),("2020-01-03")),
-        PARTITION p_20200201 VALUES [("2020-02-01"),("MAXVALUE"))
+        PARTITION p_20200201 VALUES [("2020-02-01"),(MAXVALUE))
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
