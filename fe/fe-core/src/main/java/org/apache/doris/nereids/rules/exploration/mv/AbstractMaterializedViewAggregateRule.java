@@ -105,7 +105,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         if (viewTopPlanAndAggPair == null) {
             materializationContext.recordFailReason(queryStructInfo,
                     "Split view to top plan and agg fail, view doesn't not contain aggregate",
-                    materializationContext.isEnableRecordFailureDetail(),
                     () -> String.format("view plan = %s\n", viewStructInfo.getOriginalPlan().treeString()));
             return null;
         }
@@ -113,7 +112,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         if (queryTopPlanAndAggPair == null) {
             materializationContext.recordFailReason(queryStructInfo,
                     "Split query to top plan and agg fail",
-                    materializationContext.isEnableRecordFailureDetail(),
                     () -> String.format("query plan = %s\n", queryStructInfo.getOriginalPlan().treeString()));
             return null;
         }
@@ -135,7 +133,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             // if fails, record the reason and then try to roll up aggregate function
             materializationContext.recordFailReason(queryStructInfo,
                     "Can not rewrite expression when no roll up",
-                    materializationContext.isEnableRecordFailureDetail(),
                     () -> String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
                                     + "viewToQuerySlotMapping = %s",
                             queryTopPlan.getOutput(),
@@ -151,7 +148,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             materializationContext.recordFailReason(queryStructInfo,
                     "only one the of query or view is scalar aggregate and "
                             + "can not rewrite expression meanwhile",
-                    materializationContext.isEnableRecordFailureDetail(),
                     () -> String.format("query aggregate = %s,\n view aggregate = %s,\n",
                             queryTopPlanAndAggPair.value().treeString(),
                             viewTopPlanAndAggPair.value().treeString()));
@@ -184,7 +180,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 if (!context.isValid()) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "Query function roll up fail",
-                            materializationContext.isEnableRecordFailureDetail(),
                             () -> String.format("queryFunctionShuttled = %s,\n mvExprToMvScanExprQueryBased = %s",
                                     queryFunctionShuttled, mvExprToMvScanExprQueryBased));
                     return null;
@@ -203,7 +198,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     // group expr can not rewrite by view
                     materializationContext.recordFailReason(queryStructInfo,
                             "View dimensions doesn't not cover the query dimensions",
-                            materializationContext.isEnableRecordFailureDetail(),
                             () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
                                     mvExprToMvScanExprQueryBased, queryGroupShuttledExpr));
                     return null;
