@@ -28,7 +28,7 @@ public:
     void collect_profile_before_close() {
         bool expected = false;
         if (_collected.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-            _collect_profile_at_runtime();
+            _collect_profile_before_close();
         }
     }
 

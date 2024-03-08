@@ -906,6 +906,9 @@ void ParquetReader::_collect_profile() {
         return;
     }
 
+    if (_current_group_reader != nullptr) {
+        _current_group_reader->collect_profile_before_close();
+    }
     COUNTER_UPDATE(_parquet_profile.filtered_row_groups, _statistics.filtered_row_groups);
     COUNTER_UPDATE(_parquet_profile.to_read_row_groups, _statistics.read_row_groups);
     COUNTER_UPDATE(_parquet_profile.filtered_group_rows, _statistics.filtered_group_rows);
