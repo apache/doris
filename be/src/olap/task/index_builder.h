@@ -23,6 +23,7 @@
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
 #include "vec/olap/olap_data_convertor.h"
@@ -72,7 +73,6 @@ private:
     TabletSharedPtr _tablet;
     std::vector<TColumn> _columns;
     std::vector<doris::TOlapTableIndex> _alter_inverted_indexes;
-    std::vector<TabletIndex> _drop_indices_meta;
     bool _is_drop_op;
     std::set<int32_t> _alter_index_ids;
     std::vector<RowsetSharedPtr> _input_rowsets;
