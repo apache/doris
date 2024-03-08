@@ -38,7 +38,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris {
 
 // A Field is used to represent a column in memory format.

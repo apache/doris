@@ -26,7 +26,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris::vectorized {
 /** Write UInt64 in variable length format (base128) NOTE Only up to 2^63 - 1 are supported. */
 void write_var_uint(UInt64 x, std::ostream& ostr);

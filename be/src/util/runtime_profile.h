@@ -46,7 +46,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris {
 class TRuntimeProfileNode;
 class TRuntimeProfileTree;

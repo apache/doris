@@ -137,8 +137,8 @@ public:
      */
     auto find_null_aware_with_other_conjuncts(const Key* __restrict keys,
                                               const uint32_t* __restrict build_idx_map,
-                                              uint32_t probe_idx, uint32_t build_idx, int probe_rows,
-                                              uint32_t* __restrict probe_idxs,
+                                              uint32_t probe_idx, uint32_t build_idx,
+                                              int probe_rows, uint32_t* __restrict probe_idxs,
                                               uint32_t* __restrict build_idxs,
                                               uint8_t* __restrict null_flags,
                                               bool picking_null_keys) {

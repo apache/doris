@@ -56,7 +56,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace orc {
 /**
  * Decompress the bytes in to the output buffer.

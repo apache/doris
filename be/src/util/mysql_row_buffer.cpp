@@ -43,7 +43,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris {
 
 static uint8_t NEXT_TWO_BYTE = 252;

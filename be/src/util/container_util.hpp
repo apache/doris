@@ -32,7 +32,8 @@ namespace doris {
 // Hash function for TNetworkAddress. This function must be called hash_value to be picked
 // up properly by boost.
 inline std::size_t hash_value(const TNetworkAddress& host_port) {
-    uint32_t hash = HashUtil::hash(host_port.hostname.c_str(), (int32_t)host_port.hostname.length(), 0);
+    uint32_t hash =
+            HashUtil::hash(host_port.hostname.c_str(), (int32_t)host_port.hostname.length(), 0);
     return HashUtil::hash(&host_port.port, sizeof(host_port.port), hash);
 }
 

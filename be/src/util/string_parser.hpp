@@ -50,7 +50,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris {
 namespace vectorized {
 template <DecimalNativeTypeConcept T>

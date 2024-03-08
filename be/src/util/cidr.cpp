@@ -32,7 +32,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris {
 
 constexpr std::uint8_t kIPv4Bits = 32;

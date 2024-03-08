@@ -35,7 +35,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris {
 
 // Thread counters name

@@ -47,7 +47,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris {
 class BitmapFilterFuncBase;
 class BloomFilterFuncBase;

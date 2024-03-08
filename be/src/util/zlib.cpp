@@ -30,7 +30,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 using std::ostream;
 using std::string;
 

@@ -34,7 +34,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris {
 namespace segment_v2 {
 

@@ -40,7 +40,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 namespace doris {
 namespace vectorized {
 class BufferWritable;

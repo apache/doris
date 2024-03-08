@@ -80,7 +80,8 @@ public:
         io::Path io_path(_path);
         _index_dir = io_path.parent_path();
         _index_file_name = InvertedIndexDescriptor::get_index_file_name(
-                io_path.filename(), (uint32_t)index_meta->index_id(), index_meta->get_index_suffix());
+                io_path.filename(), (uint32_t)index_meta->index_id(),
+                index_meta->get_index_suffix());
     }
     virtual ~InvertedIndexReader() = default;
 

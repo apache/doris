@@ -307,8 +307,8 @@ public:
         }
 
         for (int i = 0; i < (int)_num_elems - 1; ++i) {
-            dict_word_info[i].size =size_t(
-                    (char*)dict_word_info[i + 1].data - (char*)dict_word_info[i].data);
+            dict_word_info[i].size =
+                    size_t((char*)dict_word_info[i + 1].data - (char*)dict_word_info[i].data);
         }
 
         dict_word_info[_num_elems - 1].size =

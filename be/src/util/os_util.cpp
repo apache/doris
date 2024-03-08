@@ -41,7 +41,6 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #endif
 
-
 using std::string;
 using std::vector;
 using strings::Split;
