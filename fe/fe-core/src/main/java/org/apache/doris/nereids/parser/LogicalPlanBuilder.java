@@ -161,6 +161,8 @@ import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
+import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
@@ -367,6 +369,8 @@ import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -3375,5 +3379,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         FuncNameInfo procedureName = new FuncNameInfo(nameParts);
         return ParserUtils.withOrigin(ctx, () -> new DropProcedureCommand(procedureName, getOriginSql(ctx)));
+    }
+
+    @Override
+    public LogicalPlan visitShowProcedureStatus(ShowProcedureStatusContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> new ShowProcedureStatusCommand());
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateProcedure(ShowCreateProcedureContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        FuncNameInfo procedureName = new FuncNameInfo(nameParts);
+        return ParserUtils.withOrigin(ctx, () -> new ShowCreateProcedureCommand(procedureName));
     }
 }
