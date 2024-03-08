@@ -1165,6 +1165,8 @@ struct TPlsqlStoredProcedure {
     4: optional string packageName
     5: optional string ownerName
     6: optional string source
+    7: optional string createTime
+    8: optional string modifyTime
 }
 
 struct TPlsqlPackage {

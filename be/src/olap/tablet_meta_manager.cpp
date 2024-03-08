@@ -92,7 +92,7 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
                                TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     std::string value;
-    static_cast<void>(tablet_meta->serialize(&value));
+    tablet_meta->serialize(&value);
     if (tablet_meta->partition_id() <= 0) {
         LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << " tablet "
                      << tablet_meta->tablet_id();
