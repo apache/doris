@@ -33,6 +33,10 @@
 #include <type_traits>
 
 #include "common/exception.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 // NOLINTBEGIN(*)
 
@@ -1490,3 +1494,6 @@ struct hash<wide::integer<Bits, Signed>> {
 } // namespace std
 
 // NOLINTEND(*)
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

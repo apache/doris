@@ -47,7 +47,10 @@
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 class BlockCompressionCodec;
@@ -695,3 +698,6 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

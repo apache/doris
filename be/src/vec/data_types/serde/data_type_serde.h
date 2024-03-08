@@ -35,7 +35,10 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace arrow {
 class ArrayBuilder;
 class Array;
@@ -327,3 +330,7 @@ DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& s
 
 } // namespace vectorized
 } // namespace doris
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

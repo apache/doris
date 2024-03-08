@@ -132,7 +132,7 @@ private:
                                          uint32_t element_count_capacity)
                 : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
                                  LRUCacheType::SIZE,
-                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 (uint32_t)config::inverted_index_cache_stale_sweep_time_sec, num_shards,
                                  element_count_capacity, true) {}
         InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
                                          uint32_t element_count_capacity,
@@ -140,7 +140,7 @@ private:
                                          bool cache_value_check_timestamp)
                 : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
                                  LRUCacheType::SIZE,
-                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 (uint32_t)config::inverted_index_cache_stale_sweep_time_sec, num_shards,
                                  element_count_capacity, cache_value_time_extractor,
                                  cache_value_check_timestamp, true) {}
     };
@@ -252,7 +252,7 @@ public:
 
     InvertedIndexQueryCache(size_t capacity, uint32_t num_shards)
             : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE, capacity,
-                             LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
+                             LRUCacheType::SIZE, (uint32_t)config::inverted_index_cache_stale_sweep_time_sec,
                              num_shards) {}
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);

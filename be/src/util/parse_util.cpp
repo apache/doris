@@ -21,7 +21,10 @@
 #include "util/parse_util.h"
 
 #include "util/string_parser.hpp"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t parent_limit,
@@ -109,3 +112,6 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t paren
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

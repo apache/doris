@@ -19,6 +19,10 @@
 #include "util/time_lut.h"
 
 #include "vec/runtime/vdatetime_value.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 TimeLUTImpl::TimeLUTImpl() {
@@ -133,3 +137,6 @@ uint32_t year_week(uint16_t yy, uint8_t month, uint8_t day) {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

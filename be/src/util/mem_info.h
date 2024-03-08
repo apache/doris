@@ -27,6 +27,11 @@
 #include <condition_variable>
 #include <string>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 #if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
 #include <unistd.h>
 #else
@@ -223,3 +228,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -182,7 +182,7 @@ Status convert_to_arrow_schema(const RowDescriptor& row_desc,
 Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
                                       std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
+    for (size_t i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
         auto root_expr = output_vexpr_ctxs.at(i)->root();
         RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type));

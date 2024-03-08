@@ -28,7 +28,7 @@ struct PartialUpdateInfo {
         partial_update_input_columns = partial_update_cols;
         missing_cids.clear();
         update_cids.clear();
-        for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
+        for (size_t i = 0; i < tablet_schema.num_columns(); ++i) {
             auto tablet_column = tablet_schema.column(i);
             if (!partial_update_input_columns.contains(tablet_column.name())) {
                 missing_cids.emplace_back(i);

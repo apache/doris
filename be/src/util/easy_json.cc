@@ -64,7 +64,7 @@ EasyJson EasyJson::Get(int index) {
     while (SizeType(index) >= value_->Size()) {
         value_->PushBack(Value().SetNull(), alloc_->allocator());
     }
-    return EasyJson(&(*value_)[index], alloc_);
+    return EasyJson(&(*value_)[(SizeType)index], alloc_);
 }
 
 EasyJson EasyJson::operator[](const string& key) {

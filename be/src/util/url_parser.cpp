@@ -25,7 +25,10 @@
 
 #include "runtime/string_search.hpp"
 #include "vec/common/string_ref.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 const StringRef UrlParser::_s_url_authority(const_cast<char*>("AUTHORITY"), 9);
@@ -411,3 +414,6 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
     return result;
 }
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

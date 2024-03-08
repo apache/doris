@@ -35,7 +35,10 @@
 
 #include "util/core_local.h"
 #include "util/histogram.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 namespace rj = RAPIDJSON_NAMESPACE;
@@ -428,3 +431,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

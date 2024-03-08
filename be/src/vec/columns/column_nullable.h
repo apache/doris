@@ -40,7 +40,10 @@
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 class SipHash;
 
 namespace doris::vectorized {
@@ -405,3 +408,6 @@ ColumnPtr remove_nullable(const ColumnPtr& column);
 // is_single: whether null_map is null map of a ColumnConst
 void check_set_nullable(ColumnPtr&, ColumnVector<UInt8>::MutablePtr& null_map, bool is_single);
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -51,7 +51,7 @@
 
 namespace doris::vectorized::detail {
 inline void memcpy_small_allow_read_write_overflow15_impl(char* __restrict dst,
-                                                          const char* __restrict src, ssize_t n) {
+                                                          const char* __restrict src, size_t n) {
     while (n > 0) {
         _mm_storeu_si128(reinterpret_cast<__m128i*>(dst),
                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(src)));

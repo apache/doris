@@ -158,14 +158,14 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     aws_config.endpointOverride = s3_conf.endpoint;
     aws_config.region = s3_conf.region;
     if (s3_conf.max_connections > 0) {
-        aws_config.maxConnections = s3_conf.max_connections;
+        aws_config.maxConnections = (uint32_t)s3_conf.max_connections;
     } else {
 #ifdef BE_TEST
         // the S3Client may shared by many threads.
         // So need to set the number of connections large enough.
         aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
 #else
-        aws_config.maxConnections =
+        aws_config.maxConnections =(uint32_t)
                 ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
 #endif
     }

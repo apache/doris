@@ -29,6 +29,10 @@
 #include "gutil/endian.h"
 #include "util/cpu_info.h"
 #include "util/sse_util.hpp"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -483,3 +487,6 @@ public:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -23,7 +23,10 @@
 #include <stdint.h>
 
 #include "util/coding.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 namespace crc32c {
 
@@ -272,3 +275,6 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
 
 } // namespace crc32c
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

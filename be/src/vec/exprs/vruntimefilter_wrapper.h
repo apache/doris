@@ -60,10 +60,10 @@ public:
     // if filter rate less than this, bloom filter will set always true
     constexpr static double EXPECTED_FILTER_RATE = 0.4;
 
-    static void calculate_filter(double ignore_threshold, int64_t filter_rows, int64_t scan_rows,
+    static void calculate_filter(double ignore_threshold, uint64_t filter_rows, uint64_t scan_rows,
                                  bool& has_calculate, bool& always_true) {
         if ((!has_calculate) && (scan_rows > config::rf_predicate_check_row_num)) {
-            if (filter_rows / (scan_rows * 1.0) < ignore_threshold) {
+            if ((double)filter_rows / ((double)scan_rows * 1.0) < ignore_threshold) {
                 always_true = true;
             }
             has_calculate = true;

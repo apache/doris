@@ -42,6 +42,10 @@
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 class SipHash;
 
@@ -341,3 +345,6 @@ ColumnPtr ColumnDecimal<T>::index_impl(const PaddedPODArray<Type>& indexes, size
 }
 
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

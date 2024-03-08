@@ -36,7 +36,10 @@
 #include "gutil/integral_types.h"
 #include "gutil/port.h"
 #include "vec/core/wide_integer.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 inline uint64 gbswap_64(uint64 host_int) {
 #if defined(__GNUC__) && defined(__x86_64__) && !defined(__APPLE__)
     // Adapted from /usr/include/byteswap.h.  Not available on Mac.
@@ -369,3 +372,6 @@ public:
 
 // Network byte order is big-endian
 typedef BigEndian NetworkByteOrder;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

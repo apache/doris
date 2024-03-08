@@ -35,6 +35,11 @@
 #include "vec/data_types/serde/data_type_jsonb_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 
 namespace doris {
 namespace vectorized {
@@ -100,3 +105,6 @@ private:
     DataTypeString data_type_string;
 };
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

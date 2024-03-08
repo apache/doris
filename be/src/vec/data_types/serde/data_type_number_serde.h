@@ -35,7 +35,10 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 class JsonbOutStream;
 
@@ -347,3 +350,6 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
 
 } // namespace vectorized
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

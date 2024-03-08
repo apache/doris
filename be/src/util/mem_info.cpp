@@ -51,7 +51,10 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "util/string_parser.hpp"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 bvar::PassiveStatus<int64_t> g_sys_mem_avail(
@@ -532,3 +535,6 @@ std::string MemInfo::debug_string() {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

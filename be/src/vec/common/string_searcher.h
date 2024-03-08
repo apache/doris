@@ -30,6 +30,10 @@
 #include "util/sse_util.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/string_utils/string_utils.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -417,3 +421,6 @@ struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
     }
 };
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

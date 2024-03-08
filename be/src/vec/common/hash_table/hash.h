@@ -27,6 +27,10 @@
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 // Here is an empirical value.
 static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
@@ -198,3 +202,6 @@ struct HashCRC32<doris::vectorized::UInt136> {
 #endif
     }
 };
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

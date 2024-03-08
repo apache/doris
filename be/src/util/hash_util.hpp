@@ -32,6 +32,10 @@
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"
 #include "util/sse_util.hpp"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -402,3 +406,7 @@ struct std::hash<std::pair<doris::TUniqueId, int64_t>> {
         return seed;
     }
 };
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

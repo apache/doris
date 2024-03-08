@@ -19,6 +19,10 @@
 // and modified by Doris
 
 #include "util/cpu_info.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 #elif defined(__GNUC__) && defined(__ARM_NEON__)
@@ -409,3 +413,6 @@ std::string CpuInfo::debug_string() {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

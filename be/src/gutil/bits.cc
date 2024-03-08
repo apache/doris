@@ -20,26 +20,26 @@ const char Bits::num_bits[] = {
         5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 3, 4, 4, 5, 4, 5, 5, 6,
         4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
 
-int Bits::Count(const void* m, int num_bytes) {
+int Bits::Count(const void* m, size_t num_bytes) {
     int nbits = 0;
     const uint8* s = (const uint8*)m;
-    for (int i = 0; i < num_bytes; i++) nbits += num_bits[*s++];
+    for (size_t i = 0; i < num_bytes; i++) nbits += num_bits[*s++];
     return nbits;
 }
 
-int Bits::Difference(const void* m1, const void* m2, int num_bytes) {
+int Bits::Difference(const void* m1, const void* m2, size_t num_bytes) {
     int nbits = 0;
     const uint8* s1 = (const uint8*)m1;
     const uint8* s2 = (const uint8*)m2;
-    for (int i = 0; i < num_bytes; i++) nbits += num_bits[(*s1++) ^ (*s2++)];
+    for (size_t i = 0; i < num_bytes; i++) nbits += num_bits[(*s1++) ^ (*s2++)];
     return nbits;
 }
 
-int Bits::CappedDifference(const void* m1, const void* m2, int num_bytes, int cap) {
+int Bits::CappedDifference(const void* m1, const void* m2, size_t num_bytes, int cap) {
     int nbits = 0;
     const uint8* s1 = (const uint8*)m1;
     const uint8* s2 = (const uint8*)m2;
-    for (int i = 0; i < num_bytes && nbits <= cap; i++) nbits += num_bits[(*s1++) ^ (*s2++)];
+    for (size_t i = 0; i < num_bytes && nbits <= cap; i++) nbits += num_bits[(*s1++) ^ (*s2++)];
     return nbits;
 }
 

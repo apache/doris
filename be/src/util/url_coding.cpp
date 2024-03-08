@@ -21,7 +21,10 @@
 
 #include <memory>
 #include <sstream>
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 static inline void url_encode(const char* in, int in_len, std::string* out) {
@@ -292,3 +295,6 @@ std::string escape_for_html_to_string(const std::string& in) {
     return str.str();
 }
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

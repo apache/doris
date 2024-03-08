@@ -41,6 +41,10 @@
 #include "util/coding.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 // serialized bitmap := TypeCode(1), Payload
@@ -2913,3 +2917,6 @@ inline bool BitmapValue::contains_any(uint64_t left, uint64_t right) const {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

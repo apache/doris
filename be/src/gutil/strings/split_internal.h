@@ -33,6 +33,12 @@ using std::vector;
 #include <initializer_list>
 #endif // LANG_CXX11
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
+
 namespace strings {
 
 namespace internal {
@@ -405,3 +411,6 @@ private:
 } // namespace internal
 
 } // namespace strings
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

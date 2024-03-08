@@ -162,7 +162,7 @@ public:
 
     // If column in segment is the same type in schema, then it is safe to apply predicate
     template <typename Predicate>
-    bool can_apply_predicate_safely(int cid, Predicate* pred, const Schema& schema,
+    bool can_apply_predicate_safely(ColumnId cid, Predicate* pred, const Schema& schema,
                                     ReaderType read_type) const {
         const Field* col = schema.column(cid);
         vectorized::DataTypePtr storage_column_type = get_data_type_of(

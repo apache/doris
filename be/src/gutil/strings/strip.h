@@ -13,7 +13,10 @@ using std::string;
 
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/stringpiece.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 // Given a string and a putative prefix, returns the string minus the
 // prefix string if the prefix matches, otherwise the original
 // string.
@@ -257,3 +260,6 @@ int memrm(char* str, int strlen, char c);
 // ----------------------------------------------------------------------
 int strrmm(char* str, const char* chars);
 int strrmm(string* str, const string& chars);
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

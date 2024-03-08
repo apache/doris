@@ -28,6 +28,10 @@
 
 #include "util/bit_util.h"
 #include "util/coding.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -495,3 +499,6 @@ template class ForDecoder<uint64_t>;
 template class ForDecoder<uint24_t>;
 template class ForDecoder<uint128_t>;
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

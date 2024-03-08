@@ -8,7 +8,10 @@
 #include "gutil/integral_types.h"
 // IWYU pragma: no_include <butil/macros.h>
 #include "gutil/macros.h" // IWYU pragma: keep
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 class Bits {
 public:
     // Return the number of one bits in the given integer.
@@ -50,17 +53,17 @@ public:
     static uint64 ReverseBits64(uint64 n);
 
     // Return the number of one bits in the byte sequence.
-    static int Count(const void* m, int num_bytes);
+    static int Count(const void* m, size_t num_bytes);
 
     // Return the number of different bits in the given byte sequences.
     // (i.e., the Hamming distance)
-    static int Difference(const void* m1, const void* m2, int num_bytes);
+    static int Difference(const void* m1, const void* m2, size_t num_bytes);
 
     // Return the number of different bits in the given byte sequences,
     // up to a maximum.  Values larger than the maximum may be returned
     // (because multiple bits are checked at a time), but the function
     // may exit early if the cap is exceeded.
-    static int CappedDifference(const void* m1, const void* m2, int num_bytes, int cap);
+    static int CappedDifference(const void* m1, const void* m2, size_t num_bytes, int cap);
 
     // Return floor(log2(n)) for positive integer n.  Returns -1 iff n == 0.
     static int Log2Floor(uint32 n);
@@ -258,3 +261,6 @@ template <class T>
     }
     return !Bits::BytesContainByteLessThan(bytes + (255 - hi) * l, lo + (255 - hi));
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

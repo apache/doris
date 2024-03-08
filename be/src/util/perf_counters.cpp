@@ -38,6 +38,10 @@
 #include "util/pretty_printer.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -597,3 +601,6 @@ void PerfCounters::get_proc_status(ProcStatus* out) {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

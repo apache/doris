@@ -71,8 +71,8 @@ public:
 
         timespec end;
         clock_gettime(Clock, &end);
-        return (end.tv_sec - _start.tv_sec) * 1000L * 1000L * 1000L +
-               (end.tv_nsec - _start.tv_nsec);
+        return uint64_t(end.tv_sec - _start.tv_sec) * 1000L * 1000L * 1000L +
+               uint64_t(end.tv_nsec - _start.tv_nsec);
     }
 
 private:

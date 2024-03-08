@@ -31,6 +31,10 @@
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/types.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 class PValues;
@@ -278,3 +282,6 @@ using DataTypeStringSerDe = DataTypeStringSerDeBase<ColumnString>;
 using DataTypeFixedLengthObjectSerDe = DataTypeStringSerDeBase<ColumnFixedLengthObject>;
 } // namespace vectorized
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

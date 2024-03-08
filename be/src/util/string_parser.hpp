@@ -45,6 +45,12 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/number_traits.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
+
 namespace doris {
 namespace vectorized {
 template <DecimalNativeTypeConcept T>
@@ -771,3 +777,7 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
 }
 
 } // end namespace doris
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

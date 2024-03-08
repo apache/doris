@@ -87,7 +87,7 @@ public:
 
     template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join, bool need_judge_null>
     auto find_batch(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
-                    int probe_idx, uint32_t build_idx, int probe_rows,
+                    uint32_t probe_idx, uint32_t build_idx, int probe_rows,
                     uint32_t* __restrict probe_idxs, bool& probe_visited,
                     uint32_t* __restrict build_idxs) {
         if constexpr (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
@@ -121,7 +121,7 @@ public:
                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
             return _find_batch_right_semi_anti(keys, build_idx_map, probe_idx, probe_rows);
         }
-        return std::tuple {0, 0U, 0};
+        return std::tuple {0U, 0U, 0};
     }
 
     /**
@@ -137,7 +137,7 @@ public:
      */
     auto find_null_aware_with_other_conjuncts(const Key* __restrict keys,
                                               const uint32_t* __restrict build_idx_map,
-                                              int probe_idx, uint32_t build_idx, int probe_rows,
+                                              uint32_t probe_idx, uint32_t build_idx, int probe_rows,
                                               uint32_t* __restrict probe_idxs,
                                               uint32_t* __restrict build_idxs,
                                               uint8_t* __restrict null_flags,
@@ -209,7 +209,7 @@ public:
                      vectorized::ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
-        int count = 0;
+        size_t count = 0;
         build_idxs.resize(batch_size);
 
         while (count < batch_size && iter_idx < elem_num) {
@@ -248,7 +248,7 @@ public:
 
 private:
     template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join>
-    auto _process_null_aware_left_anti_join_for_empty_build_side(int probe_idx, int probe_rows,
+    auto _process_null_aware_left_anti_join_for_empty_build_side(uint32_t probe_idx, int probe_rows,
                                                                  uint32_t* __restrict probe_idxs,
                                                                  uint32_t* __restrict build_idxs) {
         static_assert(JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN);
@@ -265,7 +265,7 @@ private:
     }
 
     auto _find_batch_right_semi_anti(const Key* __restrict keys,
-                                     const uint32_t* __restrict build_idx_map, int probe_idx,
+                                     const uint32_t* __restrict build_idx_map, uint32_t probe_idx,
                                      int probe_rows) {
         while (probe_idx < probe_rows) {
             auto build_idx = build_idx_map[probe_idx];
@@ -283,7 +283,7 @@ private:
 
     template <int JoinOpType, bool need_judge_null>
     auto _find_batch_left_semi_anti(const Key* __restrict keys,
-                                    const uint32_t* __restrict build_idx_map, int probe_idx,
+                                    const uint32_t* __restrict build_idx_map, uint32_t probe_idx,
                                     int probe_rows, uint32_t* __restrict probe_idxs) {
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
@@ -310,7 +310,7 @@ private:
 
     template <int JoinOpType, bool need_judge_null>
     auto _find_batch_conjunct(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
-                              int probe_idx, uint32_t build_idx, int probe_rows,
+                              uint32_t probe_idx, uint32_t build_idx, int probe_rows,
                               uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs) {
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
@@ -374,7 +374,7 @@ private:
 
     template <int JoinOpType>
     auto _find_batch_inner_outer_join(const Key* __restrict keys,
-                                      const uint32_t* __restrict build_idx_map, int probe_idx,
+                                      const uint32_t* __restrict build_idx_map, uint32_t probe_idx,
                                       uint32_t build_idx, int probe_rows,
                                       uint32_t* __restrict probe_idxs, bool& probe_visited,
                                       uint32_t* __restrict build_idxs) {

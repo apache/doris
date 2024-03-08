@@ -46,6 +46,11 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 
 namespace doris {
 namespace vectorized {
@@ -601,3 +606,6 @@ public:
 };
 
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

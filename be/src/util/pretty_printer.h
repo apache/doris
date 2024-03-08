@@ -30,6 +30,10 @@
 #include "util/binary_cast.hpp"
 #include "util/cpu_info.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 /// Truncate a double to offset decimal places.
 #define DOUBLE_TRUNCATE(val, offset) floor(val* pow(10, offset)) / pow(10, offset)
 
@@ -288,3 +292,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

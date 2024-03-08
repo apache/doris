@@ -25,6 +25,12 @@
 #include <ostream>
 #include <string>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
+
 using std::ostream;
 using std::string;
 
@@ -119,3 +125,6 @@ Status Uncompress(Slice compressed, std::ostream* out) {
 
 } // namespace zlib
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

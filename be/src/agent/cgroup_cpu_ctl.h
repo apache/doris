@@ -25,7 +25,10 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "util/cpu_info.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 // cgroup cpu.cfs_quota_us default value, it means disable cpu hard limit
@@ -113,3 +116,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

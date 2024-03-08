@@ -42,6 +42,11 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/function.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 
 namespace doris {
 class BitmapFilterFuncBase;
@@ -423,3 +428,6 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
                                  int scale = 0);
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

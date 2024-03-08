@@ -36,6 +36,12 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
+
 using std::string;
 using std::vector;
 using strings::Split;
@@ -138,3 +144,6 @@ void disable_core_dumps() {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

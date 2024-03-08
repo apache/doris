@@ -31,7 +31,10 @@
 #else
 #include "util/jsonb_parser.h"
 #endif
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 struct JsonBinaryValue {
@@ -125,5 +128,7 @@ std::ostream& operator<<(std::ostream& os, const JsonBinaryValue& json_value);
 std::size_t operator-(const JsonBinaryValue& v1, const JsonBinaryValue& v2);
 
 } // namespace doris
-
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #endif

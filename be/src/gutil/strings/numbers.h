@@ -10,6 +10,12 @@
 #include <stdint.h>
 #include <functional>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
+
 using std::less;
 #include <limits>
 
@@ -572,3 +578,6 @@ bool ParseDoubleRange(const char* text, int len, const char** end, double* from,
 // inline string UInt64ToString(uint64 ui64) {
 //   return StringPrintf("%7" PRIu64, ui64);
 // }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

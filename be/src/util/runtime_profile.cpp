@@ -30,6 +30,11 @@
 
 #include "common/object_pool.h"
 #include "util/container_util.hpp"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 
 namespace doris {
 
@@ -704,3 +709,6 @@ void RuntimeProfile::print_child_counters(const std::string& prefix,
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

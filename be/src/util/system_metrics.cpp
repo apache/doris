@@ -35,6 +35,10 @@
 #include "gutil/strtoint.h"      //  for atoi64
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -1050,3 +1054,7 @@ void SystemMetrics::get_cpu_name() {
 }
 
 } // namespace doris
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -103,7 +103,7 @@ std::string get_hex_uint_lowercase(TUInt uint_) {
 extern const char* const hex_char_to_digit_table;
 
 inline UInt8 unhex(char c) {
-    return hex_char_to_digit_table[static_cast<UInt8>(c)];
+    return (uint8_t)hex_char_to_digit_table[static_cast<UInt8>((uint8_t)c)];
 }
 
 inline UInt8 unhex2(const char* data) {

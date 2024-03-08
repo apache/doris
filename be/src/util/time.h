@@ -24,6 +24,11 @@
 #include <time.h>
 
 #include <string>
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 
 #define NANOS_PER_SEC 1000000000ll
 #define NANOS_PER_MILLIS 1000000ll
@@ -135,3 +140,6 @@ std::string ToStringFromUnixMicros(int64_t us, TimePrecision p = TimePrecision::
 std::string ToUtcStringFromUnixMicros(int64_t us, TimePrecision p = TimePrecision::Microsecond);
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

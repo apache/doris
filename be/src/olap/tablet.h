@@ -54,7 +54,10 @@
 #include "util/metrics.h"
 #include "util/once.h"
 #include "util/slice.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 class Tablet;
@@ -674,3 +677,6 @@ inline size_t Tablet::row_size() const {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

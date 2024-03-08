@@ -21,6 +21,11 @@
 
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 
 namespace doris::vectorized {
 /** Write UInt64 in variable length format (base128) NOTE Only up to 2^63 - 1 are supported. */
@@ -175,3 +180,7 @@ inline size_t get_length_of_var_int(Int64 x) {
 }
 
 } // namespace doris::vectorized
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -61,7 +61,7 @@ inline uint64_t int_exp10(int x) {
         return std::numeric_limits<uint64_t>::max();
     }
 
-    return exp_details::get_exp<uint64_t, 10, 20>(x);
+    return exp_details::get_exp<uint64_t, 10, 20>((uint64_t)x);
 }
 
 namespace common {

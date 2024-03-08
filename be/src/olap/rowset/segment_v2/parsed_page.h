@@ -51,7 +51,7 @@ struct ParsedPage {
 
         if (page->has_null) {
             page->null_decoder =
-                    RleDecoder<bool>((const uint8_t*)page->null_bitmap.data, null_size, 1);
+                    RleDecoder<bool>((const uint8_t*)page->null_bitmap.data, (int)null_size, 1);
         }
 
         Slice data_slice(body.data, body.size - null_size);

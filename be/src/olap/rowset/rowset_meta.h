@@ -29,6 +29,10 @@
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -89,7 +93,7 @@ public:
 
     int32_t tablet_schema_hash() const { return _rowset_meta_pb.tablet_schema_hash(); }
 
-    void set_tablet_schema_hash(int64_t tablet_schema_hash) {
+    void set_tablet_schema_hash(int32_t tablet_schema_hash) {
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
@@ -124,7 +128,7 @@ public:
 
     void set_num_rows(int64_t num_rows) { _rowset_meta_pb.set_num_rows(num_rows); }
 
-    size_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
+    size_t total_disk_size() const { return (size_t)_rowset_meta_pb.total_disk_size(); }
 
     void set_total_disk_size(size_t total_disk_size) {
         _rowset_meta_pb.set_total_disk_size(total_disk_size);
@@ -339,5 +343,7 @@ private:
 };
 
 } // namespace doris
-
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H

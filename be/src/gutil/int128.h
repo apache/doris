@@ -7,7 +7,10 @@
 #include <iosfwd>
 using std::ostream;
 #include "gutil/integral_types.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 struct uint128_pod;
 
 // An unsigned 128-bit integer type. Thread-compatible.
@@ -326,3 +329,6 @@ inline uint128& uint128::operator--() {
     *this -= 1;
     return *this;
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -104,7 +104,7 @@ public:
     public:
         DataPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
-                                 LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
+                                 LRUCacheType::SIZE, (uint32_t)config::data_page_cache_stale_sweep_time_sec,
                                  num_shards) {}
     };
 
@@ -112,7 +112,7 @@ public:
     public:
         IndexPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
-                                 LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
+                                 LRUCacheType::SIZE, (uint32_t)config::index_page_cache_stale_sweep_time_sec,
                                  num_shards) {}
     };
 
@@ -121,7 +121,7 @@ public:
         PKIndexPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity,
                                  LRUCacheType::SIZE,
-                                 config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
+                                 (uint32_t)config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 
     static constexpr uint32_t kDefaultNumShards = 16;

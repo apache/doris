@@ -12,6 +12,10 @@
 #include "gutil/hash/builtin_type_hash.h"
 #include "gutil/hash/string_hash.h"
 #include "gutil/integral_types.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 // Hash8, Hash16 and Hash32 are for legacy use only.
 typedef uint32 Hash32;
@@ -78,3 +82,6 @@ inline uint16 HashTo16(const char* s, uint32 slen) {
     uint16 retval = Hash32StringWithSeed(s, slen, MIX32) >> 16;
     return retval == kIllegalHash16 ? static_cast<uint16>(retval - 1) : retval;
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

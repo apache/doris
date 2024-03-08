@@ -35,7 +35,10 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 namespace vectorized {
@@ -212,3 +215,6 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
 }
 } // namespace vectorized
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

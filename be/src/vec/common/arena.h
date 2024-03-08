@@ -33,7 +33,10 @@
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
 #include "vec/common/memcpy_small.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris::vectorized {
 
 /** Memory pool to append something. For example, short strings.
@@ -312,3 +315,6 @@ using ArenaPtr = std::shared_ptr<Arena>;
 using Arenas = std::vector<ArenaPtr>;
 
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -41,6 +41,11 @@
 #include "util/binary_cast.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 
 namespace doris {
 class TRuntimeProfileNode;
@@ -221,7 +226,7 @@ public:
         // current time (relative to the first time start() was called) as
         // the timestamp.
         void mark_event(const std::string& label) {
-            _events.push_back(make_pair(label, _sw.elapsed_time()));
+            _events.push_back(make_pair(label, (long)_sw.elapsed_time()));
         }
 
         int64_t elapsed_time() { return _sw.elapsed_time(); }
@@ -636,3 +641,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

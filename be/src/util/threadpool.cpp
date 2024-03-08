@@ -54,7 +54,7 @@ private:
 ThreadPoolBuilder::ThreadPoolBuilder(string name)
         : _name(std::move(name)),
           _min_threads(0),
-          _max_threads(std::thread::hardware_concurrency()),
+          _max_threads((int)std::thread::hardware_concurrency()),
           _max_queue_size(std::numeric_limits<int>::max()),
           _idle_timeout(std::chrono::milliseconds(500)) {}
 

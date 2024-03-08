@@ -65,8 +65,8 @@ struct NullIndicatorOffset {
 
     NullIndicatorOffset(int byte_offset, int bit_offset_)
             : byte_offset(byte_offset),
-              bit_mask(bit_offset_ == -1 ? 0 : 1 << (7 - bit_offset_)),
-              bit_offset(bit_offset_) {
+              bit_mask(bit_offset_ == -1 ? 0 : (uint8_t)(1 << (7 - bit_offset_))),
+              bit_offset(int8_t(bit_offset_)) {
         DCHECK_LE(bit_offset_, 8);
     }
 

@@ -482,7 +482,7 @@ void RleEncoder<T>::FlushLiteralRun(bool update_indicator_byte) {
         // the 1 byte.
         int num_groups = BitUtil::Ceil(literal_count_, 8);
         int32_t indicator_value = (num_groups << 1) | 1;
-        DCHECK_EQ(indicator_value & 0xFFFFFF00, 0);
+        DCHECK_EQ((uint32_t)indicator_value & 0xFFFFFF00, 0);
         bit_writer_.buffer()->data()[literal_indicator_byte_idx_] = indicator_value;
         literal_indicator_byte_idx_ = -1;
         literal_count_ = 0;

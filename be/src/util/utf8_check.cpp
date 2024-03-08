@@ -14,7 +14,10 @@
 #elif defined(__aarch64__)
 #include <arm_neon.h>
 #endif
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 /*
  * http://www.unicode.org/versions/Unicode6.0.0/ch03.pdf - page 94
  *
@@ -328,3 +331,6 @@ bool validate_utf8(const char* src, size_t len) {
 }
 #endif
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -99,7 +99,7 @@ public:
     Status read_null_bitmap(roaring::Roaring* result) {
         if (has_null_bitmap()) {
             // null bitmap is always stored at last
-            return read_bitmap(bitmap_nums() - 1, result);
+            return read_bitmap(rowid_t(bitmap_nums() - 1), result);
         }
         return Status::OK(); // keep result empty
     }
@@ -107,7 +107,7 @@ public:
     // Read and union all bitmaps in range [from, to) into `result`
     Status read_union_bitmap(rowid_t from, rowid_t to, roaring::Roaring* result);
 
-    rowid_t bitmap_nums() const { return _reader->bitmap_nums(); }
+    int64_t bitmap_nums() const { return _reader->bitmap_nums(); }
 
     rowid_t current_ordinal() const { return _current_rowid; }
 

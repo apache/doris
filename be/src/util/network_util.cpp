@@ -113,7 +113,7 @@ bool parse_endpoint(const std::string& endpoint, std::string* host, uint16_t* po
         return false;
     }
     *host = endpoint.substr(i, p - i);
-    *port = value;
+    *port = (uint16_t)value;
     return true;
 }
 

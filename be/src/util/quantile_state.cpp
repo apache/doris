@@ -27,6 +27,11 @@
 #include "util/slice.h"
 #include "util/tdigest.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 namespace doris {
 
 QuantileState::QuantileState() : _type(EMPTY), _compression(QUANTILE_STATE_COMPRESSION_MIN) {}
@@ -348,3 +353,6 @@ void QuantileState::clear() {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

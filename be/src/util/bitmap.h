@@ -31,6 +31,10 @@
 #include "gutil/port.h"
 #include "gutil/strings/fastmem.h"
 #include "util/bit_util.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -258,3 +262,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -54,6 +54,10 @@
 #include "vec/data_types/number_traits.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/utils/template_helpers.hpp"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 class DecimalV2Value;
@@ -682,3 +686,6 @@ typename T::NativeType min_decimal_value(UInt32 precision) {
                                                 .value;
 }
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -35,7 +35,10 @@
 
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 using namespace rapidjson;
 using namespace boost::algorithm;
 
@@ -475,3 +478,6 @@ bool RenderTemplate(const std::string& document, const std::string& document_roo
 }
 
 } // namespace mustache
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -29,6 +29,11 @@
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/faststring.h"
 #include "util/slice.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 
 namespace doris {
 namespace segment_v2 {
@@ -154,3 +159,6 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

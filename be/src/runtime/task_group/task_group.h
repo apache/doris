@@ -122,7 +122,7 @@ public:
         _is_shutdown = true;
     }
 
-    int query_num() {
+    size_t query_num() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _query_id_set.size();
     }

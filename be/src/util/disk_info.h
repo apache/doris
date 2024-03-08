@@ -26,7 +26,10 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 // DiskInfo is an interface to query for the disk information at runtime.  This
@@ -103,3 +106,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -10,7 +10,10 @@
 #include <limits.h> // So we can set the bounds of our types
 #include <stdlib.h> // for free()
 #include <string.h> // for memcpy()
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 #if defined(__APPLE__)
 // for getpagesize() on mac
 #ifndef _POSIX_C_SOURCE
@@ -1165,4 +1168,7 @@ enum { kPlatformUsesOPDSections = 1 };
 #else
 enum { kPlatformUsesOPDSections = 0 };
 #define FUNC_PTR_TO_CHAR_PTR(func) (reinterpret_cast<char*>(func))
+#endif
+#ifdef __clang__
+#pragma clang diagnostic pop
 #endif

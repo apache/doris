@@ -32,7 +32,10 @@ using std::vector;
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/charset.h"
 #include "gutil/strings/stringpiece.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace strings {
 
 // ----------------------------------------------------------------------
@@ -649,3 +652,6 @@ using strings::ShellEscapeCommandLine;
 using strings::ByteStringFromAscii;
 using strings::ByteStringToAscii;
 using strings::CleanStringLineEndings;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

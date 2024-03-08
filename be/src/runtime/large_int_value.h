@@ -31,7 +31,7 @@ inline const __int128 MIN_INT128 = ((__int128)0x01 << 127);
 
 class LargeIntValue {
 public:
-    static int32_t to_buffer(__int128 value, char* buffer) {
+    static long to_buffer(__int128 value, char* buffer) {
         return fmt::format_to(buffer, FMT_COMPILE("{}"), value) - buffer;
     }
 

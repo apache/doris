@@ -48,7 +48,10 @@
 #include "olap/tablet_schema.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "util/uid_util.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace json2pb {
 struct Pb2JsonOptions;
 } // namespace json2pb
@@ -668,4 +671,7 @@ std::string tablet_state_name(TabletState state);
 bool operator==(const TabletMeta& a, const TabletMeta& b);
 bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 } // namespace doris

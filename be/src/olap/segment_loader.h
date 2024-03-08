@@ -78,7 +78,7 @@ public:
 
     SegmentCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, capacity, LRUCacheType::NUMBER,
-                             config::tablet_rowset_stale_sweep_time_sec) {}
+                             (uint32_t)config::tablet_rowset_stale_sweep_time_sec) {}
 
     // Lookup the given segment in the cache.
     // If the segment is found, the cache entry will be written into handle.

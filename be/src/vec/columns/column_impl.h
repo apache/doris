@@ -29,6 +29,10 @@
 
 #include "vec/columns/column.h"
 #include "vec/common/pod_array.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris::vectorized {
 
@@ -116,3 +120,6 @@ double IColumn::get_ratio_of_default_rows_impl(double sample_ratio) const {
 }
 
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

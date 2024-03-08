@@ -317,7 +317,7 @@ Status ThriftServer::start() {
             std::make_shared<apache::thrift::transport::TNonblockingServerSocket>(_port);
     if (_server_type != THREADED) {
         thread_mgr = apache::thrift::concurrency::ThreadManager::newSimpleThreadManager(
-                _num_worker_threads);
+                (size_t)_num_worker_threads);
         thread_mgr->threadFactory(thread_factory);
         thread_mgr->start();
     }

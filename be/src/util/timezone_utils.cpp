@@ -39,7 +39,10 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 namespace vectorized {
@@ -368,3 +371,6 @@ bool TimezoneUtils::find_cctz_time_zone_impl(const std::string& timezone, cctz::
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

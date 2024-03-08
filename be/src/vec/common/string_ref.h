@@ -41,7 +41,10 @@
 #include "vec/common/string_ref.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 /// unnamed namespace packaging simd-style equality compare functions.
@@ -432,3 +435,6 @@ inline void set(doris::StringRef& x) {
 
 template <>
 struct std::hash<doris::StringRef> : public doris::StringRefHash {};
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

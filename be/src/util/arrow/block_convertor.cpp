@@ -58,7 +58,10 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/runtime/vdatetime_value.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace arrow {
 class Array;
 } // namespace arrow
@@ -413,3 +416,6 @@ Status convert_to_arrow_batch(const vectorized::Block& block,
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

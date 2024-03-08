@@ -29,7 +29,10 @@
 #endif
 
 #include "vec/common/hash_table/phmap_fwd_decl.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 struct Slice;
@@ -370,3 +373,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

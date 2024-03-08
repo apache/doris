@@ -24,7 +24,10 @@
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/slice.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 #define OLAP_CACHE_STRING_TO_BUF(cur, str, r_len)                  \
@@ -496,3 +499,6 @@ public:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

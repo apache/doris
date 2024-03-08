@@ -29,7 +29,10 @@
 
 #include "util/hash_util.hpp"
 #include "vec/core/wide_integer.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 typedef __int128_t int128_t;
@@ -334,3 +337,6 @@ struct std::equal_to<doris::DecimalV2Value> {
         return lhs == rhs;
     }
 };
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

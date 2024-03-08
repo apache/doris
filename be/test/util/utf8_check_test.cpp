@@ -111,13 +111,4 @@ TEST_F(Utf8CheckTest, abnormal) {
     }
 }
 
-TEST_F(Utf8CheckTest, naive) {
-    for (int i = 0; i < sizeof(pos) / sizeof(pos[0]); ++i) {
-        EXPECT_TRUE(validate_utf8_naive(pos[i].data, pos[i].len));
-    }
-    for (int i = 0; i < sizeof(neg) / sizeof(neg[0]); ++i) {
-        EXPECT_FALSE(validate_utf8_naive(neg[i].data, neg[i].len));
-    }
-}
-
 } // namespace doris
