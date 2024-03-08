@@ -57,6 +57,8 @@ protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
+    void _collect_profile_before_close() override;
+
 private:
 #ifdef USE_HADOOP_HDFS
     struct HDFSProfile {
