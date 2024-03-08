@@ -631,9 +631,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (candidates.size() == 1) {
             return candidates;
         }
-        return Utils.filterImmutableList(candidates, bound ->
+        List<Slot> extractSlots = Utils.filterImmutableList(candidates, bound ->
                 unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1
         );
+        // we should return origin candidates slots if extract slots is empty,
+        // and then throw an ambiguous exception
+        return !extractSlots.isEmpty() ? extractSlots : candidates;
     }
 
     /** bindSlotByScope */
