@@ -45,6 +45,7 @@ suite("test_rollup_partition_mtmv") {
         insert into ${tableName} values(1,"2020-01-01"),(2,"2020-01-02"),(3,"2020-02-01");
         """
 
+    // list date month
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD DEFERRED REFRESH AUTO ON MANUAL
@@ -59,5 +60,30 @@ suite("test_rollup_partition_mtmv") {
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(2, showPartitionsResult.size())
-    // assertTrue(showPartitionsResult.toString().contains("p_20380101"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName}
+        """
+    def jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_date_list_month "SELECT * FROM ${mvName} order by k1,k2"
+
+    sql """drop materialized view if exists ${mvName};"""
+    // list date year
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by date_trunc(`k2`,'year')
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(1, showPartitionsResult.size())
+
 }

@@ -60,7 +60,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
 
     @Override
     public void analyze(MTMVPartitionInfo mvPartitionInfo) throws AnalysisException {
-        if (timeUnits.contains(this.timeUnit)) {
+        if (!timeUnits.contains(this.timeUnit)) {
             throw new AnalysisException(
                     String.format("timeUnit not support: %s, only support: %s", this.timeUnit, timeUnits));
         }
