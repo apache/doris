@@ -42,6 +42,7 @@
 
 namespace doris::vectorized {
 struct ColumnRowRef {
+    ENABLE_FACTORY_CREATOR(ColumnRowRef);
     ColumnPtr column;
     size_t row_idx;
 
@@ -63,6 +64,7 @@ struct ColumnRowRef {
 };
 
 struct StructInState {
+    ENABLE_FACTORY_CREATOR(StructInState)
     std::unordered_set<ColumnRowRef, ColumnRowRef> args_set;
     bool null_in_set = false;
 };
@@ -155,7 +157,6 @@ public:
         const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            ColumnRowRef ref({materialized_column, i});
             bool find = args_set.find({materialized_column, i}) != args_set.end();
             if constexpr (negative) {
                 vec_res[i] = !find;
