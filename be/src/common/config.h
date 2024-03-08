@@ -966,6 +966,9 @@ DECLARE_Int32(s3_transfer_executor_pool_size);
 DECLARE_Bool(enable_time_lut);
 DECLARE_mBool(enable_simdjson_reader);
 
+// the size of parquet file to read
+DECLARE_mInt32(parquet_footer_read_size);
+
 DECLARE_mBool(enable_query_like_bloom_filter);
 // number of s3 scanner thread pool size
 DECLARE_Int32(doris_remote_scanner_thread_pool_thread_num);

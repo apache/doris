@@ -34,18 +34,18 @@ namespace doris::vectorized {
 
 constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
-constexpr size_t INIT_META_SIZE = 128 * 1024; // 128k
 
 static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_metadata,
                                   size_t* meta_size, io::IOContext* io_ctx) {
+    size_t default_buff_size = config::parquet_footer_read_size;                                  
     size_t file_size = file->size();
-    size_t bytes_read = std::min(file_size, INIT_META_SIZE);
-    uint8_t footer[bytes_read];
+    size_t bytes_read = std::min(file_size, default_buff_size);
+    std::unique_ptr<uint8_t[]> footer(new uint8_t[bytes_read]);
     RETURN_IF_ERROR(
-            file->read_at(file_size - bytes_read, Slice(footer, bytes_read), &bytes_read, io_ctx));
+            file->read_at(file_size - bytes_read, Slice(footer.get(), bytes_read), &bytes_read, io_ctx));
 
     // validate magic
-    uint8_t* magic_ptr = footer + bytes_read - 4;
+    uint8_t* magic_ptr = footer.get() + bytes_read - 4;
     if (bytes_read < PARQUET_FOOTER_SIZE ||
         memcmp(magic_ptr, PARQUET_VERSION_NUMBER, sizeof(PARQUET_VERSION_NUMBER)) != 0) {
         return Status::Corruption(
@@ -56,20 +56,20 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     }
 
     // get metadata_size
-    uint32_t metadata_size = decode_fixed32_le(footer + bytes_read - PARQUET_FOOTER_SIZE);
+    uint32_t metadata_size = decode_fixed32_le(footer.get() + bytes_read - PARQUET_FOOTER_SIZE);
     if (metadata_size > file_size - PARQUET_FOOTER_SIZE) {
         return Status::Corruption("Parquet footer size({}) is large than file size({})",
                                   metadata_size, file_size);
     }
-    std::unique_ptr<uint8_t[]> new_buff;
+
     uint8_t* meta_ptr;
     if (metadata_size > bytes_read - PARQUET_FOOTER_SIZE) {
-        new_buff.reset(new uint8_t[metadata_size]);
+        footer.reset(new uint8_t[metadata_size]);
         RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size,
-                                      Slice(new_buff.get(), metadata_size), &bytes_read, io_ctx));
-        meta_ptr = new_buff.get();
+                                      Slice(footer.get(), metadata_size), &bytes_read, io_ctx));
+        meta_ptr = footer.get();
     } else {
-        meta_ptr = footer + bytes_read - PARQUET_FOOTER_SIZE - metadata_size;
+        meta_ptr = footer.get() + bytes_read - PARQUET_FOOTER_SIZE - metadata_size;
     }
 
     tparquet::FileMetaData t_metadata;
