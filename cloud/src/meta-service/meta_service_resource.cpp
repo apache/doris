@@ -19,6 +19,7 @@
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 
+#include <charconv>
 #include <chrono>
 #include <numeric>
 #include <string>
@@ -185,41 +186,6 @@ static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode
     return 0;
 };
 
-static int fetch_all_storage_valut(std::string storage_valut_key, std::string_view instance_id,
-                                   GetObjStoreInfoResponse* response, TxnKv* txn_kv,
-                                   MetaServiceCode& code, std::string& msg) {
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
-        return -1;
-    }
-    std::string val;
-    err = txn->get(storage_valut_key, &val);
-    LOG(INFO) << "get storage_valut_key=" << hex(storage_valut_key);
-
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err);
-        return -1;
-    }
-
-    StorageVaultPB storage_valut;
-    if (!storage_valut.ParseFromString(val)) {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = "failed to parse InstanceInfoPB";
-        return -1;
-    }
-    if (storage_valut.has_hdfs_info()) {
-        auto* hdfs_info = response->add_hdfs_info();
-        *hdfs_info = storage_valut.hdfs_info();
-        return 0;
-    }
-    return 0;
-}
-
 void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* controller,
                                          const GetObjStoreInfoRequest* request,
                                          GetObjStoreInfoResponse* response,
@@ -275,73 +241,92 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
             return;
         }
     }
+
     // Iterate all the resources to return to the rpc caller
-    for (const auto& resource_id : instance.resource_ids()) {
-        std::string storage_vault_k = storage_vault_key({instance_id, resource_id});
-        if (auto ret = fetch_all_storage_valut(std::move(storage_vault_k), instance_id, response,
-                                               txn_kv_.get(), code, msg);
-            ret != 0) {
-            return;
-        }
+    if (!instance.resource_ids().empty()) {
+        std::string storage_vault_start =
+                storage_vault_key({instance_id, *instance.resource_ids().begin()});
+        std::string storage_vault_end = storage_vault_key(
+                {instance_id, instance.resource_ids().at(instance.resource_ids().size() - 1)});
+        std::unique_ptr<RangeGetIterator> it;
+        do {
+            TxnErrorCode err = txn->get(storage_vault_start, storage_vault_end, &it);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("internal error, failed to get storage vault, err={}", err);
+                LOG(WARNING) << msg;
+                return;
+            }
+
+            while (it->has_next()) {
+                auto [k, v] = it->next();
+                StorageVaultPB vault;
+                if (!vault.ParseFromArray(v.data(), v.size())) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = fmt::format("malformed storage vault, unable to deserialize key={}",
+                                      hex(k));
+                    LOG(WARNING) << msg << " key=" << hex(k);
+                    return;
+                }
+                if (vault.has_hdfs_info()) {
+                    response->add_hdfs_info()->MergeFrom(vault.hdfs_info());
+                }
+                if (!it->has_next()) {
+                    storage_vault_start = k;
+                }
+            }
+            storage_vault_start.push_back('\x00'); // Update to next smallest key for iteration
+        } while (it->more());
     }
+
     response->mutable_obj_info()->CopyFrom(instance.obj_info());
 }
 
 // The next available vault id would be max(max(obj info id), max(vault id)) + 1.
 static std::string next_available_vault_id(const InstanceInfoPB& instance) {
-    size_t vault_id = 0;
-    auto cmp = [](size_t prev, const auto& last) {
-        size_t last_id = 0;
+    int vault_id = 0;
+    auto max = [](int prev, const auto& last) {
+        int last_id = 0;
+        std::string_view value = "0";
         if constexpr (std::is_same_v<std::decay_t<decltype(last)>, ObjectStoreInfoPB>) {
-            last_id = std::stoi(last.id());
+            value = last.id();
         } else if constexpr (std::is_same_v<std::decay_t<decltype(last)>, std::string>) {
-            last_id = std::stoi(last);
+            value = last;
+        }
+        auto [_, ec] = std::from_chars(value.data(), value.data() + value.size(), last_id);
+        if (ec == std::errc {}) {
+            LOG_WARNING("Invalid resource id format: {}", value);
+            last_id = 0;
+            DCHECK(false);
         }
         return std::max(prev, last_id);
     };
     auto prev = std::accumulate(
             instance.resource_ids().begin(), instance.resource_ids().end(),
-            std::accumulate(instance.obj_info().begin(), instance.obj_info().end(), vault_id, cmp),
-            cmp);
+            std::accumulate(instance.obj_info().begin(), instance.obj_info().end(), vault_id, max),
+            max);
     return std::to_string(prev + 1);
 }
 
-static int add_hdfs_storage_valut(InstanceInfoPB& instance, TxnKv* txn_kv,
-                                  const AlterHdfsVaultInfo& hdfs_param, MetaServiceCode& code,
+static int add_hdfs_storage_valut(InstanceInfoPB& instance, Transaction* txn,
+                                  StorageVaultPB hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
     if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
-                     [&hdfs_param](const auto& name) { return name == hdfs_param.vault_name(); }) !=
+                     [&hdfs_param](const auto& name) { return name == hdfs_param.name(); }) !=
         instance.storage_vault_names().end()) {
         code = MetaServiceCode::ALREADY_EXISTED;
-        msg = fmt::format("vault_name={} already created", hdfs_param.vault_name());
+        msg = fmt::format("vault_name={} already created", hdfs_param.name());
         return -1;
     }
     std::string key;
     std::string vault_id = next_available_vault_id(instance);
     storage_vault_key({instance.instance_id(), vault_id}, &key);
-    StorageVaultPB vault;
-    vault.set_id(vault_id);
-    vault.set_name(hdfs_param.vault_name());
-    *vault.mutable_hdfs_info() = hdfs_param.hdfs();
-    std::string val = vault.SerializeAsString();
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
-        return -1;
-    }
+    hdfs_param.set_id(vault_id);
+    std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
-    LOG(INFO) << "put storage_vault_key=" << hex(key);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit for putting storage vault_id={}, vault_name={}, err={}",
-                          vault_id, hdfs_param.vault_name(), err);
-        return -1;
-    }
+    LOG_INFO("try to put storage vault_id={}, vault_name={}, err={}", vault_id, hdfs_param.name());
     instance.mutable_resource_ids()->Add(std::move(vault_id));
-    *instance.mutable_storage_vault_names()->Add() = hdfs_param.vault_name();
+    *instance.mutable_storage_vault_names()->Add() = hdfs_param.name();
     return 0;
 }
 
@@ -563,7 +548,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
-        if (auto ret = add_hdfs_storage_valut(instance, txn_kv_.get(), request->hdfs(), code, msg);
+        if (auto ret = add_hdfs_storage_valut(instance, txn.get(), request->hdfs(), code, msg);
             ret != 0) {
             return;
         }
@@ -879,15 +864,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         }
         instance.mutable_obj_info()->Add(std::move(obj_info));
     }
-    // TODO(ByteYue): Reclaim the vault if the following procedure failed
-    if (request->has_hdfs_info()) {
-        AlterHdfsVaultInfo hdfs_param;
-        hdfs_param.set_vault_name("Default");
-        *hdfs_param.mutable_hdfs() = request->hdfs_info();
-        if (0 != add_hdfs_storage_valut(instance, txn_kv_.get(), hdfs_param, code, msg)) {
-            return;
-        }
-    }
     if (request->has_ram_user()) {
         auto& ram_user = request->ram_user();
         EncryptionInfoPB encryption_info;
@@ -930,6 +906,15 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         msg = "failed to create txn";
         LOG(WARNING) << msg << " err=" << err;
         return;
+    }
+    // TODO(ByteYue): Reclaim the vault if the following procedure failed
+    if (request->has_hdfs_info()) {
+        StorageVaultPB hdfs_param;
+        hdfs_param.set_name("Default");
+        hdfs_param.mutable_hdfs_info()->MergeFrom(request->hdfs_info());
+        if (0 != add_hdfs_storage_valut(instance, txn.get(), std::move(hdfs_param), code, msg)) {
+            return;
+        }
     }
 
     // Check existence before proceeding

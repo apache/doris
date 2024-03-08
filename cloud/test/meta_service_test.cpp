@@ -5039,11 +5039,11 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         AlterObjStoreInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
-        AlterHdfsVaultInfo hdfs;
-        hdfs.set_vault_name("test_alter_add_hdfs_info");
+        StorageVaultPB hdfs;
+        hdfs.set_name("test_alter_add_hdfs_info");
         HdfsVaultInfo params;
 
-        hdfs.mutable_hdfs()->CopyFrom(params);
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
@@ -5062,11 +5062,11 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         AlterObjStoreInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
-        AlterHdfsVaultInfo hdfs;
-        hdfs.set_vault_name("test_alter_add_hdfs_info_1");
+        StorageVaultPB hdfs;
+        hdfs.set_name("test_alter_add_hdfs_info_1");
         HdfsVaultInfo params;
 
-        hdfs.mutable_hdfs()->CopyFrom(params);
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
 
         brpc::Controller cntl;

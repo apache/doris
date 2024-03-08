@@ -74,8 +74,8 @@ message InstanceInfoPB {
     optional RamUserPB iam_user = 12;
     optional bool sse_enabled = 13;
 
-    repeated string resource_ids = 100; // 新加 vault 的 resource id 采用 max_resource_id + 1
-    repeated string storage_vault_names = 101; // 建表时从这里找到 vault name -> resource id 的映射
+    repeated string resource_ids = 100;
+    repeated string storage_vault_names = 101;
 }
 
 message StagePB {
@@ -717,11 +717,6 @@ message GetObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
 };
 
-message AlterHdfsVaultInfo {
-    optional string vault_name = 1;
-    optional HdfsVaultInfo hdfs = 2;
-}
-
 message AlterObjStoreInfoRequest {
     enum Operation {
         UNKNOWN         = 0;
@@ -734,7 +729,7 @@ message AlterObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
     optional Operation op = 3;
-    optional AlterHdfsVaultInfo hdfs = 4;
+    optional StorageVaultPB hdfs = 4;
 }
 
 message AlterObjStoreInfoResponse {
