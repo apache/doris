@@ -82,6 +82,13 @@ public class DistributionDescriptor {
                     throw new AnalysisException(String.format("Distribution column(%s) doesn't exist", c));
                 }
             });
+            for (String columnName : cols) {
+                ColumnDefinition columnDefinition = columnMap.get(columnName);
+                if (!columnDefinition.isKey()
+                        && (keysType == KeysType.UNIQUE_KEYS || keysType == KeysType.AGG_KEYS)) {
+                    throw new AnalysisException("Distribution column[" + columnName + "] is not key column");
+                }
+            }
         } else {
             if (keysType.equals(KeysType.UNIQUE_KEYS)) {
                 throw new AnalysisException("Create unique keys table should not contain random distribution desc");
