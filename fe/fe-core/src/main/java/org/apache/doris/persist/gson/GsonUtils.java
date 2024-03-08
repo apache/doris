@@ -56,6 +56,7 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -233,6 +234,7 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<CatalogIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     CatalogIf.class, "clazz")
             .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
+            .registerSubtype(CloudInternalCatalog.class, CloudInternalCatalog.class.getSimpleName())
             .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
             .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
             .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName())
