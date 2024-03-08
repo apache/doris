@@ -81,7 +81,7 @@ public class MTMVPartitionUtil {
             Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables) throws AnalysisException {
         boolean isSyncWithPartition = true;
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             // if follow base table, not need compare with related table, only should compare with related partition
             excludedTriggerTables.add(relatedTable.getName());
@@ -253,7 +253,7 @@ public class MTMVPartitionUtil {
             if (!mtmvRelatedTableIf.needAutoRefresh()) {
                 continue;
             }
-            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE && mtmv
+            if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE && mtmv
                     .getMvPartitionInfo().getRelatedTableInfo().equals(baseTableInfo)) {
                 if (CollectionUtils.isEmpty(relatedPartitionIds)) {
                     throw new AnalysisException("can not found related partition");
@@ -464,7 +464,7 @@ public class MTMVPartitionUtil {
             Set<BaseTableInfo> baseTables, Set<Long> relatedPartitionIds)
             throws AnalysisException {
         MTMVRefreshPartitionSnapshot refreshPartitionSnapshot = new MTMVRefreshPartitionSnapshot();
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             for (Long relatedPartitionId : relatedPartitionIds) {
                 MTMVSnapshotIf partitionSnapshot = relatedTable
@@ -474,7 +474,7 @@ public class MTMVPartitionUtil {
             }
         }
         for (BaseTableInfo baseTableInfo : baseTables) {
-            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE && mtmv
+            if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE && mtmv
                     .getMvPartitionInfo().getRelatedTableInfo().equals(baseTableInfo)) {
                 continue;
             }
