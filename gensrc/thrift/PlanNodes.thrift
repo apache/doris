@@ -1298,6 +1298,8 @@ struct TPlanNode {
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
   103: optional TPartitionSortNode partition_sort_node
+  104: optional list<list<Exprs.TExpr>> projections_list
+  105: optional list<Types.TTupleId> output_tuple_id_list
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

@@ -1,0 +1,1 @@
+explain verbose select (s_nationkey + s_suppkey), (s_nationkey + s_suppkey) + 1,  abs((s_nationkey + s_suppkey) + 1) from supplier;
