@@ -110,7 +110,7 @@ DEFINE_mInt32(max_fill_rate, "2");
 
 DEFINE_mInt32(double_resize_threshold, "23");
 
-DEFINE_mInt32(parquet_footer_read_size, "1048576");
+DEFINE_mInt32(parquet_footer_read_size, "131072"); //128*1024
 
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
