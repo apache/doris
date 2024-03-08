@@ -59,7 +59,7 @@ public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunctio
 
     public ActiveQueriesTableValuedFunction(Map<String, String> params) throws AnalysisException {
         if (params.size() != 0) {
-            throw new AnalysisException("Queries table-valued-function does not support any params");
+            throw new AnalysisException("ActiveQueries table-valued-function does not support any params");
         }
     }
 
@@ -81,7 +81,7 @@ public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunctio
 
     @Override
     public String getTableName() {
-        return "QueriesTableValuedFunction";
+        return "ActiveQueriesTableValuedFunction";
     }
 
     @Override

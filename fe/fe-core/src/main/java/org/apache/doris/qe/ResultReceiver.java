@@ -23,6 +23,7 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TStatusCode;
@@ -53,12 +54,16 @@ public class ResultReceiver {
     private Future<InternalService.PFetchDataResult> fetchDataAsyncFuture = null;
     public String cancelReason = "";
 
-    public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs) {
+    int maxMsgSizeOfResultReceiver;
+
+    public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
+            int maxMsgSizeOfResultReceiver) {
         this.queryId = Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
         this.finstId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
         this.address = address;
         this.timeoutTs = timeoutTs;
+        this.maxMsgSizeOfResultReceiver = maxMsgSizeOfResultReceiver;
     }
 
     public RowBatch getNext(Status status) throws TException {
@@ -136,8 +141,19 @@ public class ResultReceiver {
                 } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
                     byte[] serialResult = pResult.getRowBatch().toByteArray();
                     TResultBatch resultBatch = new TResultBatch();
-                    TDeserializer deserializer = new TDeserializer();
-                    deserializer.deserialize(resultBatch, serialResult);
+                    TDeserializer deserializer = new TDeserializer(
+                            new TCustomProtocolFactory(this.maxMsgSizeOfResultReceiver));
+                    try {
+                        deserializer.deserialize(resultBatch, serialResult);
+                    } catch (TException e) {
+                        if (e.getMessage().contains("MaxMessageSize reached")) {
+                            throw new TException(
+                                "MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
+                        } else {
+                            throw e;
+                        }
+                    }
+
                     rowBatch.setBatch(resultBatch);
                     rowBatch.setEos(pResult.getEos());
                     return rowBatch;

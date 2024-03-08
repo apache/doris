@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.rules.CaseWhenToIf;
 import org.apache.doris.nereids.rules.expression.rules.DateFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
+import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
@@ -48,7 +49,8 @@ public class ExpressionOptimization extends ExpressionRewrite {
             OrToIn.INSTANCE,
             ArrayContainToArrayOverlap.INSTANCE,
             CaseWhenToIf.INSTANCE,
-            TopnToMax.INSTANCE
+            TopnToMax.INSTANCE,
+            NullSafeEqualToEqual.INSTANCE
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
 

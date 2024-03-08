@@ -379,6 +379,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.rowset_dir = remote_tablet_path(tablet_id());
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
+    context.fs = _engine.latest_fs();
     return RowsetFactory::create_rowset_writer(_engine, context, false)
             .transform([&](auto&& writer) {
                 writer->set_segment_start_id(rowset.num_segments());
@@ -540,6 +541,61 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *this, txn_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
 
+    return Status::OK();
+}
+
+Status CloudTablet::calc_delete_bitmap_for_compaciton(
+        const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
+        const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
+        int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap) {
+    output_rowset_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
+    std::set<RowLocation> missed_rows;
+    std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
+
+    // 1. calc delete bitmap for historical data
+    RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
+    Version version = max_version();
+    calc_compaction_output_rowset_delete_bitmap(
+            input_rowsets, rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
+            tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+    std::size_t missed_rows_size = missed_rows.size();
+    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        if (merged_rows >= 0 && merged_rows != missed_rows_size) {
+            std::string err_msg = fmt::format(
+                    "cumulative compaction: the merged rows({}) is not equal to missed "
+                    "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                    merged_rows, missed_rows_size, tablet_id(), table_id());
+            DCHECK(false) << err_msg;
+            LOG(WARNING) << err_msg;
+        }
+    }
+    if (config::enable_rowid_conversion_correctness_check) {
+        RETURN_IF_ERROR(check_rowid_conversion(output_rowset, location_map));
+    }
+    location_map.clear();
+
+    // 2. calc delete bimap for incremental data
+    RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
+            *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
+    RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
+
+    calc_compaction_output_rowset_delete_bitmap(
+            input_rowsets, rowid_conversion, version.second, UINT64_MAX, &missed_rows,
+            &location_map, tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+    if (config::enable_rowid_conversion_correctness_check) {
+        RETURN_IF_ERROR(check_rowid_conversion(output_rowset, location_map));
+    }
+    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        DCHECK_EQ(missed_rows.size(), missed_rows_size);
+        if (missed_rows.size() != missed_rows_size) {
+            LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
+                         << " after: " << missed_rows.size();
+        }
+    }
+
+    // 3. store delete bitmap
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
+                                                            output_rowset_delete_bitmap.get()));
     return Status::OK();
 }
 

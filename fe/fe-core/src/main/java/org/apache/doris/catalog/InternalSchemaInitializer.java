@@ -92,8 +92,9 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void modifyTblReplicaCount(Database database, String tblName) {
-        if (!(Config.min_replication_num_per_tablet < StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM
-                && Config.max_replication_num_per_tablet >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM)) {
+        if (Config.isCloudMode()
+                || Config.min_replication_num_per_tablet >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM
+                || Config.max_replication_num_per_tablet < StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
             return;
         }
         while (true) {

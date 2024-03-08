@@ -615,6 +615,7 @@ enum TTableType {
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
     MAX_COMPUTE_TABLE,
+    TRINO_CONNECTOR_TABLE
 }
 
 enum TKeysType {
@@ -714,7 +715,8 @@ enum TMetadataType {
   JOBS,
   TASKS,
   QUERIES,
-  WORKLOAD_SCHED_POLICY
+  WORKLOAD_SCHED_POLICY,
+  ACTIVE_BE_TASKS,
 }
 
 enum TIcebergQueryType {
