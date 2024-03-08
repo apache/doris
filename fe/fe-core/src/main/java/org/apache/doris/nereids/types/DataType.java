@@ -325,63 +325,58 @@ public abstract class DataType {
      */
     @Developing // should support map, struct
     public static DataType fromCatalogType(Type type) {
-        if (type.isBoolean()) {
-            return BooleanType.INSTANCE;
-        } else if (type.getPrimitiveType() == Type.TINYINT.getPrimitiveType()) {
-            return TinyIntType.INSTANCE;
-        } else if (type.getPrimitiveType() == Type.SMALLINT.getPrimitiveType()) {
-            return SmallIntType.INSTANCE;
-        } else if (type.getPrimitiveType() == Type.INT.getPrimitiveType()) {
-            return IntegerType.INSTANCE;
-        } else if (type.getPrimitiveType() == Type.BIGINT.getPrimitiveType()) {
-            return BigIntType.INSTANCE;
-        } else if (type.getPrimitiveType() == Type.LARGEINT.getPrimitiveType()) {
-            return LargeIntType.INSTANCE;
-        } else if (type.getPrimitiveType() == Type.FLOAT.getPrimitiveType()) {
-            return FloatType.INSTANCE;
-        } else if (type.getPrimitiveType() == Type.DOUBLE.getPrimitiveType()) {
-            return DoubleType.INSTANCE;
-        } else if (type.isNull()) {
-            return NullType.INSTANCE;
-        } else if (type.isDatetimeV2()) {
-            return DateTimeV2Type.of(((ScalarType) type).getScalarScale());
-        } else if (type.isDatetime()) {
-            return DateTimeType.INSTANCE;
-        } else if (type.isDateV2()) {
-            return DateV2Type.INSTANCE;
-        } else if (type.isDateType()) {
-            return DateType.INSTANCE;
-        } else if (type.isTimeV2()) {
-            return TimeV2Type.INSTANCE;
-        } else if (type.isTime()) {
-            return TimeType.INSTANCE;
-        } else if (type.isHllType()) {
-            return HllType.INSTANCE;
-        } else if (type.isBitmapType()) {
-            return BitmapType.INSTANCE;
-        } else if (type.isQuantileStateType()) {
-            return QuantileStateType.INSTANCE;
-        } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.CHAR) {
-            return CharType.createCharType(type.getLength());
-        } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
-            return VarcharType.createVarcharType(type.getLength());
-        } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.STRING) {
-            return StringType.INSTANCE;
-        } else if (type.isDecimalV3()) {
-            ScalarType scalarType = (ScalarType) type;
-            int precision = scalarType.getScalarPrecision();
-            int scale = scalarType.getScalarScale();
-            return DecimalV3Type.createDecimalV3TypeNoCheck(precision, scale);
-        } else if (type.isDecimalV2()) {
-            ScalarType scalarType = (ScalarType) type;
-            int precision = scalarType.getScalarPrecision();
-            int scale = scalarType.getScalarScale();
-            return DecimalV2Type.createDecimalV2Type(precision, scale);
-        } else if (type.isJsonbType()) {
-            return JsonType.INSTANCE;
-        } else if (type.isVariantType()) {
-            return VariantType.INSTANCE;
-        } else if (type.isStructType()) {
+        switch (type.getPrimitiveType()) {
+            case BOOLEAN: return BooleanType.INSTANCE;
+            case TINYINT: return TinyIntType.INSTANCE;
+            case SMALLINT: return SmallIntType.INSTANCE;
+            case INT: return IntegerType.INSTANCE;
+            case BIGINT: return BigIntType.INSTANCE;
+            case LARGEINT: return LargeIntType.INSTANCE;
+            case FLOAT: return FloatType.INSTANCE;
+            case DOUBLE: return DoubleType.INSTANCE;
+            case NULL_TYPE: return NullType.INSTANCE;
+            case DATETIMEV2: return DateTimeV2Type.of(((ScalarType) type).getScalarScale());
+            case DATETIME: return DateTimeType.INSTANCE;
+            case DATEV2: return DateV2Type.INSTANCE;
+            case DATE: return DateType.INSTANCE;
+            case TIMEV2: return TimeV2Type.INSTANCE;
+            case TIME: return TimeType.INSTANCE;
+            case HLL: return HllType.INSTANCE;
+            case BITMAP: return BitmapType.INSTANCE;
+            case QUANTILE_STATE: return QuantileStateType.INSTANCE;
+            case CHAR: return CharType.createCharType(type.getLength());
+            case VARCHAR: return VarcharType.createVarcharType(type.getLength());
+            case STRING: return StringType.INSTANCE;
+            case VARIANT: return VariantType.INSTANCE;
+            case JSONB: return JsonType.INSTANCE;
+            case IPV4: return IPv4Type.INSTANCE;
+            case IPV6: return IPv6Type.INSTANCE;
+            case AGG_STATE: {
+                org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
+                List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
+                        .collect(Collectors.toList());
+                return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
+            }
+            case DECIMALV2: {
+                ScalarType scalarType = (ScalarType) type;
+                int precision = scalarType.getScalarPrecision();
+                int scale = scalarType.getScalarScale();
+                return DecimalV2Type.createDecimalV2Type(precision, scale);
+            }
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+            case DECIMAL256: {
+                ScalarType scalarType = (ScalarType) type;
+                int precision = scalarType.getScalarPrecision();
+                int scale = scalarType.getScalarScale();
+                return DecimalV3Type.createDecimalV3TypeNoCheck(precision, scale);
+            }
+            default: {
+            }
+        }
+
+        if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
                     .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
                             cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment()))
@@ -393,15 +388,6 @@ public abstract class DataType {
         } else if (type.isArrayType()) {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
-        } else if (type.isAggStateType()) {
-            org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
-            List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
-                    .collect(Collectors.toList());
-            return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
-        } else if (type.isIPv4()) {
-            return IPv4Type.INSTANCE;
-        } else if (type.isIPv6()) {
-            return IPv6Type.INSTANCE;
         } else {
             return UnsupportedType.INSTANCE;
         }
