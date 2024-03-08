@@ -105,18 +105,16 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         if (viewTopPlanAndAggPair == null) {
             materializationContext.recordFailReason(queryStructInfo,
                     "Split view to top plan and agg fail, view doesn't not contain aggregate",
-                    () -> materializationContext.isEnableRecordFailureDetail()
-                                    ? String.format("view plan = %s\n", viewStructInfo.getOriginalPlan().treeString())
-                                    : "");
+                    materializationContext.isEnableRecordFailureDetail(),
+                    () -> String.format("view plan = %s\n", viewStructInfo.getOriginalPlan().treeString()));
             return null;
         }
         Pair<Plan, LogicalAggregate<Plan>> queryTopPlanAndAggPair = splitToTopPlanAndAggregate(queryStructInfo);
         if (queryTopPlanAndAggPair == null) {
             materializationContext.recordFailReason(queryStructInfo,
                     "Split query to top plan and agg fail",
-                    () -> materializationContext.isEnableRecordFailureDetail()
-                                    ? String.format("query plan = %s\n", queryStructInfo.getOriginalPlan().treeString())
-                                    : "");
+                    materializationContext.isEnableRecordFailureDetail(),
+                    () -> String.format("query plan = %s\n", queryStructInfo.getOriginalPlan().treeString()));
             return null;
         }
         // Firstly,if group by expression between query and view is equals, try to rewrite expression directly
@@ -137,12 +135,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             // if fails, record the reason and then try to roll up aggregate function
             materializationContext.recordFailReason(queryStructInfo,
                     "Can not rewrite expression when no roll up",
-                    () -> materializationContext.isEnableRecordFailureDetail()
-                                    ? String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
-                                                    + "viewToQuerySlotMapping = %s",
-                                            queryTopPlan.getOutput(),
-                                            materializationContext.getMvExprToMvScanExprMapping(),
-                                            viewToQuerySlotMapping) : "");
+                    materializationContext.isEnableRecordFailureDetail(),
+                    () -> String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
+                                    + "viewToQuerySlotMapping = %s",
+                            queryTopPlan.getOutput(),
+                            materializationContext.getMvExprToMvScanExprMapping(),
+                            viewToQuerySlotMapping));
         }
         // if view is scalar aggregate but query is not. Or if query is scalar aggregate but view is not
         // Should not rewrite
@@ -152,11 +150,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 || (!queryGroupByExpressions.isEmpty() && viewGroupByExpressions.isEmpty())) {
             materializationContext.recordFailReason(queryStructInfo,
                     "only one the of query or view is scalar aggregate and "
-                                    + "can not rewrite expression meanwhile",
-                    () -> materializationContext.isEnableRecordFailureDetail()
-                                    ? String.format("query aggregate = %s,\n view aggregate = %s,\n",
-                                            queryTopPlanAndAggPair.value().treeString(),
-                                            viewTopPlanAndAggPair.value().treeString()) : "");
+                            + "can not rewrite expression meanwhile",
+                    materializationContext.isEnableRecordFailureDetail(),
+                    () -> String.format("query aggregate = %s,\n view aggregate = %s,\n",
+                            queryTopPlanAndAggPair.value().treeString(),
+                            viewTopPlanAndAggPair.value().treeString()));
             return null;
         }
         // try to roll up.
@@ -186,9 +184,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 if (!context.isValid()) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "Query function roll up fail",
-                            () -> materializationContext.isEnableRecordFailureDetail() ? String.format(
-                                    "queryFunctionShuttled = %s,\n mvExprToMvScanExprQueryBased = %s",
-                                    queryFunctionShuttled, mvExprToMvScanExprQueryBased) : "");
+                            materializationContext.isEnableRecordFailureDetail(),
+                            () -> String.format("queryFunctionShuttled = %s,\n mvExprToMvScanExprQueryBased = %s",
+                                    queryFunctionShuttled, mvExprToMvScanExprQueryBased));
                     return null;
                 }
                 finalOutputExpressions.add(new Alias(rollupedExpression));
@@ -205,10 +203,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     // group expr can not rewrite by view
                     materializationContext.recordFailReason(queryStructInfo,
                             "View dimensions doesn't not cover the query dimensions",
-                            () -> materializationContext.isEnableRecordFailureDetail()
-                                            ? String.format("mvExprToMvScanExprQueryBased is %s,\n"
-                                                    + "queryGroupShuttledExpr is %s",
-                                                    mvExprToMvScanExprQueryBased, queryGroupShuttledExpr) : "");
+                            materializationContext.isEnableRecordFailureDetail(),
+                            () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
+                                    mvExprToMvScanExprQueryBased, queryGroupShuttledExpr));
                     return null;
                 }
                 NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression

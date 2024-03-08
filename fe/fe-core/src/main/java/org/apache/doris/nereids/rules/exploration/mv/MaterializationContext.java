@@ -152,7 +152,8 @@ public class MaterializationContext {
     /**
      * recordFailReason
      */
-    public void recordFailReason(StructInfo structInfo, String summary, Supplier<String> reasonSupplier) {
+    public void recordFailReason(StructInfo structInfo, String summary,
+            boolean recordFailureDetail, Supplier<String> failureReasonSupplier) {
         // record it's rewritten
         if (structInfo.getTopPlan().getGroupExpression().isPresent()) {
             this.addMatchedGroup(structInfo.getTopPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
@@ -162,7 +163,8 @@ public class MaterializationContext {
             return;
         }
         this.success = false;
-        this.failReason.put(structInfo.getOriginalPlanId(), Pair.of(summary, reasonSupplier.get()));
+        this.failReason.put(structInfo.getOriginalPlanId(),
+                Pair.of(summary, recordFailureDetail ? failureReasonSupplier.get() : ""));
     }
 
     public boolean isSuccess() {
