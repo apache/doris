@@ -344,7 +344,7 @@ suite("test_auto_partition_behavior") {
                 k0 datetime(6) NOT null,
                 k1 datetime(6) NOT null
             )
-            auto partition by range date_trunc(k0, k1, 'hour')
+            auto partition by range (date_trunc(k0, k1, 'hour'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
@@ -359,7 +359,7 @@ suite("test_auto_partition_behavior") {
                 k0 datetime(6) NOT null,
                 k1 int NOT null
             )
-            auto partition by range date_trunc(k1, 'hour')
+            auto partition by range (date_trunc(k1, 'hour'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2

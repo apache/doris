@@ -545,6 +545,17 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+
+    void expectException(Closure userFunction, String tableName, String errorMessage = null) {
+        try {
+            userFunction()
+        } catch (Exception e) {
+            if (e.getMessage()!= errorMessage) {
+                throw e
+            }
+        }
+    }
+
     String getBrokerName() {
         String brokerName = context.config.otherConfigs.get("brokerName")
         return brokerName

@@ -176,7 +176,7 @@ suite("test_schema_change_agg", "p0") {
                     partition `old_p1` values [("1"), ("2")),
                     partition `old_p2` values [("2"), ("3"))
                 )
-        DISTRIBUTED BY HASH(pv) BUCKETS 1
+        DISTRIBUTED BY HASH(citycode) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1"
         );
@@ -204,8 +204,8 @@ suite("test_schema_change_agg", "p0") {
     //distribution key
 
     test {
-        sql "alter table ${tableName3} modify column pv bigint sum default '0' comment 'pv'"
-        exception "Can not modify distribution column[pv]. index[${tableName3}]"
+        sql "alter table ${tableName3} modify column citycode smallint  comment 'citycode'"
+        exception "Can not modify distribution column[citycode]. index[${tableName3}]"
     }
 
 
