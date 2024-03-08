@@ -22,6 +22,7 @@ suite("topn-filter") {
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set disable_join_reorder=true;'
     def simple = """
         select *
         from orders
@@ -85,7 +86,27 @@ suite("topn-filter") {
                 join[broadcast] customer on o_custkey = c_custkey 
                 order by c_custkey limit 2; 
             """
-        notContains "TOPN OPT"
+        notContains "TOPN OPT:"
+    }
+
+    // push topn filter down through AGG
+    explain {
+        sql """
+            select s_nationkey, count(1) from supplier group by s_nationkey order by s_nationkey limit 1;
+        """
+        contains "TOPN OPT:"
+    }
+
+    // push topn filter down through AGG + Join
+    explain {
+        sql """
+            select * 
+            from 
+             (select s_nationkey, count(1) as total from supplier group by s_nationkey having total > 10 ) T
+            join nation on s_nationkey = n_nationkey 
+            order by s_nationkey limit 1;
+        """
+        contains "TOPN OPT:"
     }
 
 }
