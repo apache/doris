@@ -111,7 +111,8 @@ rm -f custom_env.sh
 cp "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh .
 if [[ "${target_branch}" == "master" ]]; then
     echo "export JAVA_HOME=/usr/lib/jvm/jdk-17.0.2" >>custom_env.sh
-    jdk17_str="&& cd /usr/lib/jvm/ && wget --continue -t3 https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_linux-x64_bin.tar.gz && yum install -y pigz  && tar -I pigz -xf openjdk-17.0.2_linux-x64_bin.tar.gz && cd -"
+    JDK17_URL="${JDK17_URL:-https://doris-community-test.oss-cn-hongkong-internal.aliyuncs.com/java/openjdk-17.0.2_linux-x64_bin.tar.gz}"
+    jdk17_str="&& cd /usr/lib/jvm/ && wget -c -t3 ${JDK17_URL} && yum install -y pigz  && tar -I pigz -xf openjdk-17.0.2_linux-x64_bin.tar.gz && cd -"
 fi
 rm -rf "${teamcity_build_checkoutDir}"/output
 set -x
