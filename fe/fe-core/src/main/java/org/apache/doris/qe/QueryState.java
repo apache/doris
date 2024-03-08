@@ -93,8 +93,7 @@ public class QueryState {
     }
 
     public void setError(String errorMsg) {
-        this.stateType = MysqlStateType.ERR;
-        this.errorMessage = errorMsg;
+        this.setError(ErrorCoode.ERR_UNKNOWN_ERROR, errorMsg);
     }
 
     public void setError(ErrorCode code, String msg) {

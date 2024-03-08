@@ -183,6 +183,9 @@ public class DeleteHandler implements Writable {
             String commitMsg = deleteJob.commit();
             execState.setOk(0, 0, commitMsg);
         } catch (Exception ex) {
+            LOG.warning("delete failed, db {}, table {}, deleteConditions {}, error {}",
+                        targetDb.getName(), targetTbl.getName(), stmt.getDeleteConditions(),
+                        ex.getMessage());
             if (deleteJob != null) {
                 deleteJob.cancel(ex.getMessage());
             }
