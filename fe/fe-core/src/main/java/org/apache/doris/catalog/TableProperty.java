@@ -630,8 +630,9 @@ public class TableProperty implements Writable {
         }
     }
 
+    // Return null if storage vault has not been set
     public String getStorageVaultId() {
-        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, "");
+        return properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID);
     }
 
     public void setStorageVaultId(String storageVaultId) {

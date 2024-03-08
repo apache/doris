@@ -242,7 +242,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public void setStorageVault(String storageVaultName) {
-        if (storageVaultName.isEmpty()) {
+        if (storageVaultName == null && storageVaultName.isEmpty()) {
             return;
         }
         getOrCreatTableProperty().setStorageVaultName(storageVaultName);

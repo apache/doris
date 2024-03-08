@@ -1023,7 +1023,7 @@ public class PropertyAnalyzer {
     }
 
     public static String analyzeStorageVault(Map<String, String> properties) {
-        String storageVault = "";
+        String storageVault = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT)) {
             storageVault = properties.get(PROPERTIES_STORAGE_VAULT);
         }
