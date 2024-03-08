@@ -587,7 +587,7 @@ void FragmentMgr::remove_pipeline_context(
 
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
-                                   bool nereids, std::shared_ptr<QueryContext>& query_ctx) {
+                                   std::shared_ptr<QueryContext>& query_ctx) {
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
@@ -611,9 +611,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         // This may be a first fragment request of the query.
         // Create the query fragments context.
-        query_ctx =
-                QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
-                                            params.query_options, params.coord, pipeline, nereids);
+        query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
+                                                params.query_options, params.coord, pipeline,
+                                                params.is_nereids);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
         // set file scan range params
@@ -689,8 +689,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     bool pipeline_engine_enabled = params.query_options.__isset.enable_pipeline_engine &&
                                    params.query_options.enable_pipeline_engine;
 
-    RETURN_IF_ERROR(_get_query_ctx(params, params.params.query_id, pipeline_engine_enabled,
-                                   params.is_nereids, query_ctx));
+    RETURN_IF_ERROR(
+            _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
     {
         // Need lock here, because it will modify fragment ids and std::vector may resize and reallocate
         // memory, but query_is_canncelled will traverse the vector, it will core.
@@ -782,7 +782,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
-    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, params.is_nereids, query_ctx));
+    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
 
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
