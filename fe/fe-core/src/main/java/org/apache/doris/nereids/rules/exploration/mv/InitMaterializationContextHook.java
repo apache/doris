@@ -95,7 +95,7 @@ public class InitMaterializationContextHook implements PlannerHook {
             // todo should force keep consistency to mv sql plan output
             Plan projectScan = new LogicalProject<Plan>(mvProjects, mvScan);
             cascadesContext.addMaterializationContext(
-                    MaterializationContext.fromMaterializedView(materializedView, projectScan));
+                    MaterializationContext.fromMaterializedView(materializedView, projectScan, cascadesContext));
         });
     }
 }

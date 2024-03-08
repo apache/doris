@@ -17,15 +17,18 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -38,6 +41,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -64,16 +68,20 @@ public class MaterializationContext {
     // if rewrite by mv fail, record the reason, if success the failReason should be empty.
     // The key is the query belonged group expression objectId, the value is the fail reason
     private final Map<ObjectId, Pair<String, String>> failReason = new HashMap<>();
+    private boolean enableRecordFailureDetail = false;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
      */
-    public MaterializationContext(MTMV mtmv, Plan mvScanPlan, List<Table> baseTables, List<Table> baseViews) {
+    public MaterializationContext(MTMV mtmv, Plan mvScanPlan, List<Table> baseTables, List<Table> baseViews,
+            CascadesContext cascadesContext) {
         this.mtmv = mtmv;
         this.mvScanPlan = mvScanPlan;
         this.baseTables = baseTables;
         this.baseViews = baseViews;
-
+        StatementBase parsedStatement = cascadesContext.getStatementContext().getParsedStatement();
+        this.enableRecordFailureDetail = parsedStatement != null && parsedStatement.isExplain()
+                && ExplainLevel.MEMO_PLAN == parsedStatement.getExplainOptions().getExplainLevel();
         MTMVCache mtmvCache = null;
         try {
             mtmvCache = mtmv.getOrGenerateCache();
@@ -92,10 +100,6 @@ public class MaterializationContext {
                 mvScanPlan.getExpressions());
         // copy the plan from cache, which the plan in cache may change
         this.mvPlan = mtmvCache.getLogicalPlan();
-    }
-
-    public Set<GroupId> getMatchedGroups() {
-        return matchedGroups;
     }
 
     public boolean alreadyRewrite(GroupId groupId) {
@@ -138,6 +142,10 @@ public class MaterializationContext {
         return failReason;
     }
 
+    public boolean isEnableRecordFailureDetail() {
+        return enableRecordFailureDetail;
+    }
+
     public void setSuccess(boolean success) {
         this.success = success;
         this.failReason.clear();
@@ -146,13 +154,18 @@ public class MaterializationContext {
     /**
      * recordFailReason
      */
-    public void recordFailReason(ObjectId objectId, Pair<String, String> summaryAndReason) {
+    public void recordFailReason(StructInfo structInfo, String summary, Supplier<String> failureReasonSupplier) {
+        // record it's rewritten
+        if (structInfo.getTopPlan().getGroupExpression().isPresent()) {
+            this.addMatchedGroup(structInfo.getTopPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
+        }
         // once success, do not record the fail reason
         if (this.success) {
             return;
         }
         this.success = false;
-        this.failReason.put(objectId, summaryAndReason);
+        this.failReason.put(structInfo.getOriginalPlanId(),
+                Pair.of(summary, this.isEnableRecordFailureDetail() ? failureReasonSupplier.get() : ""));
     }
 
     public boolean isSuccess() {
@@ -178,7 +191,7 @@ public class MaterializationContext {
     /**
      * toString, this contains summary and detail info.
      */
-    public static String toString(List<MaterializationContext> materializationContexts) {
+    public static String toDetailString(List<MaterializationContext> materializationContexts) {
         StringBuilder builder = new StringBuilder();
         builder.append("materializationContexts:").append("\n");
         for (MaterializationContext ctx : materializationContexts) {
@@ -200,6 +213,22 @@ public class MaterializationContext {
                 .collect(Collectors.toSet());
         StringBuilder builder = new StringBuilder();
         builder.append("\nMaterializedView");
+        // rewrite success and chosen
+        builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
+        if (!materializationChosenNameSet.isEmpty()) {
+            builder.append("  Names: ").append(String.join(", ", materializationChosenNameSet));
+        }
+        // rewrite success but not chosen
+        builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
+        Set<String> rewriteSuccessButNotChoseNameSet = materializationContexts.stream()
+                .filter(materializationContext -> materializationContext.isSuccess()
+                        && !materializationChosenNameSet.contains(materializationContext.getMTMV().getName()))
+                .map(materializationContext -> materializationContext.getMTMV().getName())
+                .collect(Collectors.toSet());
+        if (!rewriteSuccessButNotChoseNameSet.isEmpty()) {
+            builder.append("  Names: ").append(String.join(", ", rewriteSuccessButNotChoseNameSet));
+        }
+        // rewrite fail
         builder.append("\nMaterializedViewRewriteFail:");
         for (MaterializationContext ctx : materializationContexts) {
             if (!ctx.isSuccess()) {
@@ -211,25 +240,15 @@ public class MaterializationContext {
                         .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
         }
-        builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
-        builder.append("  Names: ").append(materializationContexts.stream()
-                .filter(materializationContext -> materializationContext.isSuccess()
-                        && !materializationChosenNameSet.contains(materializationContext.getMTMV().getName()))
-                .map(materializationContext -> materializationContext.getMTMV().getName())
-                .collect(Collectors.joining(", ")));
-        builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
-        builder.append("  Names: ").append(String.join(", ", materializationChosenNameSet));
         return builder.toString();
     }
 
     /**
      * MaterializationContext fromMaterializedView
      */
-    public static MaterializationContext fromMaterializedView(MTMV materializedView, Plan mvScanPlan) {
-        return new MaterializationContext(
-                materializedView,
-                mvScanPlan,
-                ImmutableList.of(),
-                ImmutableList.of());
+    public static MaterializationContext fromMaterializedView(MTMV materializedView, Plan mvScanPlan,
+            CascadesContext cascadesContext) {
+        return new MaterializationContext(materializedView, mvScanPlan, ImmutableList.of(), ImmutableList.of(),
+                cascadesContext);
     }
 }
