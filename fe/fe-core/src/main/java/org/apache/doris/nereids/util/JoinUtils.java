@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
@@ -391,5 +392,16 @@ public class JoinUtils {
         // if mark join's hash conjuncts is empty, we use mark conjuncts as hash conjuncts
         // and translate join type to NULL_AWARE_LEFT_SEMI_JOIN or NULL_AWARE_LEFT_ANTI_JOIN
         return join.getHashJoinConjuncts().isEmpty() && !join.getMarkJoinConjuncts().isEmpty();
+    }
+
+    /**
+     * forbid join reorder if top join's condition use mark join slot produced by bottom join
+     */
+    public static boolean checkReorderPrecondition(LogicalJoin<?, ?> top, LogicalJoin<?, ?> bottom) {
+        Set<Slot> markSlots = top.getConditionSlot().stream()
+                .filter(MarkJoinSlotReference.class::isInstance)
+                .collect(Collectors.toSet());
+        markSlots.retainAll(bottom.getOutputSet());
+        return markSlots.isEmpty();
     }
 }
