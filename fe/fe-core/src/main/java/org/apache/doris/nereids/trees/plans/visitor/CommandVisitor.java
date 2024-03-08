@@ -41,6 +41,8 @@ import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 
 /** CommandVisitor. */
@@ -145,5 +147,13 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropProcedureCommand(DropProcedureCommand dropProcedureCommand, C context) {
         return visitCommand(dropProcedureCommand, context);
+    }
+
+    default R visitShowProcedureStatusCommand(ShowProcedureStatusCommand showProcedureStatusCommand, C context) {
+        return visitCommand(showProcedureStatusCommand, context);
+    }
+
+    default R visitShowCreateProcedureCommand(ShowCreateProcedureCommand showCreateProcedureCommand, C context) {
+        return visitCommand(showCreateProcedureCommand, context);
     }
 }
