@@ -1,7 +1,7 @@
 ---
 {
-    "title": "get profile",
-    "language": "en"
+  "title": "Get Profile",
+  "language": "en"
 }
 ---
 
@@ -24,15 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# get profile
+## Get Profile
 
 ## Background
 
-We often encounter situations where the execution time of the corresponding SQL is less than expected. In order to optimize the SQL to achieve the expected query delay, through the profile we can see what optimizations can be done. Now we will explain how to get the profile corresponding to the query in different environments.
+We often encounter situations where the execution time of the corresponding SQL is less than expected. In order to optimize the SQL to achieve the expected Query delay, through the Profile we can see what optimizations can be done. Now we will explain how to get the Profile corresponding to the Query in different environments.
+
 ## Request
 
-`http://fe_ip:http_port`
-`GET /api/profile`
+`HTTP://FE_IP:HTTP_PORT`
+`GET /API/Profile`
 
 
 ## The Doris cluster can normally access the external network
@@ -74,7 +75,7 @@ We often encounter situations where the execution time of the corresponding SQL 
     +----------------+-------+---------------+---------+
     1 row in set (0.00 sec)
     
-    --Execute the corresponding query
+    --Execute the corresponding Query
     mysql> select id,name from test.test where name like "%RuO%";
     +---------------------------+-----------------------------------------------------------------------------------------------------------------------------+
     | id                        | name                                                                                                                        |
@@ -84,18 +85,18 @@ We often encounter situations where the execution time of the corresponding SQL 
     1 row in set (0.01 sec)
     ```
 
-3. Get profile
+3. Get Profile
 
-   When the cluster has multiple fes, you need to access the QueryProfile page of the fe http interface (http://fe_ip:http_port) that executes the corresponding query. Click the corresponding Profile ID to view the corresponding profile. You can also download the corresponding profile in the profile interface.
+   When the cluster has multiple fes, you need to access the QueryProfile page of the FE HTTP interface (HTTP://FE_IP:HTTP_PORT) that executes the corresponding query. Click the corresponding Profile ID to view the corresponding Profile. You can also download the corresponding Profile in the Profile interface.
 
    ![profile1.png](/images/profile1.png)
    ![profile2.png](/images/profile2.png)
 
 ## Doris cluster’s access to the external network is restricted
 
-When the cluster cannot access the external network normally, it needs to obtain the corresponding profile through the API (http://fe_ip:http_port/api/profile?query_id=). The ip and port refer to the ip and port corresponding to fe that executes the corresponding query. At this time, the first two steps of obtaining the profile corresponding to the query are the same as when accessing the external network normally. There will be a difference in the third step of obtaining the profile.
+When the cluster cannot access the external network normally, it needs to obtain the corresponding profile through the API (HTTP://FE_IP:HTTP_PORT/API/Profile?Query_ID=). The IP and PORT refer to the IP and PORT corresponding to FE that executes the corresponding Query. At this time, the first two steps of obtaining the Profile corresponding to the Query are the same as when accessing the external network normally. There will be a difference in the third step of obtaining the Profile.
 
-**Get profile**
+**Get Profile**
 
 - Find the corresponding Profile ID
 
@@ -111,7 +112,7 @@ When the cluster cannot access the external network normally, it needs to obtain
     2 rows in set (0.00 sec)
     ```
 
-- Query profile and redirect profile to a text
+- Query Profile and redirect Profile to a text
 
     ```
     template：curl -X GET -u user:password http://fe_ip:http_port/api/profile?query_id=1b0bb22689734d30-bbe56e17c2ff21dc > test.profile
@@ -122,7 +123,7 @@ When the cluster cannot access the external network normally, it needs to obtain
     100  1211    0  1211    0     0   168k      0 --:--:-- --:--:-- --:--:--  168k
     ```
 
-- The returned profile line break is \ \n, which is inconvenient to analyze. You can replace \ \n with \n in a text editing tool.
+- The returned Profile line break is \ \n, which is inconvenient to analyze. You can replace \ \n with \n in a text editing tool.
 
     ```
     [user@VM-10-6-centos profile]$ cat test.profile
