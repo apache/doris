@@ -42,6 +42,7 @@
 
 namespace doris::vectorized {
 struct ColumnRowRef {
+    ENABLE_FACTORY_CREATOR(ColumnRowRef);
     ColumnPtr column;
     size_t row_idx;
 
@@ -60,6 +61,12 @@ struct ColumnRowRef {
         a.column->update_crc_with_value(a.row_idx, a.row_idx + 1, hash_val, nullptr);
         return hash_val;
     }
+};
+
+struct StructInState {
+    ENABLE_FACTORY_CREATOR(StructInState)
+    std::unordered_set<ColumnRowRef, ColumnRowRef> args_set;
+    bool null_in_set = false;
 };
 
 template <bool negative>
@@ -88,6 +95,11 @@ public:
 
     // make data in context into a set
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+        std::shared_ptr<StructInState> state = std::make_shared<StructInState>();
+        context->set_function_state(scope, state);
         DCHECK(context->get_num_args() >= 1);
         auto* col_desc = context->get_arg_type(0);
         DataTypePtr args_type = DataTypeFactory::instance().create_data_type(*col_desc);
@@ -104,7 +116,7 @@ public:
             if (col->is_nullable()) {
                 auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);
                 if (null_col->has_null()) {
-                    null_in_set = true;
+                    state->null_in_set = true;
                     null_map[i - 1] = true;
                 } else {
                     column_struct_ptr_args->insert_from(null_col->get_nested_column(), 0);
@@ -116,16 +128,23 @@ public:
         ColumnPtr column_ptr = std::move(column_struct_ptr_args);
         // make StructRef into set
         for (size_t i = 1; i < context->get_num_args(); ++i) {
-            if (null_in_set && null_map[i - 1]) {
+            if (state->null_in_set && null_map[i - 1]) {
                 continue;
             }
-            args_set.insert({column_ptr, i - 1});
+            state->args_set.insert({column_ptr, i - 1});
         }
         return Status::OK();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        auto in_state = reinterpret_cast<StructInState*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        if (!in_state) {
+            return Status::RuntimeError("funciton context for function '{}' must have Set;",
+                                        get_name());
+        }
+        const auto& args_set = in_state->args_set;
         auto res = ColumnUInt8::create();
         ColumnUInt8::Container& vec_res = res->get_data();
         vec_res.resize(input_rows_count);
@@ -138,14 +157,13 @@ public:
         const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            ColumnRowRef ref({materialized_column, i});
             bool find = args_set.find({materialized_column, i}) != args_set.end();
             if constexpr (negative) {
                 vec_res[i] = !find;
             } else {
                 vec_res[i] = find;
             }
-            if (null_in_set) {
+            if (in_state->null_in_set) {
                 vec_null_map_to[i] = negative == vec_res[i];
             } else {
                 vec_null_map_to[i] = false;
@@ -160,10 +178,6 @@ public:
         }
         return Status::OK();
     }
-
-private:
-    std::unordered_set<ColumnRowRef, ColumnRowRef> args_set;
-    bool null_in_set = false;
 };
 
 } // namespace doris::vectorized
