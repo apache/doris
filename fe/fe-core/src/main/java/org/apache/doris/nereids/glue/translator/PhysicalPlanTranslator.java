@@ -67,6 +67,7 @@ import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHivePartitionShuffle;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
@@ -2521,6 +2522,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return new DataPartition(partitionType, partitionExprs);
         } else if (distributionSpec instanceof DistributionSpecTabletIdShuffle) {
             return DataPartition.TABLET_ID;
+        } else if (distributionSpec instanceof DistributionSpecHivePartitionShuffle) {
+            DistributionSpecHivePartitionShuffle distributionSpecHash
+                    = (DistributionSpecHivePartitionShuffle) distributionSpec;
+            return new DataPartition(TPartitionType.HASH_PARTITIONED, distributionSpecHash.getPartitionKeys());
         } else {
             throw new RuntimeException("Unknown DistributionSpec: " + distributionSpec);
         }
