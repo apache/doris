@@ -178,7 +178,7 @@ private:
                                                     QueryContext* query_ctx);
 
     template <typename Params>
-    Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
+    Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline, bool is_nereids,
                           std::shared_ptr<QueryContext>& query_ctx);
 
     // This is input params

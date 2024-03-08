@@ -70,7 +70,8 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline);
+                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline,
+                 bool is_nereids);
 
     ~QueryContext();
 
@@ -235,6 +236,8 @@ public:
         _merge_controller_handler = handler;
     }
 
+    bool is_nereids() const { return _is_nereids; }
+
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -269,6 +272,7 @@ private:
     VecDateTimeValue _start_time;
     int64_t _bytes_limit = 0;
     bool _is_pipeline = false;
+    bool _is_nereids = false;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
