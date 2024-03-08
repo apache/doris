@@ -55,7 +55,7 @@ import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DeleteHandler implements Writable {
-    private static final java.util.logging.Logger LOG = LogManager.getLogger(DeleteHandler.class);
+    private static final Logger LOG = LogManager.getLogger(DeleteHandler.class);
 
     // TransactionId -> DeleteJob
     private final Map<Long, DeleteJob> idToDeleteJob;
