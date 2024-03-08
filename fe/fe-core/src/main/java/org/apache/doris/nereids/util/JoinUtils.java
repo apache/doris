@@ -404,15 +404,4 @@ public class JoinUtils {
         markSlots.retainAll(bottom.getOutputSet());
         return markSlots.isEmpty();
     }
-
-    public static boolean isSemiOrAntiJoin(JoinType joinType) {
-        return joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN
-                || joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN;
-    }
-
-    public static boolean isOuterJoin(JoinType joinType) {
-        return joinType == JoinType.LEFT_OUTER_JOIN
-                || joinType == JoinType.RIGHT_OUTER_JOIN
-                || joinType == JoinType.FULL_OUTER_JOIN;
-    }
 }

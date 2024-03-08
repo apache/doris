@@ -121,7 +121,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -661,7 +660,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
         // for outer join which is anti-like, use anti join to re-estimate the stats
         // otherwise, return null and pass through to use the normal filter estimation logical
-        if (JoinUtils.isOuterJoin(joinType)) {
+        if (joinType.isOuterJoin()) {
             boolean leftHasIsNull = false;
             boolean rightHasIsNull = false;
             boolean isLeftOuterJoin = join.getJoinType() == JoinType.LEFT_OUTER_JOIN;
