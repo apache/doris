@@ -166,7 +166,7 @@ TEST_F(BvarMetricsTest, MetricEntityWithMetric) {
 
     // Before register
     std::shared_ptr<BvarMetric> metric = entity.get_metric("cpu_idle");
-    EXPECT_NE(nullptr, metric);
+    EXPECT_EQ(nullptr, metric);
 
     // Register
     entity.register_metric("cpu_idle", cpu_idle);
