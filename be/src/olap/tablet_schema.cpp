@@ -1192,6 +1192,10 @@ TabletColumn& TabletSchema::mutable_column_by_uid(int32_t col_unique_id) {
     return *_cols.at(_field_id_to_index.at(col_unique_id));
 }
 
+TabletColumn& TabletSchema::mutable_column(size_t ordinal) {
+    return *_cols.at(ordinal);
+}
+
 void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& tindexes) {
     std::vector<TabletIndex> indexes;
     for (auto& tindex : tindexes) {
