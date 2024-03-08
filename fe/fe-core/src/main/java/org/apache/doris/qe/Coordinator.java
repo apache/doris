@@ -22,8 +22,6 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -149,7 +147,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 public class Coordinator implements CoordInterface {
@@ -211,7 +208,7 @@ public class Coordinator implements CoordInterface {
     private final List<BackendExecState> needCheckBackendExecStates = Lists.newArrayList();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
     private ResultReceiver receiver;
-    private final List<ScanNode> scanNodes;
+    protected final List<ScanNode> scanNodes;
     private int scanRangeNum = 0;
     // number of instances of this query, equals to
     // number of backends executing plan fragments on behalf of this query;
@@ -511,7 +508,7 @@ public class Coordinator implements CoordInterface {
     }
 
     // Initialize
-    protected void prepare() {
+    protected void prepare() throws Exception {
         for (PlanFragment fragment : fragments) {
             fragmentExecParamsMap.put(fragment.getFragmentId(), new FragmentExecParams(fragment));
         }
@@ -2195,11 +2192,7 @@ public class Coordinator implements CoordInterface {
 
     // Populates scan_range_assignment_.
     // <fragment, <server, nodeId>>
-    private void computeScanRangeAssignment() throws Exception {
-        if (Config.isCloudMode() && Config.enable_cloud_snapshot_version) {
-            setVisibleVersionForOlapScanNode();
-        }
-
+    protected void computeScanRangeAssignment() throws Exception {
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable();
         Collections.shuffle(scanNodes);
@@ -2415,58 +2408,7 @@ public class Coordinator implements CoordInterface {
         // TODO: more ranges?
     }
 
-    // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
-    // After all scan node are collected, it is possible to gain a snapshot of the partition version.
-    private void setVisibleVersionForOlapScanNode() throws RpcException, UserException {
-        List<CloudPartition> partitions = new ArrayList<>();
-        Set<Long> partitionSet = new HashSet<>();
-        for (ScanNode node : scanNodes) {
-            if (!(node instanceof OlapScanNode)) {
-                continue;
-            }
 
-            OlapScanNode scanNode = (OlapScanNode) node;
-            OlapTable table = scanNode.getOlapTable();
-            for (Long id : scanNode.getSelectedPartitionIds()) {
-                if (!partitionSet.contains(id)) {
-                    partitionSet.add(id);
-                    partitions.add((CloudPartition) table.getPartition(id));
-                }
-            }
-        }
-
-        if (partitions.isEmpty()) {
-            return;
-        }
-
-        List<Long> versions = CloudPartition.getSnapshotVisibleVersion(partitions);
-        assert versions.size() == partitions.size() : "the got num versions is not equals to acquired num versions";
-        if (versions.stream().anyMatch(x -> x <= 0)) {
-            int size = versions.size();
-            for (int i = 0; i < size; ++i) {
-                if (versions.get(i) <= 0) {
-                    LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
-                            partitions.get(i).getId(), versions.get(i));
-                    throw new UserException("partition " + partitions.get(i).getId()
-                            + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
-                }
-            }
-        }
-
-        // ATTN: the table ids are ignored here because the both id are allocated from a same id generator.
-        Map<Long, Long> visibleVersionMap = IntStream.range(0, versions.size())
-                .boxed()
-                .collect(Collectors.toMap(i -> partitions.get(i).getId(), versions::get));
-
-        for (ScanNode node : scanNodes) {
-            if (!(node instanceof OlapScanNode)) {
-                continue;
-            }
-
-            OlapScanNode scanNode = (OlapScanNode) node;
-            scanNode.updateScanRangeVersions(visibleVersionMap);
-        }
-    }
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
