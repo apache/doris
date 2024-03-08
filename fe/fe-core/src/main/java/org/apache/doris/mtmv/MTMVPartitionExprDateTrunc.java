@@ -69,7 +69,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         if (partitionType == PartitionType.RANGE) {
             Type partitionColumnType = MTMVPartitionUtil
                     .getPartitionColumnType(mvPartitionInfo.getRelatedTable(), mvPartitionInfo.getRelatedCol());
-            if (!partitionColumnType.isDateOrDateTime()) {
+            if (!partitionColumnType.isDateType()) {
                 throw new AnalysisException(
                         "partitionColumnType should be date/datetime "
                                 + "when PartitionType is range and expr is date_trunc");
@@ -132,7 +132,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             Type partitionColumnType)
             throws AnalysisException {
         if (upperValue.isMax()) {
-            return upperValue;
+            throw new AnalysisException("date trunc not support MAXVALUE partition");
         }
         // begin time and end time dateTrunc should has same result
         DateTimeLiteral endTruncTime = dateTrunc(upperValue.getStringValue(),
