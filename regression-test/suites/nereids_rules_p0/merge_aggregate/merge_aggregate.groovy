@@ -27,10 +27,21 @@ suite("merge_aggregate") {
          """
 
     sql """
-         insert into mal_test1 values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6);
+         insert into mal_test1 values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
+        ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);
       """
+    sql "drop table if exists mal_test2"
+    sql """
+        create table mal_test2(pk int, a int, b int) distributed by hash(pk) buckets 10
+        properties('replication_num' = '1');
+    """
 
     sql "sync"
+
+
+    qt_sumCount_empty_table """
+        select sum(col) from (select count(a) col from mal_test2 group by a) t;
+    """
 
     qt_maxMax_minMin_sumSum_sumCount """
         select max(col1), min(col2), sum(col3), sum(col4) from 
@@ -45,7 +56,7 @@ suite("merge_aggregate") {
     """
 
     qt_agg_project_agg """
-        select max(col2),min(col2),sum(col3),sum(col4) from 
+        select col2, max(col2),min(col2),sum(col3),sum(col4) from 
         (select pk as col1,a as col2,sum(b) col3, count(b) col4 from mal_test1 group by pk,a) t 
         group by col2 order by 1,2,3,4;
     """
@@ -55,6 +66,22 @@ suite("merge_aggregate") {
         select max(col1) c1, min(col2) c2, sum(col3) c3, sum(col4) c4 from 
         (select pk,a,max(b) as col1, min(b) as col2, sum(b) as col3, count(b) as col4 from mal_test1 group by pk,a) t 
         group by a order by 1,2,3,4) outert order by 1;
+    """
+
+    qt_outer_agg_has_distinct_same_keys """
+        select max(col1), min(col2), sum(col3), sum(DISTINCT col4) from 
+        (select pk,a,max(b) as col1, min(b) as col2, sum(b) as col3, count(b) as col4 from mal_test1 group by pk,a) t 
+        group by pk,a order by 1,2,3,4;    
+    """
+
+    qt_inner_agg_has_distinct_same_keys """
+        select max(col1), min(col2), sum(col3), sum(col4) from 
+        (select pk,a,max(b) as col1, min(b) as col2, sum(distinct b) as col3, count(b) as col4 from mal_test1 group by pk,a) t 
+        group by a,pk order by 1,2,3,4;
+    """
+
+    qt_sumCount_empty_table_shape """
+        explain shape plan select sum(col) from (select count(a) col from mal_test2 group by a) t;
     """
 
     qt_agg_project_agg_shape """
@@ -73,6 +100,20 @@ suite("merge_aggregate") {
         explain shape plan select max(a),min(a),max(pk),min(pk) from 
         (select pk,a from mal_test1 group by pk,a) t 
         group by a order by 1,2,3,4;
+    """
+
+    qt_outer_agg_has_distinct_same_keys_shape """
+        explain shape plan
+        select max(col1), min(col2), sum(col3), sum(DISTINCT col4) from 
+        (select pk,a,max(b) as col1, min(b) as col2, sum(b) as col3, count(b) as col4 from mal_test1 group by pk,a) t 
+        group by pk,a order by 1,2,3,4;    
+    """
+
+    qt_inner_agg_has_distinct_same_keys_shape """
+        explain shape plan
+        select max(col1), min(col2), sum(col3), sum(col4) from 
+        (select pk,a,max(b) as col1, min(b) as col2, sum(distinct b) as col3, count(b) as col4 from mal_test1 group by pk,a) t 
+        group by a,pk order by 1,2,3,4;
     """
 
     qt_middle_project_has_expression_cannot_merge_shape1 """

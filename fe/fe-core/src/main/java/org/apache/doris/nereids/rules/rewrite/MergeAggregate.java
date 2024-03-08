@@ -40,20 +40,33 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * MergeAggregate
- */
+/**MergeAggregate*/
 public class MergeAggregate implements RewriteRuleFactory {
     private static final ImmutableSet<String> ALLOW_MERGE_AGGREGATE_FUNCTIONS =
             ImmutableSet.of("min", "max", "sum", "any_value");
+    private Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc;
 
-    private Plan mergeTwoAggregate(Plan plan) {
-        LogicalAggregate<Plan> outerAgg = (LogicalAggregate<Plan>) plan;
-        LogicalAggregate<Plan> innerAgg = (LogicalAggregate<Plan>) outerAgg.child();
+    @Override
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalAggregate(logicalAggregate()).when(this::canMergeAggregateWithoutProject)
+                        .then(this::mergeTwoAggregate)
+                        .toRule(RuleType.MERGE_AGGREGATE),
+                logicalAggregate(logicalProject(logicalAggregate()))
+                        .when(this::canMergeAggregateWithProject)
+                        .then(this::mergeAggProjectAgg)
+                        .toRule(RuleType.MERGE_AGGREGATE));
+    }
 
-        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = innerAgg.getOutputExpressions().stream()
-                .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
-                .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0)));
+    /**
+     * before:
+     * LogicalAggregate
+     *   +--LogicalAggregate
+     * after:
+     * LogicalAggregate
+     */
+    private Plan mergeTwoAggregate(LogicalAggregate<LogicalAggregate<Plan>> outerAgg) {
+        LogicalAggregate<Plan> innerAgg = outerAgg.child();
 
         List<NamedExpression> newOutputExpressions = outerAgg.getOutputExpressions().stream()
                 .map(e -> rewriteAggregateFunction(e, innerAggExprIdToAggFunc))
@@ -61,14 +74,19 @@ public class MergeAggregate implements RewriteRuleFactory {
         return outerAgg.withAggOutput(newOutputExpressions).withChildren(innerAgg.children());
     }
 
-    private Plan mergeAggProjectAgg(Plan plan) {
-        LogicalAggregate<Plan> outerAgg = (LogicalAggregate<Plan>) plan;
-        LogicalProject<Plan> project = (LogicalProject<Plan>) outerAgg.child();
-        LogicalAggregate<Plan> innerAgg = (LogicalAggregate<Plan>) project.child();
+    /**
+     * before:
+     * LogicalAggregate (outputExpressions = [col2, sum(col1)], groupByKeys = [col2])
+     *   +--LogicalProject (projects = [a as col2, col1])
+     *     +--LogicalAggregate (outputExpressions = [a, b, sum(c) as col1], groupByKeys = [a,b])
+     * after:
+     * LogicalProject (projects = [a as col2, sum(col1) as sum(col1)]
+     *   +--LogicalAggregate (outputExpression = [a, sum(c) as sum(col1)], groupByKeys = [a])
+     */
+    private Plan mergeAggProjectAgg(LogicalAggregate<LogicalProject<LogicalAggregate<Plan>>> outerAgg) {
+        LogicalProject<LogicalAggregate<Plan>> project = outerAgg.child();
+        LogicalAggregate<Plan> innerAgg = project.child();
 
-        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = innerAgg.getOutputExpressions().stream()
-                .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
-                .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0)));
         // rewrite agg function. e.g. max(max)
         List<NamedExpression> aggFunc = outerAgg.getOutputExpressions().stream()
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
@@ -118,30 +136,17 @@ public class MergeAggregate implements RewriteRuleFactory {
         });
     }
 
-    private boolean canMergeAggregate(Plan plan, boolean hasProject) {
-        LogicalAggregate<Plan> outerAgg = (LogicalAggregate<Plan>) plan;
-        LogicalAggregate<Plan> innerAgg = hasProject ? (LogicalAggregate<Plan>) outerAgg.child().child(0)
-                : (LogicalAggregate<Plan>) outerAgg.child();
-
-        List<Expression> outerAggGroupByKeys = outerAgg.getGroupByExpressions();
-        if (hasProject) {
-            LogicalProject<Plan> project = (LogicalProject<Plan>) outerAgg.child();
-            outerAggGroupByKeys = PlanUtils.replaceExpressionByProjections(project.getProjects(), outerAggGroupByKeys);
-        }
-
-        if (!new HashSet<>(innerAgg.getGroupByExpressions()).containsAll(outerAggGroupByKeys)) {
-            return false;
-        }
-
-        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = innerAgg.getOutputExpressions().stream()
+    boolean commonCheck(LogicalAggregate<? extends Plan> outerAgg, LogicalAggregate<Plan> innerAgg, boolean sameGroupBy) {
+        innerAggExprIdToAggFunc = innerAgg.getOutputExpressions().stream()
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
-                .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0)));
+                .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0),
+                        (existValue, newValue) -> existValue));
         Set<AggregateFunction> aggregateFunctions = outerAgg.getAggregateFunctions();
         for (AggregateFunction outerFunc : aggregateFunctions) {
             if (!(ALLOW_MERGE_AGGREGATE_FUNCTIONS.contains(outerFunc.getName()))) {
                 return false;
             }
-            if (outerFunc.isDistinct()) {
+            if (outerFunc.isDistinct() && !sameGroupBy) {
                 return false;
             }
             // not support outerAggFunc: sum(a+1),sum(a+b)
@@ -151,15 +156,19 @@ public class MergeAggregate implements RewriteRuleFactory {
             ExprId childExprId = ((SlotReference) outerFunc.child(0)).getExprId();
             if (innerAggExprIdToAggFunc.containsKey(childExprId)) {
                 AggregateFunction innerFunc = innerAggExprIdToAggFunc.get(childExprId);
-                if (innerFunc.isDistinct()) {
+                if (innerFunc.isDistinct() && !sameGroupBy) {
                     return false;
                 }
-                // support sum(sum),min(min),max(max),sum(count),any_value(any_value)
-                if (!(outerFunc.getName().equals("sum") && innerFunc.getName().equals("count"))
+                // support sum(sum),min(min),max(max),any_value(any_value),sum(count)
+                // sum(count) -> count() need outerAgg having group by keys (reason: nullable)
+                if (!(outerFunc.getName().equals("sum") && innerFunc.getName().equals("count")
+                        && !outerAgg.getGroupByExpressions().isEmpty())
                         && !innerFunc.getName().equals(outerFunc.getName())) {
                     return false;
                 }
             } else {
+                // select a, max(b), min(b), any_value(b) from (select a,b from t1 group by a, b) group by a;
+                // equals select a, max(b), min(b), any_value(b) from t1 group by a;
                 if (!outerFunc.getName().equals("max")
                         && !outerFunc.getName().equals("min")
                         && !outerFunc.getName().equals("any_value")) {
@@ -170,22 +179,31 @@ public class MergeAggregate implements RewriteRuleFactory {
         return true;
     }
 
-    private boolean projectHasExpression(Plan plan) {
-        LogicalProject<Plan> project = (LogicalProject<Plan>) plan.child(0);
-        return ExpressionUtils.anyMatch(project.getProjects(),
-                expr -> !(expr instanceof SlotReference) && !(expr instanceof Alias));
+    private boolean canMergeAggregateWithoutProject(LogicalAggregate<LogicalAggregate<Plan>> outerAgg) {
+        LogicalAggregate<Plan> innerAgg = outerAgg.child();
+        if (!new HashSet<>(innerAgg.getGroupByExpressions()).containsAll(outerAgg.getGroupByExpressions())) {
+            return false;
+        }
+        boolean sameGroupBy = (innerAgg.getGroupByExpressions().size() == outerAgg.getGroupByExpressions().size());
+
+        return commonCheck(outerAgg, innerAgg, sameGroupBy);
     }
 
-    @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                logicalAggregate(logicalAggregate()).when(plan -> canMergeAggregate(plan, false))
-                        .then(this::mergeTwoAggregate)
-                        .toRule(RuleType.MERGE_AGGREGATE),
-                logicalAggregate(logicalProject(logicalAggregate()))
-                        .when(plan -> canMergeAggregate(plan, true))
-                        .whenNot(this::projectHasExpression)
-                        .then(this::mergeAggProjectAgg)
-                        .toRule(RuleType.MERGE_AGGREGATE));
+    private boolean canMergeAggregateWithProject(LogicalAggregate<LogicalProject<LogicalAggregate<Plan>>> outerAgg) {
+        LogicalProject<LogicalAggregate<Plan>> project = outerAgg.child();
+        LogicalAggregate<Plan> innerAgg = project.child();
+
+        List<Expression> outerAggGroupByKeys = PlanUtils.replaceExpressionByProjections(project.getProjects(),
+                outerAgg.getGroupByExpressions());
+        if (!new HashSet<>(innerAgg.getGroupByExpressions()).containsAll(outerAggGroupByKeys)) {
+            return false;
+        }
+        // project cannot have expressions like a+1
+        if (ExpressionUtils.anyMatch(project.getProjects(),
+                expr -> !(expr instanceof SlotReference) && !(expr instanceof Alias))) {
+            return false;
+        }
+        boolean sameGroupBy = (innerAgg.getGroupByExpressions().size() == outerAgg.getGroupByExpressions().size());
+        return commonCheck(outerAgg, innerAgg, sameGroupBy);
     }
 }
