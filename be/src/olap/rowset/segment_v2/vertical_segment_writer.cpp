@@ -170,6 +170,9 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         (column.is_extracted_column() && column.is_array_type())) {
         // variant and jsonb type skip write index
         opts.indexes.clear();
+        opts.need_zone_map = false;
+        opts.need_bloom_filter = false;
+        opts.need_bitmap_index = false;
     }
     for (auto index : opts.indexes) {
         if (!skip_inverted_index && index && index->index_type() == IndexType::INVERTED) {
@@ -195,7 +198,6 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     CHECK_FIELD_TYPE(JSONB, "jsonb")
     CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
     CHECK_FIELD_TYPE(MAP, "map")
-    CHECK_FIELD_TYPE(VARIANT, "variant")
     CHECK_FIELD_TYPE(OBJECT, "object")
     CHECK_FIELD_TYPE(HLL, "hll")
     CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")

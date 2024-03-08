@@ -56,6 +56,7 @@ public abstract class AbstractInsertExecutor {
     protected final long createTime = System.currentTimeMillis();
     protected long loadedRows = 0;
     protected int filteredRows = 0;
+
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
 
@@ -74,6 +75,18 @@ public abstract class AbstractInsertExecutor {
 
     public Coordinator getCoordinator() {
         return coordinator;
+    }
+
+    public DatabaseIf getDatabase() {
+        return database;
+    }
+
+    public TableIf getTable() {
+        return table;
+    }
+
+    public String getLabelName() {
+        return labelName;
     }
 
     /**
