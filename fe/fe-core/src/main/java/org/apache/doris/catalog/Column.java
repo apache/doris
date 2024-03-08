@@ -884,14 +884,14 @@ public class Column implements Writable, GsonPostProcessable {
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
                 && clusterKeyId == other.clusterKeyId;
 
-        if (!ok) {
-            LOG.info("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+        if (!ok && LOG.isDebugEnabled()) {
+            LOG.debug("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
                             + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {} "
                             + "children {}, realDefaultValue {}, clusterKeyId {}",
                     name, getDefaultValue(), aggregationType, isAggregationTypeImplicit, isKey, isAllowNull,
                     getDataType(), getStrLen(), getPrecision(), getScale(), visible, children, realDefaultValue,
                     clusterKeyId);
-            LOG.info("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+            LOG.debug("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
                             + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {}, "
                             + "children {}, realDefaultValue {}, clusterKeyId {}",
                     other.name, other.getDefaultValue(), other.aggregationType, other.isAggregationTypeImplicit,
