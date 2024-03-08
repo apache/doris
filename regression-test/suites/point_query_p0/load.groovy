@@ -18,11 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_point_query_load", "p0") {
-    // TODO: some bugs in pipeline need to be fixed to support topn-filter
-    sql "set enable_pipeline_engine=false"
-    sql "set enable_pipeline_x_engine=false"
-    
-    //test oringinal planner
+    //test legacy planner
     sql """set enable_nereids_planner=false"""
 
     def dataFile = """${getS3Url()}/regression/datatypes/test_scalar_types_10w.csv"""
