@@ -85,6 +85,15 @@ jobs:
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'adopt'
+          java-version: |
+            8
+            11
+            17
+
       - name: Generate compile_commands.json
         id: generate
         run: |
@@ -104,6 +113,9 @@ jobs:
             tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
             popd
 
+            eval export JAVA_HOME=\$JAVA_HOME_11_$RUNNER_ARCH
+            eval export JDK_17=\$JAVA_HOME_17_$RUNNER_ARCH
+    
             export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
             DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang ENABLE_PCH=OFF OUTPUT_BE_BINARY=0 ./build.sh --be --cloud
           fi
