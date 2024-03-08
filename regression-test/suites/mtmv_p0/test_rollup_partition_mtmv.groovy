@@ -216,4 +216,79 @@ suite("test_rollup_partition_mtmv") {
     } catch (Exception e) {
         log.info(e.getMessage())
     }
+
+
+    // range not support  other data type
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` varchar(200) NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY range(`k2`)
+        (
+        PARTITION p_20200101 VALUES [("2020-01-01"),("2020-01-02")),
+        PARTITION p_20200102 VALUES [("2020-01-02"),("2020-01-03")),
+        PARTITION p_20200201 VALUES [("2020-02-01"),("2020-02-02"))
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by date_trunc(`k2`,'month')
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES (
+                'replication_num' = '1'
+                )
+                AS
+                SELECT * FROM ${tableName};
+            """
+             Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // not support trunc hour
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY range(`k2`)
+        (
+        PARTITION p_20200101 VALUES [("2020-01-01"),("2020-01-02")),
+        PARTITION p_20200102 VALUES [("2020-01-02"),("2020-01-03")),
+        PARTITION p_20200201 VALUES [("2020-02-01"),("2020-02-02"))
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by date_trunc(`k2`,'hour')
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES (
+                'replication_num' = '1'
+                )
+                AS
+                SELECT * FROM ${tableName};
+            """
+             Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
 }
