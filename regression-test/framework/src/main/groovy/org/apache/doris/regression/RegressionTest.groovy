@@ -20,6 +20,7 @@ package org.apache.doris.regression
 import com.google.common.collect.Lists
 import groovy.transform.CompileStatic
 import jodd.util.Wildcard
+import org.apache.doris.regression.suite.Suite
 import org.apache.doris.regression.suite.event.EventListener
 import org.apache.doris.regression.suite.GroovyFileSource
 import org.apache.doris.regression.suite.ScriptContext
@@ -35,6 +36,8 @@ import groovy.util.logging.Slf4j
 import org.apache.commons.cli.*
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.codehaus.groovy.control.CompilerConfiguration
+import org.codehaus.groovy.vmplugin.v8.IndyInterface
+import org.slf4j.LoggerFactory
 
 import java.beans.Introspector
 import java.util.concurrent.Executors
@@ -56,6 +59,13 @@ class RegressionTest {
     static ThreadLocal<Integer> threadLoadedClassNum = new ThreadLocal<>()
     static final int cleanLoadedClassesThreshold = 20
     static String nonConcurrentTestGroup = "nonConcurrent"
+
+    static {
+        ch.qos.logback.classic.Logger loggerOfSuite =
+                LoggerFactory.getLogger(Suite.class) as ch.qos.logback.classic.Logger
+        def context = loggerOfSuite.getLoggerContext()
+        context.getFrameworkPackages().add(IndyInterface.class.getPackage().getName())
+    }
 
     static void main(String[] args) {
         CommandLine cmd = ConfigOptions.initCommands(args)
