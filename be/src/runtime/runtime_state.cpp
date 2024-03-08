@@ -533,4 +533,8 @@ Status RuntimeState::register_consumer_runtime_filter(const doris::TRuntimeFilte
                                                                     consumer_filter, false, false);
     }
 }
+
+bool RuntimeState::is_nereids() const {
+    return _query_ctx->is_nereids();
+}
 } // end namespace doris
