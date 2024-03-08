@@ -976,16 +976,16 @@ public class Coordinator implements CoordInterface {
                     futures = Lists.newArrayList();
 
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                // if (LOG.isDebugEnabled()) {
-                String infos = "";
-                for (PipelineExecContext pec : ctxs.ctxs) {
-                    infos += pec.fragmentId + " ";
+                if (LOG.isDebugEnabled()) {
+                    String infos = "";
+                    for (PipelineExecContext pec : ctxs.ctxs) {
+                        infos += pec.fragmentId + " ";
+                    }
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("query {}, sending pipeline fragments: {} to be {} bprc address {}",
+                                DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
+                    }
                 }
-                // if (LOG.isDebugEnabled()) {
-                LOG.info("query {}, sending pipeline fragments: {} to be {} bprc address {}",
-                        DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
-                // }
-                // }
 
                 ctxs.unsetFields();
                 BackendServiceProxy proxy = BackendServiceProxy.getInstance();
@@ -1090,22 +1090,22 @@ public class Coordinator implements CoordInterface {
     private void waitPipelineRpc(List<Triple<PipelineExecContexts, BackendServiceProxy,
             Future<PExecPlanFragmentResult>>> futures, long leftTimeMs,
             String operation) throws RpcException, UserException {
-        long currentTimeMillis = System.currentTimeMillis();
-        long elapsed = (currentTimeMillis - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
-        String msg = String.format(
-                "timeout before waiting %s rpc, query timeout:%d, already elapsed:%d, left for this:%d",
-                operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
-        LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
-        if (!queryOptions.isSetExecutionTimeout() || !queryOptions.isSetQueryTimeout()) {
-            LOG.warn("Query {} does not set timeout info, execution timeout: is_set:{}, value:{}"
-                    + ", query timeout: is_set:{}, value: {}, "
-                    + "coordinator timeout deadline {}, cur time millis: {}",
-                    DebugUtil.printId(queryId),
-                    queryOptions.isSetExecutionTimeout(), queryOptions.getExecutionTimeout(),
-                    queryOptions.isSetQueryTimeout(), queryOptions.getQueryTimeout(),
-                    timeoutDeadline, currentTimeMillis);
-        }
         if (leftTimeMs <= 0) {
+            long currentTimeMillis = System.currentTimeMillis();
+            long elapsed = (currentTimeMillis - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
+            String msg = String.format(
+                    "timeout before waiting %s rpc, query timeout:%d, already elapsed:%d, left for this:%d",
+                    operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
+            LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
+            if (!queryOptions.isSetExecutionTimeout() || !queryOptions.isSetQueryTimeout()) {
+                LOG.warn("Query {} does not set timeout info, execution timeout: is_set:{}, value:{}"
+                                + ", query timeout: is_set:{}, value: {}, "
+                                + "coordinator timeout deadline {}, cur time millis: {}",
+                        DebugUtil.printId(queryId),
+                        queryOptions.isSetExecutionTimeout(), queryOptions.getExecutionTimeout(),
+                        queryOptions.isSetQueryTimeout(), queryOptions.getQueryTimeout(),
+                        timeoutDeadline, currentTimeMillis);
+            }
             throw new UserException(msg);
         }
 
@@ -1160,12 +1160,6 @@ public class Coordinator implements CoordInterface {
                         MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
                                 .increase(1L);
                         SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
-                        boolean alive1 = Env.getCurrentSystemInfo().checkBackendAlive(triple.getLeft().beId);
-                        boolean alive2 = Env.getCurrentSystemInfo().checkBackendLoadAvailable(triple.getLeft().beId);
-                        boolean alive3 = Env.getCurrentSystemInfo().checkBackendQueryAvailable(triple.getLeft().beId);
-                        boolean alive4 = Env.getCurrentSystemInfo()
-                                .checkBackendScheduleAvailable(triple.getLeft().beId);
-                        LOG.info("THRIFT_RPC_ERROR exception: " + alive1 + " " + alive2 + " " + alive3 + " " + alive4);
                         throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
                     default:
                         throw new UserException(errMsg, exception);

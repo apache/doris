@@ -171,12 +171,6 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
 
 struct WriteCooldownMetaExecutors {
     WriteCooldownMetaExecutors(size_t executor_nums = 5);
-    ~WriteCooldownMetaExecutors() {
-        for (int i = 0; i < _executors.size(); ++i) {
-            // _executors[i]->shutdown();
-            _executors[i]->join();
-        }
-    }
 
     static WriteCooldownMetaExecutors* get_instance() {
         static WriteCooldownMetaExecutors instance;
