@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -44,10 +43,6 @@ public class InferFilterNotNull extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter()
-            .when(filter -> filter.getConjuncts().stream()
-                    .filter(Not.class::isInstance)
-                    .map(Not.class::cast)
-                    .noneMatch(Not::isGeneratedIsNotNull))
             .thenApply(ctx -> {
                 LogicalFilter<Plan> filter = ctx.root;
                 Set<Expression> predicates = filter.getConjuncts();
@@ -55,7 +50,7 @@ public class InferFilterNotNull extends OneRewriteRuleFactory {
                 ImmutableSet.Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
                 for (Expression isNotNull : isNotNulls) {
                     if (!predicates.contains(isNotNull)) {
-                        needGenerateNotNullsBuilder.add(((Not) isNotNull).withGeneratedIsNotNull(true));
+                        needGenerateNotNullsBuilder.add(isNotNull);
                     }
                 }
                 Set<Expression> needGenerateNotNulls = needGenerateNotNullsBuilder.build();

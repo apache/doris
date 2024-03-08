@@ -86,8 +86,6 @@ public class EliminateNotNull implements RewriteRuleFactory {
         Set<Expression> predicatesNotContainIsNotNull = Sets.newHashSet();
         List<Slot> slotsFromIsNotNull = Lists.newArrayList();
         exprs.stream()
-                .filter(expr -> !(expr instanceof Not)
-                        || !((Not) expr).isGeneratedIsNotNull()) // remove generated `is not null`
                 .forEach(expr -> {
                     Optional<Slot> notNullSlot = TypeUtils.isNotNull(expr);
                     if (notNullSlot.isPresent()) {

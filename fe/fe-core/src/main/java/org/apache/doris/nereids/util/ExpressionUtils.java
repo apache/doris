@@ -571,7 +571,7 @@ public class ExpressionUtils {
      */
     public static Set<Expression> inferNotNull(Set<Expression> predicates, CascadesContext cascadesContext) {
         return inferNotNullSlots(predicates, cascadesContext).stream()
-                .map(slot -> new Not(new IsNull(slot), false))
+                .map(slot -> new Not(new IsNull(slot)))
                 .collect(Collectors.toSet());
     }
 
@@ -582,7 +582,7 @@ public class ExpressionUtils {
             CascadesContext cascadesContext) {
         return inferNotNullSlots(predicates, cascadesContext).stream()
                 .filter(slots::contains)
-                .map(slot -> new Not(new IsNull(slot), true))
+                .map(slot -> new Not(new IsNull(slot)))
                 .collect(Collectors.toSet());
     }
 
