@@ -42,11 +42,13 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
                                 partition(region="sh",day="20380101")
                                 partition(region="bj",day="20200101")
                                 partition(region="sh",day="20200101")
+                                partition(region="bj",day="20380102")
                             """
     def insert_str1 = """insert into ${hive_database}.${hive_table} PARTITION(region="bj",day="20380101") values(1)"""
     def insert_str2 = """insert into ${hive_database}.${hive_table} PARTITION(region="sh",day="20380101") values(2)"""
     def insert_str3 = """insert into ${hive_database}.${hive_table} PARTITION(region="bj",day="20200101") values(3)"""
     def insert_str4 = """insert into ${hive_database}.${hive_table} PARTITION(region="sh",day="20200101") values(4)"""
+    def insert_str5 = """insert into ${hive_database}.${hive_table} PARTITION(region="bj",day="20380102") values(5)"""
 
     logger.info("hive sql: " + drop_table_str)
     hive_docker """ ${drop_table_str} """
@@ -66,6 +68,8 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     hive_docker """ ${insert_str3} """
     logger.info("hive sql: " + insert_str4)
     hive_docker """ ${insert_str4} """
+    logger.info("hive sql: " + insert_str5)
+    hive_docker """ ${insert_str5} """
 
     // prepare catalog
     String hms_port = context.config.otherConfigs.get("hms_port")
@@ -78,7 +82,7 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
         'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
     );"""
 
-    order_qt_select_base_table "SELECT * FROM ${catalog_name}.${hive_database}.${hive_table}"
+    order_qt_select_base_table "SELECT * FROM ${catalog_name}.${hive_database}.${hive_table} order by k1"
 
 
     // string type
@@ -102,8 +106,9 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
         """
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertEquals(1, showPartitionsResult.size())
+    assertEquals(2, showPartitionsResult.size())
     assertTrue(showPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20380102"))
 
     // refresh complete
     sql """
@@ -113,6 +118,35 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     waitingMTMVTaskFinished(jobName)
     order_qt_mtmv_complete "SELECT * FROM ${mvName} order by k1,day,region"
 
+    // date trunc
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by date_trunc(`day`,'month')
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+                        'replication_num' = '1',
+                        'partition_sync_limit'='2',
+                        'partition_sync_time_unit'='MONTH',
+                        'partition_date_format'='%Y%m%d'
+                        )
+            AS
+            SELECT k1,day,region FROM ${catalog_name}.${hive_database}.${hive_table};
+        """
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(1, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("_20380101"))
+    assertTrue(showPartitionsResult.toString().contains("_20380102"))
+
+    // refresh complete
+    sql """
+         REFRESH MATERIALIZED VIEW ${mvName} complete
+     """
+    jobName = getJobName(dbName, mvName);
+    waitingMTMVTaskFinished(jobName)
+    order_qt_mtmv_datetrunc "SELECT * FROM ${mvName} order by k1,day,region"
 
     // date type
     sql """drop materialized view if exists ${mvName};"""
