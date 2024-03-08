@@ -22,6 +22,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/types.h"
+#include "util/profile_collector.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
@@ -30,7 +31,7 @@ class Block;
 // This a reader interface for all file readers.
 // A GenericReader is responsible for reading a file and return
 // a set of blocks with specified schema,
-class GenericReader {
+class GenericReader : public ProfileCollector {
 public:
     GenericReader() : _push_down_agg_type(TPushAggOp::type::NONE) {}
     void set_push_down_agg_type(TPushAggOp::type push_down_agg_type) {
@@ -69,10 +70,6 @@ public:
     }
 
     virtual void close() {}
-
-    virtual void init_profile(RuntimeProfile* profile) {}
-
-    virtual void update_counters_before_close();
 
 protected:
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
