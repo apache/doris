@@ -468,7 +468,7 @@ Warning: Using a password on the command line interface can be insecure.
 
 OK, that's the end, you can use Mysql client, JDBC, etc. to connect to ProxySQL to operate your doris.
 
-## Nginx TCP reverse proxy method
+## Nginx reverse proxy method
 
 ### Overview
 
@@ -504,7 +504,7 @@ sudo ./configure --prefix=/usr/local/nginx --with-stream --with-http_ssl_module 
 sudo make && make install
 ```
 
-### Configure reverse proxy
+### Configure TCP reverse proxy
 
 Here is a new configuration file
 
@@ -531,6 +531,63 @@ stream {
       proxy_timeout 300s;
       proxy_pass mysqld;
   }
+}
+```
+
+### Configure HTTP reverse proxy
+Continue to add the following content to the configuration file above, **note that HTTP is at the same level as the stream above.**
+
+```bash
+http {
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /data1/nginx/log/access.log  main;
+
+    sendfile            on;
+    tcp_nopush          on;
+    tcp_nodelay         on;
+    keepalive_timeout   65;
+    types_hash_max_size 2048;
+
+    default_type        application/octet-stream;
+
+    ## Control the client request body size to be consistent 
+    ## with the be configuration streaming_load_max_mb
+    client_max_body_size 10240M;
+    ## The timeout time for client requests is slightly larger 
+    ## than the fe configuration stream_load_default_timeout_second
+    client_body_timeout 660s;
+    ## Improve network throughput
+    client_body_buffer_size 128k;
+    
+    # Load modular configuration files from the /etc/nginx/conf.d directory.
+    # See http://nginx.org/en/docs/ngx_core_module.html#include
+    # for more information.
+    #include /etc/nginx/conf.d/*.conf;
+    #include /etc/nginx/custom/*.conf;
+    upstream  doris.com {
+      server    172.31.7.119:8030 weight=3;
+      ## Note that if there are multiple FEs here, just load them here
+      ## There is a session sharing issue with multiple FEs, which constantly requires logging in again. 
+      ## Opening the comment for ip_hash can solve the problem
+      ## ip_hash;
+    }
+
+    server {
+        listen       4030;
+        server_name  gaia-pro-bigdata-fe02;
+        location / {
+            proxy_pass http://doris.com;
+            proxy_redirect default;
+            proxy_set_header Expect 100-continue;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
 }
 ```
 
@@ -638,3 +695,20 @@ mysql> desc dwd_product_live;
 40 rows in set (0.06 sec)
 ```
 
+### HTTP代理验证
+```
+curl --location-trusted -u user:passwd -H "format: json" -T data.json http://172.31.7.119:4030/api/db1/tbl1/_stream_load
+```
+
+```sql
+MySQL > select * from db1.tbl1;
++------+------+
+| k1   | k2   |
++------+------+
+|    1 |    a |
++------+------+
+|    2 |    x |
++------+------+
+|    3 |    c |
++------+------+
+```

@@ -468,7 +468,7 @@ Warning: Using a password on the command line interface can be insecure.
 
 OK，到此就结束了，你就可以用 Mysql 客户端，JDBC 等任何连接 mysql 的方式连接 ProxySQL 去操作你的 doris 了
 
-## Nginx TCP反向代理方式
+## Nginx 反向代理方式
 
 ### 概述
 
@@ -504,7 +504,7 @@ sudo ./configure --prefix=/usr/local/nginx --with-stream --with-http_ssl_module 
 sudo make && make install
 ```
 
-### 配置反向代理
+### 配置TCP反向代理
 
 这里是新建了一个配置文件
 
@@ -534,6 +534,62 @@ stream {
 }
 ```
 
+### 配置HTTP反向代理
+
+继续在上面的配置文件中增加以下内容，**注意http与上面stream是同一层级**
+
+```bash
+http {
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /data1/nginx/log/access.log  main;
+
+    sendfile            on;
+    tcp_nopush          on;
+    tcp_nodelay         on;
+    keepalive_timeout   65;
+    types_hash_max_size 2048;
+
+    default_type        application/octet-stream;
+
+    ## 控制客户端请求体大小，与be配置streaming_load_max_mb保持一致
+    client_max_body_size 10240M;
+    ## 客户端请求超时时间，比fe配置stream_load_default_timeout_second稍大点
+    client_body_timeout 660s;
+    ## 提高网络吞吐量
+    client_body_buffer_size 128k;
+    
+    # Load modular configuration files from the /etc/nginx/conf.d directory.
+    # See http://nginx.org/en/docs/ngx_core_module.html#include
+    # for more information.
+    #include /etc/nginx/conf.d/*.conf;
+    #include /etc/nginx/custom/*.conf;
+    upstream  doris.com {
+      server    172.31.7.119:8030 weight=3;
+      ## 注意这里如果是多个FE，加载这里就行了 
+      ## 多个fe存在session共享问题，即不断需要重新登陆，打开ip_hash即可解决
+      ## ip_hash;
+    }
+
+    server {
+        listen       4030;
+        server_name  gaia-pro-bigdata-fe02;
+        location / {
+            proxy_pass http://doris.com;
+            proxy_redirect default;
+            proxy_set_header Expect 100-continue;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+}
+```
+
+
 ### 启动Nginx
 
 指定配置文件启动
@@ -543,7 +599,7 @@ cd /usr/local/nginx
 /usr/local/nginx/sbin/nginx -c conf.d/default.conf
 ```
 
-### 验证
+### TCP代理验证
 
 ```
 mysql -uroot -P6030 -h172.31.7.119
@@ -636,4 +692,22 @@ mysql> desc dwd_product_live;
 | nickname        | TEXT          | Yes  | false | NULL    | REPLACE |
 +-----------------+---------------+------+-------+---------+---------+
 40 rows in set (0.06 sec)
+```
+
+### HTTP代理验证
+```
+curl --location-trusted -u user:passwd -H "format: json" -T data.json http://172.31.7.119:4030/api/db1/tbl1/_stream_load
+```
+
+```sql
+MySQL > select * from db1.tbl1;
++------+------+
+| k1   | k2   |
++------+------+
+|    1 |    a |
++------+------+
+|    2 |    x |
++------+------+
+|    3 |    c |
++------+------+
 ```
