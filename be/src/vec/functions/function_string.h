@@ -1052,13 +1052,16 @@ public:
 
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
+        std::vector<bool> is_const_args(argument_size);
 
         for (int i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
+            const auto& [col, is_const] =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+
+            const auto* col_str = assert_cast<const ColumnString*>(col.get());
             offsets_list[i] = &col_str->get_offsets();
             chars_list[i] = &col_str->get_chars();
+            is_const_args[i] = is_const;
         }
 
         auto res = ColumnString::create();
@@ -1070,14 +1073,14 @@ public:
         size_t res_reserve_size = 0;
         // we could ignore null string column
         // but it's not necessary to ignore it
-        for (size_t i = 0; i < offsets_list.size(); ++i) {
-            for (size_t j = 0; j < input_rows_count; ++j) {
-                size_t append = (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
-                // check whether the concat output might overflow(unlikely)
-                if (UNLIKELY(UINT_MAX - append < res_reserve_size)) {
-                    return Status::BufferAllocFailed("concat output is too large to allocate");
+        for (size_t i = 0; i < argument_size; ++i) {
+            if (is_const_args[i]) {
+                res_reserve_size +=
+                        ((*offsets_list[i])[0] - (*offsets_list[i])[-1]) * input_rows_count;
+            } else {
+                for (size_t j = 0; j < input_rows_count; ++j) {
+                    res_reserve_size += (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
                 }
-                res_reserve_size += append;
             }
         }
         if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
@@ -1088,15 +1091,16 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             int current_length = 0;
-            for (size_t j = 0; j < offsets_list.size(); ++j) {
+            for (size_t j = 0; j < argument_size; ++j) {
                 const auto& current_offsets = *offsets_list[j];
                 const auto& current_chars = *chars_list[j];
 
-                int size = current_offsets[i] - current_offsets[i - 1];
+                auto idx = index_check_const(i, is_const_args[j]);
+                auto size = current_offsets[idx] - current_offsets[idx - 1];
                 if (size > 0) {
                     memcpy_small_allow_read_write_overflow15(
                             &res_data[res_offset[i - 1]] + current_length,
-                            &current_chars[current_offsets[i - 1]], size);
+                            &current_chars[current_offsets[idx - 1]], size);
                     current_length += size;
                 }
             }
