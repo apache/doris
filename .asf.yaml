@@ -54,7 +54,6 @@ github:
           - P0 Regression (Doris Regression)
           - P1 Regression (Doris Regression)
           - External Regression (Doris External Regression)
-          - performance (Doris Performance)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
