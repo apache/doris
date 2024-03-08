@@ -184,4 +184,9 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCreateTableCommand(this, context);
     }
+
+    // for test
+    public CreateTableInfo getCreateTableInfo() {
+        return createTableInfo;
+    }
 }

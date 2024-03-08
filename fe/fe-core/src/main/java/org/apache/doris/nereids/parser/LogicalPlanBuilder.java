@@ -2435,33 +2435,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
                 ? Maps.newHashMap(visitPropertyClause(ctx.extProperties))
                 : Maps.newHashMap();
-        String partitionType = null;
-        if (ctx.PARTITION() != null) {
-            partitionType = ctx.RANGE() != null ? "RANGE" : "LIST";
-        }
-        boolean isAutoPartition = ctx.autoPartition != null;
-        ImmutableList.Builder<Expression> autoPartitionExpr = new ImmutableList.Builder<>();
-        if (isAutoPartition) {
-            if (ctx.RANGE() != null) {
-                // AUTO PARTITION BY RANGE FUNC_CALL_EXPR
-                if (ctx.partitionExpr != null) {
-                    autoPartitionExpr.add(visitFunctionCallExpression(ctx.partitionExpr));
-                } else {
-                    throw new AnalysisException(
-                            "AUTO PARTITION BY RANGE must provide a function expr");
-                }
-            } else {
-                // AUTO PARTITION BY LIST(`partition_col`)
-                if (ctx.partitionKeys != null) {
-                    // only support one column in auto partition
-                    autoPartitionExpr.addAll(visitIdentifierList(ctx.partitionKeys).stream()
-                            .distinct().map(name -> UnboundSlot.quoted(name))
-                            .collect(Collectors.toList()));
-                } else {
-                    throw new AnalysisException(
-                            "AUTO PARTITION BY List must provide a partition column");
-                }
-            }
+
+        // solve partition by
+        PartitionTableInfo partitionInfo;
+        if (ctx.partition != null) {
+            partitionInfo = (PartitionTableInfo) ctx.partitionTable().accept(this);
+        } else {
+            partitionInfo = PartitionTableInfo.EMPTY;
         }
 
         if (ctx.columnDefs() != null) {
@@ -2480,11 +2460,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                     comment,
-                    isAutoPartition,
-                    autoPartitionExpr.build(),
-                    partitionType,
-                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    partitionInfo,
                     desc,
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
@@ -2502,11 +2478,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                     comment,
-                    isAutoPartition,
-                    autoPartitionExpr.build(),
-                    partitionType,
-                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    partitionInfo,
                     desc,
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
@@ -2515,6 +2487,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             throw new AnalysisException("Should contain at least one column in a table");
         }
+    }
+
+    @Override
+    public PartitionTableInfo visitPartitionTable(DorisParser.PartitionTableContext ctx) {
+        boolean isAutoPartition = ctx.autoPartition != null;
+        ImmutableList<Expression> partitionList = ctx.partitionList.identityOrFunction().stream()
+                .map(partition -> {
+                    IdentifierContext identifier = partition.identifier();
+                    if (identifier != null) {
+                        return UnboundSlot.quoted(identifier.getText());
+                    } else {
+                        return visitFunctionCallExpression(partition.functionCallExpression());
+                    }
+                })
+                .collect(ImmutableList.toImmutableList());
+        return new PartitionTableInfo(
+            isAutoPartition,
+            ctx.RANGE() != null ? "RANGE" : "LIST",
+            ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+            partitionList);
     }
 
     @Override
