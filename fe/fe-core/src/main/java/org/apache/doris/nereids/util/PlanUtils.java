@@ -143,7 +143,7 @@ public class PlanUtils {
      * Check if the expression is a column reference.
      */
     public static boolean isColumnRef(Expression expr) {
-        return expr instanceof SlotReference && ((SlotReference) expr).getTable().isPresent()
+        return expr instanceof SlotReference
                 && ((SlotReference) expr).getColumn().isPresent()
                 && ((SlotReference) expr).getTable().isPresent();
     }

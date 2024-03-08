@@ -146,6 +146,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -613,13 +614,23 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 if (predicate.anyMatch(s -> slots.contains(s))) {
                     return new FilterEstimation(slots).estimate(filter.getPredicate(), stats);
                 }
-            } else if (plan instanceof LogicalJoin
+            } else if (plan instanceof LogicalJoin && filter instanceof LogicalFilter
                     && filter.getConjuncts().stream().anyMatch(e -> e instanceof IsNull)) {
                 Statistics isNullStats = computeGeneratedIsNullStats((LogicalJoin) plan, filter);
                 if (isNullStats != null) {
-                    // overwrite the stats before passing to filter estimation
-                    // if the returned isNull stats is corrected as above
+                    // overwrite the stats corrected as above before passing to filter estimation
                     stats = isNullStats;
+                    Set<Expression> newConjuncts = filter.getConjuncts().stream()
+                            .filter(e -> !(e instanceof IsNull))
+                            .collect(Collectors.toSet());
+                    if (newConjuncts.isEmpty()) {
+                        return stats;
+                    } else {
+                        // overwrite the filter by removing is null and remain the others
+                        filter = ((LogicalFilter<?>) filter).withConjunctsAndProps(newConjuncts,
+                                ((LogicalFilter<?>) filter).getGroupExpression(),
+                                Optional.of(((LogicalFilter<?>) filter).getLogicalProperties()), plan);
+                    }
                 }
             }
         }
@@ -631,28 +642,32 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         JoinType joinType = join.getJoinType();
         Plan left = join.left();
         Plan right = join.right();
-        if (left == null || right == null) {
+        if (left == null || right == null
+                || ((GroupPlan) left).getGroup() == null || ((GroupPlan) right).getGroup() == null
+                || ((GroupPlan) left).getGroup().getStatistics() == null
+                || ((GroupPlan) right).getGroup().getStatistics() == null
+                || !join.getGroupExpression().isPresent()) {
             return null;
         }
+
         double leftRowCount = ((GroupPlan) left).getGroup().getStatistics().getRowCount();
         double rightRowCount = ((GroupPlan) right).getGroup().getStatistics().getRowCount();
         if (leftRowCount < 0 || Double.isInfinite(leftRowCount)
                 || rightRowCount < 0 || Double.isInfinite(rightRowCount)) {
             return null;
         }
+
         Statistics origJoinStats = join.getGroupExpression().get().getOwnerGroup().getStatistics();
-        if (JoinUtils.isSemiOrAntiJoin(joinType)) {
-            // TODO: following transformed anti join should go here
-            // assume the former estimation is accurate and completed
-            return null;
-        } else if (JoinUtils.isOuterJoin(joinType)) {
-            // case 1: for anti-like cases, use anti join to re-estimate the stats
-            // case 2: for other normal cases with is null filter,
+
+        // for outer join which is anti-like, use anti join to re-estimate the stats
+        // otherwise, return null and pass through to use the normal filter estimation logical
+        if (JoinUtils.isOuterJoin(joinType)) {
             boolean leftHasIsNull = false;
             boolean rightHasIsNull = false;
             boolean isLeftOuterJoin = join.getJoinType() == JoinType.LEFT_OUTER_JOIN;
             boolean isRightOuterJoin = join.getJoinType() == JoinType.RIGHT_OUTER_JOIN;
             boolean isFullOuterJoin = join.getJoinType() == JoinType.FULL_OUTER_JOIN;
+
             for (Expression expr : filter.getConjuncts()) {
                 if (expr instanceof IsNull) {
                     Expression child = ((IsNull) expr).child();
@@ -666,6 +681,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     }
                 }
             }
+
             boolean isLeftAntiLikeJoin = (isLeftOuterJoin && rightHasIsNull) || (isFullOuterJoin && rightHasIsNull);
             boolean isRightAntiLikeJoin = (isRightOuterJoin && leftHasIsNull) || (isFullOuterJoin && leftHasIsNull);
             if (isLeftAntiLikeJoin || isRightAntiLikeJoin) {
@@ -695,11 +711,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 newStats.withRowCount(newRows);
                 return newStats;
             } else {
-                // pass though to filter estimation process
                 return null;
             }
         } else {
-            // pass though to filter estimation process
             return null;
         }
     }
