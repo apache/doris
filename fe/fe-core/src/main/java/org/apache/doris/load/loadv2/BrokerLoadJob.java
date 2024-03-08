@@ -198,7 +198,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                 Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
-        this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true);
+        if (enableProfile) {
+            this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true);
+        }
         ProgressManager progressManager = Env.getCurrentProgressManager();
         progressManager.registerProgressSimple(String.valueOf(id));
         MetaLockUtils.readLockTables(tableList);
@@ -333,6 +335,8 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         jobProfile.update(createTimestamp, getSummaryInfo(true), true,
                 Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")), null, false);
+        // jobProfile has been pushed into ProfileManager, remove reference in brokerLoadJob
+        jobProfile = null;
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {
