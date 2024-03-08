@@ -499,6 +499,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
             = "materialized_view_rewrite_enable_contain_external_table";
 
+    public static final String MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM
+            = "materialized_view_rewrite_success_candidate_num";
+
     public static final String CREATE_TABLE_PARTITION_MAX_NUM
             = "create_table_partition_max_num";
 
@@ -1585,9 +1588,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
-                    "whether to use a materialized view that contains the foreign table "
+                    "Whether to use a materialized view that contains the foreign table "
                             + "when using rewriting based on struct info"})
     public boolean materializedViewRewriteEnableContainExternalTable = false;
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
+            description = {"异步物化视图透明改写成功的结果集合，允许参与到CBO候选的最大数量",
+                    "The max candidate num which participate in CBO when using asynchronous materialized views"})
+    public int materializedViewRewriteSuccessCandidateNum = 3;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
@@ -3433,6 +3440,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isMaterializedViewRewriteEnableContainExternalTable() {
         return materializedViewRewriteEnableContainExternalTable;
+    }
+
+    public int getMaterializedViewRewriteSuccessCandidateNum() {
+        return materializedViewRewriteSuccessCandidateNum;
     }
 
     public int getCreateTablePartitionMaxNum() {
