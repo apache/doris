@@ -30,12 +30,14 @@ FROM ubuntu:22.04
 
 ARG TARGETARCH
 
+ARG DORIS_VERSION="x.x.x"
+
 # set environment variables
 ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} \
         PATH="/opt/apache-doris/fe/bin:${PATH}"
 
 # apache-doris/fe from doris release tar.gz, please update the version in follows x.x.x.
-COPY resource/apache-doris-x.x.x-bin-${TARGETARCH:-amd64}/fe /opt/apache-doris/fe
+COPY resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/fe /opt/apache-doris/fe
 
 RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     patchelf gdb binutils binutils-common mysql-client \
@@ -45,10 +47,10 @@ RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no
     net-tools openjdk-8-jdk && \
     rm -rf /var/lib/apt/lists/*
 
-ADD resource/init_fe.sh /opt/apache-doris/fe/bin/
+ADD resource/init_fe.sh /usr/local/bin/
 
 COPY resource/fe_*.sh /opt/apache-doris/
 
 WORKDIR /opt/apache-doris
 
-ENTRYPOINT ["/opt/apache-doris/fe/bin/init_fe.sh"]
+ENTRYPOINT ["bash","init_fe.sh"]
