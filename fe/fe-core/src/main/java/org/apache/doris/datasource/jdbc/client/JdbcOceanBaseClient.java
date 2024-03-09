@@ -47,11 +47,12 @@ public class JdbcOceanBaseClient extends JdbcClient {
                     currentClient = new JdbcOracleClient(jdbcClientConfig);
                     setOracleMode();
                 } else {
-                    throw new JdbcClientException("Unsupported compatibility mode: " + compatibilityMode);
+                    throw new JdbcClientException("Unsupported OceanBase compatibility mode: " + compatibilityMode);
                 }
             }
-        } catch (SQLException e) {
-            throw new JdbcClientException("Failed to determine OceanBase compatibility mode", e);
+        } catch (SQLException | JdbcClientException e) {
+            closeClient();
+            throw new JdbcClientException("Failed to initialize JdbcOceanBaseClient", e.getMessage());
         } finally {
             close(rs, stmt, conn);
         }
