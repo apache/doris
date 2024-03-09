@@ -139,7 +139,7 @@ public:
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
-            static_cast<void>(bf_writer.add(&data));
+            RETURN_IF_ERROR(bf_writer.add(&data));
         }
         RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
         return Status::OK();
@@ -220,7 +220,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        static_cast<void>(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(&data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
@@ -277,7 +277,7 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        static_cast<void>(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(&data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();

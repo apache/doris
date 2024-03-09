@@ -34,10 +34,13 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.types.DateTimeType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 
 /**
@@ -91,11 +94,15 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
     }
 
+    /** prune */
     public List<Long> prune() {
-        return partitions.stream()
-                .filter(partitionEvaluator -> !canPrune(partitionEvaluator))
-                .map(OnePartitionEvaluator::getPartitionId)
-                .collect(ImmutableList.toImmutableList());
+        Builder<Long> scanPartitionIds = ImmutableList.builder();
+        for (OnePartitionEvaluator partition : partitions) {
+            if (!canPrune(partition)) {
+                scanPartitionIds.add(partition.getPartitionId());
+            }
+        }
+        return scanPartitionIds.build();
     }
 
     /**
@@ -107,11 +114,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
         partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
-        List<OnePartitionEvaluator> evaluators = idToPartitions.entrySet()
-                .stream()
-                .map(kv -> toPartitionEvaluator(kv.getKey(), kv.getValue(), partitionSlots, cascadesContext,
-                        partitionTableType))
-                .collect(ImmutableList.toImmutableList());
+
+        List<OnePartitionEvaluator> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
+        for (Entry<Long, PartitionItem> kv : idToPartitions.entrySet()) {
+            evaluators.add(toPartitionEvaluator(
+                    kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, partitionTableType));
+        }
 
         partitionPredicate = OrToIn.INSTANCE.rewrite(partitionPredicate, null);
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);

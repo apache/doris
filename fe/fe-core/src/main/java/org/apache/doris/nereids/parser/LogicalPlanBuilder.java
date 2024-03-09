@@ -161,6 +161,8 @@ import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
+import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
@@ -367,6 +369,8 @@ import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -2431,33 +2435,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
                 ? Maps.newHashMap(visitPropertyClause(ctx.extProperties))
                 : Maps.newHashMap();
-        String partitionType = null;
-        if (ctx.PARTITION() != null) {
-            partitionType = ctx.RANGE() != null ? "RANGE" : "LIST";
-        }
-        boolean isAutoPartition = ctx.autoPartition != null;
-        ImmutableList.Builder<Expression> autoPartitionExpr = new ImmutableList.Builder<>();
-        if (isAutoPartition) {
-            if (ctx.RANGE() != null) {
-                // AUTO PARTITION BY RANGE FUNC_CALL_EXPR
-                if (ctx.partitionExpr != null) {
-                    autoPartitionExpr.add(visitFunctionCallExpression(ctx.partitionExpr));
-                } else {
-                    throw new AnalysisException(
-                            "AUTO PARTITION BY RANGE must provide a function expr");
-                }
-            } else {
-                // AUTO PARTITION BY LIST(`partition_col`)
-                if (ctx.partitionKeys != null) {
-                    // only support one column in auto partition
-                    autoPartitionExpr.addAll(visitIdentifierList(ctx.partitionKeys).stream()
-                            .distinct().map(name -> UnboundSlot.quoted(name))
-                            .collect(Collectors.toList()));
-                } else {
-                    throw new AnalysisException(
-                            "AUTO PARTITION BY List must provide a partition column");
-                }
-            }
+
+        // solve partition by
+        PartitionTableInfo partitionInfo;
+        if (ctx.partition != null) {
+            partitionInfo = (PartitionTableInfo) ctx.partitionTable().accept(this);
+        } else {
+            partitionInfo = PartitionTableInfo.EMPTY;
         }
 
         if (ctx.columnDefs() != null) {
@@ -2476,11 +2460,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                     comment,
-                    isAutoPartition,
-                    autoPartitionExpr.build(),
-                    partitionType,
-                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    partitionInfo,
                     desc,
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
@@ -2498,11 +2478,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                     comment,
-                    isAutoPartition,
-                    autoPartitionExpr.build(),
-                    partitionType,
-                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    partitionInfo,
                     desc,
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
@@ -2511,6 +2487,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             throw new AnalysisException("Should contain at least one column in a table");
         }
+    }
+
+    @Override
+    public PartitionTableInfo visitPartitionTable(DorisParser.PartitionTableContext ctx) {
+        boolean isAutoPartition = ctx.autoPartition != null;
+        ImmutableList<Expression> partitionList = ctx.partitionList.identityOrFunction().stream()
+                .map(partition -> {
+                    IdentifierContext identifier = partition.identifier();
+                    if (identifier != null) {
+                        return UnboundSlot.quoted(identifier.getText());
+                    } else {
+                        return visitFunctionCallExpression(partition.functionCallExpression());
+                    }
+                })
+                .collect(ImmutableList.toImmutableList());
+        return new PartitionTableInfo(
+            isAutoPartition,
+            ctx.RANGE() != null ? "RANGE" : "LIST",
+            ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+            partitionList);
     }
 
     @Override
@@ -3375,5 +3371,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         FuncNameInfo procedureName = new FuncNameInfo(nameParts);
         return ParserUtils.withOrigin(ctx, () -> new DropProcedureCommand(procedureName, getOriginSql(ctx)));
+    }
+
+    @Override
+    public LogicalPlan visitShowProcedureStatus(ShowProcedureStatusContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> new ShowProcedureStatusCommand());
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateProcedure(ShowCreateProcedureContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        FuncNameInfo procedureName = new FuncNameInfo(nameParts);
+        return ParserUtils.withOrigin(ctx, () -> new ShowCreateProcedureCommand(procedureName));
     }
 }

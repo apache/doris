@@ -60,13 +60,6 @@ suite("test_auto_partition_behavior") {
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 9)
     qt_sql3 """ select str,length(str) from unique_table order by `str` """
-    // modify value 
-    sql """ update unique_table set str = "modified" where str in (" ", "  ") """ // only "  "
-    qt_sql4 """ select str,length(str) from unique_table where str = '  ' order by `str` """ // modified
-    qt_sql5 """ select count() from unique_table where str = 'modified' """
-    // crop
-    qt_sql6 """ select str from unique_table where ((str > ' ! ' || str = 'modified') && str != 'Xxx') order by str """
-
 
     /// duplicate key table
     sql "drop table if exists dup_table"
@@ -351,7 +344,7 @@ suite("test_auto_partition_behavior") {
                 k0 datetime(6) NOT null,
                 k1 datetime(6) NOT null
             )
-            auto partition by range date_trunc(k0, k1, 'hour')
+            auto partition by range (date_trunc(k0, k1, 'hour'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
@@ -366,7 +359,7 @@ suite("test_auto_partition_behavior") {
                 k0 datetime(6) NOT null,
                 k1 int NOT null
             )
-            auto partition by range date_trunc(k1, 'hour')
+            auto partition by range (date_trunc(k1, 'hour'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2

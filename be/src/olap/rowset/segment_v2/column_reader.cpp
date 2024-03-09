@@ -306,7 +306,8 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    _parse_zone_map_skip_null(*_segment_zone_map, min_value.get(), max_value.get());
+    RETURN_IF_ERROR(
+            _parse_zone_map_skip_null(*_segment_zone_map, min_value.get(), max_value.get()));
 
     dst->reserve(*n);
     bool is_string = is_olap_string_type(type);
@@ -346,7 +347,7 @@ bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    _parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get());
+    RETURN_FALSE_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
 
     return _zone_map_match_condition(*_segment_zone_map, min_value.get(), max_value.get(),
                                      col_predicates);
@@ -361,7 +362,7 @@ bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& p
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    _parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get());
+    RETURN_FALSE_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
 
     auto pruned = false;
     for (auto it = predicates.begin(); it != predicates.end();) {
@@ -377,12 +378,12 @@ bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& p
     return pruned;
 }
 
-void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                                   WrapperField* max_value_container) const {
+Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
+                                     WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        static_cast<void>(min_value_container->from_string(zone_map.min()));
-        static_cast<void>(max_value_container->from_string(zone_map.max()));
+        RETURN_IF_ERROR(min_value_container->from_string(zone_map.min()));
+        RETURN_IF_ERROR(max_value_container->from_string(zone_map.max()));
     }
     // for compatible original Cond eval logic
     if (zone_map.has_null()) {
@@ -393,21 +394,23 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
             max_value_container->set_null();
         }
     }
+    return Status::OK();
 }
 
-void ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
-                                             WrapperField* min_value_container,
-                                             WrapperField* max_value_container) const {
+Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
+                                               WrapperField* min_value_container,
+                                               WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        static_cast<void>(min_value_container->from_string(zone_map.min()));
-        static_cast<void>(max_value_container->from_string(zone_map.max()));
+        RETURN_IF_ERROR(min_value_container->from_string(zone_map.min()));
+        RETURN_IF_ERROR(max_value_container->from_string(zone_map.max()));
     }
 
     if (!zone_map.has_not_null()) {
         min_value_container->set_null();
         max_value_container->set_null();
     }
+    return Status::OK();
 }
 
 bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
@@ -440,7 +443,7 @@ Status ColumnReader::_get_filtered_pages(
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(i);
         } else {
-            _parse_zone_map(zone_maps[i], min_value.get(), max_value.get());
+            RETURN_IF_ERROR(_parse_zone_map(zone_maps[i], min_value.get(), max_value.get()));
             if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
                                           col_predicates)) {
                 bool should_read = true;
@@ -1016,7 +1019,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // it has bad impact on primary key query. For example, select * from table where pk = 1, and
         // the table has 2000 columns.
         if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
-            static_cast<void>(seek_to_ordinal(_reader->num_rows() - 1));
+            RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
             _reader->set_dict_encoding_type(_is_all_dict_encoding
                                                     ? ColumnReader::ALL_DICT_ENCODING
@@ -1199,7 +1202,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 }
 
                 if (!is_null) {
-                    static_cast<void>(
+                    RETURN_IF_ERROR(
                             _page.data_decoder->seek_to_position_in_page(origin_index + this_run));
                 }
 

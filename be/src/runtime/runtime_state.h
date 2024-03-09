@@ -579,6 +579,7 @@ public:
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
                                             doris::IRuntimeFilter** producer_filter);
+    bool is_nereids() const;
 
 private:
     Status create_error_log_file();

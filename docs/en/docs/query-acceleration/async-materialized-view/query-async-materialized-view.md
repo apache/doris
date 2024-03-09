@@ -426,13 +426,14 @@ It will display a concise overview of the transparent rewriting process.
 |   Names: mv1  
 ```
 
-**MaterializedViewRewriteFail**: Lists transparent rewrite failures and summarizes the reasons.
+**MaterializedViewRewriteSuccessAndChose**: Transparent rewrite succeeded, and the materialized view names list
+chosen by the CBO.
 
-**MaterializedViewRewriteSuccessButNotChose**: Transparent rewrite succeeded, but the final CBO did not choose the 
+**MaterializedViewRewriteSuccessButNotChose**: Transparent rewrite succeeded, but the final CBO did not choose the
 materialized view names list.
 
-**MaterializedViewRewriteSuccessAndChose**: Transparent rewrite succeeded, and the materialized view names list 
-chosen by the CBO.
+**MaterializedViewRewriteFail**: Lists transparent rewrite failures and summarizes the reasons.
+
 
 
 If you want to know the detailed information about materialized view candidates, rewriting, and the final selection process,
@@ -442,11 +443,12 @@ you can execute the following statement. It will provide a detailed breakdown of
 
 ## Relevant Environment Variables
 
-| Switch                                                                    | Description                                     |
-|---------------------------------------------------------------------------|----------------------------------------|
-| SET enable_nereids_planner = true;                                        | Asynchronous materialized views are only supported under the new optimizer, so the new optimizer needs to be enabled.       |
-| SET enable_materialized_view_rewrite = true;                              | Enable or disable query transparent rewriting, default is disabled                     |
-| SET materialized_view_rewrite_enable_contain_external_table = true;       | Whether materialized views participating in transparent rewriting are allowed to contain external tables, default is not allowed           |
+| Switch                                                              | Description                                                                                                                       |
+|---------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| SET enable_nereids_planner = true;                                  | Asynchronous materialized views are only supported under the new optimizer, so the new optimizer needs to be enabled.             |
+| SET enable_materialized_view_rewrite = true;                        | Enable or disable query transparent rewriting, default is disabled                                                                |
+| SET materialized_view_rewrite_enable_contain_external_table = true; | Whether materialized views participating in transparent rewriting are allowed to contain external tables, default is not allowed  |
+| SET materialized_view_rewrite_success_candidate_num = 3;            | Transparently rewrites the successful result set, allowing the maximum number of CBO candidates to participate, the default is 3  |
 
 
 ## Limitations

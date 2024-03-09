@@ -87,7 +87,7 @@ public:
     // called because data has been read or error happened.
     Status close(Status exec_status);
     // this is called by RPC, called from coordinator
-    virtual Status cancel();
+    virtual void cancel();
 
     [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
 
@@ -152,7 +152,7 @@ public:
 
     Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) override;
 
-    Status cancel() override;
+    void cancel() override;
 
     void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
 
