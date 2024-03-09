@@ -109,4 +109,11 @@ suite("topn-filter") {
         contains "TOPN OPT:"
     }
 
+    explain {
+        sql "select n_regionkey, sum(n_nationkey) from nation group by grouping sets((n_regionkey)) order by n_regionkey limit 2;"
+        contains "TOPN OPT"
+    }
+
+    qt_groupingsets "select n_regionkey, sum(n_nationkey) from nation group by grouping sets((n_regionkey)) order by n_regionkey limit 2;"
+
 }
