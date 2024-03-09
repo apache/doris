@@ -448,6 +448,7 @@ public class Env {
 
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
+    private StorageVaultMgr storageVaultMgr;
 
     private GlobalTransactionMgrIface globalTransactionMgr;
 
@@ -702,6 +703,7 @@ public class Env {
 
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
+        this.storageVaultMgr = new StorageVaultMgr();
 
         this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
@@ -834,6 +836,10 @@ public class Env {
 
     public ResourceMgr getResourceMgr() {
         return resourceMgr;
+    }
+
+    public StorageVaultMgr getStorageVaultMgr() {
+        return storageVaultMgr;
     }
 
     public static GlobalTransactionMgrIface getCurrentGlobalTransactionMgr() {
