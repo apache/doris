@@ -500,15 +500,10 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
 void VDataStreamRecvr::update_blocks_memory_usage(int64_t size) {
     std::lock_guard lc(_test_lock);
     _blocks_memory_usage->add(size);
-
     _blocks_memory_usage_current_value.fetch_add(size);
     if (_enable_pipelineX) {
         if (exceeds_limit(0)) {
             _local_mem_control_dependency->block();
-            // try to wake up source
-            for (auto* queue : sender_queues()) {
-                queue->set_dep_ready();
-            }
         } else {
             _local_mem_control_dependency->set_ready();
         }
