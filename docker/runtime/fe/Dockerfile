@@ -39,7 +39,8 @@ ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} \
 # apache-doris/fe from doris release tar.gz, please update the version in follows x.x.x.
 COPY resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/fe /opt/apache-doris/fe
 
-RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     patchelf gdb binutils binutils-common mysql-client \
     curl wget less vim htop iproute2 numactl jq iotop sysstat tzdata \
     tcpdump iputils-ping dnsutils strace lsof blktrace \
