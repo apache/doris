@@ -64,6 +64,9 @@ docker_setup_env() {
 # Check the variables required for   startup
 docker_required_variables_env() {
     declare -g RUN_TYPE
+    if [ -n "$RECOVERY" ]; then
+        doris_warn "The Frontend MetaData Will Recovery."
+    fi
     if [ -n "$BUILD_TYPE" ]; then
         RUN_TYPE="K8S"
         if [[ $BUILD_TYPE =~ ^([kK]8[sS])$ ]]; then
@@ -308,7 +311,10 @@ _main() {
         docker_setup_db
         check_fe_status
         doris_note "Ready to start CURRENT_FE！"
-
+        if [ $RECOVERY == true ]; then
+            start_fe.sh --console --metadata_failure_recovery &
+            child_pid=$!
+        fi
         if [ $CURRENT_FE_IS_MASTER == true ]; then
             start_fe.sh --console &
             child_pid=$!
