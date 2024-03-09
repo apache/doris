@@ -44,18 +44,17 @@
 namespace doris {
 
 SmallFileMgr::SmallFileMgr(ExecEnv* env, const std::string& local_path)
-        : _exec_env(env), _local_path(local_path) {
-    DORIS_REGISTER_HOOK_METRIC(g_adder_small_file_cache_count, [this]() {
-        // std::lock_guard<std::mutex> l(_lock);
-        return _file_cache.size();
-    })
-}
+        : _exec_env(env),
+          _local_path(local_path) {DORIS_REGISTER_HOOK_METRIC(g_adder_small_file_cache_count,
+                                                              [this]() {
+                                                                  // std::lock_guard<std::mutex> l(_lock);
+                                                                  return _file_cache.size();
+                                                              })}
 
-SmallFileMgr::~SmallFileMgr() {
-    DORIS_DEREGISTER_HOOK_METRIC(g_adder_small_file_cache_count)
-}
+          SmallFileMgr::~SmallFileMgr() {
+                  DORIS_DEREGISTER_HOOK_METRIC(g_adder_small_file_cache_count)}
 
-Status SmallFileMgr::init() {
+          Status SmallFileMgr::init() {
     RETURN_IF_ERROR(_load_local_files());
     return Status::OK();
 }
