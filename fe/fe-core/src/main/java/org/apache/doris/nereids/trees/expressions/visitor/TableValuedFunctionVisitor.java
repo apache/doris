@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.trees.expressions.functions.table.ActiveBeTasks;
 import org.apache.doris.nereids.trees.expressions.functions.table.ActiveQueries;
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
@@ -102,9 +101,5 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitWorkloadGroups(WorkloadGroups workloadGroups, C context) {
         return visitTableValuedFunction(workloadGroups, context);
-    }
-
-    default R visitActiveBeTasks(ActiveBeTasks beTasks, C context) {
-        return visitTableValuedFunction(beTasks, context);
     }
 }
