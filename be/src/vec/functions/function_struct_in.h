@@ -48,11 +48,11 @@ struct ColumnRowRef {
 
     // equals when call set insert, this operator will be used
     bool operator==(const ColumnRowRef& other) const {
-        return column->compare_at(row_idx, other.row_idx, *column, 0) == 0;
+        return column->compare_at(row_idx, other.row_idx, *other.column, 0) == 0;
     }
     // compare
     bool operator<(const ColumnRowRef& other) const {
-        return column->compare_at(row_idx, other.row_idx, *column, 0) < 0;
+        return column->compare_at(row_idx, other.row_idx, *other.column, 0) < 0;
     }
 
     // when call set find, will use hash to find

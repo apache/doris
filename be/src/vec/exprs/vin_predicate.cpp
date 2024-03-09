@@ -69,6 +69,9 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (is_struct(remove_nullable(argument_template[0].type))) {
         real_function_name = "struct_" + real_function_name;
     }
+    if (is_array(remove_nullable(argument_template[0].type))) {
+        real_function_name = "array_" + real_function_name;
+    }
     _function = SimpleFunctionFactory::instance().get_function(real_function_name,
                                                                argument_template, _data_type);
     if (_function == nullptr) {
