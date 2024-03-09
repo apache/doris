@@ -73,6 +73,9 @@ message InstanceInfoPB {
     optional RamUserPB ram_user = 11;
     optional RamUserPB iam_user = 12;
     optional bool sse_enabled = 13;
+
+    repeated string resource_ids = 100;
+    repeated string storage_vault_names = 101;
 }
 
 message StagePB {
@@ -185,6 +188,29 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+}
+
+message StorageVaultPB {
+    optional string id = 1;
+    optional string name = 2;
+    optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
+}
+
+message HdfsBuildConf {
+    message HdfsConfKVPair {
+        required string key = 1;
+        required string value = 2;
+    }
+    optional string fs_name = 1; // name_node
+    optional string user = 2;
+    optional string hdfs_kerberos_principal = 3;
+    optional string hdfs_kerberos_keytab = 4;
+    repeated HdfsConfKVPair hdfs_confs = 5;
+}
+
+message HdfsVaultInfo {
+    optional HdfsBuildConf build_conf = 1;
+    optional string prefix = 2;
 }
 
 //==============================================================================
@@ -705,14 +731,18 @@ message AlterObjStoreInfoRequest {
         UPDATE_AK_SK    = 1;
         ADD_OBJ_INFO    = 2;
         LEGACY_UPDATE_AK_SK = 3;
+
+        ADD_HDFS_INFO = 100;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
     optional Operation op = 3;
+    optional StorageVaultPB hdfs = 4;
 }
 
 message AlterObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional string storage_vault_id = 2;
 }
 
 message UpdateAkSkRequest {
@@ -728,6 +758,7 @@ message UpdateAkSkResponse {
 message GetObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ObjectStoreInfoPB obj_info = 2;
+    repeated HdfsVaultInfo hdfs_info = 3;
 };
 
 message CreateTabletsRequest {
@@ -845,6 +876,7 @@ message CreateInstanceRequest {
     optional ObjectStoreInfoPB obj_info = 4;
     optional RamUserPB ram_user = 5;
     optional bool sse_enabled = 6;
+    optional HdfsVaultInfo hdfs_info = 7;
 }
 
 message CreateInstanceResponse {
