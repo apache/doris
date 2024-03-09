@@ -611,7 +611,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
-                                                params.query_options, params.coord, pipeline);
+                                                params.query_options, params.coord, pipeline,
+                                                params.is_nereids);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
         // set file scan range params
@@ -686,6 +687,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     std::shared_ptr<QueryContext> query_ctx;
     bool pipeline_engine_enabled = params.query_options.__isset.enable_pipeline_engine &&
                                    params.query_options.enable_pipeline_engine;
+
     RETURN_IF_ERROR(
             _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
     {

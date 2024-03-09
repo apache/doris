@@ -422,6 +422,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_enable_profile(_state->enable_profile());
     request->set_is_incremental(is_incremental);
     request->set_txn_expiration(_parent->_txn_expiration);
+    request->set_write_file_cache(_parent->_write_file_cache);
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
     auto open_closure = AutoReleaseClosure<
@@ -1129,6 +1130,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _txn_id = table_sink.txn_id;
     _num_replicas = table_sink.num_replicas;
     _tuple_desc_id = table_sink.tuple_id;
+    _write_file_cache = table_sink.write_file_cache;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
