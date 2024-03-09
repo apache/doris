@@ -23,6 +23,7 @@ mariadb_jdbc_catalog
 115	abg
 
 -- !information_schema --
+backend_active_tasks
 character_sets
 collations
 column_privileges
