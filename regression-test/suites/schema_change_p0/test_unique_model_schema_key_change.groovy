@@ -772,7 +772,7 @@ suite("test_unique_model_schema_key_change","p0") {
      }, insertSql, true,"${tbName}")
 
 
-     //Test the unique model by modify a key type from TINYINT  to STRING
+     //Test the unique model by modify a key type from SMALLINT  to STRING
      errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[car_number]."
      expectException({
           sql initTable
