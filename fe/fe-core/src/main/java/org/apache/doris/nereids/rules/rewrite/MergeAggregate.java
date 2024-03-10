@@ -34,6 +34,7 @@ import org.apache.doris.nereids.util.PlanUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -44,7 +45,7 @@ import java.util.stream.Collectors;
 public class MergeAggregate implements RewriteRuleFactory {
     private static final ImmutableSet<String> ALLOW_MERGE_AGGREGATE_FUNCTIONS =
             ImmutableSet.of("min", "max", "sum", "any_value");
-    private Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc;
+    private Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = new HashMap<>();
 
     @Override
     public List<Rule> buildRules() {
@@ -136,7 +137,8 @@ public class MergeAggregate implements RewriteRuleFactory {
         });
     }
 
-    boolean commonCheck(LogicalAggregate<? extends Plan> outerAgg, LogicalAggregate<Plan> innerAgg, boolean sameGroupBy) {
+    boolean commonCheck(LogicalAggregate<? extends Plan> outerAgg, LogicalAggregate<Plan> innerAgg,
+            boolean sameGroupBy) {
         innerAggExprIdToAggFunc = innerAgg.getOutputExpressions().stream()
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
                 .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0),
