@@ -20,6 +20,7 @@
 
 #include <random>
 
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
@@ -188,9 +189,10 @@ TEST(PathGcTest, GcTabletAndRowset) {
     // Test rowset gc
     data_dir._perform_path_gc_by_rowset(paths);
     for (auto&& t : active_tablets) {
+        io::FileListIteratorPtr files_iter;
+        st = fs->list(t->tablet_path(), true, &files_iter);
         std::vector<io::FileInfo> files;
-        bool exists;
-        st = fs->list(t->tablet_path(), true, &files, &exists);
+        st = files_iter->files(&files);
         ASSERT_TRUE(st.ok()) << st;
         auto&& expected_files = expected_rowset_files[t->tablet_id()];
         ASSERT_EQ(files.size(), expected_files.size());

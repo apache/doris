@@ -996,12 +996,12 @@ void StorageEngine::_clean_unused_txns() {
 Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& local_now,
                                 const int32_t expire) {
     Status res = Status::OK();
-    bool exists = true;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(scan_root, &exists));
-    if (!exists) {
+    auto st = io::global_local_filesystem()->exists(scan_root);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         // dir not existed. no need to sweep trash.
         return res;
     }
+    RETURN_IF_ERROR(st);
 
     int curr_sweep_batch_size = 0;
     try {

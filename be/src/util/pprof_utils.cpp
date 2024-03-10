@@ -139,13 +139,8 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
     // check stackcollapse-perf.pl and flamegraph.pl exist
     std::string stackcollapse_perf_pl = flame_graph_tool_dir + "/stackcollapse-perf.pl";
     std::string flamegraph_pl = flame_graph_tool_dir + "/flamegraph.pl";
-    bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(stackcollapse_perf_pl, &exists));
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(flamegraph_pl, &exists));
-    if (!exists) {
-        return Status::InternalError(
-                "Missing stackcollapse-perf.pl or flamegraph.pl in FlameGraph");
-    }
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(stackcollapse_perf_pl));
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(flamegraph_pl));
 
     // tmp output profile file
     std::stringstream tmp_file;

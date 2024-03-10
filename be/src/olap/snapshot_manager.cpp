@@ -122,11 +122,13 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
-    bool exists = true;
-    RETURN_IF_ERROR_RESULT(io::global_local_filesystem()->exists(clone_dir, &exists));
-    if (!exists) {
+    auto st = io::global_local_filesystem()->exists(clone_dir);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return unexpected(Status::Error<DIR_NOT_EXIST>(
                 "clone dir not existed when convert rowsetids. clone_dir={}", clone_dir));
+    }
+    if (!st.ok()) {
+        return unexpected(std::move(st));
     }
 
     // load original tablet meta
@@ -374,11 +376,13 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     auto header_path = _get_header_full_path(ref_tablet, schema_full_path);
     //      /schema_full_path/tablet_id.hdr.json
     auto json_header_path = _get_json_header_full_path(ref_tablet, schema_full_path);
-    bool exists = true;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(schema_full_path, &exists));
-    if (exists) {
+    auto st = io::global_local_filesystem()->exists(schema_full_path);
+    if (st.ok()) {
         VLOG_TRACE << "remove the old schema_full_path." << schema_full_path;
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(schema_full_path));
+    }
+    if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+        return st;
     }
 
     RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(schema_full_path));
@@ -642,11 +646,13 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         LOG(WARNING) << "fail to make snapshot, try to delete the snapshot path. path="
                      << snapshot_id_path.c_str();
 
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(snapshot_id_path, &exists));
-        if (exists) {
+        auto st = io::global_local_filesystem()->exists(snapshot_id_path);
+        if (st.ok()) {
             VLOG_NOTICE << "remove snapshot path. [path=" << snapshot_id_path << "]";
             RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(snapshot_id_path));
+        }
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
         }
     } else {
         *snapshot_path = snapshot_id;

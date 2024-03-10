@@ -331,9 +331,8 @@ protected:
 
         TabletSharedPtr tablet(new Tablet(*engine_ref, tablet_meta, _data_dir));
         static_cast<void>(tablet->init());
-        bool exists = false;
-        auto res = io::global_local_filesystem()->exists(tablet->tablet_path(), &exists);
-        EXPECT_TRUE(res.ok() && !exists);
+        auto res = io::global_local_filesystem()->exists(tablet->tablet_path());
+        EXPECT_TRUE(res.is<ErrorCode::NOT_FOUND>()) << res;
         res = io::global_local_filesystem()->create_directory(tablet->tablet_path());
         EXPECT_TRUE(res.ok());
         return tablet;

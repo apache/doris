@@ -121,6 +121,10 @@ Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
         return Status::Error<PERMISSION_DENIED, false>("{}: {} {} type={}", msg,
                                                        err.GetExceptionName(), err.GetMessage(),
                                                        err.GetErrorType());
+    case HttpResponseCode::FOUND:
+        return Status::Error<ALREADY_EXIST, false>("{}: {} {}. Resource already exists, {}",
+                                                   err.GetExceptionName(), err.GetMessage(),
+                                                   err.GetErrorType(), msg);
     default:
         return Status::Error<doris::INTERNAL_ERROR, false>(
                 "{}: {} {} code={} type={}", msg, err.GetExceptionName(), err.GetMessage(),

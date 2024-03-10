@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/exception.h"
+#include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -96,12 +97,8 @@ Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
 }
 
 Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
-    if (failed_if_exists) {
-        bool exists = true;
-        RETURN_IF_ERROR(exists_impl(dir, &exists));
-        if (exists) {
-            return Status::AlreadyExist("failed to create {}, already exists", dir.native());
-        }
+    if (failed_if_exists && exists_impl(dir).ok()) {
+        return Status::InternalError("Failed to create dir {} because it exists", dir);
     }
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
@@ -112,10 +109,12 @@ Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_ex
 }
 
 Status LocalFileSystem::delete_file_impl(const Path& file) {
-    bool exists = true;
-    RETURN_IF_ERROR(exists_impl(file, &exists));
-    if (!exists) {
+    Status st = exists_impl(file);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::OK();
+    }
+    if (!st.ok()) {
+        return st;
     }
     if (!std::filesystem::is_regular_file(file)) {
         return Status::InternalError("failed to delete {}, not a file", file.native());
@@ -129,10 +128,12 @@ Status LocalFileSystem::delete_file_impl(const Path& file) {
 }
 
 Status LocalFileSystem::delete_directory_impl(const Path& dir) {
-    bool exists = true;
-    RETURN_IF_ERROR(exists_impl(dir, &exists));
-    if (!exists) {
+    Status st = exists_impl(dir);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::OK();
+    }
+    if (!st.ok()) {
+        return st;
     }
     if (!std::filesystem::is_directory(dir)) {
         return Status::InternalError("failed to delete {}, not a directory", dir.native());
@@ -167,11 +168,14 @@ Status LocalFileSystem::batch_delete_impl(const std::vector<Path>& files) {
     return Status::OK();
 }
 
-Status LocalFileSystem::exists_impl(const Path& path, bool* res) const {
+Status LocalFileSystem::exists_impl(const Path& path) const {
     std::error_code ec;
-    *res = std::filesystem::exists(path, ec);
+    bool res = std::filesystem::exists(path, ec);
     if (ec) {
         return localfs_error(ec, fmt::format("failed to check exists {}", path.native()));
+    }
+    if (!res) {
+        return Status::Error<ErrorCode::NOT_FOUND, false>("Path {} dost not exist", path);
     }
     return Status::OK();
 }
@@ -199,42 +203,82 @@ Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
     return Status::InternalError("faile to get dir size {}", dir_path.native());
 }
 
-Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
-                                  bool* exists) {
-    RETURN_IF_ERROR(exists_impl(dir, exists));
-    if (!exists) {
-        return Status::OK();
+class LocalFileListIterator final : public FileListIterator {
+public:
+    LocalFileListIterator(const Path& dir, bool only_file) : dir(dir), only_file(only_file) {}
+    ~LocalFileListIterator() override = default;
+
+    Status init() {
+        std::error_code ec;
+        Status status;
+        try {
+            iter = std::filesystem::directory_iterator(dir, ec);
+        } catch (const std::filesystem::filesystem_error& e) {
+            // although `directory_iterator(dir, ec)` does not throw an exception,
+            // it may throw an exception during iterator++, so we need to catch the exception here
+            status = localfs_error(e.code(), fmt::format("failed to list {}, error message: {}",
+                                                         dir.native(), e.what()));
+        }
+        if (ec) {
+            status = localfs_error(ec, fmt::format("failed to list {}", dir.native()));
+        }
+        return status;
     }
-    std::error_code ec;
-    try {
-        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-            if (only_file && !entry.is_regular_file()) {
-                continue;
-            }
-            FileInfo file_info;
-            file_info.file_name = entry.path().filename();
-            file_info.is_file = entry.is_regular_file(ec);
-            if (ec) {
-                break;
-            }
-            if (file_info.is_file) {
-                file_info.file_size = entry.file_size(ec);
+
+    bool has_next() const override { return iter != end; }
+
+    Result<FileInfo> next() override {
+        if (iter == end) {
+            return ResultError(Status::InternalError("Out of elements"));
+        }
+        FileInfo file_info;
+        std::error_code ec;
+        try {
+            for (; iter != end;) {
+                const auto& entry = *iter;
+                if (only_file && !entry.is_regular_file()) {
+                    continue;
+                }
+                file_info.file_name = entry.path().filename();
+                file_info.is_file = entry.is_regular_file(ec);
                 if (ec) {
                     break;
                 }
+                if (file_info.is_file) {
+                    file_info.file_size = entry.file_size(ec);
+                    if (ec) {
+                        break;
+                    }
+                }
+                iter.increment(ec);
+                break;
             }
-            files->push_back(std::move(file_info));
+        } catch (const std::filesystem::filesystem_error& e) {
+            // although `directory_iterator(dir, ec)` does not throw an exception,
+            // it may throw an exception during iterator++, so we need to catch the exception here
+            return ResultError(localfs_error(
+                    e.code(),
+                    fmt::format("failed to list {}, error message: {}", dir.native(), e.what())));
         }
-    } catch (const std::filesystem::filesystem_error& e) {
-        // although `directory_iterator(dir, ec)` does not throw an exception,
-        // it may throw an exception during iterator++, so we need to catch the exception here
-        return localfs_error(e.code(), fmt::format("failed to list {}, error message: {}",
-                                                   dir.native(), e.what()));
+        if (ec) {
+            return ResultError(localfs_error(ec, fmt::format("failed to list {}", dir.native())));
+        }
+        return file_info;
     }
-    if (ec) {
-        return localfs_error(ec, fmt::format("failed to list {}", dir.native()));
-    }
-    return Status::OK();
+
+private:
+    const Path& dir;
+    bool only_file;
+    std::filesystem::directory_iterator iter;
+    std::filesystem::directory_iterator end;
+};
+
+Status LocalFileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files) {
+    RETURN_IF_ERROR(exists_impl(dir));
+    auto file_ptr = std::make_unique<LocalFileListIterator>(dir, only_file);
+    auto st = file_ptr->init();
+    *files = std::move(file_ptr);
+    return st;
 }
 
 Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
@@ -315,25 +359,6 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
     ss >> *md5sum;
 
     close(fd);
-    return Status::OK();
-}
-
-Status LocalFileSystem::iterate_directory(const std::string& dir,
-                                          const std::function<bool(const FileInfo& file)>& cb) {
-    auto path = absolute_path(dir);
-    FILESYSTEM_M(iterate_directory_impl(dir, cb));
-}
-
-Status LocalFileSystem::iterate_directory_impl(
-        const std::string& dir, const std::function<bool(const FileInfo& file)>& cb) {
-    bool exists = true;
-    std::vector<FileInfo> files;
-    RETURN_IF_ERROR(list_impl(dir, false, &files, &exists));
-    for (auto& file : files) {
-        if (!cb(file)) {
-            break;
-        }
-    }
     return Status::OK();
 }
 

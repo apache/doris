@@ -242,9 +242,11 @@ Status EngineStorageMigrationTask::_migrate() {
         full_path = SnapshotManager::get_schema_hash_full_path(_tablet, shard_path);
         // if dir already exist then return err, it should not happen.
         // should not remove the dir directly, for safety reason.
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(full_path, &exists));
-        if (exists) {
+        auto st = io::global_local_filesystem()->exists(full_path);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
+        }
+        if (st.ok()) {
             return Status::AlreadyExist("schema hash path {} already exist, skip this path",
                                         full_path);
         }

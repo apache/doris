@@ -194,7 +194,19 @@ Status UserFunctionCache::_load_cached_lib() {
             }
             return true;
         };
-        RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(sub_dir, scan_cb));
+        io::Path path(sub_dir);
+        // to be removed
+        if (!path.is_absolute()) {
+            path = io::global_local_filesystem()->root_path() / path;
+        }
+        io::FileListIteratorPtr files;
+        RETURN_IF_ERROR(io::global_local_filesystem()->list(path, false, &files));
+        while (files->has_next()) {
+            const auto& file = DORIS_TRY(files->next());
+            if (!scan_cb(file)) {
+                break;
+            }
+        }
     }
     return Status::OK();
 }

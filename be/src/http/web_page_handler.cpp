@@ -186,11 +186,9 @@ bool WebPageHandler::mustache_template_available(const std::string& path) const 
     if (!static_pages_available()) {
         return false;
     }
-    bool exists;
     return io::global_local_filesystem()
-                   ->exists(strings::Substitute("$0/$1.mustache", _www_path, path), &exists)
-                   .ok() &&
-           exists;
+            ->exists(strings::Substitute("$0/$1.mustache", _www_path, path))
+            .ok();
 }
 
 void WebPageHandler::render_main_template(const std::string& content, std::stringstream* output) {

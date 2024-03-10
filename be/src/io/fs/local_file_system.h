@@ -49,9 +49,6 @@ public:
     Status is_directory(const Path& path, bool* res);
     // Calc md5sum of given file
     Status md5sum(const Path& file, std::string* md5sum);
-    // iterate the given dir and execute cb on each entry
-    Status iterate_directory(const std::string& dir,
-                             const std::function<bool(const FileInfo&)>& cb);
     // return disk available space where the given path is.
     Status get_space_info(const Path& path, size_t* capacity, size_t* available);
     // Copy src path to dest path. If `src` is a directory, this method will call recursively for each directory entry.
@@ -85,15 +82,12 @@ protected:
     Status delete_directory_impl(const Path& dir) override;
     Status delete_directory_or_file_impl(const Path& path);
     Status batch_delete_impl(const std::vector<Path>& files) override;
-    Status exists_impl(const Path& path, bool* res) const override;
+    Status exists_impl(const Path& path) const override;
     Status file_size_impl(const Path& file, int64_t* file_size) const override;
-    Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
-                     bool* exists) override;
+    Status list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files) override;
     Status rename_impl(const Path& orig_name, const Path& new_name) override;
     Status link_file_impl(const Path& src, const Path& dest);
     Status md5sum_impl(const Path& file, std::string* md5sum);
-    Status iterate_directory_impl(const std::string& dir,
-                                  const std::function<bool(const FileInfo&)>& cb);
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
     Status copy_path_impl(const Path& src, const Path& dest);
     Status permission_impl(const Path& file, std::filesystem::perms prms);

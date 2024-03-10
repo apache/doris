@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <hadoop_hdfs/hdfs.h>
 #include <limits.h>
 #include <stddef.h>
 
@@ -32,6 +33,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
 #include "io/fs/err_utils.h"
@@ -213,10 +215,12 @@ Status HdfsFileSystem::batch_delete_impl(const std::vector<Path>& files) {
 }
 
 Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
-    bool exists = true;
-    RETURN_IF_ERROR(exists_impl(path, &exists));
-    if (!exists) {
+    Status st = exists_impl(path);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::OK();
+    }
+    if (!st.ok()) {
+        return st;
     }
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(path, _fs_name);
@@ -227,7 +231,7 @@ Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
     return Status::OK();
 }
 
-Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
+Status HdfsFileSystem::exists_impl(const Path& path) const {
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(path, _fs_name);
     int is_exists = hdfsExists(_fs_handle->hdfs_fs, real_path.string().c_str());
@@ -246,8 +250,9 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
                                (root_cause ? root_cause : "unknown"));
     }
 #endif
-    *res = (is_exists == 0);
-    return Status::OK();
+    return (is_exists == 0)
+                   ? Status::OK()
+                   : Status::Error<ErrorCode::NOT_FOUND, false>("Path {} does not exist", path);
 }
 
 Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) const {
@@ -262,12 +267,41 @@ Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) cons
     return Status::OK();
 }
 
-Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<FileInfo>* files,
-                                 bool* exists) {
-    RETURN_IF_ERROR(exists_impl(path, exists));
-    if (!(*exists)) {
-        return Status::OK();
+struct HdfsFileListIterator final : public FileListIterator {
+public:
+    HdfsFileListIterator(int numEntries, hdfsFileInfo* hdfs_file_info, bool only_file)
+            : numEntries(numEntries),
+              hdfs_file_info(hdfs_file_info),
+              only_file(only_file),
+              idx(0) {}
+    ~HdfsFileListIterator() override { hdfsFreeFileInfo(hdfs_file_info, numEntries); }
+
+    bool has_next() const override { return idx < numEntries; }
+
+private:
+    Result<FileInfo> next() override {
+        FileInfo file_info;
+        for (; idx < numEntries; idx++) {
+            auto& file = hdfs_file_info[idx];
+            if (only_file && file.mKind == kObjectKindDirectory) {
+                continue;
+            }
+            file_info.file_name = file.mName;
+            file_info.file_size = file.mSize;
+            file_info.is_file = (file.mKind != kObjectKindDirectory);
+            break;
+        }
+        return file_info;
     }
+
+    int numEntries;
+    hdfsFileInfo* hdfs_file_info;
+    bool only_file;
+    size_t idx;
+};
+
+Status HdfsFileSystem::list_impl(const Path& path, bool only_file, FileListIteratorPtr* files) {
+    RETURN_IF_ERROR(exists_impl(path));
 
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(path, _fs_name);
@@ -278,18 +312,7 @@ Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<F
         return Status::IOError("failed to list files/directors {}: {}", path.native(),
                                hdfs_error());
     }
-    for (int idx = 0; idx < numEntries; ++idx) {
-        auto& file = hdfs_file_info[idx];
-        if (only_file && file.mKind == kObjectKindDirectory) {
-            continue;
-        }
-        FileInfo file_info;
-        file_info.file_name = file.mName;
-        file_info.file_size = file.mSize;
-        file_info.is_file = (file.mKind != kObjectKindDirectory);
-        files->emplace_back(std::move(file_info));
-    }
-    hdfsFreeFileInfo(hdfs_file_info, numEntries);
+    *files = std::make_unique<HdfsFileListIterator>(numEntries, hdfs_file_info, only_file);
     return Status::OK();
 }
 

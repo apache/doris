@@ -35,6 +35,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/broker_file_writer.h"
 #include "io/fs/file_reader.h"
@@ -184,9 +185,8 @@ Status BrokerFileSystem::batch_delete_impl(const std::vector<Path>& files) {
     return Status::OK();
 }
 
-Status BrokerFileSystem::exists_impl(const Path& path, bool* res) const {
+Status BrokerFileSystem::exists_impl(const Path& path) const {
     CHECK_BROKER_CLIENT(_connection);
-    *res = false;
     try {
         TBrokerCheckPathExistRequest check_req;
         TBrokerCheckPathExistResponse check_rep;
@@ -205,10 +205,8 @@ Status BrokerFileSystem::exists_impl(const Path& path, bool* res) const {
             return Status::IOError("failed to check exist of path {}: {}", path.native(),
                                    error_msg(check_rep.opStatus.message));
         } else if (!check_rep.isPathExist) {
-            *res = false;
-            return Status::OK();
+            return Status::Error<ErrorCode::NOT_FOUND, false>("Path {} does not exist", path);
         } else {
-            *res = true;
             return Status::OK();
         }
     } catch (apache::thrift::TException& e) {
@@ -249,11 +247,46 @@ Status BrokerFileSystem::file_size_impl(const Path& path, int64_t* file_size) co
     }
 }
 
-Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
-                                   bool* exists) {
-    RETURN_IF_ERROR(exists_impl(dir, exists));
-    if (!(*exists)) {
+class BrokerFileListIterator final : public FileListIterator {
+public:
+    BrokerFileListIterator(std::vector<TBrokerFileStatus> files, bool only_file)
+            : files(std::move(files)), iter(this->files.begin()), only_file(only_file) {}
+    ~BrokerFileListIterator() override = default;
+
+    bool has_next() const override { return iter != files.end(); }
+    Result<FileInfo> next() override {
+        if (iter != files.end()) {
+            return ResultError(Status::InternalError("Out of elements"));
+        }
+        FileInfo file_info;
+        for (; iter != files.end(); iter++) {
+            auto file = *iter;
+            if (only_file && file.isDir) {
+                // this is not a file
+                continue;
+            }
+            file_info.file_name = file.path;
+            file_info.file_size = file.size;
+            file_info.is_file = !file.isDir;
+            file_size++;
+            break;
+        }
+        return file_info;
+    }
+
+    std::vector<TBrokerFileStatus> files;
+    decltype(files.begin()) iter;
+    bool only_file;
+    size_t file_size;
+};
+
+Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files) {
+    Status st = exists_impl(dir);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::OK();
+    }
+    if (!st.ok()) {
+        return st;
     }
     CHECK_BROKER_CLIENT(_connection);
     Status status = Status::OK();
@@ -276,29 +309,14 @@ Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, std::vector<
 
         if (list_rep.opStatus.statusCode == TBrokerOperationStatusCode::FILE_NOT_FOUND) {
             LOG(INFO) << "path does not exist: " << dir;
-            *exists = false;
-            return Status::OK();
+            return Status::Error<ErrorCode::NOT_FOUND, false>("Path {} does not exist", dir);
         } else if (list_rep.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
             return Status::IOError("failed to list dir {}: {}", dir.native(),
                                    error_msg(list_rep.opStatus.message));
         }
         LOG(INFO) << "finished to list files from remote path. file num: " << list_rep.files.size();
-        *exists = true;
 
-        // split file name and checksum
-        for (const auto& file : list_rep.files) {
-            if (only_file && file.isDir) {
-                // this is not a file
-                continue;
-            }
-            FileInfo file_info;
-            file_info.file_name = file.path;
-            file_info.file_size = file.size;
-            file_info.is_file = !file.isDir;
-            files->emplace_back(std::move(file_info));
-        }
-
-        LOG(INFO) << "finished to split files. valid file num: " << files->size();
+        *files = std::make_unique<BrokerFileListIterator>(std::move(list_rep.files), only_file);
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "failed to list files in remote path: " << dir << ", msg: " << e.what();
