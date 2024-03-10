@@ -17,15 +17,15 @@
 // This file is copied from
 // and modified by Doris
 
-#include "vec/functions/function_array_in.h"
+#include "vec/functions/function_collection_in.h"
 
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-void register_function_array_in(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayIn<false>>();
-    factory.register_function<FunctionArrayIn<true>>();
+void register_function_collection_in(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionCollectionIn<false>>();
+    factory.register_function<FunctionCollectionIn<true>>();
 }
 
 } // namespace doris::vectorized
