@@ -218,6 +218,9 @@ private:
 
     std::atomic<bool> _finished {false};
     std::mutex _release_lock;
+
+    // PipelineXtask holds the runtime state.
+    std::unique_ptr<RuntimeState> _runtime_state;
 };
 
 } // namespace doris::pipeline
