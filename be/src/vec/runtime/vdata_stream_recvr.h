@@ -112,6 +112,10 @@ public:
                config::exchg_node_buffer_size_bytes;
     }
 
+    std::shared_ptr<pipeline::Dependency> local_exchange_mem_control_dependency() {
+        return _local_mem_control_dependency;
+    }
+
     bool is_closed() const { return _is_closed; }
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
@@ -169,8 +173,13 @@ private:
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    bool _enable_pipeline;
+    bool _enable_pipeline = false;
+    bool _enable_pipelineX = false;
     std::vector<std::shared_ptr<pipeline::Dependency>> _sender_to_local_channel_dependency;
+
+    std::mutex _test_lock;
+    // use to control exchange sink in local exchange
+    std::shared_ptr<pipeline::Dependency> _local_mem_control_dependency;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -217,11 +226,13 @@ public:
         _dependency = dependency;
     }
 
+    void try_set_dep_ready_without_lock();
+
+    void set_dep_ready();
+
 protected:
     friend class pipeline::ExchangeLocalState;
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
-
-    void try_set_dep_ready_without_lock();
 
     // To record information about several variables in the event of a DCHECK failure.
     //  DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)

@@ -180,6 +180,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             auto limit = _limit - local_state.num_rows_returned();
             block->set_num_rows(limit);
             local_state.set_num_rows_returned(_limit);
+            local_state.stream_recvr->local_exchange_mem_control_dependency()->set_ready();
         }
         COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
         COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);

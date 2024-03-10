@@ -342,6 +342,11 @@ public:
 
     void set_receiver_eof(Status st) { _receiver_status = st; }
 
+    std::shared_ptr<VDataStreamRecvr> local_recvr() {
+        DCHECK(is_local());
+        return _local_recvr;
+    }
+
 protected:
     bool _recvr_is_valid() {
         if (_local_recvr && !_local_recvr->is_closed()) {
