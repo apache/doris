@@ -2259,6 +2259,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
 
+    @ConfField(mutable = true)
+    public static boolean force_sample_analyze = false; // avoid full analyze for performance reason
+
     @ConfField(mutable = true, description = {
             "Export任务允许的最大分区数量",
             "The maximum number of partitions allowed by Export job"})
