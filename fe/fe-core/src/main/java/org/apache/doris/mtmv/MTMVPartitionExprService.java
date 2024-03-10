@@ -27,9 +27,25 @@ import java.util.Map;
  */
 public interface MTMVPartitionExprService {
 
+    /**
+     * for list partition, get identity by expr
+     *
+     * @param partitionKeyDesc
+     * @param mvProperties
+     * @return
+     * @throws AnalysisException
+     */
     String getRollUpIdentity(PartitionKeyDesc partitionKeyDesc, Map<String, String> mvProperties)
             throws AnalysisException;
 
+    /**
+     * for range partition, get roll up PartitionKeyDesc by expr
+     *
+     * @param partitionKeyDesc
+     * @param mvPartitionInfo
+     * @return
+     * @throws AnalysisException
+     */
     PartitionKeyDesc generateRollUpPartitionKeyDesc(
             PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo)
             throws AnalysisException;
