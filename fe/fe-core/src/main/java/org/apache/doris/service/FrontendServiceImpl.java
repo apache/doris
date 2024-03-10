@@ -21,12 +21,9 @@ import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
@@ -36,7 +33,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -69,7 +65,6 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -94,9 +89,9 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -202,7 +197,6 @@ import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReplicaInfo;
@@ -256,7 +250,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -2029,12 +2022,42 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    private HttpStreamParams initHttpStreamPlan(TStreamLoadPutRequest request, ConnectContext ctx)
+            throws UserException {
+        String originStmt = request.getLoadSql();
+        HttpStreamParams httpStreamParams;
+        try {
+            StmtExecutor executor = new StmtExecutor(ctx, originStmt);
+            ctx.setExecutor(executor);
+            httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
+
+            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+            Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
+            coord.setLoadMemLimit(request.getExecMemLimit());
+            coord.setQueryType(TQueryType.LOAD);
+            TableIf table = httpStreamParams.getTable();
+            if (table instanceof OlapTable) {
+                boolean isEnableMemtableOnSinkNode =
+                        ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                            ? coord.getQueryOptions().isEnableMemtableOnSinkNode() : false;
+                coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+            }
+            httpStreamParams.setParams(coord.getStreamLoadPlan());
+        } catch (UserException e) {
+            LOG.warn("exec sql error", e);
+            throw new UserException("exec sql error" + e);
+        } catch (Throwable e) {
+            LOG.warn("exec sql error catch unknown result.", e);
+            throw new UserException("exec sql error catch unknown result." + e);
+        }
+        return httpStreamParams;
+    }
+
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result, ConnectContext ctx)
             throws UserException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive http stream put request: {}", request);
         }
-        String originStmt = request.getLoadSql();
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
@@ -2047,55 +2070,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             ctx.getSessionVariable().enableMemtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
         }
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
+        ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
         try {
-            NativeInsertStmt parsedStmt = (NativeInsertStmt) SqlParserUtils.getFirstStmt(parser);
-            parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
-            parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            if (!StringUtils.isEmpty(request.getGroupCommitMode())) {
-                if (!Config.wait_internal_group_commit_finish && parsedStmt.getLabel() != null) {
-                    throw new AnalysisException("label and group_commit can't be set at the same time");
-                }
-                ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
-                parsedStmt.isGroupCommitStreamLoadSql = true;
-            }
-            StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
-            ctx.setExecutor(executor);
-            TQueryOptions tQueryOptions = ctx.getSessionVariable().toThrift();
-            executor.analyze(tQueryOptions);
-            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-            Coordinator coord =  EnvFactory.getInstance().createCoordinator(ctx, analyzer, executor.planner(), null);
-            coord.setLoadMemLimit(request.getExecMemLimit());
-            coord.setQueryType(TQueryType.LOAD);
-            Table table = parsedStmt.getTargetTable();
-            if (table instanceof OlapTable) {
-                boolean isEnableMemtableOnSinkNode =
-                        ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
-                                ? coord.getQueryOptions().isEnableMemtableOnSinkNode() : false;
-                coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
-            }
-
-            TExecPlanFragmentParams plan = coord.getStreamLoadPlan();
+            HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
             int loadStreamPerNode = 20;
             if (request.getStreamPerNode() > 0) {
                 loadStreamPerNode = request.getStreamPerNode();
             }
-            plan.setLoadStreamPerNode(loadStreamPerNode);
-            plan.setTotalLoadStreams(loadStreamPerNode);
-            plan.setNumLocalSink(1);
-            final long txn_id = parsedStmt.getTransactionId();
-            result.setParams(plan);
-            result.getParams().setDbName(parsedStmt.getDbName());
-            result.getParams().setTableName(parsedStmt.getTbl());
-            // The txn_id here is obtained from the NativeInsertStmt
-            result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
-            result.getParams().setImportLabel(parsedStmt.getLabel());
-            result.setDbId(table.getDatabase().getId());
-            result.setTableId(table.getId());
-            result.setBaseSchemaVersion(((OlapTable) table).getBaseSchemaVersion());
-            result.setGroupCommitIntervalMs(((OlapTable) table).getGroupCommitIntervalMs());
-            result.setGroupCommitDataBytes(((OlapTable) table).getGroupCommitDataBytes());
+            httpStreamParams.getParams().setLoadStreamPerNode(loadStreamPerNode);
+            httpStreamParams.getParams().setTotalLoadStreams(loadStreamPerNode);
+            httpStreamParams.getParams().setNumLocalSink(1);
+            result.setParams(httpStreamParams.getParams());
+            result.getParams().setDbName(httpStreamParams.getDb().getFullName());
+            result.getParams().setTableName(httpStreamParams.getTable().getName());
+            result.getParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
+            result.getParams().setImportLabel(httpStreamParams.getLabel());
+            result.setDbId(httpStreamParams.getDb().getId());
+            result.setTableId(httpStreamParams.getTable().getId());
+            result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());
+            result.setGroupCommitIntervalMs(((OlapTable) httpStreamParams.getTable()).getGroupCommitIntervalMs());
+            result.setGroupCommitDataBytes(((OlapTable) httpStreamParams.getTable()).getGroupCommitDataBytes());
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);

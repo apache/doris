@@ -33,7 +33,7 @@ under the License.
 
 ## 编译
 
-1. 确保环境已经能顺利编译Doris本体,可以参考[编译与部署](/docs/install/source-install/compilation)。
+1. 确保环境已经能顺利编译Doris本体,可以参考[编译与部署](/docs/install/source-install/compilation-general)。
 
 2. 运行目录下的`run-be-ut.sh`
 

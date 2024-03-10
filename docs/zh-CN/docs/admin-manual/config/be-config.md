@@ -1259,7 +1259,7 @@ BaseCompaction:546859:
 
 * 类型：int
 * 描述：限制单个 tablet 最大 version 的数量。用于防止导入过于频繁，或 compaction 不及时导致的大量 version 堆积问题。当超过限制后，导入任务将被拒绝。
-* 默认值：500
+* 默认值：2000
 
 #### `number_tablet_writer_threads`
 

@@ -192,6 +192,7 @@
                 "advanced/cold-hot-separation",
                 "advanced/is-being-synced",
                 "advanced/lateral-view",
+                "advanced/user-defined-variables",
                 "advanced/auto-increment",
                 "advanced/is-being-synced"
             ]
@@ -279,7 +280,6 @@
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
-                "ecosystem/mysql-to-doris",
                 "ecosystem/logstash",
                 "ecosystem/beats",
                 "ecosystem/plugin-development-manual",

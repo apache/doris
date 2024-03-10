@@ -351,8 +351,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     int ret;
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (_context.tablet_schema->has_inverted_index(column)) {
-            auto index_info = _context.tablet_schema->get_inverted_index(column);
+        if (_context.tablet_schema->has_inverted_index(*column)) {
+            auto index_info = _context.tablet_schema->get_inverted_index(*column);
             auto index_id = index_info->index_id();
             auto src_idx_path =
                     begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
@@ -373,8 +373,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                         ret, errno);
             }
             // Erase the origin index file cache
-            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
-            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
         }
     }
     return Status::OK();

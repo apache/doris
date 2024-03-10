@@ -2,44 +2,45 @@
 -- !select --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF4 ps_partkey->[l_partkey];RF5 ps_suppkey->[l_suppkey]
-------------------PhysicalDistribute
+----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF3 l_orderkey->[o_orderkey]
+----------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[orders] apply RFs: RF3
-------------------------PhysicalDistribute
+--------------------------PhysicalOlapScan[orders]
+------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[l_suppkey]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
+----------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
+----------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2 RF4 RF5
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------filter((p_name like '%green%'))
-------------------------------------------PhysicalOlapScan[part]
-------------------------------PhysicalDistribute
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
+----------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[lineitem]
+----------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------PhysicalProject
+--------------------------------------------filter((p_name like '%green%'))
+----------------------------------------------PhysicalOlapScan[part]
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[supplier]
+------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[supplier] apply RFs: RF0
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[nation]
-------------------PhysicalDistribute
+----------------------------------PhysicalOlapScan[nation]
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[partsupp]
 
-Used: leading(orders { { lineitem part } { supplier nation } } partsupp)
+Hint log:
+Used:   leading(orders shuffle { lineitem shuffle part } shuffle { supplier broadcast nation } shuffle partsupp )
 UnUsed:
 SyntaxError:
 

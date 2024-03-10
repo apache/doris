@@ -22,7 +22,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mtmv.MTMVPartitionExprFactory;
@@ -32,11 +34,14 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -46,9 +51,11 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * MTMVPartitionDefinition
@@ -74,7 +81,7 @@ public class MTMVPartitionDefinition {
         }
         String partitionColName;
         if (this.partitionType == MTMVPartitionType.EXPR) {
-            Expr expr = CreateTableInfo.convertToLegacyAutoPartitionExprs(Lists.newArrayList(functionCallExpression))
+            Expr expr = convertToLegacyAutoPartitionExprs(Lists.newArrayList(functionCallExpression))
                     .get(0);
             partitionColName = getColNameFromExpr(expr);
             mtmvPartitionInfo.setExpr(expr);
@@ -163,6 +170,33 @@ public class MTMVPartitionDefinition {
             sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
             cascadesContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
+    }
+
+    private static ArrayList<Expr> convertToLegacyAutoPartitionExprs(List<Expression> expressions) {
+        return new ArrayList<>(expressions.stream().map(expression -> {
+            if (expression instanceof UnboundSlot) {
+                return new SlotRef(null, ((UnboundSlot) expression).getName());
+            } else if (expression instanceof UnboundFunction) {
+                UnboundFunction function = (UnboundFunction) expression;
+                return new FunctionCallExpr(function.getName(),
+                        new FunctionParams(convertToLegacyArguments(function.children())));
+            } else {
+                throw new AnalysisException(
+                        "unsupported auto partition expr " + expression.toString());
+            }
+        }).collect(Collectors.toList()));
+    }
+
+    private static List<Expr> convertToLegacyArguments(List<Expression> children) {
+        return children.stream().map(child -> {
+            if (child instanceof UnboundSlot) {
+                return new SlotRef(null, ((UnboundSlot) child).getName());
+            } else if (child instanceof Literal) {
+                return new StringLiteral(((Literal) child).getStringValue());
+            } else {
+                throw new AnalysisException("unsupported argument " + child.toString());
+            }
+        }).collect(Collectors.toList());
     }
 
     public MTMVPartitionType getPartitionType() {
