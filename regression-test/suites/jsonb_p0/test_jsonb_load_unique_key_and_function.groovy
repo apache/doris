@@ -512,4 +512,18 @@ suite("test_jsonb_unique_load_and_function", "p0") {
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k2":300}' as json)) FROM ${testTable} ORDER BY id"""
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k1":"v41","k2":400}' as json), '\$.a1') FROM ${testTable} ORDER BY id"""
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('[123,456]' as json)) FROM ${testTable} ORDER BY id"""
+
+    qt_sql_json_depth """SELECT json_depth(NULL)"""
+    qt_sql_json_depth """SELECT json_depth('true')"""
+    qt_sql_json_depth """SELECT json_depth('null')"""
+    qt_sql_json_depth """SELECT json_depth('"abc"')"""
+    qt_sql_json_depth """SELECT json_depth('[]')"""
+    qt_sql_json_depth """SELECT json_depth('{}')"""
+    qt_sql_json_depth """SELECT json_depth('[1, 2]')"""
+    qt_sql_json_depth """SELECT json_depth('[1, {"x": 2}]')"""
+    qt_sql_json_depth """SELECT json_depth('{"x": 1, "y": [1, 2]}')"""
+    qt_sql_json_depth """SELECT json_depth('[1, [2, 3]]')"""
+    qt_sql_json_depth """SELECT json_depth('{"x": 1}')"""
+    qt_sql_json_depth """SELECT json_depth('{"x": {"y": 1}}')"""
+    qt_sql_json_depth """SELECT id, j, json_depth(j) FROM ${testTable} ORDER BY id"""
 }

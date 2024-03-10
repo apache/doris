@@ -554,6 +554,9 @@ public:
     //Get the number of jsonbvalue elements
     int length() const;
 
+    //Get the depth of jsonbvalue
+    int base_depth() const;
+
     //Whether to include the jsonbvalue rhs
     bool contains(JsonbValue* rhs) const;
 
@@ -1263,6 +1266,53 @@ inline int JsonbValue::length() const {
     }
     case JsonbType::T_Array: {
         return ((ArrayVal*)this)->numElem();
+    }
+    default:
+        return 0;
+    }
+}
+
+inline int JsonbValue::base_depth() const {
+    switch (type_) {
+    case JsonbType::T_Int8:
+    case JsonbType::T_Int16:
+    case JsonbType::T_Int32:
+    case JsonbType::T_Int64:
+    case JsonbType::T_Double:
+    case JsonbType::T_Float:
+    case JsonbType::T_Int128:
+    case JsonbType::T_String:
+    case JsonbType::T_Binary:
+    case JsonbType::T_Null:
+    case JsonbType::T_True:
+    case JsonbType::T_False: {
+        return 1;
+    }
+    case JsonbType::T_Object: {
+        int depth = 1;
+        int numElem = ((ObjectVal*)this)->numElem();
+        if (numElem == 0) return depth;
+
+        int max_depth = depth;
+
+        for (int i = 0; i < numElem; ++i) {
+            JsonbKeyValue* key = ((ObjectVal*)this)->getJsonbKeyValue(i);
+            JsonbValue* value = ((ObjectVal*)this)->find(key->getKeyStr(), key->klen());
+            int current_depth = depth + value->base_depth();
+            if (current_depth > max_depth) max_depth = current_depth;
+        }
+        return max_depth;
+    }
+    case JsonbType::T_Array: {
+        int depth = 1;
+        int numElem = ((ArrayVal*)this)->numElem();
+        if (numElem == 0) return depth;
+        int max_depth = depth + ((ArrayVal*)this)->get(0)->base_depth();
+        for (int i = 1; i < numElem; ++i) {
+            int current_depth = depth + ((ArrayVal*)this)->get(i)->base_depth();
+            if (current_depth > max_depth) max_depth = current_depth;
+        }
+        return max_depth;
     }
     default:
         return 0;

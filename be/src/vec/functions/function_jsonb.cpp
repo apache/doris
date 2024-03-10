@@ -1287,6 +1287,57 @@ struct JsonbContainsAndPathImpl {
     }
 };
 
+class FunctionJsonbDepth : public IFunction {
+public:
+    static constexpr auto name = "json_depth";
+    String get_name() const override { return name; }
+    static FunctionPtr create() { return std::make_shared<FunctionJsonbDepth>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt32>());
+    }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        DCHECK_GE(arguments.size(), 1);
+        auto jsonb_data_column = block.get_by_position(arguments[0]).column;
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto return_type = block.get_data_type(result);
+        auto col_result = ColumnVector<Int32>::create();
+        col_result->resize(input_rows_count);
+        auto& res_data = col_result->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (jsonb_data_column->is_null_at(i)) {
+                null_map->get_data()[i] = 1;
+                res_data[i] = 0;
+                continue;
+            }
+
+            auto jsonb_value = jsonb_data_column->get_data_at(i);
+            // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
+            JsonbDocument* doc = JsonbDocument::createDocument(jsonb_value.data, jsonb_value.size);
+            JsonbValue* value = doc->getValue();
+            if (UNLIKELY(jsonb_value.size == 0 || !value)) {
+                null_map->get_data()[i] = 1;
+                res_data[i] = 0;
+                continue;
+            }
+            auto depth = value->base_depth();
+            res_data[i] = depth;
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
 void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbParse>(FunctionJsonbParse::name);
     factory.register_alias(FunctionJsonbParse::name, FunctionJsonbParse::alias);
@@ -1352,6 +1403,7 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbLength<JsonbLengthAndPathImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsAndPathImpl>>();
+    factory.register_function<FunctionJsonbDepth>();
 }
 
 } // namespace doris::vectorized
