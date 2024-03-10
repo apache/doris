@@ -124,7 +124,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
 * 数据量在 几十到百GB 级别。
 
 ### 准备工作
-1. 准本AK 和 SK
+1. 准备 AK 和 SK
    首先需要找到或者重新生成 AWS `Access keys`，可以在 AWS console 的 `My Security Credentials` 找到生成方式， 如下图所示：
    [AK_SK](/images/aws_ak_sk.png)
    选择 `Create New Access Key` 注意保存生成 AK和SK.
