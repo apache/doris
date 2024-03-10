@@ -189,6 +189,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllFromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
@@ -1155,6 +1156,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitHllEmpty(HllEmpty hllEmpty, C context) {
         return visitScalarFunction(hllEmpty, context);
+    }
+
+    default R visitHllFromBase64(HllFromBase64 hllFromBase64, C context) {
+        return visitScalarFunction(hllFromBase64, context);
     }
 
     default R visitHllHash(HllHash hllHash, C context) {
