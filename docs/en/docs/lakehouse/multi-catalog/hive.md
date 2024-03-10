@@ -36,6 +36,7 @@ In addition to Hive, many other systems also use the Hive Metastore to store met
 2. hive supports version 1/2/3.
 3. Support Managed Table and External Table and part of Hive View.
 4. Can identify hive, iceberg, hudi metadata stored in Hive Metastore.
+5. If the Hadoop node is configured with hostname, please ensure to add the corresponding mapping relationship to the /etc/hosts file.
 
 ## Create Catalog
 
