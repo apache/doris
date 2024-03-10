@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
@@ -158,7 +159,10 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
                 if (nameToPartitions.contains(column.getName())) {
                     TableName tableName = new TableName(targetTable.getCatalog().getName(),
                             targetTable.getDbName(), targetTable.getName());
-                    columnExprList.add(new SlotRef(tableName, column.getName()));
+                    SlotRef colExprRef = new SlotRef(column.getType(), true);
+                    colExprRef.setTblName(tableName);
+                    colExprRef.setCol(column.getName());
+                    columnExprList.add(colExprRef);
                 }
             }
             shuffle.setPartitionKeys(columnExprList);
