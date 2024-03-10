@@ -390,7 +390,9 @@ ON a.city = c.city
 | VARCHAR    | STRING            |
 | STRING     | STRING            |
 | DECIMALV2  | DECIMAL                      |
-| TIME       | DOUBLE             |
+| ARRAY&lt;T&gt;    | ARRAY&lt;T&gt;      |
+| MAP&lt;T,T&gt;   | MAP&lt;T,T&gt;       |
+| JSON       | ROW&lt; T...&gt;     |
 | HLL        | Unsupported datatype             |
 
 ## Flink 写入指标

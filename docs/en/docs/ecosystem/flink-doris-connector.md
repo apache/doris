@@ -387,7 +387,9 @@ ON a.city = c.city
 | VARCHAR    | STRING            |
 | STRING     | STRING            |
 | DECIMALV2  | DECIMAL                      |
-| TIME       | DOUBLE             |
+| ARRAY<T>   | ARRAY<T>     |
+| MAP<T,T>   | MAP<T,T>       |
+| JSON       | ROW<T...>    |
 | HLL        | Unsupported datatype             |
 
 ## Flink write Metrics
