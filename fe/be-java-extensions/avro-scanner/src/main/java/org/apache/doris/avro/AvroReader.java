@@ -17,21 +17,89 @@
 
 package org.apache.doris.avro;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import org.apache.avro.Schema;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.avro.Schema.Parser;
+import org.apache.avro.file.DataFileStream;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.mapred.AvroJob;
+import org.apache.avro.mapred.AvroRecordReader;
+import org.apache.avro.mapred.AvroWrapper;
+import org.apache.avro.mapred.Pair;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.mapred.FileSplit;
+import org.apache.hadoop.mapred.JobConf;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.Set;
 
-public interface AvroReader {
+public abstract class AvroReader {
 
-    void open(Configuration conf) throws IOException;
+    private static final Logger LOG = LogManager.getLogger(AvroReader.class);
+    protected AvroRecordReader<Pair<Integer, Long>> dataReader;
+    protected DataFileStream<GenericRecord> schemaReader;
+    protected Path path;
+    protected FileSystem fileSystem;
 
-    Schema getSchema();
+    public abstract void open(AvroFileContext avroFileContext, boolean tableSchema) throws IOException;
 
-    boolean hasNext();
+    public abstract Schema getSchema();
 
-    Object getNext() throws IOException;
+    public abstract boolean hasNext(AvroWrapper<Pair<Integer, Long>> inputPair, NullWritable ignore) throws IOException;
 
-    void close() throws IOException;
+    public abstract Object getNext();
+
+    public abstract void close() throws IOException;
+
+    protected void openSchemaReader() throws IOException {
+        InputStream inputStream = new BufferedInputStream(fileSystem.open(path));
+        schemaReader = new DataFileStream<>(inputStream, new GenericDatumReader<>());
+        LOG.debug("success open avro schema reader.");
+    }
+
+    protected void openDataReader(AvroFileContext avroFileContext) throws IOException {
+        JobConf job = new JobConf();
+        projectionSchema(job, avroFileContext);
+        FileSplit fileSplit =
+                new FileSplit(path, avroFileContext.getSplitStartOffset(), avroFileContext.getSplitSize(), job);
+        dataReader = new AvroRecordReader<>(job, fileSplit);
+        LOG.debug("success open avro data reader.");
+    }
+
+    protected void projectionSchema(JobConf job, AvroFileContext avroFileContext) {
+        Schema projectionSchema;
+        Set<String> filedNames = avroFileContext.getRequiredFields();
+        Schema avroSchema = avroFileContext.getSchema();
+        // The number of fields that need to be queried is the same as that of the avro file,
+        // so no projection is required.
+        if (filedNames.size() != avroSchema.getFields().size()) {
+            JsonObject schemaJson = new Gson().fromJson(avroSchema.toString(), JsonObject.class);
+            JsonArray schemaFields = schemaJson.get("fields").getAsJsonArray();
+            JsonObject copySchemaJson = schemaJson.deepCopy();
+            JsonArray copySchemaFields = copySchemaJson.get("fields").getAsJsonArray();
+            for (int i = 0; i < schemaFields.size(); i++) {
+                JsonObject object = schemaFields.get(i).getAsJsonObject();
+                String name = object.get("name").getAsString();
+                if (filedNames.contains(name)) {
+                    continue;
+                }
+                copySchemaFields.remove(schemaFields.get(i));
+            }
+            projectionSchema = new Parser().parse(copySchemaJson.toString());
+        } else {
+            projectionSchema = avroSchema;
+        }
+        AvroJob.setInputSchema(job, projectionSchema);
+        LOG.debug("projection avro schema is:" + projectionSchema.toString());
+    }
 
 }

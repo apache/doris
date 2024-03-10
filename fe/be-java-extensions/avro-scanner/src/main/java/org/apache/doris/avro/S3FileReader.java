@@ -17,81 +17,84 @@
 
 package org.apache.doris.avro;
 
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.GetObjectRequest;
-import com.amazonaws.services.s3.model.S3Object;
 import org.apache.avro.Schema;
-import org.apache.avro.file.DataFileStream;
-import org.apache.avro.generic.GenericDatumReader;
-import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.mapred.AvroWrapper;
+import org.apache.avro.mapred.Pair;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.io.InputStream;
+import java.net.URI;
 import java.util.Objects;
 
-public class S3FileReader implements AvroReader {
+public class S3FileReader extends AvroReader {
 
     private static final Logger LOG = LogManager.getLogger(S3FileReader.class);
     private final String bucketName;
     private final String key;
-    private AmazonS3 s3Client;
-    private DataFileStream<GenericRecord> reader;
-    private InputStream s3ObjectInputStream;
-    private final AWSCredentials credentials;
+    private AvroWrapper<Pair<Integer, Long>> inputPair;
     private final String endpoint;
     private final String region;
+    private final String accessKey;
+    private final String secretKey;
+    private final String s3aUri;
 
     public S3FileReader(String accessKey, String secretKey, String endpoint, String region, String uri)
             throws IOException {
         this.endpoint = endpoint;
         this.region = region;
-        this.credentials = new BasicAWSCredentials(accessKey, secretKey);
         S3Utils.parseURI(uri);
         this.bucketName = S3Utils.getBucket();
         this.key = S3Utils.getKey();
+        this.accessKey = accessKey;
+        this.secretKey = secretKey;
+        this.s3aUri = "s3a://" + bucketName + "/" + key;
     }
 
     @Override
-    public void open(Configuration conf) throws IOException {
-        s3Client = AmazonS3ClientBuilder.standard()
-                .withCredentials(new AWSStaticCredentialsProvider(credentials))
-                .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endpoint, region))
-                .build();
-        S3Object object = s3Client.getObject(new GetObjectRequest(bucketName, key));
-        s3ObjectInputStream = object.getObjectContent();
-        reader = new DataFileStream<>(s3ObjectInputStream, new GenericDatumReader<>());
+    public void open(AvroFileContext avroFileContext, boolean tableSchema) throws IOException {
+        Configuration conf = new Configuration();
+        conf.set(AvroProperties.FS_S3A_ACCESS_KEY, accessKey);
+        conf.set(AvroProperties.FS_S3A_SECRET_KEY, secretKey);
+        conf.set(AvroProperties.FS_S3A_ENDPOINT, endpoint);
+        conf.set(AvroProperties.FS_S3A_REGION, region);
+        path = new Path(s3aUri);
+        fileSystem = FileSystem.get(URI.create(s3aUri), conf);
+        openSchemaReader();
+        if (!tableSchema) {
+            avroFileContext.setSchema(schemaReader.getSchema());
+            openDataReader(avroFileContext);
+        }
     }
 
     @Override
     public Schema getSchema() {
-        return reader.getSchema();
+        return schemaReader.getSchema();
     }
 
     @Override
-    public boolean hasNext() {
-        return reader.hasNext();
+    public boolean hasNext(AvroWrapper<Pair<Integer, Long>> inputPair, NullWritable ignore) throws IOException {
+        this.inputPair = inputPair;
+        return dataReader.next(this.inputPair, ignore);
     }
 
     @Override
-    public Object getNext() throws IOException {
-        return reader.next();
+    public Object getNext() {
+        return inputPair.datum();
     }
 
     @Override
     public void close() throws IOException {
-        if (Objects.nonNull(s3ObjectInputStream)) {
-            s3ObjectInputStream.close();
+        if (Objects.nonNull(schemaReader)) {
+            schemaReader.close();
         }
-        if (Objects.nonNull(reader)) {
-            reader.close();
+        if (Objects.nonNull(dataReader)) {
+            dataReader.close();
         }
+        fileSystem.close();
     }
 }

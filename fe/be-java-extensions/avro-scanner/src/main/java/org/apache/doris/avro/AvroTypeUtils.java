@@ -25,6 +25,8 @@ import com.google.common.base.Preconditions;
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
 import org.apache.commons.compress.utils.Lists;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -33,6 +35,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class AvroTypeUtils {
+
+    private static final Logger LOG = LogManager.getLogger(AvroTypeUtils.class);
 
     protected static TableSchema parseTableSchema(Schema schema) throws UnsupportedOperationException {
         List<Field> schemaFields = schema.getFields();
