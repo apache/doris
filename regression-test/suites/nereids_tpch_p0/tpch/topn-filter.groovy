@@ -23,20 +23,21 @@ suite("topn-filter") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set disable_join_reorder=true;'
-    def simple = """
+    sql 'set topn_opt_limit_threshold=1024'
+    def String simpleTopn = """
         select *
         from orders
         order by o_orderkey
         limit 10;"""
     
     explain {
-        sql "${simple}"
+        sql "${simpleTopn}"
         contains "TOPN OPT:1"
     }
 
-    qt_simple "${simple}"
+    qt_simpleTopn "${simpleTopn}"
     
-    def complex = """
+    def String complexTopn = """
         select o_orderkey, c_custkey, n_nationkey
         from orders 
         join[broadcast] customer on o_custkey = c_custkey 
@@ -44,10 +45,10 @@ suite("topn-filter") {
         order by o_orderkey limit 2; 
         """
     explain{
-        sql "${complex}"
+        sql "${complexTopn}"
         contains "TOPN OPT:7"
     }
-    qt_complex "${complex}"
+    qt_complexTopn "${complexTopn}"
 
     def multi_topn_asc = """
     select o_orderkey, c_custkey, n_nationkey
