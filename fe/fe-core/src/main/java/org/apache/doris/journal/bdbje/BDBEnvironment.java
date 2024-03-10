@@ -68,7 +68,7 @@ import java.util.stream.Collectors;
  */
 public class BDBEnvironment {
     private static final Logger LOG = LogManager.getLogger(BDBEnvironment.class);
-    private static final int RETRY_TIME = 3;
+    private static final int RETRY_TIME = Config.bdb_retry_time;
     private static final int MEMORY_CACHE_PERCENT = 20;
     private static final List<String> BDBJE_LOG_LEVEL = ImmutableList.of("OFF", "SEVERE", "WARNING",
             "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL");
