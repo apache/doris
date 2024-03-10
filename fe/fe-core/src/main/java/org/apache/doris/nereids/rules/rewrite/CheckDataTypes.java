@@ -41,8 +41,7 @@ import java.util.Set;
  */
 public class CheckDataTypes implements CustomRewriter {
 
-    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(
-            UnsupportedType.class);
+    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(UnsupportedType.class);
 
     @Override
     public Plan rewriteRoot(Plan rootPlan, JobContext jobContext) {
