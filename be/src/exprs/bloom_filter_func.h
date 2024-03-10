@@ -79,10 +79,7 @@ public:
         }
     }
 
-    void set_contain_null() {
-        DCHECK(_null_aware);
-        _contain_null = true;
-    }
+    void set_contain_null() { _contain_null = true; }
 
     bool contain_null() const { return _null_aware && _contain_null; }
 
