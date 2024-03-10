@@ -68,7 +68,7 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
      * @return
      * @throws AnalysisException
      */
-    private Map<PartitionKeyDesc, Set<Long>> rollUpList(Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs,
+    public Map<PartitionKeyDesc, Set<Long>> rollUpList(Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs,
             MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties) throws AnalysisException {
         Map<String, Set<String>> identityToValues = Maps.newHashMap();
         Map<String, Set<Long>> identityToPartitionIds = Maps.newHashMap();
@@ -123,7 +123,7 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
      * @return
      * @throws AnalysisException
      */
-    private Map<PartitionKeyDesc, Set<Long>> rollUpRange(Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs,
+    public Map<PartitionKeyDesc, Set<Long>> rollUpRange(Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs,
             MTMVPartitionInfo mvPartitionInfo) throws AnalysisException {
         Map<PartitionKeyDesc, Set<Long>> result = Maps.newHashMap();
         MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprSerice(mvPartitionInfo.getExpr());
