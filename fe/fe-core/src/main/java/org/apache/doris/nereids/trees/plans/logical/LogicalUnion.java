@@ -70,7 +70,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
             List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs, children);
         this.hasPushedFilter = hasPushedFilter;
-        this.constantExprsList = ImmutableList.copyOf(
+        this.constantExprsList = Utils.fastToImmutableList(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
@@ -81,7 +81,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs,
                 groupExpression, logicalProperties, children);
         this.hasPushedFilter = hasPushedFilter;
-        this.constantExprsList = ImmutableList.copyOf(
+        this.constantExprsList = Utils.fastToImmutableList(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 

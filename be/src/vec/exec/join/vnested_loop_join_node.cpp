@@ -665,7 +665,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
     SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_probe_timer);
     if (_is_output_left_side_only) {
-        RETURN_IF_ERROR(_build_output_block(_left_block.get(), block));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_output_block(_left_block.get(), block));
         *eos = _left_side_eos;
         _need_more_input_data = !_left_side_eos;
     } else {
@@ -685,7 +685,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
                 RETURN_IF_ERROR(
                         VExprContext::filter_block(_conjuncts, &tmp_block, tmp_block.columns()));
             }
-            RETURN_IF_ERROR(_build_output_block(&tmp_block, block, false));
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_output_block(&tmp_block, block, false));
             _reset_tuple_is_null_column();
         }
         _join_block.clear_column_data();

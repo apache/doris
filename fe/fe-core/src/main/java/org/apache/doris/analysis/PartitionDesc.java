@@ -208,9 +208,6 @@ public class PartitionDesc {
                         throw new AnalysisException(
                                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
                     }
-                    if (this instanceof ListPartitionDesc && columnDef.isAllowNull()) {
-                        throw new AnalysisException("The list partition column must be NOT NULL");
-                    }
                     if (this instanceof RangePartitionDesc && partitionExprs != null) {
                         if (partitionExprs.get(0) instanceof FunctionCallExpr) {
                             if (!columnDef.getType().isDateType()) {

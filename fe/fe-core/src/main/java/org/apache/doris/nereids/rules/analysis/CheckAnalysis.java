@@ -128,13 +128,11 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     }
 
     private void checkExpressionInputTypes(Plan plan) {
-        final Optional<TypeCheckResult> firstFailed = plan.getExpressions().stream()
-                .map(Expression::checkInputDataTypes)
-                .filter(TypeCheckResult::failed)
-                .findFirst();
-
-        if (firstFailed.isPresent()) {
-            throw new AnalysisException(firstFailed.get().getMessage());
+        for (Expression expression : plan.getExpressions()) {
+            TypeCheckResult firstFailed = expression.checkInputDataTypes();
+            if (firstFailed.failed()) {
+                throw new AnalysisException(firstFailed.getMessage());
+            }
         }
     }
 

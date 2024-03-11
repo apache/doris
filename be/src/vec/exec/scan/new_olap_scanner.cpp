@@ -95,7 +95,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
         if (it != read_columns.cbegin()) {
             read_columns_string += ", ";
         }
-        read_columns_string += tablet_schema->columns().at(*it).name();
+        read_columns_string += tablet_schema->columns().at(*it)->name();
         if (i >= col_per_line) {
             read_columns_string += "\n";
             i = 0;
@@ -391,23 +391,26 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
         // runtime predicate push down optimization for topn
         _tablet_reader_params.use_topn_opt = olap_scan_node.use_topn_opt;
+        if (olap_scan_node.__isset.topn_filter_source_node_ids) {
+            _tablet_reader_params.topn_filter_source_node_ids =
+                    olap_scan_node.topn_filter_source_node_ids;
+        } else if (_tablet_reader_params.use_topn_opt) {
+            _tablet_reader_params.topn_filter_source_node_ids = {0};
+        }
     }
 
     // If this is a Two-Phase read query, and we need to delay the release of Rowset
     // by rowset->update_delayed_expired_timestamp().This could expand the lifespan of Rowset
-    // TODO(plat1ko): CloudStorageEngine
-    if (!config::is_cloud_mode()) {
-        if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
-            constexpr static int delayed_s = 60;
-            for (auto rs_reader : _tablet_reader_params.rs_splits) {
-                uint64_t delayed_expired_timestamp =
-                        UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
-                        delayed_s;
-                rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
-                        delayed_expired_timestamp);
-                ExecEnv::GetInstance()->storage_engine().to_local().add_quering_rowset(
-                        rs_reader.rs_reader->rowset());
-            }
+    if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
+        constexpr static int delayed_s = 60;
+        for (auto rs_reader : _tablet_reader_params.rs_splits) {
+            uint64_t delayed_expired_timestamp =
+                    UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
+                    delayed_s;
+            rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
+                    delayed_expired_timestamp);
+            ExecEnv::GetInstance()->storage_engine().add_quering_rowset(
+                    rs_reader.rs_reader->rowset());
         }
     }
 
@@ -430,7 +433,7 @@ Status NewOlapScanner::_init_variant_columns() {
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths(), slot->col_unique_id());
-            if (tablet_schema->field_index(subcol.path_info()) < 0) {
+            if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
         }

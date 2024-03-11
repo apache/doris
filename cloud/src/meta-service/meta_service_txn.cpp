@@ -30,6 +30,38 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
+struct TableStats {
+    int64_t updated_row_count = 0;
+
+    TableStats() = default;
+
+    TableStats(int64_t num_rows): updated_row_count(num_rows) {}
+
+    std::string to_string() const {
+            std::stringstream ss;
+            ss << "updated_row_count: " << updated_row_count;
+            return ss.str();
+    }
+};
+
+static void get_pb_from_tablestats(TableStats& stats, TableStatsPB* stats_pb) {
+    stats_pb->set_updated_row_count(stats.updated_row_count);
+}
+
+static void calc_table_stats(std::map<int64_t, TabletIndexPB>& table_ids,
+                             std::map<int64_t, TabletStats>& tablet_stats,
+                             std::map<int64_t, TableStats>& table_stats) {
+    int64_t table_id;
+    for (auto& [tablet_id, tablet_stat] : tablet_stats) {
+        table_id = table_ids[tablet_id].table_id();
+        if (table_stats.find(table_id) == table_stats.end()) {
+            table_stats[table_id] = TableStats(tablet_stat.num_rows);
+        } else {
+            table_stats[table_id].updated_row_count += tablet_stat.num_rows;
+        }
+    }
+}
+
 //TODO: we need move begin/commit etc txn to TxnManager
 void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
                                 const BeginTxnRequest* request, BeginTxnResponse* response,
@@ -197,7 +229,7 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
                 cur_txn_info.status() == TxnStatusPB::TXN_STATUS_PRECOMMITTED) {
                 // clang-format off
                 if (cur_txn_info.has_request_id() && txn_info.has_request_id() &&
-                    ((cur_txn_info.request_id().hi() == txn_info.request_id().hi()) && 
+                    ((cur_txn_info.request_id().hi() == txn_info.request_id().hi()) &&
                      (cur_txn_info.request_id().lo() == txn_info.request_id().lo()))) {
 
                     response->set_dup_txn_id(cur_txn_info.txn_id());
@@ -1040,6 +1072,21 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         msg = ss.str();
         return;
     }
+
+    // calculate table stats from tablets stats
+    std::map<int64_t/*table_id*/, TableStats> table_stats;
+    calc_table_stats(table_ids, tablet_stats, table_stats);
+    for (const auto& pair : table_stats) {
+        TableStatsPB* stats_pb = response->add_table_stats();
+        auto table_id = pair.first;
+        auto stats = pair.second;
+        get_pb_from_tablestats(stats, stats_pb);
+        stats_pb->set_table_id(table_id);
+        VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
+                   << " table_id=" << table_id
+                   << " updated_row_count=" << stats_pb->updated_row_count();
+    }
+
     response->mutable_txn_info()->CopyFrom(txn_info);
 } // end commit_txn
 
@@ -1526,12 +1573,12 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
 }
 
 /**
- * @brief 
- * 
- * @param txn_kv 
- * @param instance_id 
- * @param db_id 
- * @param label_key 
+ * @brief
+ *
+ * @param txn_kv
+ * @param instance_id
+ * @param db_id
+ * @param label_key
  * @return TxnErrorCode
  */
 TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::string_view instance_id,

@@ -199,12 +199,6 @@ public class HashJoinNode extends JoinNodeBase {
         for (Expr eqJoinPredicate : eqJoinConjuncts) {
             Preconditions.checkArgument(eqJoinPredicate instanceof BinaryPredicate);
             BinaryPredicate eqJoin = (BinaryPredicate) eqJoinPredicate;
-            if (eqJoin.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
-                Preconditions.checkArgument(eqJoin.getChildren().size() == 2);
-                if (!eqJoin.getChild(0).isNullable() || !eqJoin.getChild(1).isNullable()) {
-                    eqJoin.setOp(BinaryPredicate.Operator.EQ);
-                }
-            }
             this.eqJoinConjuncts.add(eqJoin);
         }
         this.distrMode = DistributionMode.NONE;
@@ -782,13 +776,8 @@ public class HashJoinNode extends JoinNodeBase {
 
         if (markJoinConjuncts != null) {
             if (eqJoinConjuncts.isEmpty()) {
-                Preconditions.checkState(joinOp == JoinOperator.LEFT_SEMI_JOIN
-                        || joinOp == JoinOperator.LEFT_ANTI_JOIN);
-                if (joinOp == JoinOperator.LEFT_SEMI_JOIN) {
-                    msg.hash_join_node.join_op = JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN.toThrift();
-                } else if (joinOp == JoinOperator.LEFT_ANTI_JOIN) {
-                    msg.hash_join_node.join_op = JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN.toThrift();
-                }
+                Preconditions.checkState(joinOp == JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN
+                        || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN);
                 // because eqJoinConjuncts mustn't be empty in thrift
                 // we have to use markJoinConjuncts instead
                 for (Expr e : markJoinConjuncts) {
@@ -969,5 +958,13 @@ public class HashJoinNode extends JoinNodeBase {
         } else {
             return slotRef;
         }
+    }
+
+    @Override
+    public boolean isNullAwareLeftAntiJoin() {
+        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            return true;
+        }
+        return children.stream().anyMatch(PlanNode::isNullAwareLeftAntiJoin);
     }
 }

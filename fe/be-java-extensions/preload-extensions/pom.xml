@@ -167,6 +167,10 @@ under the License.
                     <groupId>org.codehaus.janino</groupId>
                     <artifactId>commons-compiler</artifactId>
                 </exclusion>
+                <exclusion>
+                    <artifactId>antlr4-runtime</artifactId>
+                    <groupId>org.antlr</groupId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>

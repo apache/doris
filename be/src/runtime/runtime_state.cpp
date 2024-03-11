@@ -104,6 +104,9 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
     }
+    if (_query_ctx) {
+        _query_ctx->init_runtime_predicates({0});
+    }
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
@@ -529,5 +532,9 @@ Status RuntimeState::register_consumer_runtime_filter(const doris::TRuntimeFilte
         return local_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
                                                                     consumer_filter, false, false);
     }
+}
+
+bool RuntimeState::is_nereids() const {
+    return _query_ctx->is_nereids();
 }
 } // end namespace doris

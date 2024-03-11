@@ -210,11 +210,8 @@ public class PhysicalNestedLoopJoin<
      *  getConditionSlot
      */
     public Set<Slot> getConditionSlot() {
-        // this function is called by rules which reject mark join
-        // so markJoinConjuncts is not processed here
-        Preconditions.checkState(!isMarkJoin(),
-                "shouldn't call mark join's getConditionSlot method");
-        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+        return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                markJoinConjuncts.stream())
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(ImmutableSet.toImmutableSet());
     }

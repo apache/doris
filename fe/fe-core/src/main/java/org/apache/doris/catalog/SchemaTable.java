@@ -444,6 +444,20 @@ public class SchemaTable extends Table {
                             .column("SOURCE_FILE", ScalarType.createVarchar(20))
                             .column("SOURCE_LINE", ScalarType.createType(PrimitiveType.INT))
                             .build()))
+            .put("backend_active_tasks",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_active_tasks", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("FE_HOST", ScalarType.createVarchar(256))
+                                    .column("QUERY_ID", ScalarType.createVarchar(256))
+                                    .column("TASK_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TASK_CPU_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SCAN_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SCAN_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("BE_PEAK_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

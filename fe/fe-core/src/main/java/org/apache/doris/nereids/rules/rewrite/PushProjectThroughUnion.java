@@ -65,7 +65,7 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
                             replaceMap.put(union.getOutput().get(j), union.getRegularChildOutput(i).get(j));
                         }
                         List<NamedExpression> childProjections = project.getProjects().stream()
-                                .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))
+                                .map(e -> (NamedExpression) ExpressionUtils.replaceNameExpression(e, replaceMap))
                                 .map(e -> {
                                     if (e instanceof Alias) {
                                         return new Alias(((Alias) e).child(), e.getName());

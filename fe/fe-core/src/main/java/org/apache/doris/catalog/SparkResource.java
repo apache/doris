@@ -117,6 +117,11 @@ public class SparkResource extends Resource {
     @SerializedName(value = "envConfigs")
     private Map<String, String> envConfigs;
 
+
+    public SparkResource() {
+        super();
+    }
+
     public SparkResource(String name) {
         this(name, Maps.newHashMap(), null, null, Maps.newHashMap(), Maps.newHashMap());
     }

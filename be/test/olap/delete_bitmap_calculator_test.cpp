@@ -50,20 +50,20 @@ static RowsetId rowset_id {0};
 
 using Generator = std::function<void(size_t rid, int cid, RowCursorCell& cell)>;
 
-static TabletColumn create_int_sequence_value(int32_t id, bool is_nullable = true,
-                                              bool is_bf_column = false,
-                                              bool has_bitmap_index = false) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = FieldType::OLAP_FIELD_TYPE_INT;
-    column._is_key = false;
-    column._is_nullable = is_nullable;
-    column._length = 4;
-    column._index_length = 4;
-    column._is_bf_column = is_bf_column;
-    column._has_bitmap_index = has_bitmap_index;
-    column.set_name(SEQUENCE_COL);
+static TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = true,
+                                                 bool is_bf_column = false,
+                                                 bool has_bitmap_index = false) {
+    TabletColumnPtr column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_INT;
+    column->_is_key = false;
+    column->_is_nullable = is_nullable;
+    column->_length = 4;
+    column->_index_length = 4;
+    column->_is_bf_column = is_bf_column;
+    column->_has_bitmap_index = has_bitmap_index;
+    column->set_name(SEQUENCE_COL);
     return column;
 }
 
@@ -82,12 +82,12 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kSegmentDir).ok());
     }
 
-    TabletSchemaSPtr create_schema(const std::vector<TabletColumn>& columns,
+    TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
                                    KeysType keys_type = UNIQUE_KEYS) {
         TabletSchemaSPtr res = std::make_shared<TabletSchema>();
 
         for (auto& col : columns) {
-            res->append_column(col);
+            res->append_column(*col);
         }
         res->_keys_type = keys_type;
         return res;
@@ -144,7 +144,7 @@ public:
         size_t const num_columns = num_key_columns + has_sequence_col + num_value_columns;
         size_t const seq_col_idx = has_sequence_col ? num_key_columns : -1;
 
-        std::vector<TabletColumn> columns;
+        std::vector<TabletColumnPtr> columns;
 
         for (int i = 0; i < num_key_columns; ++i) {
             columns.emplace_back(create_int_key(i));

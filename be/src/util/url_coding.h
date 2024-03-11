@@ -32,7 +32,6 @@ namespace doris {
 // behaviour when encoding a string, which is only to encode certain
 // characters (excluding, e.g., ' ')
 void url_encode(const std::string& in, std::string* out);
-void url_encode(const std::vector<uint8_t>& in, std::string* out);
 
 // Utility method to decode a string that was URL-encoded. Returns
 // true unless the string could not be correctly decoded.
@@ -41,7 +40,6 @@ void url_encode(const std::vector<uint8_t>& in, std::string* out);
 // certain characters like ' '.
 bool url_decode(const std::string& in, std::string* out);
 
-void base64url_encode(const std::string& in, std::string* out);
 void base64_encode(const std::string& in, std::string* out);
 size_t base64_encode(const unsigned char* data, size_t length, unsigned char* encoded_data);
 

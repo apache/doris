@@ -578,24 +578,26 @@ private:
 
     __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
             const vectorized::ColumnDictI32& column) const {
-        if (!_segment_id_to_cached_code.contains(column.get_rowset_segment_id())) {
-            int32_t code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
-                                       : column.find_code(_value);
-
-            // Sometimes the dict is not initialized when run comparison predicate here, for example,
-            // the full page is null, then the reader will skip read, so that the dictionary is not
-            // inited. The cached code is wrong during this case, because the following page maybe not
-            // null, and the dict should have items in the future.
-            //
-            // Cached code may have problems, so that add a config here, if not opened, then
-            // we will return the code and not cache it.
-            if (column.is_dict_empty() || !config::enable_low_cardinality_cache_code) {
-                return code;
-            }
-            // If the dict is not empty, then the dict is inited and we could cache the value.
-            _segment_id_to_cached_code[column.get_rowset_segment_id()] = code;
+        int32_t code = 0;
+        if (_segment_id_to_cached_code.if_contains(
+                    column.get_rowset_segment_id(),
+                    [&code](const auto& pair) { code = pair.second; })) {
+            return code;
         }
-        return _segment_id_to_cached_code[column.get_rowset_segment_id()];
+        code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
+                           : column.find_code(_value);
+        // Sometimes the dict is not initialized when run comparison predicate here, for example,
+        // the full page is null, then the reader will skip read, so that the dictionary is not
+        // inited. The cached code is wrong during this case, because the following page maybe not
+        // null, and the dict should have items in the future.
+        //
+        // Cached code may have problems, so that add a config here, if not opened, then
+        // we will return the code and not cache it.
+        if (!column.is_dict_empty() && config::enable_low_cardinality_cache_code) {
+            _segment_id_to_cached_code.emplace(std::pair {column.get_rowset_segment_id(), code});
+        }
+
+        return code;
     }
 
     std::string _debug_string() const override {
@@ -604,7 +606,13 @@ private:
         return info;
     }
 
-    mutable std::map<std::pair<RowsetId, uint32_t>, int32_t> _segment_id_to_cached_code;
+    mutable phmap::parallel_flat_hash_map<
+            std::pair<RowsetId, uint32_t>, int32_t,
+            phmap::priv::hash_default_hash<std::pair<RowsetId, uint32_t>>,
+            phmap::priv::hash_default_eq<std::pair<RowsetId, uint32_t>>,
+            std::allocator<std::pair<const std::pair<RowsetId, uint32_t>, int32_t>>, 4,
+            std::shared_mutex>
+            _segment_id_to_cached_code;
     T _value;
 };
 

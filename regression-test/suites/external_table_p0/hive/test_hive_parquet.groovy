@@ -169,15 +169,6 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
         """
     }
 
-    def q23 = {
-        sql """use hive_schema_change"""
-        // not support the schema change of complex type
-        test {
-            sql "select * from struct_test"
-            exception "Wrong data type for column 'f2'"
-        }
-    }
-
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
@@ -216,7 +207,6 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
             q20()
             q21()
             q22()
-            q23()
 
             sql """explain physical plan select l_partkey from partition_table
                 where (nation != 'cn' or city !='beijing') and (l_quantity > 28 or l_extendedprice > 30000)

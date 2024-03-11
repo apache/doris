@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -52,20 +51,13 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
         );
         // Can not rewrite, bail out
         if (expressionsRewritten.isEmpty()) {
-            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
-                    Pair.of("Rewrite expressions by view in join fail",
-                            String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
-                                            + "targetToSourceMapping = %s",
-                                    queryStructInfo.getExpressions(),
-                                    materializationContext.getMvExprToMvScanExprMapping(),
-                                    targetToSourceMapping)));
+            materializationContext.recordFailReason(queryStructInfo,
+                    "Rewrite expressions by view in join fail",
+                    () -> String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
+                                    + "targetToSourceMapping = %s", queryStructInfo.getExpressions(),
+                            materializationContext.getMvExprToMvScanExprMapping(),
+                            targetToSourceMapping));
             return null;
-        }
-        // record the group id in materializationContext, and when rewrite again in
-        // the same group, bail out quickly.
-        if (queryStructInfo.getOriginalPlan().getGroupExpression().isPresent()) {
-            materializationContext.addMatchedGroup(
-                    queryStructInfo.getOriginalPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
         }
         return new LogicalProject<>(
                 expressionsRewritten.stream()

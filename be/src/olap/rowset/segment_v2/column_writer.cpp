@@ -711,7 +711,7 @@ Status ScalarColumnWriter::finish_current_page() {
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(nullmap.slice().size);
     if (_new_page_callback != nullptr) {
-        static_cast<void>(_new_page_callback->put_extra_info_in_page(data_page_footer));
+        _new_page_callback->put_extra_info_in_page(data_page_footer);
     }
     // trying to compress page body
     OwnedSlice compressed_body;
@@ -770,9 +770,8 @@ Status OffsetColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     return Status::OK();
 }
 
-Status OffsetColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
+void OffsetColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
     footer->set_next_array_item_ordinal(_next_offset);
-    return Status::OK();
 }
 
 StructColumnWriter::StructColumnWriter(

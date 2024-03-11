@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -222,6 +223,7 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
     private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
+    private boolean isGroupCommitStreamLoadSql;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
@@ -402,14 +404,11 @@ public class ConnectContext {
 
     public void closeTxn() {
         if (isTxnModel()) {
-            if (isTxnBegin()) {
-                try {
-                    InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(getTxnEntry());
-                    executor.abortTransaction();
-                } catch (Exception e) {
-                    LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
-                            txnEntry.getTxnConf().getTxnId(), e);
-                }
+            try {
+                txnEntry.abortTransaction();
+            } catch (Exception e) {
+                LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
+                        txnEntry.getTransactionId(), e);
             }
             txnEntry = null;
         }
@@ -1092,10 +1091,8 @@ public class ConnectContext {
 
         if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
-            /*
             getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
                     "Cant get a Valid cluster for you to use, plz connect admin");
-             */
         } else {
             this.cloudCluster = cluster;
             LOG.info("finally set context cluster name {}", cloudCluster);
@@ -1192,5 +1189,13 @@ public class ConnectContext {
 
     public int getNetWriteTimeout() {
         return this.sessionVariable.getNetWriteTimeout();
+    }
+
+    public boolean isGroupCommitStreamLoadSql() {
+        return isGroupCommitStreamLoadSql;
+    }
+
+    public void setGroupCommitStreamLoadSql(boolean groupCommitStreamLoadSql) {
+        isGroupCommitStreamLoadSql = groupCommitStreamLoadSql;
     }
 }

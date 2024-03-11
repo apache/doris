@@ -55,7 +55,7 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
 
-    Status init_result_columns();
+    void init_result_columns();
 
     Status output_current_block(vectorized::Block* block);
 
@@ -88,9 +88,9 @@ private:
                                                      bool need_check_first = false);
     bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
-    Status _reset_agg_status();
-    Status _create_agg_status();
-    Status _destroy_agg_status();
+    void _reset_agg_status();
+    void _create_agg_status();
+    void _destroy_agg_status();
 
     friend class AnalyticSourceOperatorX;
 

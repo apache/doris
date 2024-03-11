@@ -19,80 +19,81 @@
 
 #include <string.h>
 
+#include "olap/tablet_schema.h"
 #include "util/slice.h"
 #include "vec/common/arena.h"
 
 namespace doris {
 
-TabletColumn create_int_key(int32_t id, bool is_nullable, bool is_bf_column,
-                            bool has_bitmap_index) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = FieldType::OLAP_FIELD_TYPE_INT;
-    column._is_key = true;
-    column._is_nullable = is_nullable;
-    column._length = 4;
-    column._index_length = 4;
-    column._is_bf_column = is_bf_column;
-    column._has_bitmap_index = has_bitmap_index;
+TabletColumnPtr create_int_key(int32_t id, bool is_nullable, bool is_bf_column,
+                               bool has_bitmap_index) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_INT;
+    column->_is_key = true;
+    column->_is_nullable = is_nullable;
+    column->_length = 4;
+    column->_index_length = 4;
+    column->_is_bf_column = is_bf_column;
+    column->_has_bitmap_index = has_bitmap_index;
     return column;
 }
 
-TabletColumn create_int_value(int32_t id, FieldAggregationMethod agg_method, bool is_nullable,
-                              const std::string default_value, bool is_bf_column,
-                              bool has_bitmap_index) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = FieldType::OLAP_FIELD_TYPE_INT;
-    column._is_key = false;
-    column._aggregation = agg_method;
-    column._is_nullable = is_nullable;
-    column._length = 4;
-    column._index_length = 4;
+TabletColumnPtr create_int_value(int32_t id, FieldAggregationMethod agg_method, bool is_nullable,
+                                 const std::string default_value, bool is_bf_column,
+                                 bool has_bitmap_index) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_INT;
+    column->_is_key = false;
+    column->_aggregation = agg_method;
+    column->_is_nullable = is_nullable;
+    column->_length = 4;
+    column->_index_length = 4;
     if (default_value != "") {
-        column._has_default_value = true;
-        column._default_value = default_value;
+        column->_has_default_value = true;
+        column->_default_value = default_value;
     }
-    column._is_bf_column = is_bf_column;
-    column._has_bitmap_index = has_bitmap_index;
+    column->_is_bf_column = is_bf_column;
+    column->_has_bitmap_index = has_bitmap_index;
     return column;
 }
 
-TabletColumn create_char_key(int32_t id, bool is_nullable) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = FieldType::OLAP_FIELD_TYPE_CHAR;
-    column._is_key = true;
-    column._is_nullable = is_nullable;
-    column._length = 8;
-    column._index_length = 1;
+TabletColumnPtr create_char_key(int32_t id, bool is_nullable) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_CHAR;
+    column->_is_key = true;
+    column->_is_nullable = is_nullable;
+    column->_length = 8;
+    column->_index_length = 1;
     return column;
 }
 
-TabletColumn create_varchar_key(int32_t id, bool is_nullable) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
-    column._is_key = true;
-    column._is_nullable = is_nullable;
-    column._length = 65533;
-    column._index_length = 4;
+TabletColumnPtr create_varchar_key(int32_t id, bool is_nullable) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
+    column->_is_key = true;
+    column->_is_nullable = is_nullable;
+    column->_length = 65533;
+    column->_index_length = 4;
     return column;
 }
 
-TabletColumn create_string_key(int32_t id, bool is_nullable) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = FieldType::OLAP_FIELD_TYPE_STRING;
-    column._is_key = true;
-    column._is_nullable = is_nullable;
-    column._length = 2147483643;
-    column._index_length = 4;
+TabletColumnPtr create_string_key(int32_t id, bool is_nullable) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_STRING;
+    column->_is_key = true;
+    column->_is_nullable = is_nullable;
+    column->_length = 2147483643;
+    column->_index_length = 4;
     return column;
 }
 

@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -130,7 +131,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         profile.getSummaryProfile().setQueryBeginTime();
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
-                    Optional.of(labelName)));
+                    Optional.of(labelName), Optional.empty()));
         } else {
             throw new AnalysisException("Multi insert into statements are unsupported.");
         }

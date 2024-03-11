@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -71,8 +72,7 @@ public class MTMVRelationManager implements MTMVHookService {
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
-                if (!CollectionUtils
-                        .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, System.currentTimeMillis()))) {
+                if (isMVPartitionValid(mtmv, ctx)) {
                     res.add(mtmv);
                 }
             } catch (AnalysisException e) {
@@ -81,6 +81,12 @@ public class MTMVRelationManager implements MTMVHookService {
             }
         }
         return res;
+    }
+
+    @VisibleForTesting
+    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx) {
+        return !CollectionUtils
+                .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, System.currentTimeMillis()));
     }
 
     private Set<BaseTableInfo> getMTMVInfos(List<BaseTableInfo> tableInfos) {

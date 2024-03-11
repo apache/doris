@@ -38,6 +38,8 @@ statement
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     | (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) name=multipartIdentifier LEFT_PAREN .*? RIGHT_PAREN .*? #createProcedure
     | DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier #dropProcedure
+    | SHOW PROCEDURE STATUS (LIKE pattern=valueExpression | whereClause)? #showProcedureStatus
+    | SHOW CREATE PROCEDURE name=multipartIdentifier #showCreateProcedure
     ;
 
 statementBase
@@ -52,8 +54,7 @@ statementBase
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList (CLUSTER BY clusterKeys=identifierList)?)?
         (COMMENT STRING_LITERAL)?
-        ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST) (partitionKeys=identifierList | partitionExpr=functionCallExpression)
-          LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN)?
+        (partition=partitionTable)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         properties=propertyClause?
@@ -126,6 +127,19 @@ partitionSpec
     // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
     // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
     // | PARTITIONS WITH RECENT
+    ;
+
+partitionTable
+    : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST)? partitionList=identityOrFunctionList
+       (LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN))
+    ;
+
+identityOrFunctionList
+    : LEFT_PAREN identityOrFunction (COMMA partitions+=identityOrFunction)* RIGHT_PAREN
+    ;
+
+identityOrFunction
+    : (identifier | functionCallExpression)
     ;
 
 dataDesc
@@ -301,6 +315,7 @@ queryPrimary
 
 querySpecification
     : selectClause
+      intoClause?
       fromClause?
       whereClause?
       aggClause?
@@ -335,6 +350,19 @@ whereClause
 
 fromClause
     : FROM relations
+    ;
+
+// For PL-SQL
+intoClause
+    : bulkCollectClause? INTO (tableRow | identifier) (COMMA (tableRow | identifier))*
+    ;
+
+bulkCollectClause :
+       BULK COLLECT
+     ;
+
+tableRow :
+      identifier LEFT_PAREN INTEGER_VALUE RIGHT_PAREN
     ;
 
 relations
@@ -547,7 +575,7 @@ constantSeq
     ;
     
 partitionValueDef
-    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE
+    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE | NULL
     ;
     
 rollupDefs
@@ -615,7 +643,7 @@ rowConstructorItem
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP | MATCH_PHRASE_EDGE) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -716,6 +744,7 @@ primaryExpression
       source=valueExpression RIGHT_PAREN                                                       #extract
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
+
 
 functionCallExpression
     : functionIdentifier
@@ -947,6 +976,7 @@ nonReserved
     | BUCKETS
     | BUILD
     | BUILTIN
+    | BULK
     | CACHED
     | CALL
     | CATALOG
@@ -958,6 +988,7 @@ nonReserved
     | CLUSTER
     | CLUSTERS
     | COLLATION
+    | COLLECT
     | COLUMNS
     | COMMENT
     | COMMIT

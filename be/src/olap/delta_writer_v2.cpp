@@ -229,13 +229,17 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
         }
     }
 
-    if (indexes.size() > 0 && indexes[i]->columns.size() != 0 &&
+    if (!indexes.empty() && !indexes[i]->columns.empty() &&
         indexes[i]->columns[0]->unique_id() >= 0) {
         _tablet_schema->build_current_tablet_schema(index_id, table_schema_param->version(),
                                                     indexes[i], ori_tablet_schema);
     }
 
     _tablet_schema->set_table_id(table_schema_param->table_id());
+    _tablet_schema->set_db_id(table_schema_param->db_id());
+    if (table_schema_param->is_partial_update()) {
+        _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
+    }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
     _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),

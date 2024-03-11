@@ -280,11 +280,6 @@ public class CreateTableStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (Config.isCloudMode() && properties != null
-                && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
-            // FIXME: MOW is not supported in cloud mode yet.
-            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
-        }
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
         }

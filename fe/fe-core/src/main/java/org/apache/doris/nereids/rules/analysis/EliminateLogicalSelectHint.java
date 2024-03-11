@@ -91,6 +91,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             if (value.isPresent()) {
                 try {
                     VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(value.get())));
+                    context.invalidCache(key);
                 } catch (Throwable t) {
                     throw new AnalysisException("Can not set session variable '"
                         + key + "' = '" + value.get() + "'", t);

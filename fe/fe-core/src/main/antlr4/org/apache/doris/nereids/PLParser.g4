@@ -99,6 +99,8 @@ stmt :
      | create_procedure_stmt
      | declare_stmt
      | drop_procedure_stmt
+     | show_procedure_stmt
+     | show_create_procedure_stmt
      | exec_stmt
      | exit_stmt
      | fetch_stmt
@@ -333,6 +335,13 @@ create_procedure_stmt :
 drop_procedure_stmt:
       DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier
     ;
+show_procedure_stmt:
+      SHOW PROCEDURE STATUS (LIKE pattern=valueExpression | whereClause)?
+    ;
+
+show_create_procedure_stmt:
+      SHOW CREATE PROCEDURE name=multipartIdentifier
+    ;      
 
 create_routine_params :
        LEFT_PAREN RIGHT_PAREN
@@ -426,7 +435,7 @@ open_stmt :             // OPEN cursor statement
      ;
 
 fetch_stmt :            // FETCH cursor statement
-       FETCH FROM? ident_pl bulk_collect_clause? INTO ident_pl (COMMA ident_pl)* fetch_limit?
+       FETCH FROM? ident_pl bulkCollectClause? INTO ident_pl (COMMA ident_pl)* fetch_limit?
      ;
 
 fetch_limit:
@@ -519,10 +528,6 @@ label_stmt :
 
 using_clause :          // USING var,... clause
        USING expr (COMMA expr)*
-     ;
-
-bulk_collect_clause :
-       BULK COLLECT
      ;
 
 bool_expr :                               // Boolean condition
@@ -782,7 +787,6 @@ non_reserved_words :                      // Tokens that are not reserved words 
      | BIT
      | BODY
      | BREAK
-     | BULK
      | BYTE
      | CALLER
      | CASCADE
@@ -791,7 +795,6 @@ non_reserved_words :                      // Tokens that are not reserved words 
      | CLOSE
      | CLUSTERED
      | CMP
-     | COLLECT
      | COLLECTION
      | COMPRESS
      | CONSTANT

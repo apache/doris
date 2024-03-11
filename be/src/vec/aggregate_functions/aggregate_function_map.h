@@ -172,7 +172,7 @@ public:
                                              make_nullable(argument_types[1]));
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         if (columns[0]->is_nullable()) {
             auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[0]);
@@ -278,7 +278,7 @@ public:
         auto& col = assert_cast<const ColumnMap&>(*assert_cast<const IColumn*>(column));
         for (size_t i = 0; i != num_rows; ++i) {
             auto map = doris::vectorized::get<Map>(col[i]);
-            this->data(places[i]).add(map[0], map[1]);
+            this->data(places[i] + offset).add(map[0], map[1]);
         }
     }
 
@@ -289,7 +289,7 @@ public:
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
                 auto map = doris::vectorized::get<Map>(col[i]);
-                this->data(places[i]).add(map[0], map[1]);
+                this->data(places[i] + offset).add(map[0], map[1]);
             }
         }
     }

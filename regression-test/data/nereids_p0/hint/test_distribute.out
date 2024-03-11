@@ -442,7 +442,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t2]
 
 Hint log:
-Used:
+Used: leading(t3 { t1 t2 } )
 UnUsed: [shuffle]_2
 SyntaxError:
 

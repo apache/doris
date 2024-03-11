@@ -22,6 +22,8 @@
 
 #include <assert.h>
 
+#include <string_view>
+
 #include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
@@ -118,12 +120,15 @@ void PathInData::from_protobuf(const segment_v2::ColumnPathInfo& pb) {
     path = pb.path();
     has_nested = pb.has_has_nested();
     parts.reserve(pb.path_part_infos().size());
+    const char* begin = path.data();
     for (const segment_v2::ColumnPathPartInfo& part_info : pb.path_part_infos()) {
         Part part;
         part.is_nested = part_info.is_nested();
         part.anonymous_array_level = part_info.anonymous_array_level();
-        part.key = part_info.key();
+        // use string_view to ref data in path
+        part.key = std::string_view {begin, part_info.key().length()};
         parts.push_back(part);
+        begin += part.key.length() + 1;
     }
 }
 

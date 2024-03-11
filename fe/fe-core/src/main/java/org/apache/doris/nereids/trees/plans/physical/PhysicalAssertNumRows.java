@@ -94,7 +94,7 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return ImmutableList.of(assertNumRowsElement);
+        return ImmutableList.of();
     }
 
     @Override

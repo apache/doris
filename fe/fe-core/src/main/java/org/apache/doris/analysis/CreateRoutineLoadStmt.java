@@ -196,7 +196,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
     public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1;
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
-    public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024;
+    public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024
+                                                            && v <= (long) (1024 * 1024 * 1024) * 10;
     public static final Predicate<Long> EXEC_MEM_LIMIT_PRED = (v) -> v >= 0L;
     public static final Predicate<Long> SEND_BATCH_PARALLELISM_PRED = (v) -> v > 0L;
 
@@ -482,7 +483,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
-                MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+                MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 10GB");
 
         strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
                 RoutineLoadJob.DEFAULT_STRICT_MODE,

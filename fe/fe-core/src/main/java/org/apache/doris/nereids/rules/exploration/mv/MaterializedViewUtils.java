@@ -75,6 +75,9 @@ public class MaterializedViewUtils {
                 break;
             }
         }
+        if (columnExpr == null) {
+            return Optional.empty();
+        }
         if (!(columnExpr instanceof SlotReference)) {
             return Optional.empty();
         }

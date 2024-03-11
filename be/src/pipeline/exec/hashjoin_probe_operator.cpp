@@ -430,7 +430,7 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
                                                                temp_block->columns()));
     }
 
-    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_output_block(temp_block, output_block, false));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();

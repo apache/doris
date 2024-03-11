@@ -50,7 +50,6 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
                 .when(InnerJoinRightAssociate::checkReorder)
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> join.left().isAllSlots())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();

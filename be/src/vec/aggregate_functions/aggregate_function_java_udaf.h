@@ -295,7 +295,7 @@ public:
 
     DataTypePtr get_return_type() const override { return _return_type; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         int64_t places_address = reinterpret_cast<int64_t>(place);
         Status st = this->data(_exec_place)

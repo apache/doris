@@ -2,24 +2,25 @@
 -- !select --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
-----------------------PhysicalDistribute
+--------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
+----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------filter(( not (o_comment like '%special%requests%')))
-----------------------------PhysicalOlapScan[orders] apply RFs: RF0
-----------------------PhysicalDistribute
+----------------------------PhysicalOlapScan[orders]
+----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer]
 
-Used: leading(orders customer)
+Hint log:
+Used:  leading(orders shuffle customer )
 UnUsed:
 SyntaxError:
 

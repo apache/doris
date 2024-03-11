@@ -134,3 +134,7 @@ CREATE TABLE dbo.all_type (
     bit_value bit NULL
 );
 
+CREATE TABLE dbo.test_timestamp (
+id_col int PRIMARY KEY NOT NULL,
+timestamp_col timestamp NULL
+);

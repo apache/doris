@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_compaction_action.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
@@ -31,7 +32,6 @@
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
-#include "http/action/cloud_compaction_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
@@ -337,9 +337,6 @@ void HttpService::register_local_handler(StorageEngine& engine) {
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
-    // TODO(plat1ko)
-
-    // 2 compaction actions
     CloudCompactionAction* show_compaction_action =
             _pool.add(new CloudCompactionAction(CompactionActionType::SHOW_INFO, _env, engine,
                                                 TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -353,7 +350,6 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
     CloudCompactionAction* run_status_compaction_action = _pool.add(
             new CloudCompactionAction(CompactionActionType::RUN_COMPACTION_STATUS, _env, engine,
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
-
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
 }

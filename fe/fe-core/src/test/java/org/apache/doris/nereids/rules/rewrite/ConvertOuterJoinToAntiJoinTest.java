@@ -111,7 +111,7 @@ class ConvertOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
                 .applyTopDown(new InferFilterNotNull())
                 .applyTopDown(new ConvertOuterJoinToAntiJoin())
                 .printlnTree()
-                .matches(logicalJoin().when(join -> join.getJoinType().isLeftOuterJoin()));
+                .matches(logicalJoin().when(join -> join.getJoinType().isLeftAntiJoin()));
     }
 
     @Test

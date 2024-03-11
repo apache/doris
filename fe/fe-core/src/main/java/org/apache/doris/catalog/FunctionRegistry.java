@@ -20,7 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.types.DataType;
@@ -93,15 +93,20 @@ public class FunctionRegistry {
         if (StringUtils.isEmpty(dbName)) {
             // search internal function only if dbName is empty
             functionBuilders = name2InternalBuiltinBuilders.get(name.toLowerCase());
-            if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
-                String nestedName = AggStateFunctionBuilder.getNestedName(name);
-                String combinatorSuffix = AggStateFunctionBuilder.getCombinatorSuffix(name);
+            if (CollectionUtils.isEmpty(functionBuilders) && AggCombinerFunctionBuilder.isAggStateCombinator(name)) {
+                String nestedName = AggCombinerFunctionBuilder.getNestedName(name);
+                String combinatorSuffix = AggCombinerFunctionBuilder.getCombinatorSuffix(name);
                 functionBuilders = name2InternalBuiltinBuilders.get(nestedName.toLowerCase());
                 if (functionBuilders != null) {
-                    functionBuilders = functionBuilders.stream()
-                            .map(builder -> new AggStateFunctionBuilder(combinatorSuffix, builder))
-                            .filter(functionBuilder -> functionBuilder.canApply(arguments))
-                            .collect(Collectors.toList());
+                    List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(functionBuilders.size());
+                    for (FunctionBuilder functionBuilder : functionBuilders) {
+                        AggCombinerFunctionBuilder combinerBuilder
+                                = new AggCombinerFunctionBuilder(combinatorSuffix, functionBuilder);
+                        if (combinerBuilder.canApply(arguments)) {
+                            candidateBuilders.add(combinerBuilder);
+                        }
+                    }
+                    functionBuilders = candidateBuilders;
                 }
             }
         }
@@ -115,9 +120,12 @@ public class FunctionRegistry {
         }
 
         // check the arity and type
-        List<FunctionBuilder> candidateBuilders = functionBuilders.stream()
-                .filter(functionBuilder -> functionBuilder.canApply(arguments))
-                .collect(Collectors.toList());
+        List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(arguments.size());
+        for (FunctionBuilder functionBuilder : functionBuilders) {
+            if (functionBuilder.canApply(arguments)) {
+                candidateBuilders.add(functionBuilder);
+            }
+        }
         if (candidateBuilders.isEmpty()) {
             String candidateHints = getCandidateHint(name, functionBuilders);
             throw new AnalysisException("Can not found function '" + qualifiedName

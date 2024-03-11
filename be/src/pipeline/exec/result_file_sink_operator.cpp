@@ -187,9 +187,9 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
             _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
             static_cast<void>(_sender->close(final_status));
         }
-        static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+        state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
-                state->fragment_instance_id()));
+                state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
             bool all_receiver_eof = true;

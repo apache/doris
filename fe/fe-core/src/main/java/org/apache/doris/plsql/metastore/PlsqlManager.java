@@ -48,6 +48,10 @@ public class PlsqlManager implements Writable {
         return nameToStoredProcedures.get(plsqlProcedureKey);
     }
 
+    public Map<PlsqlProcedureKey, PlsqlStoredProcedure> getAllPlsqlStoredProcedures() {
+        return nameToStoredProcedures;
+    }
+
     public void addPlsqlStoredProcedure(PlsqlStoredProcedure procedure, boolean isForce) {
         PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(procedure.getName(), procedure.getCatalogId(),
                 procedure.getDbId());

@@ -54,6 +54,10 @@ public class HdfsResource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
+    public HdfsResource() {
+        super();
+    }
+
     public HdfsResource(String name) {
         super(name, Resource.ResourceType.HDFS);
         properties = Maps.newHashMap();

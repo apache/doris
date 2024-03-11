@@ -17,6 +17,7 @@
 
 suite("test_ifnull") {
 	def tbName = "test_ifnull"
+	sql "set enable_nereids_planner=false"
 	sql "DROP TABLE IF EXISTS ${tbName};"
 	sql"""
 		CREATE TABLE IF NOT EXISTS ${tbName} (
@@ -34,6 +35,14 @@ suite("test_ifnull") {
 	"""
 
 	qt_sql "select id,t_decimal,test_double,ifnull(t_decimal,test_double) as if_dou,ifnull(test_double,t_decimal) as if_dei from test_ifnull;"
+
+	test{
+		sql"""select ifnull(kstr) from fn_test"""
+		check {result, exception, startTime, endTime ->
+			assertTrue(exception != null)
+			logger.info(exception.message)
+		}
+	}
 
 	sql "DROP TABLE ${tbName};"
 }

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <brpc/closure_guard.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <string>
@@ -37,6 +38,25 @@ class PHandShakeRequest;
 class PHandShakeResponse;
 class LoadStreamMgr;
 class RuntimeState;
+
+template <typename T>
+concept CanCancel = requires(T* response) { response->mutable_status(); };
+
+template <typename T>
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
+    brpc::ClosureGuard closure_guard(done);
+    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
+}
+
+template <CanCancel T>
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
+    brpc::ClosureGuard closure_guard(done);
+    response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+    response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
+                                               pool.get_info());
+    LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
+                 << pool.get_info();
+}
 
 class PInternalService : public PBackendService {
 public:
@@ -183,6 +203,14 @@ public:
                             PGetWalQueueSizeResponse* response,
                             google::protobuf::Closure* done) override;
 
+    void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
+                       PMultiGetResponse* response, google::protobuf::Closure* done) override;
+
+    void tablet_fetch_data(google::protobuf::RpcController* controller,
+                           const PTabletKeyLookupRequest* request,
+                           PTabletKeyLookupResponse* response,
+                           google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -205,6 +233,9 @@ private:
                          const ::doris::PTransmitDataParams* request,
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
                          const Status& extract_st);
+
+    Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
+                              PTabletKeyLookupResponse* response);
 
 protected:
     ExecEnv* _exec_env = nullptr;
@@ -233,13 +264,6 @@ public:
                                            const PTabletWriteSlaveDoneRequest* request,
                                            PTabletWriteSlaveDoneResult* response,
                                            google::protobuf::Closure* done) override;
-    void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
-                       PMultiGetResponse* response, google::protobuf::Closure* done) override;
-
-    void tablet_fetch_data(google::protobuf::RpcController* controller,
-                           const PTabletKeyLookupRequest* request,
-                           PTabletKeyLookupResponse* response,
-                           google::protobuf::Closure* done) override;
 
     void get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
                                       const PFetchColIdsRequest* request,
@@ -257,9 +281,6 @@ public:
                                     google::protobuf::Closure* done) override;
 
 private:
-    Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
-                              PTabletKeyLookupResponse* response);
-
     void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
                                      int64_t txn_id, int64_t tablet_id, int64_t node_id,
                                      bool is_succeed);

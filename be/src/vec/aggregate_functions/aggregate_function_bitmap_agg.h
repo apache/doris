@@ -70,7 +70,7 @@ public:
     std::string get_name() const override { return "bitmap_agg"; }
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeBitMap>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         DCHECK_LT(row_num, columns[0]->size());
         if constexpr (arg_nullable) {

@@ -22,16 +22,12 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * The cache for materialized view cache
@@ -40,20 +36,20 @@ public class MTMVCache {
 
     // the materialized view plan which should be optimized by the same rules to query
     private final Plan logicalPlan;
-    // this should be shuttle expression with lineage
-    private final List<NamedExpression> mvOutputExpressions;
+    // for stable output order, we should use original plan
+    private final Plan originalPlan;
 
-    public MTMVCache(Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
+    public MTMVCache(Plan logicalPlan, Plan originalPlan) {
         this.logicalPlan = logicalPlan;
-        this.mvOutputExpressions = mvOutputExpressions;
+        this.originalPlan = originalPlan;
     }
 
     public Plan getLogicalPlan() {
         return logicalPlan;
     }
 
-    public List<NamedExpression> getMvOutputExpressions() {
-        return mvOutputExpressions;
+    public Plan getOriginalPlan() {
+        return originalPlan;
     }
 
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
@@ -66,15 +62,10 @@ public class MTMVCache {
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
-        Plan mvRewrittenPlan =
-                planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        Plan mvRewrittenPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        // TODO: should use visitor or a new rule to remove result sink node
         Plan mvPlan = mvRewrittenPlan instanceof LogicalResultSink
                 ? (Plan) ((LogicalResultSink) mvRewrittenPlan).child() : mvRewrittenPlan;
-        // use rewritten plan output expression currently, if expression rewrite fail,
-        // consider to use the analyzed plan for output expressions only
-        List<NamedExpression> mvOutputExpressions = mvPlan.getOutput().stream()
-                .map(NamedExpression.class::cast)
-                .collect(Collectors.toList());
-        return new MTMVCache(mvPlan, mvOutputExpressions);
+        return new MTMVCache(mvPlan, mvRewrittenPlan);
     }
 }

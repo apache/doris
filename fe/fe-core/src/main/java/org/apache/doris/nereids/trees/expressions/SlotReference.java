@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -101,7 +102,8 @@ public class SlotReference extends Slot {
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
-        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.qualifier = Utils.fastToImmutableList(
+                Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.nullable = nullable;
         this.table = table;
         this.column = column;

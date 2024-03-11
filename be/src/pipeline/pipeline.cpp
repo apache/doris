@@ -38,7 +38,7 @@ Status Pipeline::build_operators() {
     for (auto& operator_t : _operator_builders) {
         auto o = operator_t->build_operator();
         if (pre) {
-            static_cast<void>(o->set_child(pre));
+            RETURN_IF_ERROR(o->set_child(pre));
         }
         _operators.emplace_back(o);
 

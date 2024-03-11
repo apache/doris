@@ -44,7 +44,6 @@
 namespace doris {
 
 extern TLoadTxnBeginResult k_stream_load_begin_result;
-extern Status k_stream_load_exec_status;
 
 ExecEnv* _env = nullptr;
 std::filesystem::path wal_dir = std::filesystem::current_path().string() + "/wal_test";
@@ -103,7 +102,6 @@ public:
 
 TEST_F(WalManagerTest, recovery_normal) {
     _env->wal_mgr()->wal_limit_test_bytes = 1099511627776;
-    k_stream_load_exec_status = Status::OK();
 
     std::string db_id = "1";
     int64_t tb_1_id = 1;

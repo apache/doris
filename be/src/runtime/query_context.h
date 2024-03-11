@@ -70,7 +70,8 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline);
+                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline,
+                 bool is_nereids);
 
     ~QueryContext();
 
@@ -148,7 +149,19 @@ public:
         return _shared_scanner_controller;
     }
 
-    vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
+    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
+        DCHECK(_runtime_predicates.contains(source_node_id) || _runtime_predicates.contains(0));
+        if (_runtime_predicates.contains(source_node_id)) {
+            return _runtime_predicates[source_node_id];
+        }
+        return _runtime_predicates[0];
+    }
+
+    void init_runtime_predicates(std::vector<int> source_node_ids) {
+        for (int id : source_node_ids) {
+            _runtime_predicates.try_emplace(id);
+        }
+    }
 
     Status set_task_group(taskgroup::TaskGroupPtr& tg);
 
@@ -223,6 +236,8 @@ public:
         _merge_controller_handler = handler;
     }
 
+    bool is_nereids() const { return _is_nereids; }
+
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -257,6 +272,7 @@ private:
     VecDateTimeValue _start_time;
     int64_t _bytes_limit = 0;
     bool _is_pipeline = false;
+    bool _is_nereids = false;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -274,7 +290,7 @@ private:
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
-    vectorized::RuntimePredicate _runtime_predicate;
+    std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     taskgroup::TaskGroupPtr _task_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;

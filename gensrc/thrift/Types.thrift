@@ -401,7 +401,8 @@ enum TOdbcTableType {
     PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE,
-    NEBULA
+    NEBULA,
+    DB2
 }
 
 struct TJdbcExecutorCtorParams {
@@ -614,6 +615,7 @@ enum TTableType {
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
     MAX_COMPUTE_TABLE,
+    TRINO_CONNECTOR_TABLE
 }
 
 enum TKeysType {

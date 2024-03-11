@@ -529,7 +529,7 @@ public class LeadingHint extends Hint {
                     return null;
                 }
                 logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
-                stack.push(Pair.of(currentLevel, Pair.of(logicalPlan, index)));
+                stack.push(Pair.of(currentLevel, Pair.of(logicalPlan, index - 1)));
                 stackTopLevel = currentLevel;
             }
         }

@@ -38,12 +38,13 @@ public:
 
 QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
-                           bool is_pipeline)
+                           bool is_pipeline, bool is_nereids)
         : fragment_num(total_fragment_num),
           timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
           _is_pipeline(is_pipeline),
+          _is_nereids(is_nereids),
           _query_options(query_options) {
     this->coord_addr = coord_addr;
     _start_time = VecDateTimeValue::local_time();

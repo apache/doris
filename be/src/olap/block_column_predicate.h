@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
@@ -105,6 +106,8 @@ public:
 };
 
 class SingleColumnBlockPredicate : public BlockColumnPredicate {
+    ENABLE_FACTORY_CREATOR(SingleColumnBlockPredicate);
+
 public:
     explicit SingleColumnBlockPredicate(const ColumnPredicate* pre) : _predicate(pre) {}
 
@@ -145,14 +148,10 @@ class MutilColumnBlockPredicate : public BlockColumnPredicate {
 public:
     MutilColumnBlockPredicate() = default;
 
-    ~MutilColumnBlockPredicate() override {
-        for (auto ptr : _block_column_predicate_vec) {
-            delete ptr;
-        }
-    }
+    ~MutilColumnBlockPredicate() override = default;
 
     bool support_zonemap() const override {
-        for (const auto* child_block_predicate : _block_column_predicate_vec) {
+        for (const auto& child_block_predicate : _block_column_predicate_vec) {
             if (!child_block_predicate->support_zonemap()) {
                 return false;
             }
@@ -161,29 +160,31 @@ public:
         return true;
     }
 
-    void add_column_predicate(const BlockColumnPredicate* column_predicate) {
-        _block_column_predicate_vec.push_back(column_predicate);
+    void add_column_predicate(std::unique_ptr<BlockColumnPredicate> column_predicate) {
+        _block_column_predicate_vec.push_back(std::move(column_predicate));
     }
 
     size_t num_of_column_predicate() const { return _block_column_predicate_vec.size(); }
 
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
-        for (auto child_block_predicate : _block_column_predicate_vec) {
+        for (auto& child_block_predicate : _block_column_predicate_vec) {
             child_block_predicate->get_all_column_ids(column_id_set);
         }
     }
 
     void get_all_column_predicate(std::set<const ColumnPredicate*>& predicate_set) const override {
-        for (auto child_block_predicate : _block_column_predicate_vec) {
+        for (auto& child_block_predicate : _block_column_predicate_vec) {
             child_block_predicate->get_all_column_predicate(predicate_set);
         }
     }
 
 protected:
-    std::vector<const BlockColumnPredicate*> _block_column_predicate_vec;
+    std::vector<std::unique_ptr<BlockColumnPredicate>> _block_column_predicate_vec;
 };
 
 class OrBlockColumnPredicate : public MutilColumnBlockPredicate {
+    ENABLE_FACTORY_CREATOR(OrBlockColumnPredicate);
+
 public:
     uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                       uint16_t selected_size) const override;
@@ -196,6 +197,8 @@ public:
 };
 
 class AndBlockColumnPredicate : public MutilColumnBlockPredicate {
+    ENABLE_FACTORY_CREATOR(AndBlockColumnPredicate);
+
 public:
     uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                       uint16_t selected_size) const override;

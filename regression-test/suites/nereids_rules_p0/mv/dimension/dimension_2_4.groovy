@@ -564,9 +564,9 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_comment """
 
     def agg_sql_explain_1 = sql """explain ${sql_stmt_16};"""
-    def mv_index_1 = agg_sql_explain_1.toString().indexOf("MaterializedViewRewriteSuccessButNotChose:")
+    def mv_index_1 = agg_sql_explain_1.toString().indexOf("MaterializedViewRewriteFail:")
     assert(mv_index_1 != -1)
-    assert(agg_sql_explain_1.toString().substring(mv_index_1).indexOf(mv_name_16) != -1)
+    assert(agg_sql_explain_1.toString().substring(0, mv_index_1).indexOf(mv_name_16) != -1)
 
     compare_res(sql_stmt_16 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_16};"""

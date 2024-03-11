@@ -63,9 +63,9 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_GENERATE, groupExpression, logicalProperties, child);
-        this.generators = ImmutableList.copyOf(generators);
-        this.generatorOutput = ImmutableList.copyOf(generatorOutput);
-        this.expandColumnAlias = ImmutableList.copyOf(expandColumnAlias);
+        this.generators = Utils.fastToImmutableList(generators);
+        this.generatorOutput = Utils.fastToImmutableList(generatorOutput);
+        this.expandColumnAlias = Utils.fastToImmutableList(expandColumnAlias);
     }
 
     public List<Function> getGenerators() {

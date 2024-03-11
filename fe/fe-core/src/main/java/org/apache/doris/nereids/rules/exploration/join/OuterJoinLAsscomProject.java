@@ -54,7 +54,6 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(topJoin -> OuterJoinLAsscom.checkCondition(topJoin,
                         topJoin.left().child().right().getOutputExprIdSet()))
                 .when(join -> join.left().isAllSlots())

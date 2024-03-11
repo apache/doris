@@ -268,8 +268,6 @@ my_import.json
                     "name": "doriswriter",
                     "parameter": {
                         "loadUrl": ["127.0.0.1:8030"],
-                        "loadProps": {
-                        },
                         "column": ["id","order_code","line_code","remark","unit_no","unit_name","price"],
                         "username": "root",
                         "password": "xxxxxx",

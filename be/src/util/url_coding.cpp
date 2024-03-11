@@ -90,9 +90,9 @@ static void encode_base64_internal(const std::string& in, std::string* out,
                                    const unsigned char* basis, bool padding) {
     size_t len = in.size();
     // Every 3 source bytes will be encoded into 4 bytes.
-    std::unique_ptr<unsigned char[]> buf(new unsigned char[(((len + 2) / 3) * 4)]);
+    out->resize((len + 2) / 3 * 4);
+    unsigned char* d = (unsigned char*)out->data();
     const auto* s = reinterpret_cast<const unsigned char*>(in.data());
-    unsigned char* d = buf.get();
     while (len > 2) {
         *d++ = basis[(s[0] >> 2) & 0x3f];
         *d++ = basis[((s[0] & 3) << 4) | (s[1] >> 4)];
@@ -117,13 +117,7 @@ static void encode_base64_internal(const std::string& in, std::string* out,
             *d++ = '=';
         }
     }
-    out->assign((char*)buf.get(), d - buf.get());
-}
-
-void base64url_encode(const std::string& in, std::string* out) {
-    static unsigned char basis64[] =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    encode_base64_internal(in, out, basis64, false);
+    out->resize((char*)d - out->data());
 }
 
 void base64_encode(const std::string& in, std::string* out) {
@@ -254,15 +248,13 @@ int64_t base64_decode(const char* data, size_t length, char* decoded_data) {
 }
 
 bool base64_decode(const std::string& in, std::string* out) {
-    char* tmp = new char[in.length()];
+    out->resize(in.length());
 
-    int64_t len = base64_decode(in.c_str(), in.length(), tmp);
+    int64_t len = base64_decode(in.c_str(), in.length(), out->data());
     if (len < 0) {
-        delete[] tmp;
         return false;
     }
-    out->assign(tmp, len);
-    delete[] tmp;
+    out->resize(len);
     return true;
 }
 
@@ -286,6 +278,7 @@ void escape_for_html(const std::string& in, std::stringstream* out) {
         }
     }
 }
+
 std::string escape_for_html_to_string(const std::string& in) {
     std::stringstream str;
     escape_for_html(in, &str);

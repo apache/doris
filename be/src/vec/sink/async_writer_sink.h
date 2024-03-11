@@ -72,7 +72,7 @@ public:
         // Prepare the exprs to run.
         RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
         if (state->enable_pipeline_exec()) {
-            _writer->start_writer(state, _profile);
+            RETURN_IF_ERROR(_writer->start_writer(state, _profile));
         } else {
             RETURN_IF_ERROR(_writer->open(state, _profile));
         }

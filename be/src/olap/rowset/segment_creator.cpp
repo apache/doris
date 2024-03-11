@@ -95,7 +95,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     if (_context->partial_update_info && _context->partial_update_info->is_partial_update) {
         // check columns that used to do partial updates should not include variant
         for (int i : _context->partial_update_info->update_cids) {
-            const auto& col = _context->original_tablet_schema->columns()[i];
+            const auto& col = *_context->original_tablet_schema->columns()[i];
             if (!col.is_key() && col.name() != DELETE_SIGN) {
                 return Status::InvalidArgument(
                         "Not implement partial update for variant only support delete currently");
@@ -104,7 +104,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     } else {
         // find positions of variant columns
         for (int i = 0; i < _context->original_tablet_schema->columns().size(); ++i) {
-            if (_context->original_tablet_schema->columns()[i].is_variant_type()) {
+            if (_context->original_tablet_schema->columns()[i]->is_variant_type()) {
                 variant_column_pos.push_back(i);
             }
         }
@@ -132,7 +132,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         // => update_schema:   A(bigint), B(double), C(int), D(int)
         std::lock_guard<std::mutex> lock(*(_context->schema_lock));
         TabletSchemaSPtr update_schema;
-        static_cast<void>(vectorized::schema_util::get_least_common_schema(
+        RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
                 {_context->tablet_schema, flush_schema}, nullptr, update_schema));
         CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
                 << "Rowset merge schema columns count is " << update_schema->num_columns()
@@ -244,6 +244,10 @@ Status SegmentFlusher::_create_segment_writer(
         writer.reset();
         return s;
     }
+
+    VLOG_DEBUG << "create new segment writer, tablet_id:" << _context->tablet_id
+               << " segment id: " << segment_id << " filename: " << writer->data_dir_path()
+               << " rowset_id:" << _context->rowset_id;
     return Status::OK();
 }
 

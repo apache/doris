@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -199,8 +200,13 @@ public class MTMVTask extends AbstractTask {
                 partitionSnapshots.putAll(execPartitionSnapshots);
             }
         } catch (Throwable e) {
-            LOG.warn("run task failed: ", e);
-            throw new JobException(e);
+            if (getStatus() == TaskStatus.RUNNING) {
+                LOG.warn("run task failed: ", e);
+                throw new JobException(e);
+            } else {
+                // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
+                LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
+            }
         }
     }
 

@@ -101,6 +101,9 @@ Status CumulativeCompaction::execute_compact() {
     RETURN_IF_ERROR(CompactionMixin::execute_compact());
     DCHECK_EQ(_state, CompactionState::SUCCESS);
 
+    tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
+                                                                      _output_rowset);
+
     tablet()->cumulative_compaction_policy()->update_cumulative_point(
             tablet(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "

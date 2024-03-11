@@ -1231,7 +1231,7 @@ BaseCompaction:546859:
 
 * Type: int
 * Description: Limit the number of versions of a single tablet. It is used to prevent a large number of version accumulation problems caused by too frequent import or untimely compaction. When the limit is exceeded, the import task will be rejected.
-* Default value: 500
+* Default value: 2000
 
 #### `number_tablet_writer_threads`
 

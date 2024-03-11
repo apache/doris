@@ -57,8 +57,6 @@ public:
 
     size_t data_size() const override;
 
-    bool is_spilled() const override { return _state->is_spilled(); }
-
     static constexpr size_t TOPN_SORT_THRESHOLD = 256;
 
 private:

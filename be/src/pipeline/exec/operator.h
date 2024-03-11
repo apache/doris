@@ -250,6 +250,10 @@ public:
 
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
+    virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
+
+    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); };
+
 protected:
     OperatorBuilderBase* _operator_builder = nullptr;
     OperatorPtr _child;

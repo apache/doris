@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.InternalErrorCode;
@@ -84,6 +85,15 @@ public class CloudTablet extends Tablet {
         }
 
         return delete || !hasBackend;
+    }
+
+    public void addReplica(Replica replica, boolean isRestore) {
+        if (isLatestReplicaAndDeleteOld(replica)) {
+            replicas.add(replica);
+            if (!isRestore) {
+                Env.getCurrentInvertedIndex().addReplica(id, replica);
+            }
+        }
     }
 
 }

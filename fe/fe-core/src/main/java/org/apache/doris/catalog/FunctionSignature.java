@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
@@ -40,7 +41,7 @@ public class FunctionSignature {
     private FunctionSignature(DataType returnType, boolean hasVarArgs,
             List<? extends DataType> argumentsTypes) {
         this.returnType = Objects.requireNonNull(returnType, "returnType is not null");
-        this.argumentsTypes = ImmutableList.copyOf(
+        this.argumentsTypes = Utils.fastToImmutableList(
                 Objects.requireNonNull(argumentsTypes, "argumentsTypes is not null"));
         this.hasVarArgs = hasVarArgs;
         this.arity = argumentsTypes.size();

@@ -34,6 +34,13 @@ class DateTimeLiteralTest {
     }
 
     @Test
+    void mysqlStrangeCase() {
+        new DateTimeV2Literal("0-08-01 13:21:03");
+        new DateTimeV2Literal("0001-01-01: 00:01:01.001");
+        new DateTimeV2Literal("2021?01?01 00.00.00");
+    }
+
+    @Test
     void testBasic() {
         Consumer<DateTimeV2Literal> assertFunc = (datetime) -> {
             Assertions.assertEquals(2022, datetime.year);

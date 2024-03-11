@@ -64,6 +64,7 @@
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -789,6 +790,12 @@ Status VFileScanner::_get_next_reader() {
                                                            _file_slot_descs, _state, _profile);
                 init_status =
                         ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "trino_connector") {
+                _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
+                                                                     _profile, range);
+                init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))
+                                      ->init_reader(_colname_to_value_range);
             }
             break;
         }

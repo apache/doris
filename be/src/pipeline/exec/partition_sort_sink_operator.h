@@ -78,8 +78,8 @@ private:
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
     RuntimeProfile::Counter* _selector_block_timer = nullptr;
-
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
     void _init_hash_method();
 };
 
@@ -108,19 +108,18 @@ private:
     friend class PartitionSortSinkLocalState;
     ObjectPool* _pool = nullptr;
     const RowDescriptor _row_descriptor;
-    int64_t _limit = -1;
-    int _partition_exprs_num = 0;
+    const int64_t _limit = -1;
+    const int _partition_exprs_num = 0;
+    const TPartTopNPhase::type _topn_phase;
+    const bool _has_global_limit = false;
+    const TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::ROW_NUMBER;
+    const int64_t _partition_inner_limit = 0;
+
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
-
-    TPartTopNPhase::type _topn_phase;
-
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
-    TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::ROW_NUMBER;
-    bool _has_global_limit = false;
-    int64_t _partition_inner_limit = 0;
 
     Status _split_block_by_partition(vectorized::Block* input_block,
                                      PartitionSortSinkLocalState& local_state, bool eos);

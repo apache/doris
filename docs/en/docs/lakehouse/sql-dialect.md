@@ -28,31 +28,45 @@ under the License.
 
 Starting from version 2.1, Doris can support multiple SQL dialects, such as Presto, Trino, Hive, PostgreSQL, Spark, Oracle, Clickhouse, and more. Through this feature, users can directly use the corresponding SQL dialect to query data in Doris, which facilitates users to smoothly migrate their original business to Doris.
 
-> 1. This function is currently an experimental function. If you encounter any problems during use, you are welcome to provide feedback through the mail group, [Github issue](https://github.com/apache/doris/issues), etc. .
+> 1. This function is currently an experimental function. If you encounter any problems during use, you are welcome to provide feedback through the mail group, [GitHub issue](https://github.com/apache/doris/issues), etc. .
 >
 > 2. This function only supports query statements and does not support other DDL and DML statements including Explain.
 
 ## Deploy service
 
-1. Download latest [SQL Transform Tool](https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/transform-doris-tool/transform-doris-tool-1.0.0-bin-x86).
+1. Download latest [Doris SQL Convertor](https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/transform-doris-tool/transform-doris-tool-1.0.0-bin-x86).
 2. On any FE node, start the service through the following command:
 
-	`nohup ./transform-doris-tool-1.0.0-bin-x86 run --host=0.0.0.0 --port=5001 &`
+	`nohup ./doris-sql-convertor-1.0.1-bin-x86 run --host=0.0.0.0 --port=5001 &`
 	
-	> 1. This service is a stateless service and can be started and stopped at any time.
-	>
-	> 2. `5001` is the service port and can be arbitrarily specified as an available port.
-	>
-	> 3. It is recommended to start a separate service on each FE node.
+    :::note
+	1. This service is a stateless service and can be started and stopped at any time.
+	
+	2. `5001` is the service port and can be arbitrarily specified as an available port.
+	
+	3. It is recommended to start a separate service on each FE node.
+    :::
 
 3. Start the Doris cluster (version 2.1 or higher)
 4. Set the URL of the SQL Dialect Conversion Service with the following command in Doris:
 
 	`MySQL> set global sql_converter_service_url = "http://127.0.0.1:5001/api/v1/convert"`
-	
-	> 1. `127.0.0.1:5001` is the deployment node IP and port of the SQL dialect conversion service.
+
+	:::note
+	1. `127.0.0.1:5001` is the deployment node IP and port of the SQL dialect conversion service.
+    :::
 	
 ## Use SQL dialect
+
+Currently supported dialect types include:
+
+- `presto`
+- `trino`
+- `hive`
+- `spark`
+- `postgres`
+- `clickhouse`
+- `oracle`
 
 example:
 
@@ -112,14 +126,4 @@ mysql> select toString(start_time) as col1,
 +---------------------+-----------+-----------+------------+------+---------------------+----------+-------------+------+-------+---------------------+
 1 row in set (0.04 sec)
 ```
-
-Currently supported dialect types include:
-
-- `presto`
-- `trino`
-- `hive`
-- `spark`
-- `postgres`
-- `clickhouse`
-- `oracle`
 

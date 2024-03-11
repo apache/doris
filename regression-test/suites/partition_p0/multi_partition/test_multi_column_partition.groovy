@@ -366,7 +366,9 @@ suite("test_multi_partition_key", "p0") {
     assertEquals(12, table_schema.size())
     qt_sql12 "select * from test_multi_col_test_rollup order by k1, k2"
     // test partition modify, check partition replication_num
-    sql "ALTER TABLE test_multi_col_test_rollup MODIFY PARTITION partition_a SET( 'replication_num' = '1')"
+    if (!isCloudMode()) {
+        sql "ALTER TABLE test_multi_col_test_rollup MODIFY PARTITION partition_a SET( 'replication_num' = '1')"
+    }
     ret = sql "SHOW PARTITIONS FROM test_multi_col_test_rollup WHERE PartitionName='partition_a'"
     assertEquals('1', ret[0][9])
     // create table with range partition

@@ -230,6 +230,15 @@ public final class RuntimeFilter {
         }
         tFilter.setOptRemoteRf(hasRemoteTargets);
         tFilter.setBloomFilterSizeCalculatedByNdv(bloomFilterSizeCalculatedByNdv);
+        if (builderNode instanceof HashJoinNode) {
+            HashJoinNode join = (HashJoinNode) builderNode;
+            BinaryPredicate eq = join.getEqJoinConjuncts().get(exprOrder);
+            if (eq.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
+                tFilter.setNullAware(true);
+            } else {
+                tFilter.setNullAware(false);
+            }
+        }
         return tFilter;
     }
 

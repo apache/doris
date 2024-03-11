@@ -46,7 +46,7 @@ protected:
     // Get all arrived runtime filters at Open phase.
     Status _acquire_runtime_filter();
     // Append late-arrival runtime filters to the vconjunct_ctx.
-    Status _append_rf_into_conjuncts(const VExprSPtrs& vexprs);
+    Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs);
 
     void _init_profile(RuntimeProfile* profile);
 
@@ -54,9 +54,9 @@ protected:
 
     // For runtime filters
     struct RuntimeFilterContext {
-        RuntimeFilterContext(IRuntimeFilter* rf) : apply_mark(false), runtime_filter(rf) {}
+        RuntimeFilterContext(IRuntimeFilter* rf) : runtime_filter(rf) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
-        bool apply_mark;
+        bool apply_mark = false;
         IRuntimeFilter* runtime_filter = nullptr;
     };
 

@@ -496,12 +496,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return null;
     }
 
+    /**
+     * This function is for statistics collection only. To get all the index ids that contains the given columnName.
+     * For base index, return -1 as its id, this is for compatibility with older version of column stats.
+     * @param columnName
+     * @return index id list that contains the given columnName.
+     */
     public List<Long> getMvColumnIndexIds(String columnName) {
         List<Long> ids = Lists.newArrayList();
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
             Column target = meta.getColumnByDefineName(columnName);
             if (target != null) {
-                ids.add(meta.getIndexId());
+                ids.add(meta.getIndexId() == baseIndexId ? -1 : meta.getIndexId());
             }
         }
         return ids;
@@ -2187,6 +2193,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     public Long getTimeSeriesCompactionEmptyRowsetsThreshold() {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionEmptyRowsetsThreshold();
+        }
+        return null;
+    }
+
+    public void setTimeSeriesCompactionLevelThreshold(long timeSeriesCompactionLevelThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                                                Long.valueOf(timeSeriesCompactionLevelThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionLevelThreshold();
+    }
+
+    public Long getTimeSeriesCompactionLevelThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionLevelThreshold();
         }
         return null;
     }

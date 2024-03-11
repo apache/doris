@@ -42,6 +42,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -58,6 +59,8 @@ public class CloudPartition extends Partition {
     private long dbId;
     @SerializedName(value = "tableId")
     private long tableId;
+
+    private ReentrantLock lock = new ReentrantLock(true);
 
     public CloudPartition(long id, String name, MaterializedIndex baseIndex,
                           DistributionInfo distributionInfo, long dbId, long tableId) {
@@ -94,8 +97,15 @@ public class CloudPartition extends Partition {
         return;
     }
 
-    protected void setCachedVisibleVersion(long version) {
-        super.setVisibleVersion(version);
+    public void setCachedVisibleVersion(long version) {
+        // we only care the version should increase monotonically and ignore the readers
+        LOG.debug("setCachedVisibleVersion use CloudPartition {}, version: {}, old version: {}",
+                super.getId(), version, super.getVisibleVersion());
+        lock.lock();
+        if (version > super.getVisibleVersion()) {
+            super.setVisibleVersion(version);
+        }
+        lock.unlock();
     }
 
     @Override
@@ -116,6 +126,8 @@ public class CloudPartition extends Partition {
             long version = -1;
             if (resp.getStatus().getCode() == MetaServiceCode.OK) {
                 version = resp.getVersion();
+                // Cache visible version, see hasData() for details.
+                setCachedVisibleVersion(version);
             } else {
                 assert resp.getStatus().getCode() == MetaServiceCode.VERSION_NOT_FOUND;
                 version = 0;
@@ -123,8 +135,6 @@ public class CloudPartition extends Partition {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get version from meta service, version: {}, partition: {}", version, super.getId());
             }
-            // Cache visible version, see hasData() for details.
-            super.setVisibleVersion(version);
             if (version == 0 && isEmptyPartitionPruneDisabled()) {
                 version = 1;
             }
@@ -285,10 +295,6 @@ public class CloudPartition extends Partition {
         }
 
         return;
-    }
-
-    @Override
-    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
     }
 
     // Determine whether data this partition has, according to the cached visible version.

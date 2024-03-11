@@ -316,6 +316,20 @@ struct TPaimonFileDesc {
     11: optional string file_format
 }
 
+struct TTrinoConnectorFileDesc {
+    1: optional string catalog_name
+    2: optional string db_name
+    3: optional string table_name
+    4: optional map<string, string> trino_connector_options
+    5: optional string trino_connector_table_handle
+    6: optional string trino_connector_column_handles
+    7: optional string trino_connector_column_metadata
+    8: optional string trino_connector_column_names
+    9: optional string trino_connector_split
+    10: optional string trino_connector_predicate
+    11: optional string trino_connector_trascation_handle
+}
+
 struct TMaxComputeFileDesc {
     1: optional string partition_spec
 }
@@ -350,6 +364,7 @@ struct TTableFormatFileDesc {
     4: optional TPaimonFileDesc paimon_params
     5: optional TTransactionalHiveDesc transactional_hive_params
     6: optional TMaxComputeFileDesc max_compute_params
+    7: optional TTrinoConnectorFileDesc trino_connector_params
 }
 
 enum TTextSerdeType {
@@ -703,6 +718,7 @@ struct TOlapScanNode {
   15: optional set<i32> output_column_unique_ids
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
+  18: optional list<i32> topn_filter_source_node_ids
 }
 
 struct TEqJoinCondition {
@@ -1188,6 +1204,9 @@ struct TRuntimeFilterDesc {
   // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
   // ignore bloom_filter_size_bytes
   14: optional bool bloom_filter_size_calculated_by_ndv;
+ 
+  // true, if join type is null aware like <=>. rf should dispose the case
+  15: optional bool null_aware;
 }
 
 

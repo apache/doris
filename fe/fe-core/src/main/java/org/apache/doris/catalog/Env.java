@@ -440,12 +440,15 @@ public class Env {
 
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
+    private StorageVaultMgr storageVaultMgr;
 
     private GlobalTransactionMgrIface globalTransactionMgr;
 
     private DeployManager deployManager;
 
     private TabletStatMgr tabletStatMgr;
+
+    private CloudTabletStatMgr cloudTabletStatMgr;
 
     private Auth auth;
     private AccessControllerManager accessManager;
@@ -687,10 +690,12 @@ public class Env {
 
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
+        this.storageVaultMgr = new StorageVaultMgr();
 
         this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
         this.tabletStatMgr = new TabletStatMgr();
+        this.cloudTabletStatMgr = new CloudTabletStatMgr();
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
@@ -792,6 +797,10 @@ public class Env {
 
     public ResourceMgr getResourceMgr() {
         return resourceMgr;
+    }
+
+    public StorageVaultMgr getStorageVaultMgr() {
+        return storageVaultMgr;
     }
 
     public static GlobalTransactionMgrIface getCurrentGlobalTransactionMgr() {
@@ -1669,7 +1678,11 @@ public class Env {
     private void startNonMasterDaemonThreads() {
         // start load manager thread
         loadManager.start();
-        tabletStatMgr.start();
+        if (Config.isNotCloudMode()) {
+            tabletStatMgr.start();
+        } else {
+            cloudTabletStatMgr.start();
+        }
         // load and export job label cleaner thread
         labelCleaner.start();
         // es repository
@@ -3455,6 +3468,14 @@ public class Env {
                 sb.append(olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()).append("\"");
             }
 
+            // time series compaction level threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
+            }
+
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
@@ -4884,7 +4905,8 @@ public class Env {
                 .buildSkipWriteIndexOnLoad()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
-                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold()
+                .buildTimeSeriesCompactionLevelThreshold();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -5669,6 +5691,9 @@ public class Env {
             Long lastFailedVersion, long updateTime, boolean isReplay)
             throws MetaNotFoundException {
         try {
+            if (Config.isCloudMode()) {
+                throw new MetaNotFoundException("not support modify replica version in cloud mode");
+            }
             TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
             if (meta == null) {
                 throw new MetaNotFoundException("tablet does not exist");

@@ -24,7 +24,7 @@ class DataUtils {
     // null first, order by column.toString asc
     static List<List<Object>> sortByToString(List<List<Object>> originData) {
         def comparator = Comparator.<String>naturalOrder()
-        originData.sort(false, { row1, row2 ->
+        originData.sort(false, { List<Object> row1, List<Object> row2 ->
             for (int i = 0; i < row1.size(); ++i) {
                 Object column1 = row1[i]
                 Object column2 = row2[i]

@@ -513,6 +513,11 @@ int InstanceRecycler::recycle_deleted_instance() {
     std::string start_job_tablet_key = job_tablet_key({instance_id_, 0, 0, 0, 0});
     std::string end_job_tablet_key = job_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
     txn->remove(start_job_tablet_key, end_job_tablet_key);
+    StorageVaultKeyInfo key_info0 {instance_id_, ""};
+    StorageVaultKeyInfo key_info1 {instance_id_, "\xff"};
+    std::string start_vault_key = storage_vault_key(key_info0);
+    std::string end_vault_key = storage_vault_key(key_info1);
+    txn->remove(start_vault_key, end_vault_key);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete all kv, instance_id=" << instance_id_ << ", err=" << err;

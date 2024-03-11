@@ -125,12 +125,11 @@ public:
     }
 
 private:
-    virtual Status _generate_delete_bitmap(int32_t segment_id) = 0;
-
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
+    Status _generate_delete_bitmap(int32_t segment_id);
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
@@ -193,8 +192,6 @@ public:
             KeyBoundsPB& key_bounds);
 
 private:
-    Status _generate_delete_bitmap(int32_t segment_id) override;
-
     // segment compaction
     friend class SegcompactionWorker;
     Status _close_file_writers() override;

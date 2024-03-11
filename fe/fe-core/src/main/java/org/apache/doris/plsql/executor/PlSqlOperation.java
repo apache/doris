@@ -44,30 +44,34 @@ public class PlSqlOperation {
     }
 
     public void execute(ConnectContext ctx, String statement) {
-        ctx.setRunProcedure(true);
-        ctx.setProcedureExec(exec);
-        result.reset();
         try {
-            Arguments args = new Arguments();
-            args.parse(new String[] { "-e", statement });
-            exec.parseAndEval(args);
-            // Exception is not thrown after catch.
-            // For example, select a not exist table will return empty results, exception
-            // will put into signals.
-            exec.printExceptions();
-            String error = result.getError();
-            String msg = result.getMsg();
-            if (!error.isEmpty()) {
-                ctx.getState().setError("plsql exec error, " + error);
-            } else if (!msg.isEmpty()) {
-                ctx.getState().setOk(0, 0, msg);
+            ctx.setRunProcedure(true);
+            ctx.setProcedureExec(exec);
+            result.reset();
+            try {
+                Arguments args = new Arguments();
+                args.parse(new String[] {"-e", statement});
+                exec.parseAndEval(args);
+            } catch (Exception e) {
+                exec.signal(e);
+            } finally {
+                // Exception is not thrown after catch.
+                // For example, select a not exist table will return empty results, exception
+                // will put into signals.
+                exec.printExceptions();
+                String error = result.getError();
+                String msg = result.getMsg();
+                if (!error.isEmpty()) {
+                    ctx.getState().setError(result.getLastErrorCode(), error);
+                } else if (!msg.isEmpty()) {
+                    ctx.getState().setOk(0, 0, msg);
+                }
+                ctx.getMysqlChannel().reset();
+                ctx.setRunProcedure(false);
+                ctx.setProcedureExec(null);
             }
-            ctx.getMysqlChannel().reset();
-            ctx.setRunProcedure(false);
-            ctx.setProcedureExec(null);
         } catch (Exception e) {
-            exec.printExceptions();
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, result.getError() + " " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             LOG.warn(e);
         }
     }

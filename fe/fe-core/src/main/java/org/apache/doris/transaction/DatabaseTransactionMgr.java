@@ -1912,6 +1912,7 @@ public class DatabaseTransactionMgr {
     private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        List<Long> newPartitionLoadedTableIds = new ArrayList<>();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1973,7 +1974,7 @@ public class DatabaseTransactionMgr {
                 long versionTime = partitionCommitInfo.getVersionTime();
                 if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION
                         && version > Partition.PARTITION_INIT_VERSION) {
-                    analysisManager.setNewPartitionLoaded(tableId);
+                    newPartitionLoadedTableIds.add(tableId);
                 }
                 partition.updateVisibleVersionAndTime(version, versionTime);
                 if (LOG.isDebugEnabled()) {
@@ -2000,7 +2001,8 @@ public class DatabaseTransactionMgr {
         if (LOG.isDebugEnabled()) {
             LOG.debug("table id to loaded rows:{}", tableIdToNumDeltaRows);
         }
-        tableIdToNumDeltaRows.forEach(analysisManager::updateUpdatedRows);
+        analysisManager.setNewPartitionLoaded(newPartitionLoadedTableIds);
+        analysisManager.updateUpdatedRows(tableIdToNumDeltaRows);
         return true;
     }
 

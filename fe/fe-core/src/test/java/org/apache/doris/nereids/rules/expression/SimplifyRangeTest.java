@@ -158,6 +158,140 @@ public class SimplifyRangeTest {
 
     }
 
+    @Test
+    public void testSimplifyDate() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyRange.INSTANCE));
+        // assertRewrite("TA", "TA");
+        assertRewrite(
+                "(TA >= date '2024-01-01' and TA <= date '2024-01-03') or (TA > date '2024-01-05' and TA < date '2024-01-07')",
+                "(TA >= date '2024-01-01' and TA <= date '2024-01-03') or (TA > date '2024-01-05' and TA < date '2024-01-07')");
+        assertRewrite(
+                "(TA > date '2024-01-03' and TA < date '2024-01-01') or (TA > date '2024-01-07'and TA < date '2024-01-05')",
+                "FALSE");
+        assertRewrite("TA > date '2024-01-03' and TA < date '2024-01-01'", "FALSE");
+        assertRewrite("TA >= date '2024-01-01' and TA < date '2024-01-01'",
+                "TA >= date '2024-01-01' and TA < date '2024-01-01'");
+        assertRewrite("TA = date '2024-01-01' and TA > date '2024-01-10'", "FALSE");
+        assertRewrite("TA > date '2024-01-05' or TA < date '2024-01-01'",
+                "TA > date '2024-01-05' or TA < date '2024-01-01'");
+        assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-01' or TA > date '2024-01-10'",
+                "TA > date '2024-01-01'");
+        assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-01' or TA < date '2024-01-10'", "TA IS NOT NULL");
+        assertRewriteNotNull("TA > date '2024-01-05' or TA > date '2024-01-01' or TA < date '2024-01-10'", "TRUE");
+        assertRewrite("TA > date '2024-01-05' and TA > date '2024-01-01' and TA > date '2024-01-10'",
+                "TA > date '2024-01-10'");
+        assertRewrite("TA > date '2024-01-05' and TA > date '2024-01-01' and TA < date '2024-01-10'",
+                "TA > date '2024-01-05' and TA < date '2024-01-10'");
+        assertRewrite("TA > date '2024-01-05' or TA < date '2024-01-05'",
+                "TA > date '2024-01-05' or TA < date '2024-01-05'");
+        assertRewrite("TA > date '2024-01-01' or TA < date '2024-01-10'", "TA IS NOT NULL");
+        assertRewriteNotNull("TA > date '2024-01-01' or TA < date '2024-01-10'", "TRUE");
+        assertRewrite("TA > date '2024-01-05' and TA < date '2024-01-10'",
+                "TA > date '2024-01-05' and TA < date '2024-01-10'");
+        assertRewrite("TA > date '2024-01-05' and TA > date '2024-01-10'", "TA > date '2024-01-10'");
+        assertRewrite("(TA > date '2024-01-01' and TA > date '2024-01-10') or TA > date '2024-01-20'",
+                "TA > date '2024-01-10'");
+        assertRewrite("(TA > date '2024-01-01' or TA > date '2024-01-10') and TA > date '2024-01-20'",
+                "TA > date '2024-01-20'");
+        assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-05'", "TA > date '2024-01-05'");
+        assertRewrite(
+                "(TA > date '2024-01-10' or TA > date '2024-01-20') and (TB > date '2024-01-10' and TB < date '2024-01-20')",
+                "TA > date '2024-01-10' and (TB > date '2024-01-10' and TB < date '2024-01-20') ");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA > date '2024-01-10'",
+                "FALSE");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA >= date '2024-01-01'",
+                "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA > date '2024-01-01'",
+                "((TA = date '2024-01-02') OR (TA = date '2024-01-03'))");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA >= date '2024-01-01'",
+                "TA >= date '2024-01-01'");
+        assertRewrite("TA in (date '2024-01-01')", "TA in (date '2024-01-01')");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA < date '2024-01-10'",
+                "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA < date '2024-01-01'",
+                "FALSE");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA < date '2024-01-01'",
+                "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA < date '2024-01-01'");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02') or TA in (date '2024-01-02', date '2024-01-03')",
+                "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
+        assertRewrite("TA in (date '2024-01-01',date '2024-01-02') and TA in (date '2024-01-03', date '2024-01-04')",
+                "FALSE");
+        assertRewrite("TA = date '2024-01-03' and TA = date '2024-01-01'", "FALSE");
+        assertRewrite("TA in (date '2024-01-01') and TA in (date '2024-01-03')", "FALSE");
+        assertRewrite("TA in (date '2024-01-03') and TA in (date '2024-01-03')", "TA = date '2024-01-03'");
+        assertRewrite("(TA > date '2024-01-03' and TA < date '2024-01-01') and TB < date '2024-01-05'", "FALSE");
+        assertRewrite("(TA > date '2024-01-03' and TA < date '2024-01-01') or TB < date '2024-01-05'",
+                "TB < date '2024-01-05'");
+    }
+
+    @Test
+    public void testSimplifyDateTime() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyRange.INSTANCE));
+        // assertRewrite("TA", "TA");
+        assertRewrite(
+                "(TA >= timestamp '2024-01-01 00:00:00' and TA <= timestamp '2024-01-03 00:00:00') or (TA > timestamp '2024-01-05 00:00:00' and TA < timestamp '2024-01-07 00:00:00')",
+                "(TA >= timestamp '2024-01-01 00:00:00' and TA <= timestamp '2024-01-03 00:00:00') or (TA > timestamp '2024-01-05 00:00:00' and TA < timestamp '2024-01-07 00:00:00')");
+        assertRewrite(
+                "(TA > timestamp '2024-01-03 00:00:10' and TA < timestamp '2024-01-01 00:00:10') or (TA > timestamp '2024-01-07 00:00:10'and TA < timestamp '2024-01-05 00:00:10')",
+                "FALSE");
+        assertRewrite("TA > timestamp '2024-01-03 00:00:10' and TA < timestamp '2024-01-01 01:00:00'", "FALSE");
+        assertRewrite("TA >= timestamp '2024-01-01 00:00:10' and TA < timestamp '2024-01-01 00:00:10'",
+                "TA >= timestamp '2024-01-01 00:00:10' and TA < timestamp '2024-01-01 00:00:10'");
+        assertRewrite("TA = timestamp '2024-01-01 10:00:10' and TA > timestamp '2024-01-10 00:00:10'", "FALSE");
+        assertRewrite("TA > timestamp '2024-01-05 00:00:10' or TA < timestamp '2024-01-01 00:00:10'",
+                "TA > timestamp '2024-01-05 00:00:10' or TA < timestamp '2024-01-01 00:00:10'");
+        assertRewrite("TA > timestamp '2024-01-05 00:00:10' or TA > timestamp '2024-01-01 00:00:10' or TA > timestamp '2024-01-10 00:00:10'",
+                "TA > timestamp '2024-01-01 00:00:10'");
+        assertRewrite("TA > timestamp '2024-01-05 00:00:10' or TA > timestamp '2024-01-01 00:00:10' or TA < timestamp '2024-01-10 00:00:10'", "TA IS NOT NULL");
+        assertRewriteNotNull("TA > timestamp '2024-01-05 00:00:10' or TA > timestamp '2024-01-01 00:00:10' or TA < timestamp '2024-01-10 00:00:10'", "TRUE");
+        assertRewrite("TA > timestamp '2024-01-05 00:00:10' and TA > timestamp '2024-01-01 00:00:10' and TA > timestamp '2024-01-10 00:00:15'",
+                "TA > timestamp '2024-01-10 00:00:15'");
+        assertRewrite("TA > timestamp '2024-01-05 00:00:10' and TA > timestamp '2024-01-01 00:00:10' and TA < timestamp '2024-01-10 00:00:10'",
+                "TA > timestamp '2024-01-05 00:00:10' and TA < timestamp '2024-01-10 00:00:10'");
+        assertRewrite("TA > timestamp '2024-01-05 00:00:10' or TA < timestamp '2024-01-05 00:00:10'",
+                "TA > timestamp '2024-01-05 00:00:10' or TA < timestamp '2024-01-05 00:00:10'");
+        assertRewrite("TA > timestamp '2024-01-01 00:02:10' or TA < timestamp '2024-01-10 00:02:10'", "TA IS NOT NULL");
+        assertRewriteNotNull("TA > timestamp '2024-01-01 00:00:00' or TA < timestamp '2024-01-10 00:00:00'", "TRUE");
+        assertRewrite("TA > timestamp '2024-01-05 01:00:00' and TA < timestamp '2024-01-10 01:00:00'",
+                "TA > timestamp '2024-01-05 01:00:00' and TA < timestamp '2024-01-10 01:00:00'");
+        assertRewrite("TA > timestamp '2024-01-05 01:00:00' and TA > timestamp '2024-01-10 01:00:00'", "TA > timestamp '2024-01-10 01:00:00'");
+        assertRewrite("(TA > timestamp '2024-01-01 01:00:00' and TA > timestamp '2024-01-10 01:00:00') or TA > timestamp '2024-01-20 01:00:00'",
+                "TA > timestamp '2024-01-10 01:00:00'");
+        assertRewrite("(TA > timestamp '2024-01-01 01:00:00' or TA > timestamp '2024-01-10 01:00:00') and TA > timestamp '2024-01-20 01:00:00'",
+                "TA > timestamp '2024-01-20 01:00:00'");
+        assertRewrite("TA > timestamp '2024-01-05 01:00:00' or TA > timestamp '2024-01-05 01:00:00'", "TA > timestamp '2024-01-05 01:00:00'");
+        assertRewrite(
+                "(TA > timestamp '2024-01-10 01:00:00' or TA > timestamp '2024-01-20 01:00:00') and (TB > timestamp '2024-01-10 01:00:00' and TB < timestamp '2024-01-20 01:00:00')",
+                "TA > timestamp '2024-01-10 01:00:00' and (TB > timestamp '2024-01-10 01:00:00' and TB < timestamp '2024-01-20 01:00:00') ");
+        assertRewrite("TA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 03:00:00') and TA > timestamp '2024-01-10 01:00:00'",
+                "FALSE");
+        assertRewrite("TA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 01:50:00',timestamp '2024-01-03 02:00:00') and TA >= timestamp '2024-01-01'",
+                "TA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 01:50:00',timestamp '2024-01-03 02:00:00')");
+        assertRewrite("TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') and TA > timestamp '2024-01-01 02:10:00'",
+                "((TA = timestamp '2024-01-02 02:00:00') OR (TA = timestamp '2024-01-03 02:00:00'))");
+        assertRewrite("TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or TA >= timestamp '2024-01-01 01:00:00'",
+                "TA >= timestamp '2024-01-01 01:00:00'");
+        assertRewrite("TA in (timestamp '2024-01-01 02:00:00')", "TA in (timestamp '2024-01-01 02:00:00')");
+        assertRewrite("TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') and TA < timestamp '2024-01-10 02:00:00'",
+                "TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00')");
+        assertRewrite("TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') and TA < timestamp '2024-01-01 02:00:00'",
+                "FALSE");
+        assertRewrite("TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') and TA < timestamp '2024-01-01 02:00:01'",
+                "TA = timestamp '2024-01-01 02:00:00'");
+        assertRewrite("TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or TA < timestamp '2024-01-01 01:00:00'",
+                "TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or TA < timestamp '2024-01-01 01:00:00'");
+        assertRewrite("TA in (timestamp '2024-01-01 00:00:00',timestamp '2024-01-02 00:00:00') or TA in (timestamp '2024-01-02 00:00:00', timestamp '2024-01-03 00:00:00')",
+                "TA in (timestamp '2024-01-01 00:00:00',timestamp '2024-01-02 00:00:00',timestamp '2024-01-03 00:00:00')");
+        assertRewrite("TA in (timestamp '2024-01-01 00:50:00',timestamp '2024-01-02 00:50:00') and TA in (timestamp '2024-01-03 00:50:00', timestamp '2024-01-04 00:50:00')",
+                "FALSE");
+        assertRewrite("TA = timestamp '2024-01-03 00:50:00' and TA = timestamp '2024-01-01 00:50:00'", "FALSE");
+        assertRewrite("TA in (timestamp '2024-01-01 00:50:00') and TA in (timestamp '2024-01-03 00:50:00')", "FALSE");
+        assertRewrite("TA in (timestamp '2024-01-03 00:50:00') and TA in (timestamp '2024-01-03 00:50:00')", "TA = timestamp '2024-01-03 00:50:00'");
+        assertRewrite("(TA > timestamp '2024-01-03 00:50:00' and TA < timestamp '2024-01-01 00:50:00') and TB < timestamp '2024-01-05 00:50:00'", "FALSE");
+        assertRewrite("(TA > timestamp '2024-01-03 00:50:00' and TA < timestamp '2024-01-01 00:50:00') or TB < timestamp '2024-01-05 00:50:00'",
+                "TB < timestamp '2024-01-05 00:50:00'");
+    }
+
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);

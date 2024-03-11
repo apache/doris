@@ -105,7 +105,7 @@ public:
 
             if (over_max_in_num &&
                 runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-                runtime_filter->change_to_bloom_filter();
+                RETURN_IF_ERROR(runtime_filter->change_to_bloom_filter());
             }
 
             if (runtime_filter->is_bloomfilter()) {

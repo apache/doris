@@ -99,7 +99,7 @@ public:
         s_server->register_handler(HEAD, "/simple_get", &s_simple_get_handler);
         s_server->register_handler(POST, "/simple_post", &s_simple_post_handler);
         s_server->register_handler(GET, "/not_found", &s_not_found_handler);
-        s_server->start();
+        static_cast<void>(s_server->start());
         real_port = s_server->get_real_port();
         EXPECT_NE(0, real_port);
         hostname = "http://127.0.0.1:" + std::to_string(real_port);

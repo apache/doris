@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/Data_types.h>
+
 #include <shared_mutex>
 #include <string>
 
@@ -25,6 +27,10 @@
 #include "util/time.h"
 
 namespace doris {
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 class QueryStatisticsCtx {
 public:
@@ -65,6 +71,9 @@ public:
     // used for workload scheduler policy
     void get_metric_map(std::string query_id,
                         std::map<WorkloadMetricType, std::string>& metric_map);
+
+    // used for backend_active_tasks
+    void get_active_be_tasks_block(vectorized::Block* block);
 
 private:
     std::shared_mutex _qs_ctx_map_lock;

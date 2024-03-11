@@ -135,6 +135,10 @@ public class FeNameFormat {
         }
     }
 
+    public static void checkStorageVaultName(String vaultName) throws AnalysisException {
+        checkCommonName("vault", vaultName);
+    }
+
     public static void checkWorkloadGroupName(String workloadGroupName) throws AnalysisException {
         checkCommonName("workload group", workloadGroupName);
     }

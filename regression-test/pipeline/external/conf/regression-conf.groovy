@@ -80,6 +80,7 @@ pg_14_port=7121
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+db2_11_port=50000
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.

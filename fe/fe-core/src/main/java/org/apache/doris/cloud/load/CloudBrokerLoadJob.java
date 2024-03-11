@@ -96,15 +96,17 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         }
     }
 
-    private LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
+    @Override
+    protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, FileGroupAggKey aggKey, BrokerPendingTaskAttachment attachment)
             throws UserException {
-        LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
+        cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
+        LoadLoadingTask task = new CloudLoadLoadingTask(db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode);
+                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, cloudClusterId);
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 

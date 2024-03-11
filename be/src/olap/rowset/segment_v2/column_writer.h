@@ -164,7 +164,7 @@ private:
 class FlushPageCallback {
 public:
     virtual ~FlushPageCallback() = default;
-    virtual Status put_extra_info_in_page(DataPageFooterPB* footer) { return Status::OK(); }
+    virtual void put_extra_info_in_page(DataPageFooterPB* footer) {}
 };
 
 // Encode one column's data into some memory slice.
@@ -280,7 +280,7 @@ public:
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
 
 private:
-    Status put_extra_info_in_page(DataPageFooterPB* footer) override;
+    void put_extra_info_in_page(DataPageFooterPB* footer) override;
 
     uint64_t _next_offset;
 };

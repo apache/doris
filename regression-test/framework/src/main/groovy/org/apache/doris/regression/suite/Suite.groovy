@@ -216,7 +216,7 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        boolean pipelineIsCloud = isCloudCluster()
+        boolean pipelineIsCloud = isCloudMode()
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
             dockerIsCloud = pipelineIsCloud
@@ -546,6 +546,17 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+
+    void expectException(Closure userFunction, String tableName, String errorMessage = null) {
+        try {
+            userFunction()
+        } catch (Exception e) {
+            if (e.getMessage()!= errorMessage) {
+                throw e
+            }
+        }
+    }
+
     String getBrokerName() {
         String brokerName = context.config.otherConfigs.get("brokerName")
         return brokerName
@@ -744,6 +755,15 @@ class Suite implements GroovyInterceptable {
     List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false){
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveRemoteConnection(), cleanedSqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
+
+    List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false){
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
+        def (result, meta) = JdbcUtils.executeToList(context.getDB2DockerConnection(), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
@@ -982,7 +1002,7 @@ class Suite implements GroovyInterceptable {
         return result.last().get(0);
     }
 
-    boolean isCloudCluster() {
+    boolean isCloudMode() {
         return !getFeConfig("cloud_unique_id").isEmpty()
     }
 

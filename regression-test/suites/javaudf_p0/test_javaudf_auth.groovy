@@ -42,6 +42,14 @@ suite("test_javaudf_auth") {
 
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """CREATE DATABASE ${dbName}"""
+    
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }    
 
     sql """USE ${dbName}"""
     sql """ CREATE FUNCTION java_udf_auth_test(int) RETURNS int PROPERTIES (

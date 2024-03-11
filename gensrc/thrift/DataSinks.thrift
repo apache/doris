@@ -172,8 +172,11 @@ struct TDataStreamSink {
   7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
 
   // used for partition_type = TABLET_SINK_SHUFFLE_PARTITIONED
-  8: optional Descriptors.TOlapTableSchemaParam schema
-  9: optional Descriptors.TOlapTablePartitionParam partition
+  8: optional Descriptors.TOlapTableSchemaParam tablet_sink_schema
+  9: optional Descriptors.TOlapTablePartitionParam tablet_sink_partition
+  10: optional Descriptors.TOlapTableLocationParam tablet_sink_location
+  11: optional i64 tablet_sink_txn_id
+  12: optional Types.TTupleId tablet_sink_tuple_id
 }
 
 struct TMultiCastDataStreamSink {
@@ -274,6 +277,67 @@ struct TOlapTableSink {
     23: optional double max_filter_ratio
 }
 
+struct THiveLocationParams {
+  1: optional string write_path
+  2: optional string target_path
+}
+
+struct TSortedColumn {
+    1: optional string sort_column_name
+    2: optional i32 order // asc(1) or desc(0)
+}
+
+struct TBucketingMode {
+    1: optional i32 bucket_version
+}
+
+struct THiveBucket {
+    1: optional list<string> bucketed_by
+    2: optional TBucketingMode bucket_mode
+    3: optional i32 bucket_count
+    4: optional list<TSortedColumn> sorted_by
+}
+
+enum THiveCompressionType {
+    SNAPPY = 3,
+    LZ4 = 4,
+    ZLIB = 6,
+    ZSTD = 7,
+}
+
+struct THivePartition {
+  1: optional list<string> values
+  2: optional THiveLocationParams location
+  3: optional PlanNodes.TFileFormatType file_format
+}
+
+struct THiveTableSink {
+    1: optional string db_name
+    2: optional string table_name
+    3: optional list<string> data_column_names
+    4: optional list<string> partition_column_names
+    5: optional list<THivePartition> partitions
+    6: optional list<THiveBucket> buckets
+    7: optional PlanNodes.TFileFormatType file_format
+    8: optional THiveCompressionType compression_type
+    9: optional THiveLocationParams location
+}
+
+enum TUpdateMode {
+    NEW = 0, // add partition
+    APPEND = 1, // alter partition
+    OVERWRITE = 2 // insert overwrite
+}
+
+struct THivePartitionUpdate {
+    1: optional string name
+    2: optional TUpdateMode update_mode
+    3: optional THiveLocationParams location
+    4: optional list<string> file_names
+    5: optional i64 row_count
+    6: optional i64 file_size
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -286,5 +350,5 @@ struct TDataSink {
   10: optional TResultFileSink result_file_sink
   11: optional TJdbcTableSink jdbc_table_sink
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
+  13: optional THiveTableSink hive_table_sink
 }
-

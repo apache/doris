@@ -427,7 +427,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 .index_id = rows.index_id,
                 .partition_id = rows.partition_id,
                 .load_id = _load_id,
-                .tuple_desc = _output_tuple_desc,
+                .tuple_desc = _schema->tuple_desc(),
                 .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,

@@ -53,7 +53,7 @@ public:
             TStorageMedium::type storage_medium = TStorageMedium::HDD);
     ~DataDir();
 
-    Status init();
+    Status init(bool init_meta = true);
     void stop_bg_worker();
 
     const std::string& path() const { return _path; }
@@ -189,7 +189,6 @@ private:
     std::set<TabletInfo> _tablet_set;
 
     OlapMeta* _meta = nullptr;
-    RowsetIdGenerator* _id_generator = nullptr;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity = nullptr;

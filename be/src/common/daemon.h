@@ -42,7 +42,6 @@ private:
     void memory_gc_thread();
     void memtable_memory_limiter_tracker_refresh_thread();
     void calculate_metrics_thread();
-    void block_spill_gc_thread();
     void je_purge_dirty_pages_thread() const;
     void report_runtime_query_statistics_thread();
 

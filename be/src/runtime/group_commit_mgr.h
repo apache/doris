@@ -134,8 +134,7 @@ public:
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    Status _create_group_commit_load(std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                     int be_exe_version);
+    Status _create_group_commit_load(int be_exe_version);
     Status _exec_plan_fragment(int64_t db_id, int64_t table_id, const std::string& label,
                                int64_t txn_id, bool is_pipeline,
                                const TExecPlanFragmentParams& params,
@@ -156,7 +155,7 @@ private:
     std::condition_variable _cv;
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
-    bool _need_plan_fragment = false;
+    bool _is_creating_plan_fragment = false;
 };
 
 class GroupCommitMgr {

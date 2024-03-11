@@ -38,9 +38,9 @@ import org.apache.doris.nereids.util.ResponsibilityChain;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -233,7 +233,7 @@ public class ComputeSignatureHelper {
     public static FunctionSignature implementAnyDataTypeWithOutIndex(
             FunctionSignature signature, List<Expression> arguments) {
         // collect all any data type with index
-        List<DataType> newArgTypes = Lists.newArrayList();
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
         for (int i = 0; i < arguments.size(); i++) {
             DataType sigType;
             if (i >= signature.argumentsTypes.size()) {
@@ -267,10 +267,19 @@ public class ComputeSignatureHelper {
             collectAnyDataType(sigType, expressionType, indexToArgumentTypes);
         }
         // if all any data type's expression is NULL, we should use follow to any data type to do type coercion
-        Set<Integer> allNullTypeIndex = indexToArgumentTypes.entrySet().stream()
-                .filter(entry -> entry.getValue().stream().allMatch(NullType.class::isInstance))
-                .map(Entry::getKey)
-                .collect(ImmutableSet.toImmutableSet());
+        Set<Integer> allNullTypeIndex = Sets.newHashSetWithExpectedSize(indexToArgumentTypes.size());
+        for (Entry<Integer, List<DataType>> entry : indexToArgumentTypes.entrySet()) {
+            boolean allIsNullType = true;
+            for (DataType dataType : entry.getValue()) {
+                if (!(dataType instanceof NullType)) {
+                    allIsNullType = false;
+                    break;
+                }
+            }
+            if (allIsNullType) {
+                allNullTypeIndex.add(entry.getKey());
+            }
+        }
         if (!allNullTypeIndex.isEmpty()) {
             for (int i = 0; i < arguments.size(); i++) {
                 DataType sigType;
@@ -297,7 +306,7 @@ public class ComputeSignatureHelper {
         }
 
         // replace any data type and follow to any data type with real data type
-        List<DataType> newArgTypes = Lists.newArrayList();
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
         for (DataType sigType : signature.argumentsTypes) {
             newArgTypes.add(replaceAnyDataType(sigType, indexToCommonTypes));
         }
@@ -324,10 +333,18 @@ public class ComputeSignatureHelper {
         if (computeSignature instanceof ComputePrecision) {
             return ((ComputePrecision) computeSignature).computePrecision(signature);
         }
-        if (signature.argumentsTypes.stream().anyMatch(TypeCoercionUtils::hasDateTimeV2Type)) {
+
+        boolean hasDateTimeV2Type = false;
+        boolean hasDecimalV3Type = false;
+        for (DataType argumentsType : signature.argumentsTypes) {
+            hasDateTimeV2Type |= TypeCoercionUtils.hasDateTimeV2Type(argumentsType);
+            hasDecimalV3Type |= TypeCoercionUtils.hasDecimalV3Type(argumentsType);
+        }
+
+        if (hasDateTimeV2Type) {
             signature = defaultDateTimeV2PrecisionPromotion(signature, arguments);
         }
-        if (signature.argumentsTypes.stream().anyMatch(TypeCoercionUtils::hasDecimalV3Type)) {
+        if (hasDecimalV3Type) {
             // do decimal v3 precision
             signature = defaultDecimalV3PrecisionPromotion(signature, arguments);
         }

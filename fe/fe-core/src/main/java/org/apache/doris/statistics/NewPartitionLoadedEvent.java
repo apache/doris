@@ -27,20 +27,25 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.List;
 
 public class NewPartitionLoadedEvent implements Writable {
 
-    @SerializedName("partitionIdToTableId")
-    public final Map<Long, Long> partitionIdToTableId = new HashMap<>();
+    @SerializedName("tableIds")
+    private List<Long> tableIds;
 
     @VisibleForTesting
-    public NewPartitionLoadedEvent() {}
+    public NewPartitionLoadedEvent(List<Long> tableIds) {
+        this.tableIds = tableIds;
+    }
 
     // No need to be thread safe, only publish thread will call this.
-    public void addPartition(long tableId, long partitionId) {
-        partitionIdToTableId.put(tableId, partitionId);
+    public void addTableId(long tableId) {
+        tableIds.add(tableId);
+    }
+
+    public List<Long> getTableIds() {
+        return tableIds;
     }
 
     @Override
@@ -51,7 +56,6 @@ public class NewPartitionLoadedEvent implements Writable {
 
     public static NewPartitionLoadedEvent read(DataInput dataInput) throws IOException {
         String json = Text.readString(dataInput);
-        NewPartitionLoadedEvent newPartitionLoadedEvent = GsonUtils.GSON.fromJson(json, NewPartitionLoadedEvent.class);
-        return newPartitionLoadedEvent;
+        return GsonUtils.GSON.fromJson(json, NewPartitionLoadedEvent.class);
     }
 }

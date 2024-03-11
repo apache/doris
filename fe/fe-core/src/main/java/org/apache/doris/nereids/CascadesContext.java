@@ -42,6 +42,7 @@ import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -71,6 +72,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -91,6 +94,7 @@ import javax.annotation.Nullable;
  * Context used in memo.
  */
 public class CascadesContext implements ScheduleContext {
+    private static final Logger LOG = LogManager.getLogger(CascadesContext.class);
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
@@ -107,6 +111,7 @@ public class CascadesContext implements ScheduleContext {
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
+    private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
     private Map<Long, TableIf> tables = null;
 
@@ -123,7 +128,6 @@ public class CascadesContext implements ScheduleContext {
     private boolean isLeadingDisableJoinReorder = false;
 
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
-    private final boolean shouldCheckRelationAuthentication;
     private final ThreadLocal<Boolean> showPlanProcess = new ThreadLocal<>();
 
     // This list is used to listen the change event of the plan which
@@ -133,12 +137,12 @@ public class CascadesContext implements ScheduleContext {
     /**
      * Constructor of OptimizerContext.
      *
-     * @param memo {@link Memo} reference
      * @param statementContext {@link StatementContext} reference
+     * @param memo {@link Memo} reference
      */
     private CascadesContext(Optional<CascadesContext> parent, Optional<CTEId> currentTree,
             StatementContext statementContext, Plan plan, Memo memo,
-            CTEContext cteContext, PhysicalProperties requireProperties, boolean shouldCheckRelationAuthentication) {
+            CTEContext cteContext, PhysicalProperties requireProperties) {
         this.parent = Objects.requireNonNull(parent, "parent should not null");
         this.currentTree = Objects.requireNonNull(currentTree, "currentTree should not null");
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext should not null");
@@ -152,7 +156,6 @@ public class CascadesContext implements ScheduleContext {
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
         this.materializationContexts = new ArrayList<>();
-        this.shouldCheckRelationAuthentication = shouldCheckRelationAuthentication;
     }
 
     /**
@@ -161,13 +164,7 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext initContext(StatementContext statementContext,
             Plan initPlan, PhysicalProperties requireProperties) {
         return newContext(Optional.empty(), Optional.empty(), statementContext,
-                initPlan, new CTEContext(), requireProperties, true);
-    }
-
-    public static CascadesContext initViewContext(StatementContext statementContext,
-                                              Plan initPlan, PhysicalProperties requireProperties) {
-        return newContext(Optional.empty(), Optional.empty(), statementContext,
-            initPlan, new CTEContext(), requireProperties, false);
+                initPlan, new CTEContext(), requireProperties);
     }
 
     /**
@@ -176,14 +173,14 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newContextWithCteContext(CascadesContext cascadesContext,
             Plan initPlan, CTEContext cteContext) {
         return newContext(Optional.of(cascadesContext), Optional.empty(),
-                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY,
-            cascadesContext.shouldCheckRelationAuthentication);
+                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY
+        );
     }
 
     public static CascadesContext newCurrentTreeContext(CascadesContext context) {
         return CascadesContext.newContext(context.getParent(), context.getCurrentTree(), context.getStatementContext(),
                 context.getRewritePlan(), context.getCteContext(),
-                context.getCurrentJobContext().getRequiredProperties(), context.shouldCheckRelationAuthentication);
+                context.getCurrentJobContext().getRequiredProperties());
     }
 
     /**
@@ -192,14 +189,14 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newSubtreeContext(Optional<CTEId> subtree, CascadesContext context,
             Plan plan, PhysicalProperties requireProperties) {
         return CascadesContext.newContext(Optional.of(context), subtree, context.getStatementContext(),
-                plan, context.getCteContext(), requireProperties, context.shouldCheckRelationAuthentication);
+                plan, context.getCteContext(), requireProperties);
     }
 
     private static CascadesContext newContext(Optional<CascadesContext> parent, Optional<CTEId> subtree,
             StatementContext statementContext, Plan initPlan, CTEContext cteContext,
-            PhysicalProperties requireProperties, boolean shouldCheckRelationAuthentication) {
+            PhysicalProperties requireProperties) {
         return new CascadesContext(parent, subtree, statementContext, initPlan, null,
-            cteContext, requireProperties, shouldCheckRelationAuthentication);
+            cteContext, requireProperties);
     }
 
     public CascadesContext getRoot() {
@@ -286,6 +283,10 @@ public class CascadesContext implements ScheduleContext {
 
     public RuntimeFilterContext getRuntimeFilterContext() {
         return runtimeFilterContext;
+    }
+
+    public TopnFilterContext getTopnFilterContext() {
+        return topnFilterContext;
     }
 
     public void setCurrentJobContext(JobContext currentJobContext) {
@@ -655,10 +656,6 @@ public class CascadesContext implements ScheduleContext {
         isLeadingJoin = leadingJoin;
     }
 
-    public boolean shouldCheckRelationAuthentication() {
-        return shouldCheckRelationAuthentication;
-    }
-
     public boolean isLeadingDisableJoinReorder() {
         return isLeadingDisableJoinReorder;
     }
@@ -673,6 +670,10 @@ public class CascadesContext implements ScheduleContext {
 
     public void addPlanProcess(PlanProcess planProcess) {
         planProcesses.add(planProcess);
+    }
+
+    public void addPlanProcesses(List<PlanProcess> planProcesses) {
+        this.planProcesses.addAll(planProcesses);
     }
 
     public List<PlanProcess> getPlanProcesses() {
@@ -704,6 +705,21 @@ public class CascadesContext implements ScheduleContext {
             } else {
                 this.showPlanProcess.set(originSetting);
             }
+        }
+    }
+
+    /** keepOrShowPlanProcess */
+    public void keepOrShowPlanProcess(boolean showPlanProcess, Runnable task) {
+        if (showPlanProcess) {
+            withPlanProcess(showPlanProcess, task);
+        } else {
+            task.run();
+        }
+    }
+
+    public void printPlanProcess() {
+        for (PlanProcess row : planProcesses) {
+            LOG.info("RULE: " + row.ruleName + "\nBEFORE:\n" + row.beforeShape + "\nafter:\n" + row.afterShape);
         }
     }
 }

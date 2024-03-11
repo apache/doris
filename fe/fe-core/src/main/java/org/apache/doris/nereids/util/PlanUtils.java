@@ -22,6 +22,9 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -31,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -120,5 +124,44 @@ public class PlanUtils {
         ImmutableSet<TableIf> resultSet = tableSet.stream().map(e -> e.getTable())
                 .collect(ImmutableSet.toImmutableSet());
         return resultSet;
+    }
+
+    /** fastGetChildrenOutput */
+    public static List<Slot> fastGetChildrenOutputs(List<Plan> children) {
+        int outputNum = 0;
+        // child.output is cached by AbstractPlan.logicalProperties,
+        // we can compute output num without the overhead of re-compute output
+        for (Plan child : children) {
+            List<Slot> output = child.getOutput();
+            outputNum += output.size();
+        }
+        // generate output list only copy once and without resize the list
+        Builder<Slot> output = ImmutableList.builderWithExpectedSize(outputNum);
+        for (Plan child : children) {
+            output.addAll(child.getOutput());
+        }
+        return output.build();
+    }
+
+    /**
+     * collect non_window_agg_func
+     */
+    public static class CollectNonWindowedAggFuncs extends DefaultExpressionVisitor<Void, List<AggregateFunction>> {
+
+        public static final CollectNonWindowedAggFuncs INSTANCE = new CollectNonWindowedAggFuncs();
+
+        @Override
+        public Void visitWindow(WindowExpression windowExpression, List<AggregateFunction> context) {
+            for (Expression child : windowExpression.getExpressionsInWindowSpec()) {
+                child.accept(this, context);
+            }
+            return null;
+        }
+
+        @Override
+        public Void visitAggregateFunction(AggregateFunction aggregateFunction, List<AggregateFunction> context) {
+            context.add(aggregateFunction);
+            return null;
+        }
     }
 }

@@ -92,6 +92,7 @@ public:
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
+    std::string auto_increment_coulumn() const { return _auto_increment_column; }
     bool is_strict_mode() const { return _is_strict_mode; }
     std::string debug_string() const;
 
@@ -107,6 +108,7 @@ private:
     bool _is_partial_update = false;
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
+    std::string _auto_increment_column;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;

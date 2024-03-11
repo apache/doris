@@ -155,7 +155,7 @@ auto try_any_cast_ret(std::vector<std::any>& any) {
 { \
   std::pair ret {default_ret_val, false}; \
   std::vector<std::any> args {__VA_ARGS__}; \
-  args.push_back(&ret); \
+  args.emplace_back(&ret); \
   doris::SyncPoint::get_instance()->process(x, std::move(args)); \
   if (ret.second) return std::move(ret.first); \
 }
@@ -163,7 +163,7 @@ auto try_any_cast_ret(std::vector<std::any>& any) {
 { \
   bool pred = false; \
   std::vector<std::any> args {__VA_ARGS__}; \
-  args.push_back(&pred); \
+  args.emplace_back(&pred); \
   doris::SyncPoint::get_instance()->process(x, std::move(args)); \
   if (pred) return; \
 }
