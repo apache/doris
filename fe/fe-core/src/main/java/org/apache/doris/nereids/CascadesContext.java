@@ -72,6 +72,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -92,6 +94,7 @@ import javax.annotation.Nullable;
  * Context used in memo.
  */
 public class CascadesContext implements ScheduleContext {
+    private static final Logger LOG = LogManager.getLogger(CascadesContext.class);
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
@@ -711,6 +714,12 @@ public class CascadesContext implements ScheduleContext {
             withPlanProcess(showPlanProcess, task);
         } else {
             task.run();
+        }
+    }
+
+    public void printPlanProcess() {
+        for (PlanProcess row : planProcesses) {
+            LOG.info("RULE: " + row.ruleName + "\nBEFORE:\n" + row.beforeShape + "\nafter:\n" + row.afterShape);
         }
     }
 }

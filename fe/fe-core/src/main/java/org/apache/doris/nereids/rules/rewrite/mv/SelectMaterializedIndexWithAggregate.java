@@ -1572,7 +1572,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             LogicalProject<? extends Plan> project,
             Map<Expression, Expression> projectMap) {
         return project.getProjects().stream()
-                .map(expr -> (NamedExpression) ExpressionUtils.replace(expr, projectMap))
+                .map(expr -> (NamedExpression) ExpressionUtils.replaceNameExpression(expr, projectMap))
                 .collect(Collectors.toList());
     }
 
