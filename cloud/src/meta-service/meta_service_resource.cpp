@@ -765,10 +765,9 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
     LOG(INFO) << update_record.str();
 }
 
-static int create_instance_with_object_info(const InstanceInfoPB& instance,
-                                            ObjectStoreInfoPB* obj_info,
-                                            const ObjectStoreInfoPB& obj, bool sse_enabled,
-                                            MetaServiceCode& code, std::string& msg) {
+static int create_instance_with_object_info(InstanceInfoPB& instance, const ObjectStoreInfoPB& obj,
+                                            bool sse_enabled, MetaServiceCode& code,
+                                            std::string& msg) {
     std::string plain_ak = obj.has_ak() ? obj.ak() : "";
     std::string plain_sk = obj.has_sk() ? obj.sk() : "";
     std::string bucket = obj.has_bucket() ? obj.bucket() : "";
@@ -793,27 +792,29 @@ static int create_instance_with_object_info(const InstanceInfoPB& instance,
         return -1;
     }
 
+    ObjectStoreInfoPB obj_info;
     if (obj.has_user_id()) {
-        obj_info->set_user_id(obj.user_id());
+        obj_info.set_user_id(obj.user_id());
     }
-    obj_info->set_ak(std::move(cipher_ak_sk_pair.first));
-    obj_info->set_sk(std::move(cipher_ak_sk_pair.second));
-    obj_info->mutable_encryption_info()->CopyFrom(encryption_info);
-    obj_info->set_bucket(bucket);
-    obj_info->set_prefix(prefix);
-    obj_info->set_endpoint(endpoint);
-    obj_info->set_external_endpoint(external_endpoint);
-    obj_info->set_region(region);
-    obj_info->set_provider(obj.provider());
+    obj_info.set_ak(std::move(cipher_ak_sk_pair.first));
+    obj_info.set_sk(std::move(cipher_ak_sk_pair.second));
+    obj_info.mutable_encryption_info()->CopyFrom(encryption_info);
+    obj_info.set_bucket(bucket);
+    obj_info.set_prefix(prefix);
+    obj_info.set_endpoint(endpoint);
+    obj_info.set_external_endpoint(external_endpoint);
+    obj_info.set_region(region);
+    obj_info.set_provider(obj.provider());
     std::ostringstream oss;
     // create instance's s3 conf, id = 1
-    obj_info->set_id(next_available_vault_id(instance));
+    obj_info.set_id(next_available_vault_id(instance));
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
-    obj_info->set_ctime(time);
-    obj_info->set_mtime(time);
-    obj_info->set_sse_enabled(sse_enabled);
+    obj_info.set_ctime(time);
+    obj_info.set_mtime(time);
+    obj_info.set_sse_enabled(sse_enabled);
+    instance.mutable_obj_info()->Add(std::move(obj_info));
     return 0;
 }
 
@@ -842,12 +843,10 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     instance.set_status(InstanceInfoPB::NORMAL);
     instance.set_sse_enabled(request->sse_enabled());
     if (request->has_obj_info()) {
-        ObjectStoreInfoPB obj_info;
-        if (0 != create_instance_with_object_info(instance, &obj_info, request->obj_info(),
+        if (0 != create_instance_with_object_info(instance, request->obj_info(),
                                                   request->sse_enabled(), code, msg)) {
             return;
         }
-        instance.mutable_obj_info()->Add(std::move(obj_info));
     }
     if (request->has_ram_user()) {
         auto& ram_user = request->ram_user();
