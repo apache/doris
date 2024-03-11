@@ -703,10 +703,19 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 
             const auto& row_ids = _row_part_tablet_ids[0].row_ids;
             const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
-            for (int idx = 0; idx < row_ids.size(); ++idx) {
+            auto select_rows = row_ids.size();
+            std::vector<uint32_t> crc_hash_vals(select_rows);
+            auto* __restrict crc_hashes = crc_hash_vals.data();
+            auto column_int64 = vectorized::ColumnVector<int64>::create();
+
+            column_int64->insert_many_in_copy_way(reinterpret_cast<const char*>(tablet_ids.data()),
+                                                  select_rows);
+            column_int64->update_crcs_with_value(crc_hashes, PrimitiveType::TYPE_BIGINT,
+                                                 select_rows, 0, nullptr);
+            for (int idx = 0; idx < select_rows; ++idx) {
                 const auto& row = row_ids[idx];
-                const auto& tablet_id = tablet_ids[idx];
-                channel2rows[tablet_id % num_channels].emplace_back(row);
+                const auto& tablet_id_hash = crc_hash_vals[idx];
+                channel2rows[tablet_id_hash % num_channels].emplace_back(row);
             }
         }
         if (eos) {

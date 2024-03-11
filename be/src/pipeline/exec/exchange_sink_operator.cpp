@@ -220,12 +220,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         _partition_count = channels.size();
-        LOG(INFO) << "TABLET_SINK_SHUFFLE_PARTITIONED: " << _partition_count << " "
-                  << print_id(state->query_id());
-        _partitioner.reset(
-                new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(channels.size()));
-        RETURN_IF_ERROR(_partitioner->init(p._texprs));
-        RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
         _txn_id = p._tablet_sink_txn_id;
@@ -484,10 +478,19 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
 
             const auto& row_ids = local_state._row_part_tablet_ids[0].row_ids;
             const auto& tablet_ids = local_state._row_part_tablet_ids[0].tablet_ids;
-            for (int idx = 0; idx < row_ids.size(); ++idx) {
+            auto select_rows = row_ids.size();
+            std::vector<uint32_t> crc_hash_vals(select_rows);
+            auto* __restrict crc_hashes = crc_hash_vals.data();
+            auto column_int64 = vectorized::ColumnVector<int64>::create();
+
+            column_int64->insert_many_in_copy_way(reinterpret_cast<const char*>(tablet_ids.data()),
+                                                  select_rows);
+            column_int64->update_crcs_with_value(crc_hashes, PrimitiveType::TYPE_BIGINT,
+                                                 select_rows, 0, nullptr);
+            for (int idx = 0; idx < select_rows; ++idx) {
                 const auto& row = row_ids[idx];
-                const auto& tablet_id = tablet_ids[idx];
-                channel2rows[tablet_id % num_channels].emplace_back(row);
+                const auto& tablet_id_hash = crc_hash_vals[idx];
+                channel2rows[tablet_id_hash % num_channels].emplace_back(row);
             }
         }
 
