@@ -14,7 +14,8 @@ PhysicalResultSink
 ----------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF1 web_site_sk->[ws_web_site_sk]
 ------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_ship_date_sk]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
+----------------------------filter(( not ws_ship_date_sk IS NULL) and ( not ws_ship_mode_sk IS NULL) and ( not ws_warehouse_sk IS NULL) and ( not ws_web_site_sk IS NULL))
+------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_month_seq <= 1234) and (date_dim.d_month_seq >= 1223))

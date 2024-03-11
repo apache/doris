@@ -4,9 +4,11 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------hashJoin[INNER_JOIN] hashCondition=((t1.code = t2.ACCEPT_ORG_CODE)) otherCondition=() build RFs:RF0 code->[ACCEPT_ORG_CODE]
---------PhysicalOlapScan[t2] apply RFs: RF0
+--------filter(( not ACCEPT_ORG_CODE IS NULL))
+----------PhysicalOlapScan[t2] apply RFs: RF0
 --------PhysicalDistribute[DistributionSpecReplicated]
-----------PhysicalOlapScan[t1]
+----------filter(( not code IS NULL))
+------------PhysicalOlapScan[t1]
 
 -- !bc2 --
 PhysicalResultSink
@@ -22,9 +24,11 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------hashJoin[INNER_JOIN] hashCondition=((t1.code = t2.ACCEPT_ORG_CODE)) otherCondition=() build RFs:RF0 code->[ACCEPT_ORG_CODE]
---------PhysicalOlapScan[t2] apply RFs: RF0
+--------filter(( not ACCEPT_ORG_CODE IS NULL))
+----------PhysicalOlapScan[t2] apply RFs: RF0
 --------PhysicalDistribute[DistributionSpecReplicated]
-----------PhysicalOlapScan[t1]
+----------filter(( not code IS NULL))
+------------PhysicalOlapScan[t1]
 
 -- !bc4 --
 PhysicalResultSink

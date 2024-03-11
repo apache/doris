@@ -11,7 +11,8 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF4 ss_customer_sk->[c_customer_sk]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[customer] apply RFs: RF4 RF5
+----------------------filter(( not c_current_addr_sk IS NULL))
+------------------------PhysicalOlapScan[customer] apply RFs: RF4 RF5
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------hashAgg[LOCAL]
@@ -24,7 +25,8 @@ PhysicalResultSink
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF0 s_store_sk->[ss_store_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
+------------------------------------------filter(( not ss_addr_sk IS NULL) and ( not ss_customer_sk IS NULL) and ( not ss_hdemo_sk IS NULL) and ( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 ----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------PhysicalProject
 --------------------------------------------filter(s_city IN ('Fairview', 'Midway'))
@@ -39,8 +41,10 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[household_demographics]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer_address]
+--------------------------------filter(( not ca_city IS NULL))
+----------------------------------PhysicalOlapScan[customer_address]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[customer_address]
+----------------filter(( not ca_city IS NULL))
+------------------PhysicalOlapScan[customer_address]
 

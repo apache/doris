@@ -6,10 +6,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number];RF1 ws_order_number->[ws_order_number]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------PhysicalProject
-------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF14 RF15
+------------filter(( not ws_warehouse_sk IS NULL))
+--------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF14 RF15
 --------PhysicalDistribute[DistributionSpecHash]
 ----------PhysicalProject
-------------PhysicalOlapScan[web_sales] apply RFs: RF14 RF15
+------------filter(( not ws_warehouse_sk IS NULL))
+--------------PhysicalOlapScan[web_sales] apply RFs: RF14 RF15
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalTopN[LOCAL_SORT]
@@ -37,7 +39,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[ws_ship_date_sk];RF5 d_date_sk->[ws_ship_date_sk]
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[ws_ship_addr_sk];RF3 ca_address_sk->[ws_ship_addr_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3 RF4 RF5 RF6 RF7
+----------------------------------filter(( not ws_ship_addr_sk IS NULL) and ( not ws_ship_date_sk IS NULL) and ( not ws_web_site_sk IS NULL))
+------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3 RF4 RF5 RF6 RF7
 --------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------filter((customer_address.ca_state = 'NC'))

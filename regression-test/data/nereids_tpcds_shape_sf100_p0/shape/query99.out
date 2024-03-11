@@ -14,7 +14,8 @@ PhysicalResultSink
 ----------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF1 cc_call_center_sk->[cs_call_center_sk]
 ------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_ship_date_sk]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3
+----------------------------filter(( not cs_call_center_sk IS NULL) and ( not cs_ship_date_sk IS NULL) and ( not cs_ship_mode_sk IS NULL) and ( not cs_warehouse_sk IS NULL))
+------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_month_seq <= 1235) and (date_dim.d_month_seq >= 1224))

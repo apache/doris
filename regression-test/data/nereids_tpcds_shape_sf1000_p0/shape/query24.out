@@ -16,19 +16,22 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF3 RF4 RF5 RF6
+--------------------------------filter(( not ss_customer_sk IS NULL) and ( not ss_store_sk IS NULL))
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF3 RF4 RF5 RF6
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
-----------------------------------filter((store.s_market_id = 5))
+----------------------------------filter(( not s_zip IS NULL) and (store.s_market_id = 5))
 ------------------------------------PhysicalOlapScan[store] apply RFs: RF2
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (c_birth_country = upper(ca_country)))) build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer] apply RFs: RF0
+--------------------------------filter(( not c_birth_country IS NULL) and ( not c_current_addr_sk IS NULL))
+----------------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer_address]
+--------------------------------filter(( not ca_country IS NULL) and ( not ca_zip IS NULL))
+----------------------------------PhysicalOlapScan[customer_address]
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[item] apply RFs: RF5
@@ -41,19 +44,22 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
 ------------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) as DOUBLE))
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------filter((ssales.i_color = 'aquamarine'))
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------filter(( not paid IS NULL))
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------PhysicalProject
+--------------------------filter((ssales.i_color = 'aquamarine'))
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------PhysicalProject
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute[DistributionSpecGather]
-----------------------hashAgg[LOCAL]
-------------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------filter(( not (0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) IS NULL))
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute[DistributionSpecGather]
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------------PhysicalProject
+------------------------------filter(( not netpaid IS NULL))
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

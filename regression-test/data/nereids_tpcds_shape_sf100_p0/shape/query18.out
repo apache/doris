@@ -22,7 +22,8 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF2 cd_demo_sk->[cs_bill_cdemo_sk]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3 RF4
+----------------------------------------filter(( not cs_bill_cdemo_sk IS NULL) and ( not cs_bill_customer_sk IS NULL) and ( not cs_sold_date_sk IS NULL))
+------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3 RF4
 --------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((cd1.cd_education_status = 'Advanced Degree') and (cd1.cd_gender = 'F'))
@@ -37,7 +38,7 @@ PhysicalResultSink
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------PhysicalProject
-----------------------------------------------filter(c_birth_month IN (1, 10, 2, 4, 7, 8))
+----------------------------------------------filter(( not c_current_addr_sk IS NULL) and ( not c_current_cdemo_sk IS NULL) and c_birth_month IN (1, 10, 2, 4, 7, 8))
 ------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------PhysicalProject

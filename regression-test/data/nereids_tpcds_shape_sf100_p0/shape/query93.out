@@ -13,7 +13,8 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2
 ------------------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_reason_sk = reason.r_reason_sk)) otherCondition=() build RFs:RF0 r_reason_sk->[sr_reason_sk]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[store_returns] apply RFs: RF0
+----------------------filter(( not sr_reason_sk IS NULL))
+------------------------PhysicalOlapScan[store_returns] apply RFs: RF0
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------filter((reason.r_reason_desc = 'duplicate purchase'))

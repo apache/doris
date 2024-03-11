@@ -14,7 +14,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF2
+----------------------------filter(( not ss_customer_sk IS NULL) and ( not ss_sold_date_sk IS NULL))
+------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF2
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
 ------------------------------filter(d_year IN (2001, 2002))
@@ -26,7 +27,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[web_sales] apply RFs: RF1 RF2
+----------------------------filter(( not ws_bill_customer_sk IS NULL) and ( not ws_sold_date_sk IS NULL))
+------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1 RF2
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
 ------------------------------filter(d_year IN (2001, 2002))
