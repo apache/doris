@@ -137,19 +137,6 @@ public:
 
     void get(size_t n, Field& res) const override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
-
-    size_t get_max_row_byte_size() const override;
-
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override;
-
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map) const override;
-
-    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
-                                       const uint8_t* null_map) override;
-
     StringRef get_data_at(size_t n) const override;
 
     bool is_default_at(size_t n) const override;
