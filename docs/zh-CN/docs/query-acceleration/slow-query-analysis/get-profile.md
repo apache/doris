@@ -32,7 +32,7 @@ under the License.
 
 ## 请求
 
-`http://FE_IP:HTTP_PORT`
+`HTTP://FE_IP:HTTP_PORT`
 `GET /API/Profile`
 
 
