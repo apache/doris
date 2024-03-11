@@ -43,14 +43,17 @@
 4	[1, 2, 3, 4]
 
 -- !sql --
-0
+false
 
 -- !sql --
-1
+true
 
 -- !sql --
-1
+true
 
 -- !sql --
-0
+true
+
+-- !sql --
+false
 
