@@ -106,7 +106,7 @@ public:
 
         auto* col_desc = context->get_arg_type(0);
         DataTypePtr args_type = DataTypeFactory::instance().create_data_type(*col_desc, false);
-        MutableColumnPtr args_column_ptr = remove_nullable(args_type)->create_column();
+        MutableColumnPtr args_column_ptr = args_type->create_column();
 
         for (int i = 1; i < num_args; i++) {
             // FE should make element type consistent and
@@ -118,7 +118,7 @@ public:
             const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
             if (col->is_nullable()) {
                 auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);
-                if (!state->null_in_set && null_col->has_null()) {
+                if (null_col->has_null()) {
                     state->null_in_set = true;
                 } else {
                     args_column_ptr->insert_from(null_col->get_nested_column(), 0);
@@ -174,8 +174,10 @@ public:
                 vec_res[i] = find;
             }
 
-            if (!find && null_in_set) {
-                vec_null_map_to[i] = true;
+            if (null_in_set) {
+                vec_null_map_to[i] = negative == vec_res[i];
+            } else {
+                vec_null_map_to[i] = false;
             }
         }
 
