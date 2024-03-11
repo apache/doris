@@ -112,7 +112,7 @@ int64_t Reusable::mem_size() const {
 
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
     DCHECK(ExecEnv::GetInstance()->get_lookup_connection_cache() == nullptr);
-    LookupConnectionCache* res = new LookupConnectionCache(capacity);
+    auto* res = new LookupConnectionCache(capacity);
     return res;
 }
 
@@ -124,7 +124,7 @@ RowCache::RowCache(int64_t capacity, int num_shards)
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
     DCHECK(ExecEnv::GetInstance()->get_row_cache() == nullptr);
-    RowCache* res = new RowCache(capacity, num_shards);
+    auto* res = new RowCache(capacity, num_shards);
     return res;
 }
 
@@ -134,29 +134,30 @@ RowCache* RowCache::instance() {
 
 bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {
     const std::string& encoded_key = key.encode();
-    auto lru_handle = cache()->lookup(encoded_key);
+    auto* lru_handle = LRUCachePolicy::lookup(encoded_key);
     if (!lru_handle) {
         // cache miss
         return false;
     }
-    *handle = CacheHandle(cache(), lru_handle);
+    *handle = CacheHandle(this, lru_handle);
     return true;
 }
 
 void RowCache::insert(const RowCacheKey& key, const Slice& value) {
-    auto deleter = [](const doris::CacheKey& key, void* value) { free(value); };
     char* cache_value = static_cast<char*>(malloc(value.size));
     memcpy(cache_value, value.data, value.size);
+    auto* row_cache_value = new RowCacheValue;
+    row_cache_value->cache_value = cache_value;
     const std::string& encoded_key = key.encode();
-    auto handle =
-            cache()->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
+    auto* handle =
+            LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, CachePriority::NORMAL);
     // handle will released
-    auto tmp = CacheHandle {cache(), handle};
+    auto tmp = CacheHandle {this, handle};
 }
 
 void RowCache::erase(const RowCacheKey& key) {
     const std::string& encoded_key = key.encode();
-    cache()->erase(encoded_key);
+    LRUCachePolicy::erase(encoded_key);
 }
 
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,

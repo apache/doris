@@ -126,6 +126,11 @@ public:
         delete[] _txn_tablet_delta_writer_map_locks;
     }
 
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        int64_t* value;
+    };
+
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
     Status prepare_txn(TPartitionId partition_id, const Tablet& tablet,

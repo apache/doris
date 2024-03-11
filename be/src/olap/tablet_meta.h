@@ -502,7 +502,8 @@ public:
 
     class AggCache {
     public:
-        struct Value {
+        class Value : public LRUCacheValueBase {
+        public:
             roaring::Roaring bitmap;
         };
 
@@ -517,7 +518,7 @@ public:
             }
         }
 
-        static Cache* repr() { return s_repr.load(std::memory_order_acquire)->cache(); }
+        static LRUCachePolicy* repr() { return s_repr.load(std::memory_order_acquire); }
         static std::atomic<AggCachePolicy*> s_repr;
     };
 

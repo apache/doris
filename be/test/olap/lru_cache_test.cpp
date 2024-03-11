@@ -92,7 +92,7 @@ public:
 
     ~CacheTest() override { delete _cache; }
 
-    Cache* cache() const { return _cache->cache(); }
+    LRUCachePolicy* cache() const { return _cache; }
 
     int Lookup(int key) const {
         std::string result;

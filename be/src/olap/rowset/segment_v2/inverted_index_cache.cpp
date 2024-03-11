@@ -80,21 +80,21 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
 
 Status InvertedIndexSearcherCache::erase(const std::string& index_file_path) {
     InvertedIndexSearcherCache::CacheKey cache_key(index_file_path);
-    _policy->cache()->erase(cache_key.index_file_path);
+    _policy->erase(cache_key.index_file_path);
     return Status::OK();
 }
 
 int64_t InvertedIndexSearcherCache::mem_consumption() {
-    return _policy->cache()->mem_consumption();
+    return _policy->mem_consumption();
 }
 
 bool InvertedIndexSearcherCache::lookup(const InvertedIndexSearcherCache::CacheKey& key,
                                         InvertedIndexCacheHandle* handle) {
-    auto* lru_handle = _policy->cache()->lookup(key.index_file_path);
+    auto* lru_handle = _policy->lookup(key.index_file_path);
     if (lru_handle == nullptr) {
         return false;
     }
-    *handle = InvertedIndexCacheHandle(_policy->cache(), lru_handle);
+    *handle = InvertedIndexCacheHandle(_policy.get(), lru_handle);
     return true;
 }
 
@@ -107,18 +107,13 @@ void InvertedIndexSearcherCache::insert(const InvertedIndexSearcherCache::CacheK
 void InvertedIndexSearcherCache::insert(const InvertedIndexSearcherCache::CacheKey& cache_key,
                                         CacheValue* cache_value, InvertedIndexCacheHandle* handle) {
     auto* lru_handle = _insert(cache_key, cache_value);
-    *handle = InvertedIndexCacheHandle(_policy->cache(), lru_handle);
+    *handle = InvertedIndexCacheHandle(_policy.get(), lru_handle);
 }
 
 Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCache::CacheKey& key,
                                                    CacheValue* value) {
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        auto* cache_value = (InvertedIndexSearcherCache::CacheValue*)value;
-        delete cache_value;
-    };
-
-    Cache::Handle* lru_handle = _policy->cache()->insert(key.index_file_path, value, value->size,
-                                                         deleter, CachePriority::NORMAL);
+    Cache::Handle* lru_handle =
+            _policy->insert(key.index_file_path, value, value->size, CachePriority::NORMAL);
     return lru_handle;
 }
 
@@ -126,20 +121,16 @@ bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCach
     if (key.encode().empty()) {
         return false;
     }
-    auto* lru_handle = cache()->lookup(key.encode());
+    auto* lru_handle = LRUCachePolicy::lookup(key.encode());
     if (lru_handle == nullptr) {
         return false;
     }
-    *handle = InvertedIndexQueryCacheHandle(cache(), lru_handle);
+    *handle = InvertedIndexQueryCacheHandle(this, lru_handle);
     return true;
 }
 
 void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                                      InvertedIndexQueryCacheHandle* handle) {
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        delete (InvertedIndexQueryCache::CacheValue*)value;
-    };
-
     std::unique_ptr<InvertedIndexQueryCache::CacheValue> cache_value_ptr =
             std::make_unique<InvertedIndexQueryCache::CacheValue>();
     cache_value_ptr->bitmap = bitmap;
@@ -147,13 +138,13 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
         return;
     }
 
-    auto* lru_handle = cache()->insert(key.encode(), (void*)cache_value_ptr.release(),
-                                       bitmap->getSizeInBytes(), deleter, CachePriority::NORMAL);
-    *handle = InvertedIndexQueryCacheHandle(cache(), lru_handle);
+    auto* lru_handle = LRUCachePolicy::insert(key.encode(), (void*)cache_value_ptr.release(),
+                                              bitmap->getSizeInBytes(), CachePriority::NORMAL);
+    *handle = InvertedIndexQueryCacheHandle(this, lru_handle);
 }
 
 int64_t InvertedIndexQueryCache::mem_consumption() {
-    return cache()->mem_consumption();
+    return LRUCachePolicy::mem_consumption();
 }
 
 } // namespace doris::segment_v2

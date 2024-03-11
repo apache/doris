@@ -56,7 +56,8 @@ public:
 private:
     void _clean_thread_callback();
 
-    struct DeleteBitmapCacheValue {
+    class DeleteBitmapCacheValue : public LRUCacheValueBase {
+    public:
         DeleteBitmapPtr delete_bitmap;
         // records rowsets calc in commit txn
         RowsetIdUnorderedSet rowset_ids;

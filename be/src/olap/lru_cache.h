@@ -19,8 +19,7 @@
 #include <string>
 #include <utility>
 
-#include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/thread_context.h"
+#include "runtime/memory/lru_cache_value_base.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/slice.h"
@@ -182,8 +181,7 @@ public:
     // When the inserted entry is no longer needed, the key and
     // value will be passed to "deleter".
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
-                           void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) = 0;
+                           CachePriority priority = CachePriority::NORMAL) = 0;
 
     // If the cache has no mapping for "key", returns nullptr.
     //
@@ -231,8 +229,6 @@ public:
     // may hold lock for a long time to execute predicate.
     virtual PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) { return {0, 0}; }
 
-    virtual int64_t mem_consumption() = 0;
-
     virtual int64_t get_usage() = 0;
 
     virtual size_t get_total_capacity() = 0;
@@ -243,21 +239,20 @@ private:
 
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
+// Note: member variables can only be POD types and raw pointer,
+// cannot be class objects or smart pointers, because LRUHandle will be created using malloc.
 struct LRUHandle {
     void* value = nullptr;
-    void (*deleter)(const CacheKey&, void* value);
     struct LRUHandle* next_hash = nullptr; // next entry in hash table
     struct LRUHandle* next = nullptr;      // next entry in lru list
     struct LRUHandle* prev = nullptr;      // previous entry in lru list
     size_t charge;
     size_t key_length;
     size_t total_size; // Entry charge, used to limit cache capacity, LRUCacheType::SIZE including key length.
-    size_t bytes;  // Used by LRUCacheType::NUMBER, LRUCacheType::SIZE equal to total_size.
     bool in_cache; // Whether entry is in the cache.
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
-    MemTrackerLimiter* mem_tracker;
     LRUCacheType type;
     int64_t last_visit_time; // Save the last visit time of this cache entry.
     char key_data[1];        // Beginning of key
@@ -274,10 +269,8 @@ struct LRUHandle {
     }
 
     void free() {
-        (*deleter)(key(), value);
-        if (bytes != 0) { // DummyLRUCache bytes always equal to 0
-            THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
-            DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes);
+        if (value != nullptr) { // value allows null pointer.
+            delete (LRUCacheValueBase*)value;
         }
         ::free(this);
     }
@@ -346,9 +339,7 @@ public:
     // Like Cache methods, but with an extra "hash" parameter.
     // Must call release on the returned handle pointer.
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
-                          void (*deleter)(const CacheKey& key, void* value),
-                          MemTrackerLimiter* tracker,
-                          CachePriority priority = CachePriority::NORMAL, size_t bytes = -1);
+                          CachePriority priority = CachePriority::NORMAL);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
@@ -406,9 +397,7 @@ class ShardedLRUCache : public Cache {
 public:
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
-                           void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL,
-                           size_t bytes = -1) override;
+                           CachePriority priority = CachePriority::NORMAL) override;
     virtual Handle* lookup(const CacheKey& key) override;
     virtual void release(Handle* handle) override;
     virtual void erase(const CacheKey& key) override;
@@ -417,7 +406,6 @@ public:
     virtual uint64_t new_id() override;
     PrunedInfo prune() override;
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override;
-    int64_t mem_consumption() override;
     int64_t get_usage() override;
     size_t get_total_capacity() override { return _total_capacity; };
 
@@ -434,17 +422,6 @@ private:
 
     void update_cache_metrics() const;
 
-    static std::string lru_cache_type_string(LRUCacheType type) {
-        switch (type) {
-        case LRUCacheType::SIZE:
-            return "size";
-        case LRUCacheType::NUMBER:
-            return "number";
-        default:
-            LOG(FATAL) << "not match type of lru cache:" << static_cast<int>(type);
-        }
-    }
-
 private:
     static uint32_t _hash_slice(const CacheKey& s);
     uint32_t _shard(uint32_t hash) {
@@ -458,7 +435,6 @@ private:
     std::atomic<uint64_t> _last_id;
     size_t _total_capacity;
 
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     std::shared_ptr<MetricEntity> _entity;
     IntGauge* cache_capacity = nullptr;
     IntGauge* cache_usage = nullptr;
@@ -478,8 +454,7 @@ class DummyLRUCache : public Cache {
 public:
     // Must call release on the returned handle pointer.
     Handle* insert(const CacheKey& key, void* value, size_t charge,
-                   void (*deleter)(const CacheKey& key, void* value),
-                   CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) override;
+                   CachePriority priority = CachePriority::NORMAL) override;
     Handle* lookup(const CacheKey& key) override { return nullptr; };
     void release(Handle* handle) override;
     void erase(const CacheKey& key) override {};
@@ -490,7 +465,6 @@ public:
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override {
         return {0, 0};
     };
-    int64_t mem_consumption() override { return 0; };
     int64_t get_usage() override { return 0; };
     size_t get_total_capacity() override { return 0; };
 };

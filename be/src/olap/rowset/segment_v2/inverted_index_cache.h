@@ -81,7 +81,8 @@ public:
 
     // The cache value of index_searcher lru cache.
     // Holding an opened index_searcher.
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
         IndexSearcherPtr index_searcher;
         size_t size = 0;
         int64_t last_visit_time;
@@ -119,7 +120,7 @@ public:
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
 
-    void release(Cache::Handle* handle) { _policy->cache()->release(handle); }
+    void release(Cache::Handle* handle) { _policy->release(handle); }
 
     int64_t mem_consumption();
 
@@ -162,7 +163,7 @@ using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValu
 class InvertedIndexCacheHandle {
 public:
     InvertedIndexCacheHandle() = default;
-    InvertedIndexCacheHandle(Cache* cache, Cache::Handle* handle)
+    InvertedIndexCacheHandle(LRUCachePolicy* cache, Cache::Handle* handle)
             : _cache(cache), _handle(handle) {}
 
     ~InvertedIndexCacheHandle() {
@@ -197,7 +198,7 @@ public:
     }
 
 private:
-    Cache* _cache = nullptr;
+    LRUCachePolicy* _cache = nullptr;
     Cache::Handle* _handle = nullptr;
 
     // Don't allow copy and assign
@@ -232,7 +233,8 @@ public:
         }
     };
 
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
         std::shared_ptr<roaring::Roaring> bitmap;
     };
 
@@ -267,7 +269,7 @@ class InvertedIndexQueryCacheHandle {
 public:
     InvertedIndexQueryCacheHandle() = default;
 
-    InvertedIndexQueryCacheHandle(Cache* cache, Cache::Handle* handle)
+    InvertedIndexQueryCacheHandle(LRUCachePolicy* cache, Cache::Handle* handle)
             : _cache(cache), _handle(handle) {}
 
     ~InvertedIndexQueryCacheHandle() {
@@ -288,7 +290,7 @@ public:
         return *this;
     }
 
-    Cache* cache() const { return _cache; }
+    LRUCachePolicy* cache() const { return _cache; }
     Slice data() const { return _cache->value_slice(_handle); }
 
     std::shared_ptr<roaring::Roaring> get_bitmap() const {
@@ -299,7 +301,7 @@ public:
     }
 
 private:
-    Cache* _cache = nullptr;
+    LRUCachePolicy* _cache = nullptr;
     Cache::Handle* _handle = nullptr;
 
     // Don't allow copy and assign

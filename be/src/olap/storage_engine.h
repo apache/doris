@@ -527,7 +527,8 @@ public:
 
     void set_index(const std::string& key, int next_idx);
 
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
         int idx = 0;
     };
 

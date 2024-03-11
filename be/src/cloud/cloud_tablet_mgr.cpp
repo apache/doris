@@ -145,7 +145,12 @@ CloudTabletMgr::~CloudTabletMgr() = default;
 Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id,
                                                                 bool warmup_data) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
-    struct Value {
+    class Value : public LRUCacheValueBase {
+    public:
+        Value(const std::shared_ptr<CloudTablet>& tablet, TabletMap& tablet_map)
+                : tablet(tablet), tablet_map(tablet_map) {}
+        ~Value() override { tablet_map.erase(tablet.get()); }
+
         // FIXME(plat1ko): The ownership of tablet seems to belong to 'TabletMap', while `Value`
         // only requires a reference.
         std::shared_ptr<CloudTablet> tablet;
@@ -154,10 +159,9 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
 
     auto tablet_id_str = std::to_string(tablet_id);
     CacheKey key(tablet_id_str);
-    auto* cache = _cache->cache();
-    auto* handle = cache->lookup(key);
+    auto* handle = _cache->lookup(key);
     if (handle == nullptr) {
-        auto load_tablet = [this, cache, &key,
+        auto load_tablet = [this, &key,
                             warmup_data](int64_t tablet_id) -> std::shared_ptr<CloudTablet> {
             TabletMetaSharedPtr tablet_meta;
             auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
@@ -167,10 +171,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             }
 
             auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
-            auto value = std::make_unique<Value>(Value {
-                    .tablet = tablet,
-                    .tablet_map = *_tablet_map,
-            });
+            auto value = std::make_unique<Value>(tablet, *_tablet_map);
             // MUST sync stats to let compaction scheduler work correctly
             st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), warmup_data);
             if (!st.ok()) {
@@ -178,17 +179,10 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                 return nullptr;
             }
 
-            auto deleter = [](const CacheKey& key, void* value) {
-                auto* value1 = reinterpret_cast<Value*>(value);
-                // tablet has been evicted, release it from `tablet_map`
-                value1->tablet_map.erase(value1->tablet.get());
-                delete value1;
-            };
-
-            auto* handle = cache->insert(key, value.release(), 1, deleter, CachePriority::NORMAL,
-                                         sizeof(CloudTablet));
+            auto* handle = _cache->insert(key, value.release(), 1, CachePriority::NORMAL,
+                                          sizeof(CloudTablet));
             auto ret = std::shared_ptr<CloudTablet>(
-                    tablet.get(), [cache, handle](...) { cache->release(handle); });
+                    tablet.get(), [this, handle](...) { _cache->release(handle); });
             _tablet_map->put(std::move(tablet));
             return ret;
         };
@@ -200,16 +194,16 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
         return tablet;
     }
 
-    CloudTablet* tablet_raw_ptr = reinterpret_cast<Value*>(cache->value(handle))->tablet.get();
+    CloudTablet* tablet_raw_ptr = reinterpret_cast<Value*>(_cache->value(handle))->tablet.get();
     auto tablet = std::shared_ptr<CloudTablet>(tablet_raw_ptr,
-                                               [cache, handle](...) { cache->release(handle); });
+                                               [this, handle](...) { _cache->release(handle); });
     return tablet;
 }
 
 void CloudTabletMgr::erase_tablet(int64_t tablet_id) {
     auto tablet_id_str = std::to_string(tablet_id);
     CacheKey key(tablet_id_str.data(), tablet_id_str.size());
-    _cache->cache()->erase(key);
+    _cache->erase(key);
 }
 
 void CloudTabletMgr::vacuum_stale_rowsets() {
