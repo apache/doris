@@ -67,6 +67,12 @@ public:
             const auto& null_map =
                     static_cast<const ColumnNullable*>(argument_column.get())->get_null_map_data();
             _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data());
+            if (_null_aware) {
+                auto* __restrict res_data = res_data_column->get_data().data();
+                for (size_t i = 0; i < sz; ++i) {
+                    res_data[i] |= null_map[i];
+                }
+            }
         } else {
             _filter->find_batch(*argument_column, sz, res_data_column->get_data());
         }
@@ -87,6 +93,7 @@ public:
 
 private:
     std::shared_ptr<HybridSetBase> _filter;
+    bool _null_aware = false;
     std::string _expr_name;
 };
 } // namespace doris::vectorized
