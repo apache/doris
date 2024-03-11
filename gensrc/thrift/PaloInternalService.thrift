@@ -276,6 +276,14 @@ struct TQueryOptions {
 
   100: optional bool enable_distinct_streaming_aggregation = true;
 
+  101: optional bool enable_join_spill = false
+
+  102: optional bool enable_sort_spill = false
+
+  103: optional bool enable_agg_spill = false
+
+  104: optional i64 min_revocable_mem = 0
+  
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

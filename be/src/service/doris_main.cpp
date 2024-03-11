@@ -404,6 +404,14 @@ int main(int argc, char** argv) {
         LOG(ERROR) << "parse config storage path failed, path=" << doris::config::storage_root_path;
         exit(-1);
     }
+
+    std::vector<doris::StorePath> spill_paths;
+    olap_res = doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
+    if (!olap_res) {
+        LOG(ERROR) << "parse config spill storage path failed, path="
+                   << doris::config::spill_storage_root_path;
+        exit(-1);
+    }
     std::set<std::string> broken_paths;
     doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
 
@@ -432,6 +440,25 @@ int main(int argc, char** argv) {
 
     if (paths.empty()) {
         LOG(ERROR) << "All disks are broken, exit.";
+        exit(-1);
+    }
+
+    it = spill_paths.begin();
+    for (; it != spill_paths.end();) {
+        if (!doris::check_datapath_rw(it->path)) {
+            if (doris::config::ignore_broken_disk) {
+                LOG(WARNING) << "read write test file failed, path=" << it->path;
+                it = spill_paths.erase(it);
+            } else {
+                LOG(ERROR) << "read write test file failed, path=" << it->path;
+                exit(-1);
+            }
+        } else {
+            ++it;
+        }
+    }
+    if (spill_paths.empty()) {
+        LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
     }
 
@@ -485,8 +512,8 @@ int main(int argc, char** argv) {
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
 
     // init exec env
-    auto exec_env(doris::ExecEnv::GetInstance());
-    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, broken_paths);
+    auto* exec_env(doris::ExecEnv::GetInstance());
+    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
     if (status != Status::OK()) {
         LOG(ERROR) << "failed to init doris storage engine, res=" << status;
         exit(-1);

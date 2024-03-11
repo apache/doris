@@ -54,7 +54,7 @@ public:
             TabletManager* tablet_manager = nullptr, TxnManager* txn_manager = nullptr);
     ~DataDir();
 
-    Status init();
+    Status init(bool init_meta = true);
     void stop_bg_worker();
 
     const std::string& path() const { return _path; }
