@@ -758,7 +758,7 @@ message UpdateAkSkResponse {
 message GetObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ObjectStoreInfoPB obj_info = 2;
-    repeated HdfsVaultInfo hdfs_info = 3;
+    repeated StorageVaultPB storage_vault = 3;
 };
 
 message CreateTabletsRequest {

@@ -21,6 +21,7 @@
 #include <bthread/bthread.h>
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
 #include <atomic>
@@ -783,7 +784,7 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
-Status CloudMetaMgr::get_s3_info(std::vector<std::tuple<std::string, S3Conf>>* s3_infos) {
+Status CloudMetaMgr::get_storage_vault_info(std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>>* vault_infos) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -802,7 +803,18 @@ Status CloudMetaMgr::get_s3_info(std::vector<std::tuple<std::string, S3Conf>>* s
         s3_conf.prefix = obj_store.prefix();
         s3_conf.sse_enabled = obj_store.sse_enabled();
         s3_conf.provider = obj_store.provider();
-        s3_infos->emplace_back(obj_store.id(), std::move(s3_conf));
+        vault_infos->emplace_back(obj_store.id(), std::move(s3_conf));
+    }
+    for (const auto& vault: resp.storage_vault()) {
+        THdfsParams params;
+        params.fs_name = vault.hdfs_info().build_conf().fs_name();
+        params.user = vault.hdfs_info().build_conf().user();
+        params.hdfs_kerberos_keytab = vault.hdfs_info().build_conf().hdfs_kerberos_keytab();
+        params.hdfs_kerberos_principal = vault.hdfs_info().build_conf().hdfs_kerberos_principal();
+        for (const auto& confs: vault.hdfs_info().build_conf().hdfs_confs()) {
+            params.hdfs_conf.emplace_back(confs);
+        }
+        vault_infos->emplace_back(vault.id(), std::move(params));
     }
     return Status::OK();
 }
