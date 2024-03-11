@@ -59,16 +59,13 @@ Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
     RETURN_IF_CATCH_EXCEPTION(_emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows,
                                                                    &stop_emplace_flag));
     // if get stop_emplace_flag = true, means have no need to emplace value into hash table
-    // so return block directly
+    // so return block directly.
+    //TODO: maybe could insert key_columns into output_block, but need solve Check failed: d.column->use_count() == 1 (2 vs. 1)
+    //do not know the in_block whether be use after
     if (stop_emplace_flag) {
-        ColumnsWithTypeAndName columns_with_schema;
-        for (int i = 0; i < key_size; ++i) {
-            columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
-                                             _probe_expr_ctxs[i]->root()->data_type(),
-                                             _probe_expr_ctxs[i]->root()->expr_name());
+        for (int i = 0; i < rows; ++i) {
+            _distinct_row.push_back(i);
         }
-        out_block->swap(Block(columns_with_schema));
-        return Status::OK();
     }
 
     SCOPED_TIMER(_insert_keys_to_column_timer);

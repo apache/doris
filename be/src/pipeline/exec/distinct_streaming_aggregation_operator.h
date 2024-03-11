@@ -54,14 +54,17 @@ private:
     void _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     void _emplace_into_hash_table_to_distinct(vectorized::IColumn::Selector& distinct_row,
                                               vectorized::ColumnRawPtrs& key_columns,
-                                              const size_t num_rows);
+                                              const size_t num_rows, bool* stop_emplace_flag);
     void _make_nullable_output_key(vectorized::Block* block);
+    bool _should_expand_preagg_hash_tables();
 
     std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
     vectorized::Arena _arena;
     int64_t _output_distinct_rows = 0;
     size_t _input_num_rows = 0;
+    bool _should_expand_hash_table = true;
+    int64_t _cur_num_rows_returned = 0;
 
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
     vectorized::AggregatedDataVariantsUPtr _agg_data = nullptr;
