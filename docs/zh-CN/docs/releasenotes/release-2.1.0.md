@@ -110,8 +110,6 @@ under the License.
 
 在 2.1 版本中，我们对数据湖分析方面做了大量改进，包括对 HDFS 和对象存储的 IO 优化、Parquet/ORC 文件格式的读取反序列优化、浮点类型解压优化、谓词下推执行优化、缓存策略以及扫描任务调度策略的优化，以及针对不同数据源的统计信息准确性的提升及更精准的优化器代价模型。基于以上优化，Apache Doris 在数据湖分析场景下的性能得到大幅度提升。
 
-![img](https://selectdb.feishu.cn/space/api/box/stream/download/asynccode/?code=YTliNjJhNWU5YjM3MWFhMWUxZDNiNzE2Y2JkYzA2MGNfVWZwN0tTUGZqRXh3aDViWTRKc3hQenJLRHFra2w3a1FfVG9rZW46SkJ6QmJKaHZOb3d4dm14RXdVMGN4bXNMbmdnXzE3MTAxMjc4Mzc6MTcxMDEzMTQzN19WNA)
-
 ![Doris 数据湖分析-性能提升](../images/2.1-doris-TPC-DS.png)
 
 在此我们以 TPC-DS 1TB 场景下进行测试，Apache Doris 2.1 版本和 Trino 435 版本的性能测试结果如下：
