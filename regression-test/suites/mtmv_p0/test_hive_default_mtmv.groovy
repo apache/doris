@@ -39,7 +39,7 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
     def insert_str1 = """
                         insert into ${hive_database}.${hive_table} PARTITION(year=2020,month) values(1,1,1);
                         """
-    def insert_str1 = """
+    def insert_str2 = """
                         insert into ${hive_database}.${hive_table} PARTITION(year=2020,month) values(2,2,null);
                         """
 
@@ -51,10 +51,10 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
     hive_docker """ ${create_database_str}"""
     logger.info("hive sql: " + create_table_str)
     hive_docker """ ${create_table_str} """
-    logger.info("hive sql: " + insert_str)
-    hive_docker """ ${insert_str} """
     logger.info("hive sql: " + insert_str1)
     hive_docker """ ${insert_str1} """
+    logger.info("hive sql: " + insert_str2)
+    hive_docker """ ${insert_str2} """
 
 
     // prepare catalog
