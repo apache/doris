@@ -86,6 +86,9 @@ public class StatisticsJobAppender extends MasterDaemon {
         int size = columnQueue.size();
         for (int i = 0; i < size; i++) {
             HighPriorityColumn column = columnQueue.poll();
+            if (!StatisticsUtil.needAnalyzeColumn(column)) {
+                continue;
+            }
             LOG.info("Process column " + column.tblId + "." + column.colName);
             TableIf table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
             TableName tableName = new TableName(table.getDatabase().getCatalog().getName(),
@@ -132,8 +135,9 @@ public class StatisticsJobAppender extends MasterDaemon {
                     if (!jobsMap.containsKey(tableName) && jobsMap.size() >= JOB_MAP_SIZE) {
                         return;
                     }
-                    Set<String> columns
-                            = t.getColumns().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                    Set<String> columns = t.getColumns().stream()
+                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                            .filter(c -> StatisticsUtil.needAnalyzeColumn(t, c.getName()))
                             .map(c -> c.getName()).collect(Collectors.toSet());
                     if (jobsMap.containsKey(tableName)) {
                         jobsMap.get(tableName).addAll(columns);

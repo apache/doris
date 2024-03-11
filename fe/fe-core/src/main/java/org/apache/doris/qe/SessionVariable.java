@@ -1510,7 +1510,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_AUTO_ANALYZE_INTERNAL_CATALOG,
             description = {"临时参数，收否自动收集所有内表", "Temp variable， enable to auto collect all OlapTable."},
             flag = VariableMgr.GLOBAL)
-    public boolean enableAutoAnalyzeInternalCatalog = false;
+    public boolean enableAutoAnalyzeInternalCatalog = true;
 
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
             description = {"参与自动收集的最大表宽度，列数多于这个参数的表不参与自动收集",

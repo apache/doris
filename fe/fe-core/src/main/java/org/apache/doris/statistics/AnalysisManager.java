@@ -219,7 +219,8 @@ public class AnalysisManager implements Writable {
     public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException {
         // Using auto analyzer if user specifies.
         if (stmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
-            Env.getCurrentEnv().getStatisticsAutoCollector().processOneJob(stmt.getTable(), stmt.getColumnNames());
+            Env.getCurrentEnv().getStatisticsAutoCollector()
+                    .processOneJob(stmt.getTable(), stmt.getColumnNames(), JobPriority.HIGH);
             return;
         }
         AnalysisInfo jobInfo = buildAndAssignJob(stmt);
@@ -422,6 +423,7 @@ public class AnalysisManager implements Writable {
         infoBuilder.setRowCount(rowCount);
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
+        infoBuilder.setPriority(JobPriority.MANUAL);
         return infoBuilder.build();
     }
 
@@ -1230,12 +1232,14 @@ public class AnalysisManager implements Writable {
     public void mergeFollowerQueryColumns(Collection<TQueryColumn> highColumns,
             Collection<TQueryColumn> midColumns) {
         for (TQueryColumn c : highColumns) {
-            if (!highPriorityColumns.offer(new HighPriorityColumn(c.catalogId, c.dbId, c.tblId, c.colName))) {
+            if (!highPriorityColumns.offer(new HighPriorityColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
+                    Long.parseLong(c.tblId), c.colName))) {
                 break;
             }
         }
         for (TQueryColumn c : midColumns) {
-            if (!midPriorityColumns.offer(new HighPriorityColumn(c.catalogId, c.dbId, c.tblId, c.colName))) {
+            if (!midPriorityColumns.offer(new HighPriorityColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
+                    Long.parseLong(c.tblId), c.colName))) {
                 break;
             }
         }

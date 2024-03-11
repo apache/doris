@@ -59,6 +59,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -70,11 +71,15 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
+import org.apache.doris.statistics.HighPriorityColumn;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
@@ -905,7 +910,7 @@ public class StatisticsUtil {
         } catch (Exception e) {
             LOG.warn("Fail to get value of enable auto analyze internal catalog, return false by default", e);
         }
-        return false;
+        return true;
     }
 
     public static int getInsertMergeCount() {
@@ -1037,6 +1042,87 @@ public class StatisticsUtil {
             }
         }
         return true;
+    }
+
+    // TODO: Need refactor, hard to understand now.
+    public static boolean needAnalyzeColumn(TableIf table, String column) {
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
+        if (tableStatsStatus == null) {
+            return true;
+        }
+        if (tableStatsStatus.userInjected) {
+            return false;
+        }
+        ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(column);
+        if (columnStatsMeta == null) {
+            return true;
+        }
+        if (table instanceof OlapTable) {
+            long currentUpdatedRows = tableStatsStatus.updatedRows.get();
+            long lastAnalyzeUpdateRows = columnStatsMeta.updatedRows;
+            if (lastAnalyzeUpdateRows == 0 && currentUpdatedRows > 0) {
+                return true;
+            }
+            if (lastAnalyzeUpdateRows > currentUpdatedRows) {
+                // Shouldn't happen. Just in case.
+                return true;
+            }
+            OlapTable olapTable = (OlapTable) table;
+            long currentRowCount = olapTable.getRowCount();
+            long lastAnalyzeRowCount = columnStatsMeta.rowCount;
+            if (tableStatsStatus.newPartitionLoaded.get() && olapTable.isPartitionColumn(column)) {
+                return true;
+            }
+            if (lastAnalyzeRowCount == 0 && currentRowCount > 0) {
+                return true;
+            }
+            if (currentUpdatedRows == lastAnalyzeUpdateRows) {
+                return false;
+            }
+            double healthValue = ((double) (currentUpdatedRows - lastAnalyzeUpdateRows)
+                    / (double) currentUpdatedRows) * 100.0;
+            LOG.info("Column " + column + " update rows health value is " + healthValue);
+            if (healthValue < StatisticsUtil.getTableStatsHealthThreshold()) {
+                return true;
+            }
+            if (currentRowCount == 0 && lastAnalyzeRowCount != 0) {
+                return true;
+            }
+            if (currentRowCount == 0 && lastAnalyzeRowCount == 0) {
+                return false;
+            }
+            healthValue = ((double) (currentRowCount - lastAnalyzeRowCount) / (double) currentRowCount) * 100.0;
+            return healthValue < StatisticsUtil.getTableStatsHealthThreshold();
+        } else {
+            if (!(table instanceof HMSExternalTable)) {
+                return false;
+            }
+            HMSExternalTable hmsTable = (HMSExternalTable) table;
+            if (!hmsTable.getDlaType().equals(DLAType.HIVE)) {
+                return false;
+            }
+            return System.currentTimeMillis()
+                    - tableStatsStatus.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
+        }
+    }
+
+    public static boolean needAnalyzeColumn(HighPriorityColumn column) {
+        if (column == null) {
+            return false;
+        }
+        TableIf table;
+        Column col;
+        try {
+            table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
+            col = table.getColumn(column.colName);
+        } catch (Exception e) {
+            LOG.warn("Failed to find table for column {}", column.colName, e);
+            return false;
+        }
+        return col != null
+                && !StatisticsUtil.isUnsupportedType(col.getType())
+                && StatisticsUtil.needAnalyzeColumn(table, column.colName);
     }
 
 }
