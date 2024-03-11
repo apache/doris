@@ -69,7 +69,6 @@ import java.util.Map.Entry;
 import java.util.Optional;
 
 public class TrinoConnectorExternalTable extends ExternalTable {
-
     private Optional<ConnectorTableHandle> connectorTableHandle;
     private Map<String, ColumnHandle> columnHandleMap;
     private Map<String, ColumnMetadata> columnMetadataMap;
