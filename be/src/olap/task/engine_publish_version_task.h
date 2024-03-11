@@ -100,6 +100,9 @@ public:
 private:
     void _calculate_tbl_num_delta_rows(
             const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows);
+    void get_all_tablet_info(int64_t partition_id, int64_t transaction_id,
+                             std::map<TabletInfo, RowsetSharedPtr>* tablet_related_rs,
+                             std::set<TabletInfo>* partition_related_tablet_infos);
 
     StorageEngine& _engine;
     const TPublishVersionRequest& _publish_version_req;
