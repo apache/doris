@@ -140,7 +140,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -157,7 +157,7 @@ suite("test_unique_model_schema_key_change","p0") {
                time 60
           }, insertSql, true,"${tbName}")
 
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -221,7 +221,7 @@ suite("test_unique_model_schema_key_change","p0") {
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
-          }, insertSql, true,"${tbName}")},tbName,errorMessage)
+          }, insertSql, true,"${tbName}")},errorMessage)
 
 
 
@@ -237,7 +237,7 @@ suite("test_unique_model_schema_key_change","p0") {
                time 60
           }, insertSql, true,"${tbName}")
 
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -252,7 +252,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -268,7 +268,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -316,7 +316,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
      //TODO Test the unique model by modify a key type from BOOLEAN to SMALLINT
@@ -330,7 +330,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
      //TODO Test the unique model by modify a key type from BOOLEAN to INT
@@ -344,7 +344,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -360,7 +360,7 @@ suite("test_unique_model_schema_key_change","p0") {
                time 60
           }, insertSql, true,"${tbName}")
 
-     },tbName,errorMessage)
+     },errorMessage)
 
 
      //TODO Test the unique model by modify a key type from BOOLEAN to FLOAT
@@ -374,7 +374,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -389,7 +389,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
      //TODO Test the unique model by modify a key type from BOOLEAN to CHAR
@@ -404,7 +404,7 @@ suite("test_unique_model_schema_key_change","p0") {
                time 60
           }, insertSql, true,"${tbName}")
 
-     },tbName,errorMessage)
+     },errorMessage)
 
      //TODO Test the unique model by modify a key type from BOOLEAN to STRING
      errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[is_teacher]."
@@ -417,7 +417,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
      //TODO Test the unique model by modify a key type from BOOLEAN to VARCHAR
@@ -431,7 +431,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
      /**
@@ -476,7 +476,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -535,7 +535,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
      //TODO Test the unique model by modify a key type from TINYINT  to DOUBLE
@@ -549,7 +549,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -565,7 +565,7 @@ suite("test_unique_model_schema_key_change","p0") {
                time 60
           }, insertSql, true,"${tbName}")
 
-     },tbName,errorMessage)
+     },errorMessage)
 
      //TODO Test the unique model by modify a key type from TINYINT  to CHAR
      errorMessage="errCode = 2, detailMessage = Can not change TINYINT to CHAR"
@@ -578,7 +578,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -605,7 +605,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
      /**
@@ -650,7 +650,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -666,7 +666,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -713,7 +713,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
      //TODO Test the unique model by modify a key type from SMALLINT  to DOUBLE
@@ -727,7 +727,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -743,7 +743,7 @@ suite("test_unique_model_schema_key_change","p0") {
                time 60
           }, insertSql, true,"${tbName}")
 
-     },tbName,errorMessage)
+     },errorMessage)
 
      //TODO Test the unique model by modify a key type from SMALLINT  to CHAR
      errorMessage="errCode = 2, detailMessage = Can not change SMALLINT to CHAR"
@@ -756,7 +756,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 
@@ -783,7 +783,7 @@ suite("test_unique_model_schema_key_change","p0") {
                sql getTableStatusSql
                time 60
           }, insertSql, true,"${tbName}")
-     },tbName,errorMessage)
+     },errorMessage)
 
 
 }
