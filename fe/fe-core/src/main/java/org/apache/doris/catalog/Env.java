@@ -271,7 +271,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
-import org.apache.doris.trinoconnector.TrinoConnectorPluginManager;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -281,16 +280,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
-import com.google.common.util.concurrent.MoreExecutors;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
-import io.trino.FeaturesConfig;
-import io.trino.metadata.HandleResolver;
-import io.trino.metadata.TypeRegistry;
-import io.trino.server.ServerPluginsProvider;
-import io.trino.server.ServerPluginsProviderConfig;
-import io.trino.spi.type.TypeOperators;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -448,6 +440,7 @@ public class Env {
 
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
+    private StorageVaultMgr storageVaultMgr;
 
     private GlobalTransactionMgrIface globalTransactionMgr;
 
@@ -533,11 +526,6 @@ public class Env {
     private MTMVService mtmvService;
 
     private InsertOverwriteManager insertOverwriteManager;
-
-    private FeaturesConfig featuresConfig;
-    private TypeRegistry typeRegistry;
-
-    private TrinoConnectorPluginManager trinoConnectorPluginManager;
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -702,6 +690,7 @@ public class Env {
 
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
+        this.storageVaultMgr = new StorageVaultMgr();
 
         this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
@@ -775,8 +764,6 @@ public class Env {
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
         this.insertOverwriteManager = new InsertOverwriteManager();
-
-        initSpiEnvironment();
     }
 
     public static void destroyCheckpoint() {
@@ -798,30 +785,6 @@ public class Env {
         }
     }
 
-    private void initSpiEnvironment() {
-        File trinoConnectorPluginDir = new File(Config.trino_connector_plugin_dir);
-        if (!trinoConnectorPluginDir.exists()) {
-            LOG.warn("trino_connector_plugin_dir=" + Config.trino_connector_plugin_dir + " is not found.");
-            return;
-        } else if (trinoConnectorPluginDir.isFile()) {
-            LOG.warn("trino_connector_plugin_dir must be a directory, not a file.");
-            return;
-        }
-
-        TypeOperators typeOperators = new TypeOperators();
-        this.featuresConfig = new FeaturesConfig();
-        this.typeRegistry = new TypeRegistry(typeOperators, featuresConfig);
-
-        ServerPluginsProviderConfig serverPluginsProviderConfig = new ServerPluginsProviderConfig()
-                .setInstalledPluginsDir(trinoConnectorPluginDir);
-        ServerPluginsProvider serverPluginsProvider = new ServerPluginsProvider(serverPluginsProviderConfig,
-                MoreExecutors.directExecutor());
-        HandleResolver handleResolver = new HandleResolver();
-        this.trinoConnectorPluginManager = new TrinoConnectorPluginManager(serverPluginsProvider,
-                typeRegistry, handleResolver);
-        trinoConnectorPluginManager.loadPlugins();
-    }
-
     // NOTICE: in most case, we should use getCurrentEnv() to get the right catalog.
     // but in some cases, we should get the serving catalog explicitly.
     public static Env getServingEnv() {
@@ -836,6 +799,10 @@ public class Env {
         return resourceMgr;
     }
 
+    public StorageVaultMgr getStorageVaultMgr() {
+        return storageVaultMgr;
+    }
+
     public static GlobalTransactionMgrIface getCurrentGlobalTransactionMgr() {
         return getCurrentEnv().globalTransactionMgr;
     }
@@ -846,18 +813,6 @@ public class Env {
 
     public PluginMgr getPluginMgr() {
         return pluginMgr;
-    }
-
-    public FeaturesConfig getFeaturesConfig() {
-        return featuresConfig;
-    }
-
-    public TypeRegistry getTypeRegistry() {
-        return typeRegistry;
-    }
-
-    public TrinoConnectorPluginManager getTrinoConnectorPluginManager() {
-        return trinoConnectorPluginManager;
     }
 
     public Auth getAuth() {
@@ -5736,6 +5691,9 @@ public class Env {
             Long lastFailedVersion, long updateTime, boolean isReplay)
             throws MetaNotFoundException {
         try {
+            if (Config.isCloudMode()) {
+                throw new MetaNotFoundException("not support modify replica version in cloud mode");
+            }
             TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
             if (meta == null) {
                 throw new MetaNotFoundException("tablet does not exist");

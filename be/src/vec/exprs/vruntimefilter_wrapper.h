@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -27,6 +26,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "udf/udf.h"
+#include "util/runtime_profile.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -57,6 +57,14 @@ public:
 
     const VExprSPtr get_impl() const override { return _impl; }
 
+    void attach_profile_counter(RuntimeProfile::Counter* expr_filtered_rows_counter,
+                                RuntimeProfile::Counter* expr_input_rows_counter,
+                                RuntimeProfile::Counter* always_true_counter) {
+        _expr_filtered_rows_counter = expr_filtered_rows_counter;
+        _expr_input_rows_counter = expr_input_rows_counter;
+        _always_true_counter = always_true_counter;
+    }
+
     // if filter rate less than this, bloom filter will set always true
     constexpr static double EXPECTED_FILTER_RATE = 0.4;
 
@@ -74,12 +82,17 @@ private:
     VExprSPtr _impl;
 
     bool _always_true;
-    /// TODO: statistic filter rate in the profile
     std::atomic<int64_t> _filtered_rows;
     std::atomic<int64_t> _scan_rows;
 
+    RuntimeProfile::Counter* _expr_filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _expr_input_rows_counter = nullptr;
+    RuntimeProfile::Counter* _always_true_counter = nullptr;
     bool _has_calculate_filter = false;
 
     std::string _expr_name;
 };
+
+using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
+
 } // namespace doris::vectorized

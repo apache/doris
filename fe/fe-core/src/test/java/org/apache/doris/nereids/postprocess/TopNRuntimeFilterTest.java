@@ -24,12 +24,13 @@ import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class TopNRuntimeFilterTest extends SSBTestBase {
+public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMatchSupported {
     @Override
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
@@ -46,11 +47,11 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
         Assertions.assertInstanceOf(PhysicalDeferMaterializeTopN.class, plan.children().get(0).child(0));
         PhysicalDeferMaterializeTopN<? extends Plan> localTopN
                 = (PhysicalDeferMaterializeTopN<? extends Plan>) plan.child(0).child(0);
-        Assertions.assertTrue(localTopN.getPhysicalTopN().isEnableRuntimeFilter());
+        Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
     }
 
     @Test
-    public void testNotUseTopNRfForComplexCase() {
+    public void testUseTopNRfForComplexCase() {
         String sql = "select * from (select 1) tl join (select * from customer order by c_custkey limit 5) tb";
         PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
                 .rewrite()
@@ -62,6 +63,21 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
                 .child(0).child(0).child(1).child(0)).getSortPhase());
         PhysicalTopN<? extends Plan> localTopN = (PhysicalTopN<? extends Plan>) plan
                 .child(0).child(0).child(1).child(0);
-        Assertions.assertFalse(localTopN.isEnableRuntimeFilter());
+        Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testNotUseTopNRfOnWindow() {
+        String sql = "select rank() over (partition by c_nation order by c_custkey) "
+                + "from customer order by c_custkey limit 3";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                .rewrite().implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        System.out.println(plan.treeString());
+        PhysicalTopN<? extends Plan> localTopN =
+                (PhysicalTopN<? extends Plan>) plan.child(0).child(0).child(0);
+        Assertions.assertTrue(localTopN.getSortPhase().isLocal());
+        Assertions.assertFalse(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
     }
 }

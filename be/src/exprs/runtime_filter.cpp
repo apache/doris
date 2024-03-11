@@ -31,7 +31,6 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
-#include <utility>
 
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -40,7 +39,6 @@
 #include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "exprs/minmax_predicate.h"
 #include "gutil/strings/substitute.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/define_primitive_type.h"
@@ -446,7 +444,8 @@ public:
     }
 
     Status get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                          std::vector<vectorized::VExprSPtr>& push_exprs, const TExpr& probe_expr);
+                          std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
+                          const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
         bool can_not_merge_in_or_bloom =
@@ -720,14 +719,18 @@ public:
 
     // used by shuffle runtime filter
     // assign this filter by protobuf
-    Status assign(const PBloomFilter* bloom_filter, butil::IOBufAsZeroCopyInputStream* data) {
+    Status assign(const PBloomFilter* bloom_filter, butil::IOBufAsZeroCopyInputStream* data,
+                  bool contain_null) {
         _is_bloomfilter = true;
         // we won't use this class to insert or find any data
         // so any type is ok
         _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type == INVALID_TYPE
                                                                      ? PrimitiveType::TYPE_INT
                                                                      : _column_return_type));
-        return _context.bloom_filter_func->assign(data, bloom_filter->filter_length());
+        RETURN_IF_ERROR(_context.bloom_filter_func->assign(data, bloom_filter->filter_length(),
+                                                           contain_null));
+
+        return Status::OK();
     }
 
     // used by shuffle runtime filter
@@ -876,6 +879,10 @@ public:
     PrimitiveType column_type() { return _column_return_type; }
 
     bool is_bloomfilter() const { return _is_bloomfilter; }
+
+    bool contain_null() const {
+        return _is_bloomfilter && _context.bloom_filter_func->contain_null();
+    }
 
     bool is_ignored() const { return _ignored; }
 
@@ -1050,14 +1057,23 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                                          std::vector<vectorized::VExprSPtr>& push_exprs,
+                                          std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
+    auto origin_size = push_exprs.size();
     if (!_wrapper->is_ignored()) {
         _set_push_down(!is_late_arrival);
         RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
     _profile->add_info_string("Info", _format_status());
+    // The runtime filter is pushed down, adding filtering information.
+    auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
+    auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
+    auto* always_true_counter = ADD_COUNTER(_profile, "always_true", TUnit::UNIT);
+    for (auto i = origin_size; i < push_exprs.size(); i++) {
+        push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
+                                              always_true_counter);
+    }
     return Status::OK();
 }
 
@@ -1302,7 +1318,8 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     }
     case PFilterType::BLOOM_FILTER: {
         DCHECK(param->request->has_bloom_filter());
-        return (*wrapper)->assign(&param->request->bloom_filter(), param->data);
+        return (*wrapper)->assign(&param->request->bloom_filter(), param->data,
+                                  param->request->contain_null());
     }
     case PFilterType::MIN_FILTER:
     case PFilterType::MAX_FILTER:
@@ -1344,7 +1361,8 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
     }
     case PFilterType::BLOOM_FILTER: {
         DCHECK(param->request->has_bloom_filter());
-        return (*wrapper)->assign(&param->request->bloom_filter(), param->data);
+        return (*wrapper)->assign(&param->request->bloom_filter(), param->data,
+                                  param->request->contain_null());
     }
     case PFilterType::MIN_FILTER:
     case PFilterType::MAX_FILTER:
@@ -1400,6 +1418,7 @@ Status IRuntimeFilter::serialize_impl(T* request, void** data, int* len) {
     }
 
     request->set_filter_type(get_type(real_runtime_filter_type));
+    request->set_contain_null(_wrapper->contain_null());
 
     if (real_runtime_filter_type == RuntimeFilterType::IN_FILTER) {
         auto in_filter = request->mutable_in_filter();
@@ -1706,9 +1725,9 @@ void IRuntimeFilter::update_filter(RuntimePredicateWrapper* wrapper, int64_t mer
     this->signal();
 }
 
-Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                                               std::vector<vectorized::VExprSPtr>& container,
-                                               const TExpr& probe_expr) {
+Status RuntimePredicateWrapper::get_push_exprs(
+        std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+        std::vector<vectorized::VRuntimeFilterPtr>& container, const TExpr& probe_expr) {
     vectorized::VExprContextSPtr probe_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
     probe_ctxs.push_back(probe_ctx);
@@ -1732,7 +1751,6 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
         node.in_predicate.__set_is_not_in(false);
         node.__set_opcode(TExprOpcode::FILTER_IN);
         node.__set_is_nullable(false);
-
         auto in_pred = vectorized::VDirectInPredicate::create_shared(node);
         in_pred->set_filter(_context.hybrid_set);
         in_pred->add_child(probe_ctx->root());
@@ -1753,9 +1771,6 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
         min_pred->add_child(min_literal);
         container.push_back(
                 vectorized::VRuntimeFilterWrapper::create_shared(min_pred_node, min_pred));
-        vectorized::VExprContextSPtr new_probe_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
-        probe_ctxs.push_back(new_probe_ctx);
         break;
     }
     case RuntimeFilterType::MAX_FILTER: {
@@ -1771,10 +1786,6 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
         max_pred->add_child(max_literal);
         container.push_back(
                 vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node, max_pred));
-
-        vectorized::VExprContextSPtr new_probe_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
-        probe_ctxs.push_back(new_probe_ctx);
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {

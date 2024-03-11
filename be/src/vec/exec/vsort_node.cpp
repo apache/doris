@@ -201,9 +201,6 @@ Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_blo
     SCOPED_TIMER(_get_next_timer);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sorter->get_next(state, output_block, eos));
     reached_limit(output_block, eos);
-    if (*eos) {
-        _runtime_profile->add_info_string("Spilled", _sorter->is_spilled() ? "true" : "false");
-    }
     return Status::OK();
 }
 

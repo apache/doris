@@ -21,6 +21,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.analyzer.ComplexDataType;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -119,9 +120,7 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Utils for type coercion.
@@ -595,7 +594,7 @@ public class TypeCoercionUtils {
 
     private static List<Optional<DataType>> getInputImplicitCastTypes(
             List<Expression> inputs, List<DataType> expectedTypes) {
-        Builder<Optional<DataType>> implicitCastTypes = ImmutableList.builder();
+        Builder<Optional<DataType>> implicitCastTypes = ImmutableList.builderWithExpectedSize(inputs.size());
         for (int i = 0; i < inputs.size(); i++) {
             DataType argType = inputs.get(i).getDataType();
             DataType expectedType = expectedTypes.get(i);
@@ -765,15 +764,16 @@ public class TypeCoercionUtils {
         binaryArithmetic = TypeCoercionUtils.processCharacterLiteralInBinaryOperator(binaryArithmetic, left, right);
 
         // check string literal can cast to double
-        binaryArithmetic.children().stream().filter(e -> e instanceof StringLikeLiteral)
-                .forEach(expr -> {
-                    try {
-                        new BigDecimal(((StringLikeLiteral) expr).getStringValue());
-                    } catch (NumberFormatException e) {
-                        throw new IllegalStateException(String.format(
-                                "string literal %s cannot be cast to double", expr.toSql()));
-                    }
-                });
+        for (Expression expr : binaryArithmetic.children()) {
+            if (expr instanceof StringLikeLiteral) {
+                try {
+                    new BigDecimal(((StringLikeLiteral) expr).getStringValue());
+                } catch (NumberFormatException e) {
+                    throw new IllegalStateException(String.format(
+                            "string literal %s cannot be cast to double", expr.toSql()));
+                }
+            }
+        }
 
         // 1. choose default numeric type for left and right
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
@@ -1100,14 +1100,13 @@ public class TypeCoercionUtils {
     private static Optional<DataType> findWiderTypeForTwoForComparison(
             DataType left, DataType right, boolean intStringToString) {
         // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
-        return Stream
-                .<Supplier<Optional<DataType>>>of(
-                        () -> findCommonComplexTypeForComparison(left, right, intStringToString),
-                        () -> findCommonPrimitiveTypeForComparison(left, right, intStringToString))
-                .map(Supplier::get)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .findFirst();
+        if (left instanceof ComplexDataType) {
+            Optional<DataType> commonType = findCommonComplexTypeForComparison(left, right, intStringToString);
+            if (commonType.isPresent()) {
+                return commonType;
+            }
+        }
+        return findCommonPrimitiveTypeForComparison(left, right, intStringToString);
     }
 
     /**
@@ -1304,20 +1303,22 @@ public class TypeCoercionUtils {
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
                 .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
         List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
-        if (needTypeCoercion.size() > 1 || !partitioned.get(false).isEmpty()) {
-            needTypeCoercion = needTypeCoercion.stream()
-                    .map(TypeCoercionUtils::replaceCharacterToString)
-                    .collect(Collectors.toList());
+        List<DataType> nonCharTypes = partitioned.get(false);
+        if (needTypeCoercion.size() > 1 || !nonCharTypes.isEmpty()) {
+            needTypeCoercion = Utils.fastMapList(
+                    needTypeCoercion, nonCharTypes.size(), TypeCoercionUtils::replaceCharacterToString);
         }
-        needTypeCoercion.addAll(partitioned.get(false));
-        return needTypeCoercion.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
-                (r, c) -> {
-                    if (r.isPresent() && c.isPresent()) {
-                        return findWiderTypeForTwoForCaseWhen(r.get(), c.get());
-                    } else {
-                        return Optional.empty();
-                    }
-                });
+        needTypeCoercion.addAll(nonCharTypes);
+
+        DataType commonType = NullType.INSTANCE;
+        for (DataType dataType : needTypeCoercion) {
+            Optional<DataType> newCommonType = findWiderTypeForTwoForCaseWhen(commonType, dataType);
+            if (!newCommonType.isPresent()) {
+                return Optional.empty();
+            }
+            commonType = newCommonType.get();
+        }
+        return Optional.of(commonType);
     }
 
     /**
@@ -1326,14 +1327,11 @@ public class TypeCoercionUtils {
     @Developing
     private static Optional<DataType> findWiderTypeForTwoForCaseWhen(DataType left, DataType right) {
         // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
-        return Stream
-                .<Supplier<Optional<DataType>>>of(
-                        () -> findCommonComplexTypeForCaseWhen(left, right),
-                        () -> findCommonPrimitiveTypeForCaseWhen(left, right))
-                .map(Supplier::get)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .findFirst();
+        Optional<DataType> commonType = findCommonComplexTypeForCaseWhen(left, right);
+        if (commonType.isPresent()) {
+            return commonType;
+        }
+        return findCommonPrimitiveTypeForCaseWhen(left, right);
     }
 
     /**
@@ -1579,7 +1577,7 @@ public class TypeCoercionUtils {
      */
     public static BoundFunction fillJsonValueModifyTypeArgument(BoundFunction function) {
         List<Expression> arguments = function.getArguments();
-        List<Expression> newArguments = Lists.newArrayList();
+        List<Expression> newArguments = Lists.newArrayListWithCapacity(arguments.size() + 1);
         StringBuilder jsonTypeStr = new StringBuilder();
         for (int i = 0; i < arguments.size(); i++) {
             Expression argument = arguments.get(i);

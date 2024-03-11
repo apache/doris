@@ -209,6 +209,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -741,6 +742,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 )
         );
         olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
+        if (context.getTopnFilterContext().isTopnFilterTarget(olapScan)) {
+            olapScanNode.setUseTopnOpt(true);
+            context.getTopnFilterContext().addLegacyTarget(olapScan, olapScanNode);
+        }
         // TODO: we need to remove all finalizeForNereids
         olapScanNode.finalizeForNereids();
         // Create PlanFragment
@@ -764,6 +769,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, PlanTranslatorContext context) {
         PlanFragment planFragment = visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
         OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
+        if (context.getTopnFilterContext().isTopnFilterTarget(deferMaterializeOlapScan)) {
+            olapScanNode.setUseTopnOpt(true);
+            context.getTopnFilterContext().addLegacyTarget(deferMaterializeOlapScan, olapScanNode);
+        }
         TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
         for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
             if (deferMaterializeOlapScan.getDeferMaterializeSlotIds()
@@ -2026,20 +2035,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, PlanTranslatorContext context) {
         PlanFragment inputFragment = topN.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(topN.child(0));
-
         // 2. According to the type of sort, generate physical plan
         if (!topN.getSortPhase().isMerge()) {
             // For localSort or Gather->Sort, we just need to add TopNNode
             SortNode sortNode = translateSortNode(topN, inputFragment.getPlanRoot(), context);
             sortNode.setOffset(topN.getOffset());
             sortNode.setLimit(topN.getLimit());
-            if (topN.isEnableRuntimeFilter()) {
+            if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
                 sortNode.setUseTopnOpt(true);
-                PlanNode child = sortNode.getChild(0);
-                Preconditions.checkArgument(child instanceof OlapScanNode,
-                        "topN opt expect OlapScanNode, but we get " + child);
-                OlapScanNode scanNode = ((OlapScanNode) child);
-                scanNode.setUseTopnOpt(true);
+                context.getTopnFilterContext().getTargets(topN).forEach(
+                        olapScan -> {
+                            Optional<OlapScanNode> legacyScan =
+                                    context.getTopnFilterContext().getLegacyScanNode(olapScan);
+                            Preconditions.checkState(legacyScan.isPresent(),
+                                    "cannot find OlapScanNode for topn filter");
+                            legacyScan.get().addTopnFilterSortNode(sortNode);
+                        }
+                );
             }
             // push sort to scan opt
             if (sortNode.getChild(0) instanceof OlapScanNode) {
@@ -2084,12 +2096,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
             PlanTranslatorContext context) {
-
         PlanFragment planFragment = visitPhysicalTopN(topN.getPhysicalTopN(), context);
         if (planFragment.getPlanRoot() instanceof SortNode) {
             SortNode sortNode = (SortNode) planFragment.getPlanRoot();
             sortNode.setUseTwoPhaseReadOpt(true);
             sortNode.getSortInfo().setUseTwoPhaseRead();
+            if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
+                sortNode.setUseTopnOpt(true);
+                context.getTopnFilterContext().getTargets(topN).forEach(
+                        olapScan -> {
+                            Optional<OlapScanNode> legacyScan =
+                                    context.getTopnFilterContext().getLegacyScanNode(olapScan);
+                            Preconditions.checkState(legacyScan.isPresent(),
+                                    "cannot find OlapScanNode for topn filter");
+                            legacyScan.get().addTopnFilterSortNode(sortNode);
+                        }
+                );
+            }
             TupleDescriptor tupleDescriptor = sortNode.getSortInfo().getSortTupleDescriptor();
             for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
                 if (topN.getDeferMaterializeSlotIds()

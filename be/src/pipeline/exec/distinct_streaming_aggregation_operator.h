@@ -23,7 +23,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
