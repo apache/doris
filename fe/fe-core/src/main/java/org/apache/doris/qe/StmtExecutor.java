@@ -373,6 +373,11 @@ public class StmtExecutor {
             return false;
         }
 
+        // group commit doesn't need to forward to master
+        if (context.getSessionVariable().isEnableInsertGroupCommit()) {
+            return false;
+        }
+
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
                 && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries())) {
