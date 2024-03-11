@@ -201,7 +201,7 @@ public class SlotReference extends Slot {
         if (qualifier.isEmpty()) {
             return name.get();
         } else {
-            return qualifier.get(qualifier.size() - 1) + "." + name;
+            return qualifier.get(qualifier.size() - 1) + "." + name.get();
         }
     }
 

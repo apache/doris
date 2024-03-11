@@ -166,8 +166,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public LogicalProperties computeLogicalProperties() {
-        boolean hasUnboundChild = children.stream()
-                .anyMatch(child -> !child.bound());
+        boolean hasUnboundChild = false;
+        for (Plan child : children) {
+            if (!child.bound()) {
+                hasUnboundChild = true;
+                break;
+            }
+        }
+
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {
