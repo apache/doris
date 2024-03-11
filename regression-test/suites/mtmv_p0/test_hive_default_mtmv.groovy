@@ -32,15 +32,14 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
                                     user_id INT,
                                     num INT
                                 )
-                                partitioned by(year int )
+                                partitioned by(year int,month int)
                                 STORED AS ORC;
                             """
 
-    def set_dynamic_partition_str = """ set hive.exec.dynamic.partition=true;"""
-    def set_dynamic_partition_mode_str = """ set hive.exec.dynamic.partition.mode=nonstrict;"""
+    // def set_dynamic_partition_str = """ set hive.exec.dynamic.partition=true;"""
+    // def set_dynamic_partition_mode_str = """ set hive.exec.dynamic.partition.mode=nonstrict;"""
     def insert_str = """
-        set hive.exec.dynamic.partition.mode=nonstrict;
-        insert into ${hive_database}.${hive_table} PARTITION(year) values(1,1,2020)；
+        insert into ${hive_database}.${hive_table} PARTITION(year=2020,month) values(1,1,1);
         """
     def show_partition_str = """show partitions ${hive_database}.${hive_table}"""
 
@@ -52,10 +51,10 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
     hive_docker """ ${create_database_str}"""
     logger.info("hive sql: " + create_table_str)
     hive_docker """ ${create_table_str} """
-    logger.info("hive sql: " + set_dynamic_partition_str)
-    hive_docker """ ${set_dynamic_partition_str} """
-    logger.info("hive sql: " + set_dynamic_partition_mode_str)
-    hive_docker """ ${set_dynamic_partition_mode_str} """
+    //logger.info("hive sql: " + set_dynamic_partition_str)
+    //hive_docker """ ${set_dynamic_partition_str} """
+    //logger.info("hive sql: " + set_dynamic_partition_mode_str)
+    //hive_docker """ ${set_dynamic_partition_mode_str} """
     logger.info("hive sql: " + insert_str)
     hive_docker """ ${insert_str} """
     logger.info("hive sql: " + show_partition_str)
