@@ -41,6 +41,10 @@ class Config {
     public String jdbcPassword
     public String defaultDb
 
+    public String downstreamUrl
+    public String downstreamUser
+    public String downstreamPassword
+
     public String feSourceThriftAddress
     public String feTargetThriftAddress
     public String feSyncerUser
@@ -309,6 +313,11 @@ class Config {
             configToString(obj.sslCertificatePath)
         )
 
+
+        config.downstreamUrl = configToString(obj.downstreamUrl)
+        config.downstreamUser = configToString(obj.downstreamUser)
+        config.downstreamPassword = configToString(obj.downstreamPassword)
+
         config.image = configToString(obj.image)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
@@ -531,6 +540,13 @@ class Config {
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    Connection getDownstreamConnectionByDbName(String dbName) {
+        String dbUrl = buildUrlWithDb(downstreamUrl, dbName)
+        tryCreateDbIfNotExist(dbName)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, downstreamUser, downstreamPassword)
     }
 
     String getDbNameByFile(File suiteFile) {
