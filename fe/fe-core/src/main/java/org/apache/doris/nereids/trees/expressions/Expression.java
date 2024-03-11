@@ -42,13 +42,16 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Abstract class for all Expression in Nereids.
@@ -61,6 +64,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final int width;
     // Mark this expression is from predicate infer or something else infer
     private final boolean inferred;
+    private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(() -> collect(Slot.class::isInstance));
 
     protected Expression(Expression... children) {
         super(children);
@@ -292,7 +296,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * Note that the input slots of subquery's inner plan is not included.
      */
     public final Set<Slot> getInputSlots() {
-        return collect(Slot.class::isInstance);
+        return inputSlots.get();
     }
 
     /**
@@ -301,13 +305,12 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * Note that the input slots of subquery's inner plan is not included.
      */
     public final Set<ExprId> getInputSlotExprIds() {
-        ImmutableSet.Builder<ExprId> result = ImmutableSet.builder();
-        foreach(node -> {
-            if (node instanceof Slot) {
-                result.add(((Slot) node).getExprId());
-            }
-        });
-        return result.build();
+        Set<Slot> inputSlots = getInputSlots();
+        Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(inputSlots.size());
+        for (Slot inputSlot : inputSlots) {
+            exprIds.add(inputSlot.getExprId());
+        }
+        return exprIds.build();
     }
 
     public boolean isLiteral() {
