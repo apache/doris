@@ -370,10 +370,6 @@ public class BinaryPredicate extends Predicate implements Writable {
         PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
         PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
 
-        if (getChild(0).getType().isArrayType() && getChild(1).getType().isArrayType()) {
-            return Type.ARRAY;
-        }
-
         for (Expr e : getChildren()) {
             if (e.getType().getPrimitiveType() == PrimitiveType.HLL) {
                 throw new AnalysisException("Hll type dose not support operand: " + toSql());
