@@ -33,7 +33,7 @@ namespace doris {
 class CountDownLatch {
 public:
     // Initialize the latch with the given initial count.
-    explicit CountDownLatch(int count) : _count(count) {}
+    explicit CountDownLatch(uint64_t count) : _count(count) {}
 
     // Decrement the count of this latch by 'amount'
     // If the new count is less than or equal to zero, then all waiting threads are woken up.
@@ -48,7 +48,7 @@ public:
         if (amount >= _count) {
             _count = 0;
         } else {
-            _count -= amount;
+            _count -= (uint64_t)amount;
         }
 
         if (_count == 0) {

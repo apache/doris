@@ -47,7 +47,7 @@ public:
         if (it == str->data + str->size) {
             return -1;
         } else {
-            return it - str->data;
+            return int(it - str->data);
         }
     }
 
@@ -56,7 +56,7 @@ public:
         if (it == str.data + str.size) {
             return -1;
         } else {
-            return it - str.data;
+            return int(it - str.data);
         }
     }
 

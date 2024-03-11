@@ -37,7 +37,10 @@
 
 #include "gutil/strings/split.h"
 #include "io/fs/local_file_system.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 bool DiskInfo::_s_initialized;
@@ -233,3 +236,6 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

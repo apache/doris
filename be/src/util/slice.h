@@ -29,7 +29,10 @@
 #include <vector>
 
 #include "vec/common/allocator.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 class faststring;
@@ -379,3 +382,7 @@ private:
 };
 
 } // namespace doris
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

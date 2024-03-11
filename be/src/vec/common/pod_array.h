@@ -43,6 +43,11 @@
 
 #include "vec/common/pod_array_fwd.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 namespace doris::vectorized {
 
 /** For zero argument, result is zero.
@@ -624,3 +629,6 @@ void swap(PODArray<T, initial_bytes, TAllocator, pad_right_>& lhs,
 }
 
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

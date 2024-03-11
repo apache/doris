@@ -130,7 +130,7 @@ public:
 
     std::string to_string() const {
         tm time_tm;
-        int value = *reinterpret_cast<const uint24_t*>(data);
+        int value = (int)*reinterpret_cast<const uint24_t*>(data);
         memset(&time_tm, 0, sizeof(time_tm));
         time_tm.tm_mday = static_cast<int>(value & 31);
         time_tm.tm_mon = static_cast<int>(value >> 5 & 15) - 1;

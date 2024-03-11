@@ -115,7 +115,7 @@ struct decimal12_t {
             integer = i;
             fraction = f;
 
-            int32_t frac_len = (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1)
+            int32_t frac_len = (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - (int32_t)strlen(sepr + 1)
                                                  : MAX_FRAC_DIGITS_NUM;
             frac_len = frac_len > 0 ? frac_len : 0;
             fraction *= g_power_table[frac_len];

@@ -16,6 +16,10 @@
 
 #include "olap/olap_common.h"
 #include "util/slice.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -244,3 +248,6 @@ inline bool get_length_prefixed_slice(Slice* input, Slice* val) {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -33,9 +33,9 @@ public:
 
     char* end() { return _end; }
 
-    size_t count() { return _end - _start; }
+    size_t count() { return size_t(_end - _start); }
 
-    std::string to_string() { return std::string(_start, (_end - _start)); }
+    std::string to_string() { return std::string(_start, size_t(_end - _start)); }
 
 private:
     char* _start = nullptr;

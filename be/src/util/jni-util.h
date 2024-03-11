@@ -28,6 +28,10 @@
 #include "common/status.h"
 #include "jni_md.h"
 #include "util/thrift_util.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 #ifdef USE_HADOOP_HDFS
 // defined in hadoop/hadoop-hdfs-project/hadoop-hdfs/src/main/native/libhdfs/jni_helper.c
@@ -173,3 +177,7 @@ Status SerializeThriftMsg(JNIEnv* env, T* msg, jbyteArray* serialized_msg) {
 }
 
 } // namespace doris
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

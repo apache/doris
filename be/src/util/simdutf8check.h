@@ -22,7 +22,10 @@
 #include <stdint.h>
 #include <string.h>
 #include <x86intrin.h>
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 /*
  * These functions are used for validating utf8 string.
  * Details can be seen here: https://github.com/lemire/fastvalidate-utf-8
@@ -311,3 +314,6 @@ static inline void avx_count_nibbles(__m256i bytes, struct avx_processed_utf_byt
 }
 
 #endif // __AVX2__
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -22,7 +22,10 @@
 
 #include <algorithm>
 #include <cstdint>
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris::vectorized::detail {
 
 template <typename T>
@@ -223,4 +226,7 @@ inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size)
     return true;
 }
 
+#endif
+#ifdef __clang__
+#pragma clang diagnostic pop
 #endif

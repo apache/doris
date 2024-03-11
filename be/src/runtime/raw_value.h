@@ -56,7 +56,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
     case TYPE_HLL:
     case TYPE_STRING:
     case TYPE_CHAR: {
-        return HashUtil::zlib_crc_hash(v, len, seed);
+        return HashUtil::zlib_crc_hash(v, (int)len, seed);
     }
 
     case TYPE_BOOLEAN:

@@ -36,7 +36,10 @@
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris::vectorized {
 
 // Define in the namespace and avoid defining global macros,
@@ -496,3 +499,6 @@ bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& loca
     return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

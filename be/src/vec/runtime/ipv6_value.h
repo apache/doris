@@ -72,8 +72,7 @@ public:
         auto* src = reinterpret_cast<unsigned char*>(&value);
         // load and format in little-endian
         vectorized::format_ipv6(src, end);
-        size_t len = end - start;
-        return {buf, len};
+        return {buf, size_t(end - start)};
     }
 
     static bool is_valid_string(const char* ipv6_str, size_t len) {

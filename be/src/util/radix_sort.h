@@ -265,7 +265,7 @@ public:
             for (size_t i = 0; i < HISTOGRAM_SIZE; ++i) {
                 for (size_t pass = 0; pass < NUM_PASSES; ++pass) {
                     size_t tmp = histograms[pass * HISTOGRAM_SIZE + i] + sums[pass];
-                    histograms[pass * HISTOGRAM_SIZE + i] = sums[pass] - 1;
+                    histograms[pass * HISTOGRAM_SIZE + i] = CountType(sums[pass] - 1);
                     sums[pass] = tmp;
                 }
             }

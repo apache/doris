@@ -23,6 +23,10 @@
 #include <sstream>
 
 #include "gutil/stringprintf.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -155,3 +159,6 @@ std::string BitmapToString(const uint8_t* bitmap, size_t num_bits) {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

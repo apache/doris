@@ -24,7 +24,10 @@
 #include "util/bit_packing.h"
 #include "util/bit_util.h"
 #include "util/faststring.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 using doris::BitUtil;
 
 namespace doris {
@@ -260,3 +263,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

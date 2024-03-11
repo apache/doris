@@ -25,7 +25,10 @@
 #include "olap/olap_common.h"
 #include "olap/uint24.h"
 #include "util/faststring.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 inline uint8_t bits_less_than_64(const uint64_t v) {
@@ -186,3 +189,6 @@ private:
     std::vector<T> _out_buffer; // store values of decoded frame
 };
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

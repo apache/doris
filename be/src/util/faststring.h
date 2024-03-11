@@ -135,7 +135,7 @@ public:
     void push_back(const char byte) {
         EnsureRoomForAppend(1);
         ASAN_UNPOISON_MEMORY_REGION(data_ + len_, 1);
-        data_[len_] = byte;
+        data_[len_] = (uint8_t)byte;
         len_++;
     }
 

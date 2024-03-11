@@ -26,7 +26,10 @@
 #include <ostream>
 
 #include "vec/runtime/vdatetime_value.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 VecDateTimeValue timestamp_from_datetime(const std::string& datetime_str) {
@@ -238,3 +241,6 @@ std::string timev2_to_buffer_from_double(double time, int scale) {
     return fmt::to_string(buffer);
 }
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

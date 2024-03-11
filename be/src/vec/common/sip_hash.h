@@ -39,6 +39,10 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 #define ROTL(x, b) static_cast<doris::vectorized::UInt64>(((x) << (b)) | ((x) >> (64 - (b))))
 
@@ -216,3 +220,7 @@ inline void sip_hash128(const char* data, const size_t size, char* out) {
     hash.update(data, size);
     hash.get128(out);
 }
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

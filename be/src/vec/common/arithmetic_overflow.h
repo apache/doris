@@ -21,6 +21,11 @@
 #pragma once
 
 #include "vec/core/wide_integer.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 namespace common {
 template <typename T>
 inline bool add_overflow(T x, T y, T& res) {
@@ -135,3 +140,6 @@ inline bool mul_overflow(wide::Int256 x, wide::Int256 y, wide::Int256& res) {
     return (a * b) / b != a;
 }
 } // namespace common
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -24,7 +24,10 @@
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/common.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 namespace segment_v2 {
 
@@ -79,7 +82,7 @@ public:
 
     bool is_valid() const { return _from < _to; }
 
-    size_t count() const { return _to - _from; }
+    size_t count() const { return size_t(_to - _from); }
 
     bool is_before(const RowRange& other) const { return _to <= other._from; }
 
@@ -106,7 +109,7 @@ public:
     }
 
     // Creates a new RowRanges object with the single range [0, row_count).
-    static RowRanges create_single(uint64_t row_count) {
+    static RowRanges create_single(int64_t row_count) {
         RowRanges ranges;
         ranges.add(RowRange(0, row_count));
         return ranges;
@@ -271,3 +274,7 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

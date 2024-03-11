@@ -78,15 +78,14 @@
 #include <type_traits>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#pragma clang diagnostic ignored "-Wzero-length-array"
+#endif
 // #include "util/string_parser.hpp"
 
 namespace doris {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wzero-length-array"
-#endif
-#pragma pack(push, 1)
 
 #define JSONB_VER 1
 
@@ -1612,10 +1611,10 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
     return true;
 }
 
-#pragma pack(pop)
-#if defined(__clang__)
+} // namespace doris
+
+#ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-} // namespace doris
 
 #endif // JSONB_JSONBDOCUMENT_H

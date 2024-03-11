@@ -412,7 +412,7 @@ struct RowsetId {
     void init(int64_t rowset_id) { init(1, rowset_id, 0, 0); }
 
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
-        version = id_version;
+        version = (int8_t)id_version;
         if (UNLIKELY(high >= MAX_ROWSET_ID)) {
             LOG(FATAL) << "inc rowsetid is too large:" << high;
         }

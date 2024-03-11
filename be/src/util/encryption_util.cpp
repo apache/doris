@@ -25,7 +25,10 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 static const int ENCRYPTION_MAX_KEY_LENGTH = 256;
@@ -268,3 +271,6 @@ int EncryptionUtil::decrypt(EncryptionMode mode, const unsigned char* encrypt,
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

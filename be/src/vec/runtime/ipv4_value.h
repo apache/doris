@@ -75,8 +75,7 @@ public:
         char* end = buf;
         const auto* src = reinterpret_cast<const unsigned char*>(&value);
         vectorized::format_ipv4(src, end);
-        size_t len = end - start;
-        return {buf, len};
+        return {buf, size_t(end - start)};
     }
 
     static bool is_valid_string(const char* ipv4_str, size_t len) {

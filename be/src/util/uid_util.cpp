@@ -24,7 +24,10 @@
 #include <cstdlib>
 
 #include "util/hash_util.hpp"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 size_t UniqueId::hash(size_t seed) const {
@@ -79,3 +82,6 @@ bool parse_id(const std::string& s, TUniqueId* id) {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -27,7 +27,10 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/sip_hash.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris::vectorized {
 
 class ColumnFixedLengthObject final : public COWHelper<IColumn, ColumnFixedLengthObject> {
@@ -305,3 +308,6 @@ protected:
     Container _data;
 };
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -26,7 +26,10 @@
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
 #include "jsonb_writer.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 #define OUT_BUF_SIZE 1024
@@ -291,5 +294,7 @@ private:
 };
 typedef JsonbValueCreaterT<JsonbOutStream> JsonbValueCreater;
 } // namespace doris
-
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #endif // JSONB_JSONBUTIL_H

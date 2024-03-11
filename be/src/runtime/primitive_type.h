@@ -327,7 +327,7 @@ struct PrimitiveTypeConvertor<TYPE_DATE> {
     using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType;
 
     static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return value.to_olap_date();
+        return (uint32_t)value.to_olap_date();
     }
 };
 

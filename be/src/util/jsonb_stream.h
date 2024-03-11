@@ -40,6 +40,10 @@
 #include <algorithm>
 #include <cinttypes>
 #include <iostream>
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -193,4 +197,7 @@ private:
 
 } // namespace doris
 
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #endif // JSONB_JSONBSTREAM_H

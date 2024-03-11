@@ -148,7 +148,7 @@ public:
     size_t data_disk_size() const { return rowset_meta()->total_disk_size(); }
     bool empty() const { return rowset_meta()->empty(); }
     bool zero_num_rows() const { return rowset_meta()->num_rows() == 0; }
-    size_t num_rows() const { return rowset_meta()->num_rows(); }
+    size_t num_rows() const { return (size_t)rowset_meta()->num_rows(); }
     Version version() const { return rowset_meta()->version(); }
     RowsetId rowset_id() const { return rowset_meta()->rowset_id(); }
     int64_t creation_time() const { return rowset_meta()->creation_time(); }

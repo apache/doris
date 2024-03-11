@@ -50,7 +50,7 @@ public:
     // If compact, the objects will be serialized using the Compact Protocol.  Otherwise,
     // we'll use the binary protocol.
     // Note: the deserializer must be matching.
-    ThriftSerializer(bool compact, int initial_buffer_size);
+    ThriftSerializer(bool compact, uint32_t initial_buffer_size);
 
     // Serializes obj into result.  Result will contain a copy of the memory.
     template <class T>

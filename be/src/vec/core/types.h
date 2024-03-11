@@ -31,7 +31,10 @@
 #include "vec/common/int_exp.h"
 #include "vec/core/wide_integer.h"
 #include "vec/core/wide_integer_to_string.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 class BitmapValue;
@@ -978,3 +981,6 @@ constexpr bool typeindex_is_int(doris::vectorized::TypeIndex index) {
     }
     }
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

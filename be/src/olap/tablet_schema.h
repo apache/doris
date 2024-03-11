@@ -44,7 +44,10 @@
 #include "vec/common/string_utils/string_utils.h"
 #include "vec/core/types.h"
 #include "vec/json/path_in_data.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 namespace vectorized {
 class Block;
@@ -473,3 +476,6 @@ bool operator!=(const TabletSchema& a, const TabletSchema& b);
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -52,6 +52,11 @@
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 class SipHash;
 
 namespace doris {
@@ -485,3 +490,6 @@ ColumnPtr ColumnVector<T>::index_impl(const PaddedPODArray<Type>& indexes, size_
 }
 
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

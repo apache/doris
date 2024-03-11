@@ -26,7 +26,10 @@
 #include <memory>
 #include <string>
 #include <vector>
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 /// CpuInfo is an interface to query for cpu information at runtime.  The caller can
@@ -223,3 +226,6 @@ private:
     static std::vector<int> numa_node_core_idx_;
 };
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -27,6 +27,10 @@
 #include <ostream>
 
 #include "common/logging.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -94,3 +98,6 @@ bool CIDR::contains(const CIDR& ip) const {
 }
 
 } // end namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

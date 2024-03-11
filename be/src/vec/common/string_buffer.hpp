@@ -30,7 +30,7 @@ public:
     explicit BufferWritable(ColumnString& vector)
             : _data(vector.get_chars()), _offsets(vector.get_offsets()) {}
 
-    inline void write(const char* data, int len) {
+    inline void write(const char* data, size_t len) {
         _data.insert(data, data + len);
         _now_offset += len;
     }
@@ -70,13 +70,13 @@ public:
     explicit BufferReadable(StringRef&& ref) : _data(ref.data) {}
     ~BufferReadable() = default;
 
-    inline StringRef read(int len) {
+    inline StringRef read(size_t len) {
         StringRef ref(_data, len);
         _data += len;
         return ref;
     }
 
-    inline void read(char* data, int len) {
+    inline void read(char* data, size_t len) {
         memcpy(data, _data, len);
         _data += len;
     }

@@ -31,7 +31,10 @@
 #include <string_view>
 
 #include "util/uuid_generator.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 // convert int to a hex format string, buf must enough to hold converted hex string
@@ -182,3 +185,7 @@ template <>
 struct std::hash<doris::UniqueId> {
     size_t operator()(const doris::UniqueId& uid) const { return uid.hash(); }
 };
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

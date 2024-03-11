@@ -56,6 +56,10 @@
 #include "udf/udf.h"
 #include "util/debug_util.h"
 #include "util/radix_sort.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -784,3 +788,6 @@ private:
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

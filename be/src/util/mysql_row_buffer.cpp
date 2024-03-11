@@ -38,6 +38,10 @@
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace doris {
 
@@ -627,3 +631,6 @@ template int MysqlRowBuffer<false>::push_vec_datetime<DateV2Value<DateTimeV2Valu
 template int MysqlRowBuffer<false>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value);
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

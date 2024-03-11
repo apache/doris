@@ -70,9 +70,9 @@ public:
         return this->init(optimal_bit_num(n, fpp) / 8, strategy);
     }
 
-    Status init(uint64_t filter_size) { return init(filter_size, HASH_MURMUR3_X64_64); }
+    Status init(uint32_t filter_size) { return init(filter_size, HASH_MURMUR3_X64_64); }
 
-    Status init(uint64_t filter_size, HashStrategyPB strategy) {
+    Status init(uint32_t filter_size, HashStrategyPB strategy) {
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
@@ -114,7 +114,7 @@ public:
 
     uint64_t hash(const char* buf, uint32_t size) const {
         uint64_t hash_code;
-        _hash_func(buf, size, DEFAULT_SEED, &hash_code);
+        _hash_func(buf, (int32_t)size, DEFAULT_SEED, &hash_code);
         return hash_code;
     }
 

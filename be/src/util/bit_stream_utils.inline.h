@@ -28,6 +28,11 @@
 #include "util/bit_stream_utils.h"
 #include "util/bit_util.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 using doris::BitUtil;
 
 namespace doris {
@@ -360,3 +365,6 @@ bool BatchedBitReader::GetZigZagInteger(INT_T* v) {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

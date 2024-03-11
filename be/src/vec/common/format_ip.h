@@ -30,6 +30,10 @@
 #include <cstdint>
 #include <cstring>
 #include <utility>
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 constexpr size_t IPV4_BINARY_LENGTH = 4;
 constexpr size_t IPV4_MAX_TEXT_LENGTH = 15; /// Does not count tail zero byte.
@@ -486,3 +490,6 @@ inline bool parse_ipv6_whole(const char* src, unsigned char* dst) {
 }
 
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

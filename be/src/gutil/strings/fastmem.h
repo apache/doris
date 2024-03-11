@@ -23,7 +23,10 @@
 
 #include "gutil/integral_types.h"
 #include "gutil/port.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace strings {
 
 // Return true if the n bytes at a equal the n bytes at b.
@@ -157,3 +160,6 @@ inline void memcpy_inlined(void* dst, const void* src, size_t size) {
 }
 
 } // namespace strings
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

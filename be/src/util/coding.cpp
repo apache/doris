@@ -7,7 +7,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/coding.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 uint8_t* encode_varint32(uint8_t* dst, uint32_t v) {
@@ -73,3 +76,6 @@ const uint8_t* decode_varint64_ptr(const uint8_t* p, const uint8_t* limit, uint6
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

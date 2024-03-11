@@ -24,7 +24,10 @@
 #include <cmath>
 #include <limits>
 #include <utility>
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 HistogramBucketMapper::HistogramBucketMapper() {
@@ -226,3 +229,6 @@ std::string HistogramStat::to_string() const {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

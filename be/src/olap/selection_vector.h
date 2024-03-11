@@ -40,7 +40,7 @@ public:
     }
 
     // return the number of selected rows.
-    size_t count_selected() const { return Bits::Count(_bitmap.get(), _n_bytes); }
+    int count_selected() const { return Bits::Count(_bitmap.get(), _n_bytes); }
 
     // Return true if any rows are selected, or false
     // This is equivalent to (count_selected() > 0), but faster.

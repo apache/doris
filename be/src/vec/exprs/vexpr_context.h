@@ -66,7 +66,7 @@ public:
                             "fn_context index invalid, index={}, _fn_contexts.size()={}", i,
                             _fn_contexts.size());
         }
-        return _fn_contexts[i].get();
+        return _fn_contexts[(size_t)i].get();
     }
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,

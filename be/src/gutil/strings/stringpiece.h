@@ -124,6 +124,10 @@
 #include "gutil/strings/fastmem.h"
 #include "gutil/hash/string_hash.h"
 #include "gutil/int128.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 class StringPiece {
 private:
@@ -352,3 +356,7 @@ struct GoodFastHash<StringPiece> {
 
 // allow StringPiece to be logged
 extern ostream& operator<<(ostream& o, StringPiece piece);
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

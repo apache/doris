@@ -51,6 +51,10 @@
 #include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace orc {
 /**
@@ -1222,3 +1226,6 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -34,6 +34,11 @@
 #include "vec/common/arena.h"
 #include "vec/json/path_in_data.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+
 namespace doris {
 
 // A Field is used to represent a column in memory format.
@@ -618,3 +623,7 @@ public:
 };
 
 } // namespace doris
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

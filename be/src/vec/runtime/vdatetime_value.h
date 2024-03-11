@@ -36,6 +36,10 @@
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 
 namespace cctz {
 class time_zone;
@@ -1619,3 +1623,6 @@ struct std::hash<doris::DateV2Value<doris::DateTimeV2ValueType>> {
         return doris::hash_value(v);
     }
 };
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

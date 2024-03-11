@@ -8,7 +8,10 @@
 // non-native version will be less than optimal.
 
 #include "murmur_hash3.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 //-----------------------------------------------------------------------------
 // Platform-specific functions and macros
 
@@ -503,3 +506,6 @@ void murmur_hash3_x64_64(const void* key, const int len, const uint64_t seed, vo
 }
 
 //-----------------------------------------------------------------------------
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

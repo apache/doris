@@ -38,7 +38,7 @@ public:
     // free it when deconstructs.
     PageHandle(DataPage* data) : _is_data_owner(true), _data(data) {
         _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
-        _page_tracker->consume(_data->capacity());
+        _page_tracker->consume((int64_t)_data->capacity());
     }
 
     // This class will take the content of cache data, and will make input
@@ -64,7 +64,7 @@ public:
 
     ~PageHandle() {
         if (_is_data_owner) {
-            _page_tracker->release(_data->capacity());
+            _page_tracker->release((int64_t)_data->capacity());
             delete _data;
         } else {
             DCHECK(_data == nullptr);

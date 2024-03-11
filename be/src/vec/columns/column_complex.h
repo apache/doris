@@ -31,7 +31,10 @@
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_common.h"
 #include "vec/core/types.h"
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris::vectorized {
 
 template <typename T>
@@ -417,3 +420,6 @@ template <class T>
 constexpr bool is_complex_v = is_complex<T>::value;
 
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

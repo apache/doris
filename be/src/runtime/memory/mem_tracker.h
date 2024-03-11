@@ -79,8 +79,8 @@ public:
         }
 
         bool try_add(int64_t delta, int64_t max) {
-            auto cur_val = _current_value.load(std::memory_order_relaxed);
-            auto new_val = 0;
+            int64_t cur_val = _current_value.load(std::memory_order_relaxed);
+            int64_t new_val = 0;
             do {
                 new_val = cur_val + delta;
                 if (UNLIKELY(new_val > max)) {

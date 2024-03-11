@@ -38,7 +38,10 @@
 #include "util/libjvm_loader.h"
 
 using std::string;
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 namespace doris {
 
 namespace {
@@ -524,3 +527,6 @@ Status JniUtil::Init() {
 }
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
