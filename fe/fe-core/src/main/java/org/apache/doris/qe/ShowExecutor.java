@@ -2859,6 +2859,7 @@ public class ShowExecutor {
                         java.time.ZoneId.systemDefault());
                 row.add(startTime.format(formatter));
                 row.add(endTime.format(formatter));
+                row.add(analysisInfo.priority.name());
                 resultRows.add(row);
             } catch (Exception e) {
                 LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",
@@ -2876,8 +2877,7 @@ public class ShowExecutor {
         for (AutoAnalysisPendingJob job : jobs) {
             try {
                 List<String> row = new ArrayList<>();
-                CatalogIf<? extends DatabaseIf<? extends TableIf>> c
-                        = StatisticsUtil.findCatalog(job.catalogName);
+                CatalogIf<? extends DatabaseIf<? extends TableIf>> c = StatisticsUtil.findCatalog(job.catalogName);
                 row.add(c.getName());
                 Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(job.dbName);
                 row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
