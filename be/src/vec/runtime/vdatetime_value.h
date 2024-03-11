@@ -370,7 +370,6 @@ public:
     bool from_date_str(const char* str, int len);
     bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone);
 
-    bool from_simple_format(const char* format, size_t format_len, const char* value, size_t value_len);
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
     bool from_date_int64(int64_t value);
@@ -1185,7 +1184,7 @@ public:
             return date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
         }
     }
-    bool from_simple_format(const char* format, size_t format_len, const char* value, size_t value_len);
+
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
     static constexpr int MAX_DATE_PARTS = 7;
@@ -1218,6 +1217,77 @@ private:
                 uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
+// TODO(zhaochun): Think endptr is NULL
+// Return true if convert to a integer success. Otherwise false.
+static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
+    const static uint64_t MAX_NEGATIVE_NUMBER = 0x8000000000000000;
+    const static uint64_t ULONGLONG_MAX = ~0;
+    const static uint64_t LFACTOR2 = 100000000000ULL;
+    const char* end = *endptr;
+    uint64_t cutoff_1 = 0;
+    uint64_t cutoff_2 = 0;
+    uint64_t cutoff_3 = 0;
+    // Skip space
+    while (ptr < end && (*ptr == ' ' || *ptr == '\t')) {
+        ptr++;
+    }
+    if (ptr >= end) {
+        return false;
+    }
+    // Sign
+    bool neg = false;
+    if (*ptr == '-') {
+        neg = true;
+        ptr++;
+        cutoff_1 = MAX_NEGATIVE_NUMBER / LFACTOR2;
+        cutoff_2 = (MAX_NEGATIVE_NUMBER % LFACTOR2) / 100;
+        cutoff_3 = (MAX_NEGATIVE_NUMBER % LFACTOR2) % 100;
+    } else {
+        if (*ptr == '+') {
+            ptr++;
+        }
+        cutoff_1 = ULONGLONG_MAX / LFACTOR2;
+        cutoff_2 = (ULONGLONG_MAX % LFACTOR2) / 100;
+        cutoff_3 = (ULONGLONG_MAX % LFACTOR2) % 100;
+    }
+    if (ptr >= end) {
+        return false;
+    }
+    // a valid input should at least contains one digit
+    if (!isdigit(*ptr)) {
+        return false;
+    }
+    // Skip '0'
+    while (ptr < end && *ptr == '0') {
+        ptr++;
+    }
+    const char* n_end = ptr + 9;
+    if (n_end > end) {
+        n_end = end;
+    }
+    uint64_t value_1 = 0;
+    while (ptr < n_end && isdigit(*ptr)) {
+        value_1 *= 10;
+        value_1 += *ptr++ - '0';
+    }
+    if (ptr == end || !isdigit(*ptr)) {
+        *endptr = ptr;
+        *ret = neg ? -value_1 : value_1;
+        return true;
+    }
+    // TODO
+    uint64_t value_2 = 0;
+    uint64_t value_3 = 0;
+
+    // Check overflow.
+    return value_1 <= cutoff_1 &&
+           (value_1 != cutoff_1 ||
+            (value_2 <= cutoff_2 && (value_2 != cutoff_2 || value_3 <= cutoff_3)));
+}
+#pragma clang diagnostic pop
 
 // only support DATE - DATE (no support DATETIME - DATETIME)
 std::size_t operator-(const VecDateTimeValue& v1, const VecDateTimeValue& v2);

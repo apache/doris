@@ -90,11 +90,11 @@ struct StrToDate {
     }
 
     static StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
-        const static std::string specific_format_strs[3] = {"yyyyMMdd", "yyyy-MM-dd",
-                                                            "yyyy-MM-dd HH:mm:ss"};
-        const static std::string specific_format_rewrite[3] = {"%Y%m%d", "%Y-%m-%d",
-                                                               "%Y-%m-%d %H:%i:%s"};
-        for (int i = 0; i < 3; i++) {
+        const static std::string specific_format_strs[4] = {"yyyyMMdd", "yyyy-MM-dd",
+                                                            "yyyy-MM-dd HH:mm:ss", "HH:mm:ss"};
+        const static std::string specific_format_rewrite[4] = {"%Y%m%d", "%Y-%m-%d",
+                                                               "%Y-%m-%d %H:%i:%s", "%H:%i:%s"};
+        for (int i = 0; i < 4; i++) {
             const StringRef specific_format {specific_format_strs[i].data(),
                                              specific_format_strs[i].size()};
             if (specific_format == StringRef {raw_str, str_size}) {
@@ -204,6 +204,181 @@ private:
     template <typename ArgDateType,
               typename DateValueType = date_cast::TypeToValueTypeV<ArgDateType>,
               typename NativeType = date_cast::TypeToColumnV<ArgDateType>>
+    static void from_format_Y_m_d(FunctionContext* context, const ColumnString::Chars& ldata,
+                                  const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                  PaddedPODArray<NativeType>& res, NullMap& null_map,
+                                  int* s_days_in_month) {
+        size_t size = loffsets.size();
+        for (size_t i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            size_t l_str_size = loffsets[i] - loffsets[i - 1];
+            const char* year_start = l_raw_str;
+            while (l_str_size && isspace(*year_start)) { // length without space
+                year_start++;
+                l_str_size -= 1;
+            }
+            const char* year_end = year_start + 4;
+            const char* month_start = year_end + (*year_end == '-');
+            const char* month_end = month_start + 2;
+            const char* day_start = month_end + (*month_end == '-');
+            const char* day_end = day_start + 2;
+            bool good = true;
+            if (l_str_size == 8) {
+                good = true;
+                for (int index = 0; index < 8 && good; index++) {
+                    if (!isdigit(l_raw_str[index])) good = false;
+                }
+            } else
+                good &= l_str_size >= 10 && *year_end == '-' && *month_end == '-';
+            int64_t int_value;
+            auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
+            good &= str_to_int64(year_start, &year_end, &int_value) && int_value <= 9999;
+            year = int_value;
+            int_value = 0;
+            good &= str_to_int64(month_start, &month_end, &int_value) && int_value <= 12 &&
+                    int_value != 0;
+            month = int_value;
+            int_value = 0;
+            good &= str_to_int64(day_start, &day_end, &int_value) &&
+                    int_value <= s_days_in_month[month] && int_value != 0;
+            day = int_value;
+            good |= month == 2 && day == 29 && doris::is_leap(year);
+            auto& ts_val = *reinterpret_cast<DateValueType*>(&res[i]);
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                if (!good || !ts_val.check_range_and_set_time(year, month, day, hour, minute,
+                                                              second, TIME_DATETIME)) {
+                    null_map[i] = 1;
+                }
+            } else {
+                if (!good || !ts_val.check_range_and_set_time(year, month, day, hour, minute,
+                                                              second, 0, false)) {
+                    null_map[i] = 1;
+                }
+            }
+        }
+    }
+
+    template <typename ArgDateType,
+              typename DateValueType = date_cast::TypeToValueTypeV<ArgDateType>,
+              typename NativeType = date_cast::TypeToColumnV<ArgDateType>>
+    static void from_format_Y_m_d_H_i_s(FunctionContext* context, const ColumnString::Chars& ldata,
+                                        const ColumnString::Offsets& loffsets,
+                                        const StringRef& rdata, PaddedPODArray<NativeType>& res,
+                                        NullMap& null_map, int s_days_in_month[13]) {
+        size_t size = loffsets.size();
+        for (size_t i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            size_t l_str_size = loffsets[i] - loffsets[i - 1];
+            const char* year_start = l_raw_str;
+            while (l_str_size && isspace(*year_start)) { // length without space
+                year_start++;
+                l_str_size -= 1;
+            }
+            const char* year_end = year_start + 4;
+            const char* month_start = year_end + 1;
+            const char* month_end = month_start + 2;
+            const char* day_start = month_end + 1;
+            const char* day_end = day_start + 2;
+            const char* hour_start = day_end + 1;
+            const char* hour_end = hour_start + 2;
+            const char* minute_start = hour_end + 1;
+            const char* minute_end = minute_start + 2;
+            const char* second_start = minute_end + 1;
+            const char* second_end = second_start + 2;
+            bool good = true;
+            good &= l_str_size == 19;
+            good &= *year_end == '-';
+            good &= *month_end == '-';
+            good &= *day_end == ' ';
+            good &= *hour_end == ':';
+            good &= *minute_end == ':';
+            int64_t int_value = 0;
+            auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
+            good &= str_to_int64(year_start, &year_end, &int_value) && int_value <= 9999;
+            year = int_value;
+            int_value = 0;
+            good &= str_to_int64(month_start, &month_end, &int_value) && int_value <= 12 &&
+                    int_value != 0;
+            month = int_value;
+            int_value = 0;
+            good &= str_to_int64(day_start, &day_end, &int_value) &&
+                    int_value <= s_days_in_month[month] && int_value != 0;
+            day = int_value;
+            good |= month == 2 && day == 29 && doris::is_leap(year);
+            good &= str_to_int64(hour_start, &hour_end, &int_value) && int_value < 24;
+            hour = int_value;
+            good &= str_to_int64(minute_start, &minute_end, &int_value) && int_value < 60;
+            minute = int_value;
+            good &= str_to_int64(second_start, &second_end, &int_value) && int_value < 60;
+            second = int_value;
+            auto& ts_val = *reinterpret_cast<DateValueType*>(&res[i]);
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                if (!good || !ts_val.check_range_and_set_time(year, month, day, hour, minute,
+                                                              second, TIME_DATETIME)) {
+                    null_map[i] = 1;
+                }
+            } else {
+                if (!good || !ts_val.check_range_and_set_time(year, month, day, hour, minute,
+                                                              second, 0, false)) {
+                    null_map[i] = 1;
+                }
+            }
+        }
+    }
+
+    template <typename ArgDateType,
+              typename DateValueType = date_cast::TypeToValueTypeV<ArgDateType>,
+              typename NativeType = date_cast::TypeToColumnV<ArgDateType>>
+    static void from_format_H_i_s(FunctionContext* context, const ColumnString::Chars& ldata,
+                                  const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                  PaddedPODArray<NativeType>& res, NullMap& null_map) {
+        size_t size = loffsets.size();
+        for (size_t i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            size_t l_str_size = loffsets[i] - loffsets[i - 1];
+            const char* hour_start = l_raw_str;
+            while (l_str_size && isspace(*hour_start)) { // length without space
+                hour_start++;
+                l_str_size -= 1;
+            }
+            const char* hour_end = hour_start + 2;
+            const char* minute_start = hour_end + 1;
+            const char* minute_end = minute_start + 2;
+            const char* second_start = minute_end + 1;
+            const char* second_end = second_start + 2;
+            bool good = true;
+            good &= l_str_size >= 8;
+            int64_t int_value;
+            auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
+            year = 1970;
+            month = 1;
+            day = 1;
+            good &= *hour_end == ':';
+            good &= *minute_end == ':';
+            good &= str_to_int64(hour_start, &hour_end, &int_value) && int_value < 24;
+            hour = int_value;
+            good &= str_to_int64(minute_start, &minute_end, &int_value) && int_value < 60;
+            minute = int_value;
+            good &= str_to_int64(second_start, &second_end, &int_value) && int_value < 60;
+            second = int_value;
+            auto& ts_val = *reinterpret_cast<DateValueType*>(&res[i]);
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                if (!good || !ts_val.check_range_and_set_time(year, month, day, hour, minute,
+                                                              second, TIME_DATETIME)) {
+                    null_map[i] = 1;
+                }
+            } else {
+                if (!good || !ts_val.check_range_and_set_time(year, month, day, hour, minute,
+                                                              second, 0, false)) {
+                    null_map[i] = 1;
+                }
+            }
+        }
+    }
+
+    template <typename ArgDateType,
+              typename DateValueType = date_cast::TypeToValueTypeV<ArgDateType>,
+              typename NativeType = date_cast::TypeToColumnV<ArgDateType>>
     static void execute_impl_const_right(FunctionContext* context, const ColumnString::Chars& ldata,
                                          const ColumnString::Offsets& loffsets,
                                          const StringRef& rdata, PaddedPODArray<NativeType>& res,
@@ -211,24 +386,36 @@ private:
         size_t size = loffsets.size();
         res.resize(size);
         const StringRef format_str = rewrite_specific_format(rdata.data, rdata.size);
-        for (size_t i = 0; i < size; ++i) {
-            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-            size_t l_str_size = loffsets[i] - loffsets[i - 1];
-            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, format_str.data,
-                                                           format_str.size, context, res, null_map,
-                                                           i);
+        const static std::string simple_format[4] = {"%Y%m%d", "%Y-%m-%d", "%Y-%m-%d %H:%i:%s",
+                                                     "%H:%i:%s"};
+        static constexpr int s_days_in_month[13] = {0,  31, 28, 31, 30, 31, 30,
+                                                    31, 31, 30, 31, 30, 31};
+        if (format_str == StringRef {simple_format[0].data(), simple_format[0].size()} ||
+            format_str == StringRef {simple_format[1].data(), simple_format[1].size()}) {
+            from_format_Y_m_d<ArgDateType>(context, ldata, loffsets, rdata, res, null_map,
+                                           const_cast<int*>(s_days_in_month));
+        } else if (format_str == StringRef {simple_format[2].data(), simple_format[2].size()}) {
+            from_format_Y_m_d_H_i_s<ArgDateType>(context, ldata, loffsets, rdata, res, null_map,
+                                                 const_cast<int*>(s_days_in_month));
+        } else if (format_str == StringRef {simple_format[3].data(), simple_format[3].size()}) {
+            from_format_H_i_s<ArgDateType>(context, ldata, loffsets, rdata, res, null_map);
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+                size_t l_str_size = loffsets[i] - loffsets[i - 1];
+                _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size,
+                                                               format_str.data, format_str.size,
+                                                               context, res, null_map, i);
+            }
         }
     }
 
-    template<typename DateValueType, typename NativeType>
-    static void _execute_inner_loop(const char *l_raw_str, size_t l_str_size, const char *r_raw_str,
-                                    size_t r_str_size, FunctionContext *context,
-                                    PaddedPODArray<NativeType> &res, NullMap &null_map,
+    template <typename DateValueType, typename NativeType>
+    static void _execute_inner_loop(const char* l_raw_str, size_t l_str_size, const char* r_raw_str,
+                                    size_t r_str_size, FunctionContext* context,
+                                    PaddedPODArray<NativeType>& res, NullMap& null_map,
                                     size_t index) {
-        auto &ts_val = *reinterpret_cast<DateValueType *>(&res[index]);
-        if (ts_val.from_simple_format(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
-            return;
-        }
+        auto& ts_val = *reinterpret_cast<DateValueType*>(&res[index]);
         if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
             null_map[index] = 1;
         } else {
