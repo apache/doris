@@ -46,7 +46,7 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                 .matches(
                         logicalAggregate(
                                 logicalFilter().when(filter -> filter.getConjuncts().stream()
-                                        .allMatch(e -> e instanceof Not))
+                                        .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
                         )
                 );
     }

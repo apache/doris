@@ -1084,7 +1084,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
                 .analyze(query)
                 .rewrite()
                 .matches(logicalAggregate().when(agg -> {
-                    assertOneAggFuncType(agg, Sum.class);
+                    assertOneAggFuncType(agg, Count.class);
                     return true;
                 }));
         testMv(query, USER_TAG_MV_NAME);

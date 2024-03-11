@@ -527,37 +527,41 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                    logicalProject(
-                        logicalJoin(
-                            logicalFilter(
-                                    logicalOlapScan()
-                            ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
-                                    & filter.getPredicate().toSql().contains("k1 = 3")),
-                            logicalProject(
-                                logicalJoin(
+                        logicalProject(
+                            logicalJoin(
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                        & filter.getPredicate().toSql().contains("k1 = 3")),
+                                logicalProject(
                                     logicalJoin(
-                                       logicalProject(
-                                               logicalFilter(
-                                                       logicalOlapScan()
-                                               ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
-                                                       & filter.getPredicate().toSql().contains("k3 = 3"))
-                                       ),
-                                       logicalProject(
-                                               logicalFilter(
-                                                       logicalOlapScan()
-                                               ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
-                                                       & filter.getPredicate().toSql().contains("k1 = 3"))
-                                       )
-                                    ),
-                                    logicalAggregate(
-                                        logicalProject(
-                                                logicalOlapScan()
+                                        logicalJoin(
+                                           logicalProject(
+                                                   logicalFilter(
+                                                           logicalOlapScan()
+                                                   ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                                           & filter.getPredicate().toSql().contains("k3 = 3"))
+                                           ),
+                                           logicalProject(
+                                                   logicalFilter(
+                                                           logicalOlapScan()
+                                                   ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                                           & filter.getPredicate().toSql().contains("k1 = 3"))
+                                           )
+                                        ),
+                                        logicalFilter(
+                                                logicalAggregate(
+                                                        logicalProject(
+                                                                logicalFilter(
+                                                                        logicalOlapScan()
+                                                                )
+                                                        )
+                                                )
                                         )
                                     )
                                 )
                             )
                         )
-                    )
                 );
     }
 

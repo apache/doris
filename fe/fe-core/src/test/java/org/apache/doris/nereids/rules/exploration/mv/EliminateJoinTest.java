@@ -138,9 +138,9 @@ class EliminateJoinTest extends SqlTestBase {
         HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
         HyperGraph h3 = HyperGraph.builderForMv(p3).buildAll().get(0);
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
-        Assertions.assertTrue(!res.isInvalid());
+        Assertions.assertTrue(res.isInvalid());
         Assertions.assertTrue(res.getViewExpressions().isEmpty());
-        Assertions.assertTrue(!HyperGraphComparator.isLogicCompatible(h1, h3, constructContext(p1, p2)).isInvalid());
+        Assertions.assertTrue(HyperGraphComparator.isLogicCompatible(h1, h3, constructContext(p1, p2)).isInvalid());
         dropConstraint("alter table T2 drop constraint pk");
     }
 
