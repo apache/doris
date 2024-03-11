@@ -487,7 +487,7 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
 
 void VDataStreamRecvr::SenderQueue::update_blocks_memory_usage(int64_t size) {
     _recvr->update_blocks_memory_usage(size);
-    if (_recvr->exceeds_limit(0)) {
+    if (_local_channel_dependency && _recvr->exceeds_limit(0)) {
         _local_channel_dependency->block();
     }
 }
