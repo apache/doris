@@ -149,10 +149,9 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {
+        COUNTER_UPDATE(local_state._sort_blocks_memory_usage, (int64_t)in_block->bytes());
         RETURN_IF_ERROR(local_state._shared_state->sorter->append_block(in_block));
         local_state._mem_tracker->set_consumption(local_state._shared_state->sorter->data_size());
-        COUNTER_SET(local_state._sort_blocks_memory_usage,
-                    (int64_t)local_state._shared_state->sorter->data_size());
         RETURN_IF_CANCELLED(state);
 
         // update runtime predicate
@@ -176,4 +175,25 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     return Status::OK();
 }
 
+size_t SortSinkOperatorX::get_revocable_mem_size(RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->data_size();
+}
+
+Status SortSinkOperatorX::prepare_for_spill(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->prepare_for_read();
+}
+
+Status SortSinkOperatorX::merge_sort_read_for_spill(RuntimeState* state,
+                                                    doris::vectorized::Block* block, int batch_size,
+                                                    bool* eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->merge_sort_read_for_spill(state, block, batch_size,
+                                                                        eos);
+}
+void SortSinkOperatorX::reset(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    local_state._shared_state->sorter->reset();
+}
 } // namespace doris::pipeline
