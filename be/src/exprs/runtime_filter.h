@@ -146,8 +146,11 @@ public:
 
     bool is_runtime_filter() const { return _filter_id != -1; }
 
-private:
+    void set_null_aware(bool null_aware) { _null_aware = null_aware; }
+
+protected:
     int _filter_id = -1;
+    bool _null_aware = false;
 };
 
 struct UpdateRuntimeFilterParams {
