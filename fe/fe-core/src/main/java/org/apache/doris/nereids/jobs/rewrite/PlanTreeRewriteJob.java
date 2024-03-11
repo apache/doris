@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlanProcess;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
@@ -26,8 +27,6 @@ import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
-
-import com.google.common.base.Preconditions;
 
 import java.util.List;
 
@@ -38,11 +37,9 @@ public abstract class PlanTreeRewriteJob extends Job {
         super(type, context);
     }
 
-    protected RewriteResult rewrite(Plan plan, List<Rule> rules, RewriteJobContext rewriteJobContext) {
-        // boolean traceEnable = isTraceEnable(context);
-        boolean isRewriteRoot = rewriteJobContext.isRewriteRoot();
+    protected final RewriteResult rewrite(Plan plan, List<Rule> rules, RewriteJobContext rewriteJobContext) {
         CascadesContext cascadesContext = context.getCascadesContext();
-        cascadesContext.setIsRewriteRoot(isRewriteRoot);
+        cascadesContext.setIsRewriteRoot(rewriteJobContext.isRewriteRoot());
 
         boolean showPlanProcess = cascadesContext.showPlanProcess();
         for (Rule rule : rules) {
@@ -52,8 +49,9 @@ public abstract class PlanTreeRewriteJob extends Job {
             Pattern<Plan> pattern = (Pattern<Plan>) rule.getPattern();
             if (pattern.matchPlanTree(plan)) {
                 List<Plan> newPlans = rule.transform(plan, cascadesContext);
-                Preconditions.checkState(newPlans.size() == 1,
-                        "Rewrite rule should generate one plan: " + rule.getRuleType());
+                if (newPlans.size() != 1) {
+                    throw new AnalysisException("Rewrite rule should generate one plan: " + rule.getRuleType());
+                }
                 Plan newPlan = newPlans.get(0);
                 if (!newPlan.deepEquals(plan)) {
                     // don't remove this comment, it can help us to trace some bug when developing.
@@ -78,13 +76,13 @@ public abstract class PlanTreeRewriteJob extends Job {
         return new RewriteResult(false, plan);
     }
 
-    protected Plan linkChildrenAndParent(Plan plan, RewriteJobContext rewriteJobContext) {
+    protected final Plan linkChildrenAndParent(Plan plan, RewriteJobContext rewriteJobContext) {
         Plan newPlan = linkChildren(plan, rewriteJobContext.childrenContext);
         rewriteJobContext.setResult(newPlan);
         return newPlan;
     }
 
-    protected Plan linkChildren(Plan plan, RewriteJobContext[] childrenContext) {
+    protected final Plan linkChildren(Plan plan, RewriteJobContext[] childrenContext) {
         boolean changed = false;
         Plan[] newChildren = new Plan[childrenContext.length];
         for (int i = 0; i < childrenContext.length; ++i) {

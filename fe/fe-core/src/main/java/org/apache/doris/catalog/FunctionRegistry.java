@@ -98,10 +98,15 @@ public class FunctionRegistry {
                 String combinatorSuffix = AggCombinerFunctionBuilder.getCombinatorSuffix(name);
                 functionBuilders = name2InternalBuiltinBuilders.get(nestedName.toLowerCase());
                 if (functionBuilders != null) {
-                    functionBuilders = functionBuilders.stream()
-                            .map(builder -> new AggCombinerFunctionBuilder(combinatorSuffix, builder))
-                            .filter(functionBuilder -> functionBuilder.canApply(arguments))
-                            .collect(Collectors.toList());
+                    List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(functionBuilders.size());
+                    for (FunctionBuilder functionBuilder : functionBuilders) {
+                        AggCombinerFunctionBuilder combinerBuilder
+                                = new AggCombinerFunctionBuilder(combinatorSuffix, functionBuilder);
+                        if (combinerBuilder.canApply(arguments)) {
+                            candidateBuilders.add(combinerBuilder);
+                        }
+                    }
+                    functionBuilders = candidateBuilders;
                 }
             }
         }
@@ -115,9 +120,12 @@ public class FunctionRegistry {
         }
 
         // check the arity and type
-        List<FunctionBuilder> candidateBuilders = functionBuilders.stream()
-                .filter(functionBuilder -> functionBuilder.canApply(arguments))
-                .collect(Collectors.toList());
+        List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(arguments.size());
+        for (FunctionBuilder functionBuilder : functionBuilders) {
+            if (functionBuilder.canApply(arguments)) {
+                candidateBuilders.add(functionBuilder);
+            }
+        }
         if (candidateBuilders.isEmpty()) {
             String candidateHints = getCandidateHint(name, functionBuilders);
             throw new AnalysisException("Can not found function '" + qualifiedName
