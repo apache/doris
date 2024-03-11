@@ -37,12 +37,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.HashSet;
@@ -144,8 +143,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // collect all trival-agg
         List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
-        List<AggregateFunction> aggFuncs = Lists.newArrayList();
-        aggregateOutput.forEach(o -> o.accept(PlanUtils.CollectNonWindowedAggFuncs.INSTANCE, aggFuncs));
+        List<AggregateFunction> aggFuncs = CollectNonWindowedAggFuncs.collect(aggregateOutput);
 
         // split non-distinct agg child as two part
         // TRUE part 1: need push down itself, if it contains subqury or window expression

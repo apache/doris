@@ -47,7 +47,6 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -336,7 +335,25 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             return false;
         }
         Expression that = (Expression) o;
-        return Objects.equals(children(), that.children());
+        if (this.width != that.width || this.depth != that.depth || arity() != that.arity() || !extraEquals(that)) {
+            return false;
+        }
+        return equalsChildren(that);
+    }
+
+    protected boolean equalsChildren(Expression that) {
+        List<Expression> children = children();
+        List<Expression> thatChildren = that.children();
+        for (int i = 0; i < children.size(); i++) {
+            if (!children.get(i).equals(thatChildren.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    protected boolean extraEquals(Expression that) {
+        return true;
     }
 
     @Override

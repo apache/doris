@@ -74,15 +74,8 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        BoundFunction that = (BoundFunction) o;
-        return Objects.equals(name, that.name) && Objects.equals(children, that.children);
+    protected boolean extraEquals(Expression that) {
+        return Objects.equals(name, ((BoundFunction) that).name);
     }
 
     @Override

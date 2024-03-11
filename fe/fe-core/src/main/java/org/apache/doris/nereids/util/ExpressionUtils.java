@@ -645,9 +645,11 @@ public class ExpressionUtils {
 
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
-        return expressions.stream()
-                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
-                .collect(Collectors.toSet());
+        Set<E> set = new HashSet<>();
+        for (Expression expr : expressions) {
+            set.addAll(expr.collect(predicate));
+        }
+        return set;
     }
 
     public static <E> List<E> collectAll(Collection<? extends Expression> expressions,
@@ -717,9 +719,11 @@ public class ExpressionUtils {
      * Get input slot set from list of expressions.
      */
     public static Set<Slot> getInputSlotSet(Collection<? extends Expression> exprs) {
-        return exprs.stream()
-                .flatMap(expr -> expr.getInputSlots().stream())
-                .collect(ImmutableSet.toImmutableSet());
+        Set<Slot> set = new HashSet<>();
+        for (Expression expr : exprs) {
+            set.addAll(expr.getInputSlots());
+        }
+        return set;
     }
 
     public static boolean checkTypeSkipCast(Expression expression, Class<? extends Expression> cls) {

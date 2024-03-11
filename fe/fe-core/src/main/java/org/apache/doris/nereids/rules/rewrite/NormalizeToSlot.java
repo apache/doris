@@ -23,19 +23,16 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiFunction;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -119,9 +116,7 @@ public interface NormalizeToSlot {
 
         public <E extends Expression> List<E> normalizeToUseSlotRefWithoutWindowFunction(
                 Collection<E> expressions) {
-            return expressions.stream()
-                    .map(e -> (E) e.accept(NormalizeWithoutWindowFunction.INSTANCE, normalizeToSlotMap))
-                    .collect(Collectors.toList());
+            return NormalizeWithoutWindowFunction.normalize(expressions, normalizeToSlotMap);
         }
 
         /**
@@ -145,50 +140,64 @@ public interface NormalizeToSlot {
      * replace any expression except window function.
      * because the window function could be same with aggregate function and should never be replaced.
      */
-    class NormalizeWithoutWindowFunction
-            extends DefaultExpressionRewriter<Map<Expression, NormalizeToSlotTriplet>> {
-
-        public static final NormalizeWithoutWindowFunction INSTANCE = new NormalizeWithoutWindowFunction();
-
-        private NormalizeWithoutWindowFunction() {
-        }
-
-        @Override
-        public Expression visit(Expression expr, Map<Expression, NormalizeToSlotTriplet> replaceMap) {
-            if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr).remainExpr;
+    class NormalizeWithoutWindowFunction {
+        public static <E extends Expression> List<E> normalize(
+                Collection<E> exprs, Map<Expression, NormalizeToSlotTriplet> replaceMap) {
+            ImmutableList.Builder<E> normalized = ImmutableList.builderWithExpectedSize(exprs.size());
+            for (Expression expr : exprs) {
+                normalized.add((E) normalize(expr, replaceMap));
             }
-            return super.visit(expr, replaceMap);
+            return normalized.build();
         }
 
-        @Override
-        public Expression visitWindow(WindowExpression windowExpression,
+        private static Expression normalize(
+                Expression expr, Map<Expression, NormalizeToSlotTriplet> replaceMap) {
+            return expr.rewriteDownShortCircuit(child -> {
+                NormalizeToSlotTriplet triplet = replaceMap.get(child);
+                if (triplet != null) {
+                    return triplet.remainExpr;
+                }
+                if (child instanceof WindowExpression) {
+                    return normalizeWindow((WindowExpression) child, replaceMap);
+                } else {
+                    return child;
+                }
+            });
+        }
+
+        private static Expression normalizeWindow(WindowExpression windowExpression,
                 Map<Expression, NormalizeToSlotTriplet> replaceMap) {
-            if (replaceMap.containsKey(windowExpression)) {
-                return replaceMap.get(windowExpression).remainExpr;
-            }
-            List<Expression> newChildren = new ArrayList<>();
-            Expression function = super.visit(windowExpression.getFunction(), replaceMap);
+            ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(
+                    windowExpression.getPartitionKeys().size() + windowExpression.getOrderKeys().size() + 2);
+
+            Expression function = normalize(windowExpression.getFunction(), replaceMap);
             newChildren.add(function);
+
             boolean hasNewChildren = function != windowExpression.getFunction();
             for (Expression partitionKey : windowExpression.getPartitionKeys()) {
-                Expression newChild = partitionKey.accept(this, replaceMap);
+                Expression newChild = normalize(partitionKey, replaceMap);
                 if (newChild != partitionKey) {
                     hasNewChildren = true;
                 }
                 newChildren.add(newChild);
             }
+
             for (Expression orderKey : windowExpression.getOrderKeys()) {
-                Expression newChild = orderKey.accept(this, replaceMap);
+                Expression newChild = normalize(orderKey, replaceMap);
                 if (newChild != orderKey) {
                     hasNewChildren = true;
                 }
                 newChildren.add(newChild);
             }
+
+            if (!hasNewChildren) {
+                return windowExpression;
+            }
+
             if (windowExpression.getWindowFrame().isPresent()) {
                 newChildren.add(windowExpression.getWindowFrame().get());
             }
-            return hasNewChildren ? windowExpression.withChildren(newChildren) : windowExpression;
+            return windowExpression.withChildren(newChildren.build());
         }
     }
 
