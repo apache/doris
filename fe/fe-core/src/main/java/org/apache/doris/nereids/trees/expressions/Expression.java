@@ -64,22 +64,26 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final int width;
     // Mark this expression is from predicate infer or something else infer
     private final boolean inferred;
+    private final boolean hasUnbound;
     private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(() -> collect(Slot.class::isInstance));
 
     protected Expression(Expression... children) {
         super(children);
         int maxChildDepth = 0;
         int sumChildWidth = 0;
+        boolean hasUnbound = false;
         for (int i = 0; i < children.length; ++i) {
             Expression child = children[i];
             maxChildDepth = Math.max(child.depth, maxChildDepth);
             sumChildWidth += child.width;
+            hasUnbound |= child.hasUnbound;
         }
         this.depth = maxChildDepth + 1;
         this.width = sumChildWidth + ((children.length == 0) ? 1 : 0);
 
         checkLimit();
         this.inferred = false;
+        this.hasUnbound = hasUnbound || this instanceof Unbound;
     }
 
     protected Expression(List<Expression> children) {
@@ -90,16 +94,19 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         super(children);
         int maxChildDepth = 0;
         int sumChildWidth = 0;
+        boolean hasUnbound = false;
         for (int i = 0; i < children.size(); ++i) {
             Expression child = children.get(i);
             maxChildDepth = Math.max(child.depth, maxChildDepth);
             sumChildWidth += child.width;
+            hasUnbound |= child.hasUnbound;
         }
         this.depth = maxChildDepth + 1;
         this.width = sumChildWidth + ((children.isEmpty()) ? 1 : 0);
 
         checkLimit();
         this.inferred = inferred;
+        this.hasUnbound = hasUnbound || this instanceof Unbound;
     }
 
     private void checkLimit() {
@@ -368,15 +375,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * This expression has unbound symbols or not.
      */
     public boolean hasUnbound() {
-        if (this instanceof Unbound) {
-            return true;
-        }
-        for (Expression child : children) {
-            if (child.hasUnbound()) {
-                return true;
-            }
-        }
-        return false;
+        return this.hasUnbound;
     }
 
     public String shapeInfo() {

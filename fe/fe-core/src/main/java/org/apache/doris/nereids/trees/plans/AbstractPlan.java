@@ -75,8 +75,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
         Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
-        this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
-                this::computeLogicalProperties));
+        this.logicalPropertiesSupplier = Suppliers.memoize(() ->
+                optLogicalProperties.orElseGet(this::computeLogicalProperties));
         this.statistics = statistics;
         this.id = StatementScopeIdGenerator.newObjectId();
     }
