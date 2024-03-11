@@ -46,7 +46,7 @@ under the License.
 - 不论是基础的过滤、排序、聚合，或者复杂的多表关联查询、子查询以及窗口函数计算，2.1.0 版本都有更为明显的性能优势；
 - 2.0.5 版本或 2.1.0 版本，都可以完整执行 TPC-DS 的 99 个查询。
 
-![复杂查询性能提升 100%，TPC-DS 业界领先](../../../images/2.1-Doris-TPC-DS-best-performance.png)
+![复杂查询性能提升 100%，TPC-DS 业界领先](/images/2.1-Doris-TPC-DS-best-performance.png)
 
 以上详细测试结果我们将在后续提交到 Apache Doris 官网文档中，也欢迎所有用户在完成最新版本的部署后进行测试复现。
 
@@ -69,7 +69,7 @@ under the License.
 
 在复杂数据分析场景下，每次查询都需要扫描大量的数据进行计算，因此 IO 瓶颈很大程度上决定了查询性能的上限。为了提升 Scan IO 的性能，Apache Doris 采取了并行读取的技术，每个扫描线程读取 1 个或者多个 Tablet（即用户建表时指定的 Bucket），但如若用户建表时指定的Bucket 数目不合理、那么磁盘扫描线程就无法并行工作，直接影响查询性能。 为此，在 2.1 版本中我们引入了 Tablet 内的并行扫描技术，可以将多个 Tablet 进行池化，在磁盘扫描端可以根据行数来拆分多个线程并行扫描（最多支持 48 个线程），从而有效避免分桶数不合理导致的查询性能问题。
 
-![Parallel Adaptive Scan 并行自适应扫描](../images/2.1-doris-parallel-adaptive-scan.png)
+![Parallel Adaptive Scan 并行自适应扫描](/images/2.1-doris-parallel-adaptive-scan.png)
 
 因此在 2.1 版本以后，我们建议用户**在建表时设置的分桶数=整个集群磁盘的数量**，在 IO 层面能将整个集群所有的 IO 资源全部利用起来。
 
@@ -79,13 +79,13 @@ under the License.
 
 在部分场景下，数据分布不均会导致多个 Instance 的查询执行出现长尾。而为了解决单个 BE 节点上多个 Instance 之间的数据倾斜问题，在Apache Doris 2.1 版本中我们引入了 Local Shuffle 技术，尽可能将数据打散从而加速查询。例如在某一典型的聚合查询中，数据在经过聚合之前将会通过一个 Local Shuffle 节点被均匀分布在不同的 Pipeline Task 中，如下图所示：
 
-![Local Shuffle](../images/2.1-doris-local-shuffle.png)
+![Local Shuffle](/images/2.1-doris-local-shuffle.png)
 
 在具备了 Parallel Adaptive Scan 和 Local Shuffle 能力之后，Apache Doris 能够规避由于分桶数不合理、数据分布不均带来的性能问题。
 
 在此我们分别使用 Clickbench（大宽表场景）和 TPC-H（多表 Join 的复杂分析场景） 数据集模拟建表分桶不合理的情况，在 Clickbench 数据集中我们建表 Bucket 数量分别设为 1 和 16 ，在 TPC-H 100G 数据集下我们建表时每个 Partition 的 Bucket 数目分别设为 1 和 16。在开启 Parallel Adaptive Scan 和 Local Shuffle 之后，整体查询性能表现比较平稳，即使不合理的数据分布也能取得优异的性能表现。
 
-![Local Shuffle Clickbench and TPCH-100](../images/2.1-Doris-TPC-DS-best-performance.png)
+![Local Shuffle Clickbench and TPCH-100](/images/2.1-Doris-TPC-DS-best-performance.png)
 
 
 :::warning
@@ -109,7 +109,7 @@ under the License.
 
 在 2.1 版本中，我们对数据湖分析方面做了大量改进，包括对 HDFS 和对象存储的 IO 优化、Parquet/ORC 文件格式的读取反序列优化、浮点类型解压优化、谓词下推执行优化、缓存策略以及扫描任务调度策略的优化，以及针对不同数据源的统计信息准确性的提升及更精准的优化器代价模型。基于以上优化，Apache Doris 在数据湖分析场景下的性能得到大幅度提升。
 
-![Doris 数据湖分析-性能提升](../images/2.1-doris-TPC-DS.png)
+![Doris 数据湖分析-性能提升](/images/2.1-doris-TPC-DS.png)
 
 在此我们以 TPC-DS 1TB 场景下进行测试，Apache Doris 2.1 版本和 Trino 435 版本的性能测试结果如下：
 
@@ -138,7 +138,7 @@ under the License.
 
 作为用于大规模数据处理的列式内存格式，Apache Arrow 提供了高效的数据结构、允许不同系统间更快共享数据。如果源数据库和目标客户端都支持 Apache Arrow 作为列式内存格式，使用 Arrow Flight SQL 协议传输将无需序列化和反序列化数据，消除数据传输中的开销。同时 Arrow Flight 还可以利用多节点和多核架构，通过完全并行化优化吞吐能力。
 
-![高速数据读取，数据传输效率提升 100 倍](../images/2.1-doris-arrow-flight.png)
+![高速数据读取，数据传输效率提升 100 倍](/images/2.1-doris-arrow-flight.png)
 
 在过去如果需要采取 Python 读取 Apache Doris 中的数据，需要将 Apache Doris 中列存的 Block 序列化为 MySQL 协议的行存 Bytes，然后在 Python 客户端再反序列化到 Pandas 中，传输过程带来的性能损耗非常大。
 
@@ -159,7 +159,7 @@ print(cursor.fetchallarrow().to_pandas())
 针对常见的数据类型，我们通过不同的 MySQL 客户端进行了对比测试，基于 Arrow Flight SQL 数据传输性能相较于 MySQL 协议提升了近百倍。
 
 
-![Arrow Flight SQL](../images/2.1-doris-arrow-flight-sql.png)
+![Arrow Flight SQL](/images/2.1-doris-arrow-flight-sql.png)
 
 
 :::note
@@ -402,7 +402,7 @@ PROPERTIES (
 
 在 Apache Doris 2.1 版本中，为了进一步提升`INSERT INTO…SELECT` 性能，我们实现了 MemTable 前移以进一步减少导入过程中的开销，能在大多数场景中能在 2.0 版本的基础上取得 100% 的导入性能提升。
 
-![INSERT INTO SELECT 导入性能提升 100%](../images/2.1-doris-INSERT-INTO-SELECT.png)
+![INSERT INTO SELECT 导入性能提升 100%](/images/2.1-doris-INSERT-INTO-SELECT.png)
 
 
 MemTable 前移和非前移的流程对比如上图所示，Sink 节点不再发送编码后的 Block，而是在本地处理完 MemTable 将生成的 Segment 数据发给下游节点，减少了数据多次编码的开销，同时使内存反压更准确和及时。此外，我们使用了 Streaming RPC 来替代了 Ping-pong RPC ，减少了数据传输过程中的等待。
@@ -425,13 +425,13 @@ MemTable 前移和非前移的流程对比如上图所示，Sink 节点不再发
 在数据导入过程中，不同批次导入的数据都会写入内存表中，随后在磁盘中上形成一个个 RowSet 文件，每个 Rowset 文件对应一次数据导入版本。后台 Compacttion 进程会自动对多个版本的 RowSet 文件进行合并，将多个 RowSet 小文件合并成 RowSet 大文件以优化查询性能以及存储空间，而每一次的 Compaction 进程都会产生对 CPU、内存以及磁盘 IO 资源的消耗。在实际数据写入场景中，写入越实时高频、生成 RowSet 版本数越高、Compaction 所消耗的资源就越大。为了避免高频写入带来的过多资源消耗甚至 OOM，Apache Doris 引入了反压机制，即在版本过多的情况下会返回 -235 ，并对数据的版本数量进行控制。
 
 
-![高频实时导入/服务端攒批 Group Commit](../images/2.1-doris-group-commit.png)
+![高频实时导入/服务端攒批 Group Commit](/images/2.1-doris-group-commit.png)
 
 从 Apache Doris 2.1 版本开始，我们引入了服务端攒批 Group Commit，大幅强化了高并发、高频实时写入的能力。
 
 顾名思义， Group Commit 会把用户侧的多次写入在 BE 端进行积攒后批量提交。对于用户而言，无需控制写入程序的频率，Doris 会自动把用户提交的多次写入在内部合并为一个版本，从而可以大幅提升用户侧的写入频次。
 
-![高频实时导入/服务端攒批 Group Commit](../../../images/2.1-doris-group-commit-2.png)
+![高频实时导入/服务端攒批 Group Commit](/images/2.1-doris-group-commit-2.png)
 
 当前 Group Commit 已经支持同步模式 `sync_mode` 和异步模式 `async_mode`。同步模式下会将多个导入在一个事务提交，事务提交后导入返回，在导入完成后数据立即可见。异步模式下数据会先写入 WAL，Apache Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。为了防止 WAL 占用较大的磁盘空间，单次导入数据量较大时，会自动切换为`sync_mode`。
 
