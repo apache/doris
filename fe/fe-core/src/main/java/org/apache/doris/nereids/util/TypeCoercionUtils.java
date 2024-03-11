@@ -954,7 +954,8 @@ public class TypeCoercionUtils {
         if (inPredicate.getOptions().stream().map(Expression::getDataType)
                 .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
             if (!supportCompare(inPredicate.getCompareExpr().getDataType())
-                    && !inPredicate.getCompareExpr().getDataType().isStructType()) {
+                    && !inPredicate.getCompareExpr().getDataType().isStructType() && !inPredicate.getCompareExpr()
+                    .getDataType().isArrayType()) {
                 throw new AnalysisException("data type " + inPredicate.getCompareExpr().getDataType()
                         + " could not used in InPredicate " + inPredicate.toSql());
             }
@@ -970,8 +971,13 @@ public class TypeCoercionUtils {
             throw new AnalysisException("data type " + optionalCommonType.get()
                     + " is not match " + inPredicate.getCompareExpr().getDataType() + " used in InPredicate");
         }
+        if (inPredicate.getCompareExpr().getDataType().isArrayType() && optionalCommonType.isPresent()
+                && !optionalCommonType.get().isArrayType()) {
+            throw new AnalysisException("data type " + optionalCommonType.get()
+                    + " is not match " + inPredicate.getCompareExpr().getDataType() + " used in InPredicate");
+        }
         if (optionalCommonType.isPresent() && !supportCompare(optionalCommonType.get())
-                && !optionalCommonType.get().isStructType()) {
+                && !optionalCommonType.get().isStructType() && !optionalCommonType.get().isArrayType()) {
             throw new AnalysisException("data type " + optionalCommonType.get()
                     + " could not used in InPredicate " + inPredicate.toSql());
         }
