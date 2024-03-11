@@ -641,10 +641,10 @@ Status CompactionMixin::do_inverted_index_compaction() {
             for (int src_segment_id = 0; src_segment_id < src_segment_num; src_segment_id++) {
                 auto src_dir =
                         DORIS_TRY(inverted_index_file_readers[src_segment_id]->open(index_meta));
-                src_index_dirs[src_segment_id] = std::move(src_dir.release());
+                src_index_dirs[src_segment_id] = src_dir.release();
             }
             for (int dest_segment_id = 0; dest_segment_id < dest_segment_num; dest_segment_id++) {
-                auto dest_dir =
+                auto* dest_dir =
                         DORIS_TRY(inverted_index_file_writers[dest_segment_id]->open(index_meta));
                 dest_index_dirs[dest_segment_id] = dest_dir;
             }

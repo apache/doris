@@ -2526,6 +2526,12 @@ public class Config extends ConfigBase {
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "倒排索引默认存储格式",
+            "Default storage format of inverted index, the default value is V1."
+    })
+    public static String inverted_index_storage_format = "V1";
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

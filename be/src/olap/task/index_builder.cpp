@@ -95,18 +95,22 @@ Status IndexBuilder::update_inverted_index_info() {
                                << " index_id: " << t_inverted_index.index_id;
                     continue;
                 }
-                for (int seg_id = 0; seg_id < num_segments; seg_id++) {
-                    auto segment_full_path = io::Path(static_cast<BetaRowset*>(input_rowset.get())
-                                                              ->segment_file_path(seg_id));
-                    auto index_file_full_path = InvertedIndexDescriptor::get_index_file_name(
-                            segment_full_path, index_meta->index_id(),
-                            index_meta->get_index_suffix());
-                    int64_t index_size = 0;
-                    RETURN_IF_ERROR(input_rowset->rowset_meta()->fs()->file_size(
-                            index_file_full_path, &index_size));
-                    VLOG_DEBUG << "inverted index file:" << index_file_full_path
-                               << " size:" << index_size;
-                    drop_index_size += index_size;
+                if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    for (int seg_id = 0; seg_id < num_segments; seg_id++) {
+                        auto segment_full_path =
+                                io::Path(static_cast<BetaRowset*>(input_rowset.get())
+                                                 ->segment_file_path(seg_id));
+                        auto index_file_full_path = InvertedIndexDescriptor::get_index_file_name(
+                                segment_full_path, index_meta->index_id(),
+                                index_meta->get_index_suffix());
+                        int64_t index_size = 0;
+                        RETURN_IF_ERROR(input_rowset->rowset_meta()->fs()->file_size(
+                                index_file_full_path, &index_size));
+                        VLOG_DEBUG << "inverted index file:" << index_file_full_path
+                                   << " size:" << index_size;
+                        drop_index_size += index_size;
+                    }
                 }
                 output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
             }
