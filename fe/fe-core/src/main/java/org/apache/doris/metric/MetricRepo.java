@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -336,7 +337,11 @@ public final class MetricRepo {
                 if (editLog == null) {
                     return -1L;
                 }
-                return editLog.getMaxJournalId();
+                try {
+                    return editLog.getMaxJournalId();
+                } catch (FatalLogException e) {
+                    return -1L;
+                }
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(maxJournalId);

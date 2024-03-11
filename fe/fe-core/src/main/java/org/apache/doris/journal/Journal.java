@@ -18,6 +18,7 @@
 package org.apache.doris.journal;
 
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.journal.bdbje.FatalLogException;
 
 import java.io.IOException;
 import java.util.List;
@@ -25,26 +26,26 @@ import java.util.List;
 public interface Journal {
 
     // Open the journal environment
-    public void open();
+    public void open() throws FatalLogException;
 
     // Roll Edit file or database
     public void rollJournal();
 
     // Get the newest journal id
-    public long getMaxJournalId();
+    public long getMaxJournalId() throws FatalLogException;
 
     // Get the oldest journal id
-    public long getMinJournalId();
+    public long getMinJournalId() throws FatalLogException;
 
     // Close the environment
     public void close();
 
     // Get the journal which id = journalId
-    public JournalEntity read(long journalId);
+    public JournalEntity read(long journalId) throws FatalLogException;
 
     // Get all the journals whose id: fromKey <= id <= toKey
     // toKey = -1 means toKey = Long.Max_Value
-    public JournalCursor read(long fromKey, long toKey);
+    public JournalCursor read(long fromKey, long toKey) throws FatalLogException;
 
     // Write a journal and sync to disk
     public long write(short op, Writable writable) throws IOException;
@@ -58,12 +59,12 @@ public interface Journal {
     public long getJournalNum();
 
     // Delete journals whose max id is less than deleteToJournalId
-    public void deleteJournals(long deleteJournalToId);
+    public void deleteJournals(long deleteJournalToId) throws FatalLogException;
 
     // Current db's min journal id - 1
-    public long getFinalizedJournalId();
+    public long getFinalizedJournalId() throws FatalLogException;
 
     // Get all the dbs' name
-    public List<Long> getDatabaseNames();
+    public List<Long> getDatabaseNames() throws FatalLogException;
 
 }

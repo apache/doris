@@ -32,6 +32,7 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.ConnectContext;
@@ -247,8 +248,14 @@ public class ShowAction extends RestBaseController {
         HashMap<String, String> feInfo = new HashMap<String, String>();
         feInfo.put("role", Env.getCurrentEnv().getFeType().toString());
         if (Env.getCurrentEnv().isMaster()) {
+            long maxJournalId = -1;
+            try {
+                maxJournalId = Env.getCurrentEnv().getEditLog().getMaxJournalId();
+            } catch (FatalLogException e) {
+                LOG.warn("getHaInfo error.", e);
+            }
             feInfo.put("current_journal_id",
-                    String.valueOf(Env.getCurrentEnv().getEditLog().getMaxJournalId()));
+                    String.valueOf(maxJournalId));
         } else {
             feInfo.put("current_journal_id",
                     String.valueOf(Env.getCurrentEnv().getReplayedJournalId()));

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.journal.bdbje.FatalLogException;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.system.Frontend;
 
@@ -73,7 +74,13 @@ public class HaController {
 
         if (Env.getCurrentEnv().isMaster()) {
             info.put("Name", "FrontendRole");
-            info.put("Value", Env.getCurrentEnv().getEditLog().getMaxJournalId());
+            long maxJournalId = -1;
+            try {
+                maxJournalId = Env.getCurrentEnv().getEditLog().getMaxJournalId();
+            } catch (FatalLogException e) {
+                LOG.warn("getMaxJournalId error", e);
+            }
+            info.put("Value", maxJournalId);
         } else {
             info.put("Name", "FrontendRole");
             info.put("Value", Env.getCurrentEnv().getReplayedJournalId());
@@ -155,7 +162,12 @@ public class HaController {
     private void appendDbNames(Map<String, Object> result) {
         Map<String, Object> dbs = new HashMap<>();
 
-        List<Long> names = Env.getCurrentEnv().getEditLog().getDatabaseNames();
+        List<Long> names = null;
+        try {
+            names = Env.getCurrentEnv().getEditLog().getDatabaseNames();
+        } catch (FatalLogException e) {
+            LOG.warn("Meet FatalLogException in HaController", e);
+        }
         if (names == null) {
             return;
         }
