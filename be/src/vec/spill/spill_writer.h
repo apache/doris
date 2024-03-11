@@ -25,12 +25,12 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 namespace doris {
-class DataDir;
 
 namespace vectorized {
+class SpillDataDir;
 class SpillWriter {
 public:
-    SpillWriter(int64_t id, size_t batch_size, doris::DataDir* data_dir, const std::string& dir)
+    SpillWriter(int64_t id, size_t batch_size, SpillDataDir* data_dir, const std::string& dir)
             : data_dir_(data_dir), stream_id_(id), batch_size_(batch_size) {
         file_path_ = dir + "/" + std::to_string(file_index_);
     }
@@ -66,7 +66,7 @@ private:
 
     // not owned, point to the data dir of this rowset
     // for checking disk capacity when write data to disk.
-    doris::DataDir* data_dir_ = nullptr;
+    SpillDataDir* data_dir_ = nullptr;
     std::atomic_bool closed_ = false;
     int64_t stream_id_;
     size_t batch_size_;
