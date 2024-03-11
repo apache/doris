@@ -37,6 +37,7 @@ import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveTableSink;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.thrift.TPartitionType;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 
@@ -116,6 +117,12 @@ public class HiveTableSink extends DataSink {
 
         setPartitionValues(partitionIds, tSink);
 
+        if (fragment.getPlanRoot() instanceof ExchangeNode
+                && fragment.getDataPartition().getType() == TPartitionType.HIVE_SINK_SHUFFLE_PARTITIONED) {
+            DataPartition dataPartition = fragment.getDataPartition();
+            dataPartition.getPartitionExprs();
+        }
+
         StorageDescriptor sd = targetTable.getRemoteTable().getSd();
         THiveBucket bucketInfo = new THiveBucket();
         bucketInfo.setBucketedBy(sd.getBucketCols());
@@ -184,7 +191,6 @@ public class HiveTableSink extends DataSink {
     }
 
     private TFileFormatType getFileFormatType() {
-        // TODO: use simple format here
         TFileFormatType fileFormatType;
         if (targetTable.getRemoteTable().getSd().getInputFormat().toLowerCase().contains("orc")) {
             fileFormatType = TFileFormatType.FORMAT_ORC;
@@ -196,13 +202,5 @@ public class HiveTableSink extends DataSink {
 
     protected TDataSinkType getDataSinkType() {
         return TDataSinkType.HIVE_TABLE_SINK;
-    }
-
-    public void complete(Analyzer analyzer) {
-
-    }
-
-    private void toTDataSink() {
-
     }
 }

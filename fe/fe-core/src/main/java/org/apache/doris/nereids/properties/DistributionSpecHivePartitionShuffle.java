@@ -17,27 +17,15 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.analysis.Expr;
-
-import java.util.List;
-
 /**
  * use for shuffle data by partition keys before sink.
  */
 public class DistributionSpecHivePartitionShuffle extends DistributionSpec {
 
-    private List<Expr> partitionKeys;
+    public static final DistributionSpecHivePartitionShuffle INSTANCE = new DistributionSpecHivePartitionShuffle();
 
     public DistributionSpecHivePartitionShuffle() {
         super();
-    }
-
-    public List<Expr> getPartitionKeys() {
-        return partitionKeys;
-    }
-
-    public void setPartitionKeys(List<Expr> partitionKeys) {
-        this.partitionKeys = partitionKeys;
     }
 
     @Override

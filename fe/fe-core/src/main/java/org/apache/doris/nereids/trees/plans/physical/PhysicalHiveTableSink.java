@@ -17,15 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHivePartitionShuffle;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,12 +35,9 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /** abstract physical hive sink */
 public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
@@ -149,24 +141,7 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     public PhysicalProperties getRequirePhysicalProperties() {
         List<FieldSchema> originPartitionKeys = targetTable.getRemoteTable().getPartitionKeys();
         if (!originPartitionKeys.isEmpty()) {
-            DistributionSpecHivePartitionShuffle shuffle = new DistributionSpecHivePartitionShuffle();
-            Set<String> nameToPartitions = new HashSet<>();
-            for (FieldSchema partitionKey : originPartitionKeys) {
-                nameToPartitions.add(partitionKey.getName());
-            }
-            List<Expr> columnExprList = new ArrayList<>();
-            for (Column column : targetTable.getBaseSchema()) {
-                if (nameToPartitions.contains(column.getName())) {
-                    TableName tableName = new TableName(targetTable.getCatalog().getName(),
-                            targetTable.getDbName(), targetTable.getName());
-                    SlotRef colExprRef = new SlotRef(column.getType(), true);
-                    colExprRef.setTblName(tableName);
-                    colExprRef.setCol(column.getName());
-                    columnExprList.add(colExprRef);
-                }
-            }
-            shuffle.setPartitionKeys(columnExprList);
-            return new PhysicalProperties(shuffle);
+            return PhysicalProperties.HIVE_PARTITIONED;
         }
         return PhysicalProperties.ANY;
     }

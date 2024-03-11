@@ -75,7 +75,6 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         PhysicalHiveTableSink<? extends Plan> physicalHiveSink = (PhysicalHiveTableSink<? extends Plan>) physicalSink;
         try {
             hiveTableSink.init(physicalHiveSink.getCols(), physicalHiveSink.getPartitionIds());
-            hiveTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }

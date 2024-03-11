@@ -43,7 +43,10 @@ enum TPartitionType {
   BUCKET_SHFFULE_HASH_PARTITIONED,
 
   // used for shuffle data by parititon and tablet
-  TABLET_SINK_SHUFFLE_PARTITIONED
+  TABLET_SINK_SHUFFLE_PARTITIONED,
+
+  // used for shuffle data by hiveparititon
+  HIVE_SINK_SHUFFLE_PARTITIONED
 }
 
 enum TDistributionType {
