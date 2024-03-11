@@ -71,7 +71,7 @@ public class MarkJoinSlotReference extends SlotReference {
 
     @Override
     public MarkJoinSlotReference withExprId(ExprId exprId) {
-        return new MarkJoinSlotReference(exprId, name, existsHasAgg);
+        return new MarkJoinSlotReference(exprId, name.get(), existsHasAgg);
     }
 
     @Override

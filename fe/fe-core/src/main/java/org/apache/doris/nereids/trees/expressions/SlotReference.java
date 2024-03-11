@@ -26,11 +26,13 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -38,7 +40,7 @@ import javax.annotation.Nullable;
  */
 public class SlotReference extends Slot {
     protected final ExprId exprId;
-    protected final String name;
+    protected final Supplier<String> name;
     protected final DataType dataType;
     protected final boolean nullable;
     protected final List<String> qualifier;
@@ -50,7 +52,7 @@ public class SlotReference extends Slot {
     // the unique string representation of a SlotReference
     // different SlotReference will have different internalName
     // TODO: remove this member variable after mv selection is refactored
-    protected final Optional<String> internalName;
+    protected final Supplier<Optional<String>> internalName;
 
     private final TableIf table;
     private final Column column;
@@ -84,6 +86,13 @@ public class SlotReference extends Slot {
         this(exprId, name, dataType, nullable, qualifier, table, column, internalName, null);
     }
 
+    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable,
+            List<String> qualifier, @Nullable TableIf table, @Nullable Column column,
+            Optional<String> internalName, List<String> subColLabels) {
+        this(exprId, () -> name, dataType, nullable, qualifier, table, column,
+                buildInternalName(() -> name, subColLabels, internalName), subColLabels);
+    }
+
     /**
      * Constructor for SlotReference.
      *
@@ -96,9 +105,9 @@ public class SlotReference extends Slot {
      * @param internalName the internalName of this slot
      * @param subColLabels subColumn access labels
      */
-    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable,
+    public SlotReference(ExprId exprId, Supplier<String> name, DataType dataType, boolean nullable,
             List<String> qualifier, @Nullable TableIf table, @Nullable Column column,
-            Optional<String> internalName, List<String> subColLabels) {
+            Supplier<Optional<String>> internalName, List<String> subColLabels) {
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
@@ -108,14 +117,7 @@ public class SlotReference extends Slot {
         this.table = table;
         this.column = column;
         this.subColPath = subColLabels;
-        if (subColLabels != null && !this.subColPath.isEmpty()) {
-            // Modify internal name to distinguish from different sub-columns of same top level column,
-            // using the `.` to connect each part of paths
-            String fullName = internalName.orElse(name) + String.join(".", this.subColPath);
-            this.internalName = Optional.of(fullName);
-        } else {
-            this.internalName = internalName.isPresent() ? internalName : Optional.of(name);
-        }
+        this.internalName = internalName;
     }
 
     public static SlotReference of(String name, DataType type) {
@@ -147,7 +149,7 @@ public class SlotReference extends Slot {
 
     @Override
     public String getName() {
-        return name;
+        return name.get();
     }
 
     @Override
@@ -172,7 +174,7 @@ public class SlotReference extends Slot {
 
     @Override
     public String getInternalName() {
-        return internalName.get();
+        return internalName.get().get();
     }
 
     public Optional<Column> getColumn() {
@@ -185,19 +187,19 @@ public class SlotReference extends Slot {
 
     @Override
     public String toSql() {
-        return name;
+        return name.get();
     }
 
     @Override
     public String toString() {
         // Just return name and exprId, add another method to show fully qualified name when it's necessary.
-        return name + "#" + exprId;
+        return name.get() + "#" + exprId;
     }
 
     @Override
     public String shapeInfo() {
         if (qualifier.isEmpty()) {
-            return name;
+            return name.get();
         } else {
             return qualifier.get(qualifier.size() - 1) + "." + name;
         }
@@ -258,7 +260,8 @@ public class SlotReference extends Slot {
 
     @Override
     public SlotReference withName(String name) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subColPath);
+        return new SlotReference(
+                exprId, () -> name, dataType, nullable, qualifier, table, column, internalName, subColPath);
     }
 
     @Override
@@ -276,5 +279,18 @@ public class SlotReference extends Slot {
 
     public boolean hasSubColPath() {
         return subColPath != null && !subColPath.isEmpty();
+    }
+
+    private static Supplier<Optional<String>> buildInternalName(
+            Supplier<String> name, List<String> subColLabels, Optional<String> internalName) {
+        if (subColLabels != null && !subColLabels.isEmpty()) {
+            // Modify internal name to distinguish from different sub-columns of same top level column,
+            // using the `.` to connect each part of paths
+            return Suppliers.memoize(() ->
+                    Optional.of(internalName.orElse(name.get()) + String.join(".", subColLabels)));
+        } else {
+            return Suppliers.memoize(() ->
+                    internalName.isPresent() ? internalName : Optional.of(name.get()));
+        }
     }
 }
