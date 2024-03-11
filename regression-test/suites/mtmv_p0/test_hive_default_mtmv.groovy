@@ -100,7 +100,6 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_1);
         """
-    def jobName = getJobName(dbName, mvName);
     waitingMTMVTaskFinished(jobName)
     order_qt_1 "SELECT * FROM ${mvName} order by num"
 
