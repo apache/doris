@@ -52,11 +52,24 @@ Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
     }
 
     int rows = in_block->rows();
+    bool stop_emplace_flag = false;
     _distinct_row.clear();
     _distinct_row.reserve(rows);
 
-    RETURN_IF_CATCH_EXCEPTION(
-            _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
+    RETURN_IF_CATCH_EXCEPTION(_emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows,
+                                                                   &stop_emplace_flag));
+    // if get stop_emplace_flag = true, means have no need to emplace value into hash table
+    // so return block directly
+    if (stop_emplace_flag) {
+        ColumnsWithTypeAndName columns_with_schema;
+        for (int i = 0; i < key_size; ++i) {
+            columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
+                                             _probe_expr_ctxs[i]->root()->data_type(),
+                                             _probe_expr_ctxs[i]->root()->expr_name());
+        }
+        out_block->swap(Block(columns_with_schema));
+        return Status::OK();
+    }
 
     SCOPED_TIMER(_insert_keys_to_column_timer);
     bool mem_reuse = _make_nullable_keys.empty() && out_block->mem_reuse();
@@ -81,13 +94,21 @@ Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
 
 void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Selector& distinct_row,
                                                                    ColumnRawPtrs& key_columns,
-                                                                   const size_t num_rows) {
+                                                                   const size_t num_rows,
+                                                                   bool* stop_emplace_flag) {
     SCOPED_TIMER(_exec_timer);
     std::visit(
             [&](auto&& agg_method) -> void {
                 SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
+                auto& hash_tbl = *agg_method.hash_table;
+                if (is_streaming_preagg() && hash_tbl.add_elem_size_overflow(num_rows)) {
+                    if (!_should_expand_preagg_hash_tables()) {
+                        *stop_emplace_flag = true;
+                        return;
+                    }
+                }
                 AggState state(key_columns);
                 agg_method.init_serialized_keys(key_columns, num_rows);
 

@@ -48,7 +48,8 @@ public:
 
 private:
     void _emplace_into_hash_table_to_distinct(IColumn::Selector& distinct_row,
-                                              ColumnRawPtrs& key_columns, const size_t num_rows);
+                                              ColumnRawPtrs& key_columns, const size_t num_rows,
+                                              bool* stop_emplace_flag);
 
     char* dummy_mapped_data = nullptr;
     IColumn::Selector _distinct_row;
