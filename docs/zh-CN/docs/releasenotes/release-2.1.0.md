@@ -85,7 +85,7 @@ under the License.
 
 在此我们分别使用 Clickbench（大宽表场景）和 TPC-H（多表 Join 的复杂分析场景） 数据集模拟建表分桶不合理的情况，在 Clickbench 数据集中我们建表 Bucket 数量分别设为 1 和 16 ，在 TPC-H 100G 数据集下我们建表时每个 Partition 的 Bucket 数目分别设为 1 和 16。在开启 Parallel Adaptive Scan 和 Local Shuffle 之后，整体查询性能表现比较平稳，即使不合理的数据分布也能取得优异的性能表现。
 
-![Local Shuffle Clickbench and TPCH-100](/images/2.1-Doris-TPC-DS-best-performance.png)
+![Local Shuffle Clickbench and TPCH-100](/images/2.1-doris-clickbench-tpch.png)
 
 
 :::warning
