@@ -42,6 +42,7 @@ import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -107,6 +108,7 @@ public class CascadesContext implements ScheduleContext {
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
+    private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
     private Map<Long, TableIf> tables = null;
 
@@ -278,6 +280,10 @@ public class CascadesContext implements ScheduleContext {
 
     public RuntimeFilterContext getRuntimeFilterContext() {
         return runtimeFilterContext;
+    }
+
+    public TopnFilterContext getTopnFilterContext() {
+        return topnFilterContext;
     }
 
     public void setCurrentJobContext(JobContext currentJobContext) {
