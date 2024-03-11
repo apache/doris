@@ -53,6 +53,9 @@ import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -386,6 +389,64 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     @Override
+    public void asyncRename(
+            Executor executor,
+            List<CompletableFuture<?>> renameFileFutures,
+            AtomicBoolean cancelled,
+            String origFilePath,
+            String destFilePath,
+            List<String> fileNames) {
+
+        for (String fileName : fileNames) {
+            Path source = new Path(origFilePath, fileName);
+            Path target = new Path(destFilePath, fileName);
+            renameFileFutures.add(CompletableFuture.runAsync(() -> {
+                if (cancelled.get()) {
+                    return;
+                }
+                Status status = rename(source.toString(), target.toString());
+                if (!status.ok()) {
+                    throw new RuntimeException(status.getErrMsg());
+                }
+            }, executor));
+        }
+    }
+
+    @Override
+    public void asyncRenameDir(Executor executor,
+                        List<CompletableFuture<?>> renameFileFutures,
+                        AtomicBoolean cancelled,
+                        String origFilePath,
+                        String destFilePath,
+                        Runnable runWhenPathNotExist) {
+        renameFileFutures.add(CompletableFuture.runAsync(() -> {
+            if (cancelled.get()) {
+                return;
+            }
+
+            Status status = exists(destFilePath);
+            if (status.ok()) {
+                throw new RuntimeException("Destination directory already exists: " + destFilePath);
+            }
+
+            String targetParent = new Path(destFilePath).getParent().toString();
+            status = exists(targetParent);
+            if (Status.ErrCode.NOT_FOUND.equals(status.getErrCode())) {
+                makeDir(targetParent);
+            } else if (!status.ok()) {
+                throw new RuntimeException(status.getErrMsg());
+            }
+
+            runWhenPathNotExist.run();
+
+            status = rename(origFilePath, destFilePath);
+            if (!status.ok()) {
+                throw new RuntimeException(status.getErrMsg());
+            }
+        }, executor));
+    }
+
+    @Override
     public Status delete(String remotePath) {
         try {
             URI pathUri = URI.create(remotePath);
@@ -442,6 +503,16 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @Override
     public Status makeDir(String remotePath) {
-        return new Status(Status.ErrCode.COMMON_ERROR, "mkdir is not implemented.");
+        try {
+            FileSystem fileSystem = nativeFileSystem(remotePath);
+            if (!fileSystem.mkdirs(new Path(remotePath))) {
+                LOG.error("failed to make dir for " + remotePath);
+                return new Status(Status.ErrCode.COMMON_ERROR, "failed to make dir for " + remotePath);
+            }
+        } catch (Exception e) {
+            LOG.error("failed to make dir for " + remotePath);
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
     }
 }

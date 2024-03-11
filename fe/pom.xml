@@ -352,6 +352,7 @@ under the License.
         <trino.version>435</trino.version>
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
+        <airlift.version>202</airlift.version>
     </properties>
     <profiles>
         <profile>
@@ -1670,6 +1671,11 @@ under the License.
                 <artifactId>asm</artifactId>
                 <groupId>org.ow2.asm</groupId>
                 <version>${asm.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>concurrent</artifactId>
+                <version>${airlift.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

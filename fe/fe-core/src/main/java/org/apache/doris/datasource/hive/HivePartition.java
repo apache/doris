@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 
 import com.google.common.base.Preconditions;
 import lombok.Data;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,9 @@ public class HivePartition {
     private List<String> partitionValues;
     private boolean isDummyPartition;
     private Map<String, String> parameters;
+    private String outputFormat;
+    private String serde;
+    private List<FieldSchema> columns;
 
     public HivePartition(String dbName, String tblName, boolean isDummyPartition,
             String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters) {
@@ -50,6 +54,15 @@ public class HivePartition {
         // eg: cn, beijing
         this.partitionValues = partitionValues;
         this.parameters = parameters;
+    }
+
+    public HivePartition(String dbName, String tblName, boolean isDummyPartition,
+                         String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters,
+                         String outputFormat, String serde, List<FieldSchema> columns) {
+        this(dbName, tblName, isDummyPartition, inputFormat, path, partitionValues, parameters);
+        this.outputFormat = outputFormat;
+        this.serde = serde;
+        this.columns = columns;
     }
 
     // return partition name like: nation=cn/city=beijing
