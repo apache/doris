@@ -44,9 +44,11 @@
 
 class SipHash;
 
-namespace doris::vectorized {
+namespace doris {
+namespace vectorized {
 class Arena;
-} // namespace doris::vectorized
+} // namespace vectorized
+} // namespace doris
 
 //TODO: use marcos below to decouple array function calls
 #define ALL_COLUMNS_NUMBER                                                                       \
@@ -122,36 +124,21 @@ public:
     using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
-
     const char* get_family_name() const override { return "Array"; }
-
     bool is_column_array() const override { return true; }
-
     MutableColumnPtr clone_resized(size_t size) const override;
-
     size_t size() const override;
-
     void resize(size_t n) override;
-
     Field operator[](size_t n) const override;
-
     void get(size_t n, Field& res) const override;
-
     StringRef get_data_at(size_t n) const override;
-
     bool is_default_at(size_t n) const override;
-
     void insert_data(const char* pos, size_t length) override;
-
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
-
     const char* deserialize_and_insert_from_arena(const char* pos) override;
-
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
-
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
@@ -163,25 +150,16 @@ public:
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
-
     void insert(const Field& x) override;
-
     void insert_from(const IColumn& src_, size_t n) override;
-
     void insert_default() override;
-
     void pop_back(size_t n) override;
-
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
-
     size_t filter(const Filter& filter) override;
-
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
-
     //ColumnPtr index(const IColumn & indexes, size_t limit) const;
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -189,13 +167,9 @@ public:
         LOG(FATAL) << "get_permutation not implemented";
         __builtin_unreachable();
     }
-
     void reserve(size_t n) override;
-
     size_t byte_size() const override;
-
     size_t allocated_bytes() const override;
-
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
     ColumnPtr convert_to_full_column_if_const() const override;
