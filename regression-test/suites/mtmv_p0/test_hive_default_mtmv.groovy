@@ -38,7 +38,10 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
 
     def set_dynamic_partition_str = """ set hive.exec.dynamic.partition=true;"""
     def set_dynamic_partition_mode_str = """ set hive.exec.dynamic.partition.mode=nonstrict;"""
-    def insert_str = """ insert into ${hive_database}.${hive_table} PARTITION(year) values(1,1,2020)"""
+    def insert_str = """
+        set hive.exec.dynamic.partition.mode=nonstrict;
+        insert into ${hive_database}.${hive_table} PARTITION(year) values(1,1,2020)；
+        """
     def show_partition_str = """show partitions ${hive_database}.${hive_table}"""
 
     logger.info("hive sql: " + drop_table_str)
