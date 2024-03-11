@@ -57,9 +57,9 @@ public class HighPriorityColumn {
 
     public TQueryColumn toThrift() {
         TQueryColumn tQueryColumn = new TQueryColumn();
-        tQueryColumn.catalogId = catalogId;
-        tQueryColumn.dbId = dbId;
-        tQueryColumn.tblId = tblId;
+        tQueryColumn.catalogId = String.valueOf(catalogId);
+        tQueryColumn.dbId = String.valueOf(dbId);
+        tQueryColumn.tblId = String.valueOf(tblId);
         tQueryColumn.colName = colName;
         return tQueryColumn;
     }
