@@ -54,7 +54,26 @@ suite("array_compare") {
         order_qt_array_compare_5 """
             SELECT * FROM ${tableName} where c_array < [1, 2, 3, 4];
         """
+        order_qt_array_compare_6 """
+            SELECT * FROM ${tableName} where c_array = ['1', '2', '3'];
+        """
+        order_qt_array_compare_7 """
+            SELECT * FROM ${tableName} where c_array != ["1", "2", "3", "4"];
+        """
+        order_qt_array_compare_8 """
+            SELECT * FROM ${tableName} where c_array > [1.0, 2.0, 3.0];
+        """
+        order_qt_array_compare_9 """
+            SELECT * FROM ${tableName} where c_array < [1.00001, 2.00001, 3.00001, 4.00001];
+        """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
+
+    qt_sql "select [1, 2] = ["1, 2"];"
+    qt_sql "select [1, 2, 3] = ['1', '2', '3'];"
+    qt_sql "select [1, 2, 3] = ["1", "2", "3"];"
+    qt_sql "select [1, 2, 3] = [1.0, 2.0, 3.0];"
+    qt_sql "select [1, 2, 3] = [1.000000000000000001, 2.000000000000000001, 3.000000000000000001];"
+
 }
