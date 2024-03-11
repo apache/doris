@@ -214,8 +214,10 @@ public:
     }
 
     void set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
-        _dependency = dependency;
+        _source_dependency = dependency;
     }
+
+    void update_blocks_memory_usage(int64_t size);
 
 protected:
     friend class pipeline::ExchangeLocalState;
@@ -285,7 +287,7 @@ protected:
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
-    std::shared_ptr<pipeline::Dependency> _dependency;
+    std::shared_ptr<pipeline::Dependency> _source_dependency;
     std::shared_ptr<pipeline::Dependency> _local_channel_dependency;
 };
 
