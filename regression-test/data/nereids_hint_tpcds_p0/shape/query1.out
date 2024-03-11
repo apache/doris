@@ -39,7 +39,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------filter((store.s_state = 'TN'))
 ------------------------PhysicalOlapScan[store]
-
 Hint log:
 Used:  leading(store_returns broadcast date_dim )
 UnUsed:

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -35,7 +36,6 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * replace.
@@ -47,52 +47,50 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
                 .add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
                         logicalSort(logicalProject()).then(sort -> {
                             LogicalProject<Plan> project = sort.child();
-                            Map<Expression, Slot> sMap = Maps.newHashMap();
-                            project.getProjects().stream()
-                                    .filter(Alias.class::isInstance)
-                                    .map(Alias.class::cast)
-                                    .forEach(p -> sMap.put(p.child(), p.toSlot()));
+                            Map<Expression, Slot> sMap = buildOutputAliasMap(project.getProjects());
                             return replaceSortExpression(sort, sMap);
                         })
                 ))
                 .add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
                         logicalSort(logicalAggregate()).then(sort -> {
                             LogicalAggregate<Plan> aggregate = sort.child();
-                            Map<Expression, Slot> sMap = Maps.newHashMap();
-                            aggregate.getOutputExpressions().stream()
-                                    .filter(Alias.class::isInstance)
-                                    .map(Alias.class::cast)
-                                    .forEach(p -> sMap.put(p.child(), p.toSlot()));
+                            Map<Expression, Slot> sMap = buildOutputAliasMap(aggregate.getOutputExpressions());
                             return replaceSortExpression(sort, sMap);
                         })
                 )).add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
                         logicalSort(logicalHaving(logicalAggregate())).then(sort -> {
                             LogicalAggregate<Plan> aggregate = sort.child().child();
-                            Map<Expression, Slot> sMap = Maps.newHashMap();
-                            aggregate.getOutputExpressions().stream()
-                                    .filter(Alias.class::isInstance)
-                                    .map(Alias.class::cast)
-                                    .forEach(p -> sMap.put(p.child(), p.toSlot()));
+                            Map<Expression, Slot> sMap = buildOutputAliasMap(aggregate.getOutputExpressions());
                             return replaceSortExpression(sort, sMap);
                         })
                 ))
                 .build();
     }
 
+    private Map<Expression, Slot> buildOutputAliasMap(List<NamedExpression> output) {
+        Map<Expression, Slot> sMap = Maps.newHashMapWithExpectedSize(output.size());
+        for (NamedExpression expr : output) {
+            if (expr instanceof Alias) {
+                Alias alias = (Alias) expr;
+                sMap.put(alias.child(), alias.toSlot());
+            }
+        }
+        return sMap;
+    }
+
     private LogicalPlan replaceSortExpression(LogicalSort<? extends LogicalPlan> sort, Map<Expression, Slot> sMap) {
         List<OrderKey> orderKeys = sort.getOrderKeys();
-        AtomicBoolean changed = new AtomicBoolean(false);
-        List<OrderKey> newKeys = orderKeys.stream().map(k -> {
+
+        boolean changed = false;
+        ImmutableList.Builder<OrderKey> newKeys = ImmutableList.builderWithExpectedSize(orderKeys.size());
+        for (OrderKey k : orderKeys) {
             Expression newExpr = ExpressionUtils.replace(k.getExpr(), sMap);
             if (newExpr != k.getExpr()) {
-                changed.set(true);
+                changed = true;
             }
-            return new OrderKey(newExpr, k.isAsc(), k.isNullFirst());
-        }).collect(ImmutableList.toImmutableList());
-        if (changed.get()) {
-            return new LogicalSort<>(newKeys, sort.child());
-        } else {
-            return sort;
+            newKeys.add(new OrderKey(newExpr, k.isAsc(), k.isNullFirst()));
         }
+
+        return changed ? new LogicalSort<>(newKeys.build(), sort.child()) : sort;
     }
 }

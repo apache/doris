@@ -53,10 +53,19 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
         return ExpressionUtils.collect(getOutputExpressions(), AggregateFunction.class::isInstance);
     }
 
+    /** getDistinctArguments */
     default Set<Expression> getDistinctArguments() {
-        return getAggregateFunctions().stream()
-                .filter(AggregateFunction::isDistinct)
-                .flatMap(aggregateFunction -> aggregateFunction.getDistinctArguments().stream())
-                .collect(ImmutableSet.toImmutableSet());
+        ImmutableSet.Builder<Expression> distinctArguments = ImmutableSet.builder();
+        for (NamedExpression outputExpression : getOutputExpressions()) {
+            outputExpression.foreach(expr -> {
+                if (expr instanceof AggregateFunction) {
+                    AggregateFunction aggFun = (AggregateFunction) expr;
+                    if (aggFun.isDistinct()) {
+                        distinctArguments.addAll(aggFun.getDistinctArguments());
+                    }
+                }
+            });
+        }
+        return distinctArguments.build();
     }
 }

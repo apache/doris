@@ -1077,12 +1077,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             return CloudPartition.selectNonEmptyPartitionIds(partitions);
         }
 
-        return partitionIds.stream()
-                .map(this::getPartition)
-                .filter(p -> p != null)
-                .filter(Partition::hasData)
-                .map(Partition::getId)
-                .collect(Collectors.toList());
+        List<Long> nonEmptyIds = Lists.newArrayListWithCapacity(partitionIds.size());
+        for (Long partitionId : partitionIds) {
+            Partition partition = getPartition(partitionId);
+            if (partition != null && partition.hasData()) {
+                nonEmptyIds.add(partitionId);
+            }
+        }
+        return nonEmptyIds;
     }
 
     public int getPartitionNum() {
@@ -2529,9 +2531,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public boolean isDupKeysOrMergeOnWrite() {
-        return getKeysType() == KeysType.DUP_KEYS
-                || (getKeysType() == KeysType.UNIQUE_KEYS
-                && getEnableUniqueKeyMergeOnWrite());
+        return keysType == KeysType.DUP_KEYS
+                || (keysType == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite());
     }
 
     public void initAutoIncrementGenerator(long dbId) {

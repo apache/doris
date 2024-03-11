@@ -17,22 +17,31 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Normalizes binary predicates of the form 'expr' op 'slot' so that the slot is on the left-hand side.
  * For example:
  * 5 > id -> id < 5
  */
-public class NormalizeBinaryPredicatesRule extends AbstractExpressionRewriteRule {
-
-    public static NormalizeBinaryPredicatesRule INSTANCE = new NormalizeBinaryPredicatesRule();
+public class NormalizeBinaryPredicatesRule implements ExpressionPatternRuleFactory {
+    public static final NormalizeBinaryPredicatesRule INSTANCE = new NormalizeBinaryPredicatesRule();
 
     @Override
-    public Expression visitComparisonPredicate(ComparisonPredicate expr, ExpressionRewriteContext context) {
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(ComparisonPredicate.class).then(NormalizeBinaryPredicatesRule::normalize)
+        );
+    }
+
+    public static Expression normalize(ComparisonPredicate expr) {
         return expr.left().isConstant() && !expr.right().isConstant() ? expr.commute() : expr;
     }
 }

@@ -27,8 +27,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -55,6 +56,7 @@ import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -73,24 +75,38 @@ import java.util.concurrent.TimeUnit;
 /**
  * Constant evaluation of an expression.
  */
-public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
+public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
+
+    public static final FoldConstantRuleOnBE INSTANCE = new FoldConstantRuleOnBE();
     private static final Logger LOG = LogManager.getLogger(FoldConstantRuleOnBE.class);
-    private final IdGenerator<ExprId> idGenerator = ExprId.createGenerator();
 
     @Override
-    public Expression rewrite(Expression expression, ExpressionRewriteContext ctx) {
-        expression = FoldConstantRuleOnFE.INSTANCE.rewrite(expression, ctx);
-        return foldByBE(expression, ctx);
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                root(Expression.class)
+                    .whenCtx(FoldConstantRuleOnBE::isEnableFoldByBe)
+                    .thenApply(FoldConstantRuleOnBE::foldByBE)
+        );
     }
 
-    private Expression foldByBE(Expression root, ExpressionRewriteContext context) {
+    public static boolean isEnableFoldByBe(ExpressionMatchingContext<Expression> ctx) {
+        return ctx.cascadesContext != null
+                && ctx.cascadesContext.getConnectContext() != null
+                && ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoldConstantByBe();
+    }
+
+    /** foldByBE */
+    public static Expression foldByBE(ExpressionMatchingContext<Expression> context) {
+        IdGenerator<ExprId> idGenerator = ExprId.createGenerator();
+
+        Expression root = context.expr;
         Map<String, Expression> constMap = Maps.newHashMap();
         Map<String, TExpr> staleConstTExprMap = Maps.newHashMap();
         Expression rootWithoutAlias = root;
         if (root instanceof Alias) {
             rootWithoutAlias = ((Alias) root).child();
         }
-        collectConst(rootWithoutAlias, constMap, staleConstTExprMap);
+        collectConst(rootWithoutAlias, constMap, staleConstTExprMap, idGenerator);
         if (constMap.isEmpty()) {
             return root;
         }
@@ -103,7 +119,8 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
         return root;
     }
 
-    private Expression replace(Expression root, Map<String, Expression> constMap, Map<String, Expression> resultMap) {
+    private static Expression replace(
+            Expression root, Map<String, Expression> constMap, Map<String, Expression> resultMap) {
         for (Entry<String, Expression> entry : constMap.entrySet()) {
             if (entry.getValue().equals(root)) {
                 return resultMap.get(entry.getKey());
@@ -121,7 +138,8 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
         return hasNewChildren ? root.withChildren(newChildren) : root;
     }
 
-    private void collectConst(Expression expr, Map<String, Expression> constMap, Map<String, TExpr> tExprMap) {
+    private static void collectConst(Expression expr, Map<String, Expression> constMap,
+            Map<String, TExpr> tExprMap, IdGenerator<ExprId> idGenerator) {
         if (expr.isConstant()) {
             // Do not constant fold cast(null as dataType) because we cannot preserve the
             // cast-to-types and that can lead to query failures, e.g., CTAS
@@ -157,13 +175,13 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
         } else {
             for (int i = 0; i < expr.children().size(); i++) {
                 final Expression child = expr.children().get(i);
-                collectConst(child, constMap, tExprMap);
+                collectConst(child, constMap, tExprMap, idGenerator);
             }
         }
     }
 
     // if sleep(5) will cause rpc timeout
-    private boolean skipSleepFunction(Expression expr) {
+    private static boolean skipSleepFunction(Expression expr) {
         if (expr instanceof Sleep) {
             Expression param = expr.child(0);
             if (param instanceof Cast) {
@@ -176,7 +194,7 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
         return false;
     }
 
-    private Map<String, Expression> evalOnBE(Map<String, Map<String, TExpr>> paramMap,
+    private static Map<String, Expression> evalOnBE(Map<String, Map<String, TExpr>> paramMap,
             Map<String, Expression> constMap, ConnectContext context) {
 
         Map<String, Expression> resultMap = new HashMap<>();

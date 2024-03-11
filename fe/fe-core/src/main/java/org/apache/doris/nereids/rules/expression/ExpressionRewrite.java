@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.pattern.ExpressionPatternRules;
+import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -41,7 +43,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -123,9 +125,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 LogicalProject<Plan> project = ctx.root;
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                 List<NamedExpression> projects = project.getProjects();
-                List<NamedExpression> newProjects = projects.stream()
-                        .map(expr -> (NamedExpression) rewriter.rewrite(expr, context))
-                        .collect(ImmutableList.toImmutableList());
+                List<NamedExpression> newProjects = rewriteAll(projects, rewriter, context);
                 if (projects.equals(newProjects)) {
                     return project;
                 }
@@ -160,9 +160,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<Expression> newGroupByExprs = rewriter.rewrite(groupByExprs, context);
 
                 List<NamedExpression> outputExpressions = agg.getOutputExpressions();
-                List<NamedExpression> newOutputExpressions = outputExpressions.stream()
-                        .map(expr -> (NamedExpression) rewriter.rewrite(expr, context))
-                        .collect(ImmutableList.toImmutableList());
+                List<NamedExpression> newOutputExpressions = rewriteAll(outputExpressions, rewriter, context);
                 if (outputExpressions.equals(newOutputExpressions)) {
                     return agg;
                 }
@@ -222,13 +220,16 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             return logicalSort().thenApply(ctx -> {
                 LogicalSort<Plan> sort = ctx.root;
                 List<OrderKey> orderKeys = sort.getOrderKeys();
-                List<OrderKey> rewrittenOrderKeys = new ArrayList<>();
+                ImmutableList.Builder<OrderKey> rewrittenOrderKeys
+                        = ImmutableList.builderWithExpectedSize(orderKeys.size());
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                boolean changed = false;
                 for (OrderKey k : orderKeys) {
                     Expression expression = rewriter.rewrite(k.getExpr(), context);
+                    changed |= expression != k.getExpr();
                     rewrittenOrderKeys.add(new OrderKey(expression, k.isAsc(), k.isNullFirst()));
                 }
-                return sort.withOrderKeys(rewrittenOrderKeys);
+                return changed ? sort.withOrderKeys(rewrittenOrderKeys.build()) : sort;
             }).toRule(RuleType.REWRITE_SORT_EXPRESSION);
         }
     }
@@ -269,5 +270,37 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                                 .collect(ImmutableList.toImmutableList()));
             }).toRule(RuleType.REWRITE_REPEAT_EXPRESSION);
         }
+    }
+
+    /** bottomUp */
+    public static ExpressionBottomUpRewriter bottomUp(ExpressionPatternRuleFactory... ruleFactories) {
+        ImmutableList.Builder<ExpressionPatternMatchRule> rules = ImmutableList.builder();
+        ImmutableList.Builder<ExpressionTraverseListenerMapping> listeners = ImmutableList.builder();
+        for (ExpressionPatternRuleFactory ruleFactory : ruleFactories) {
+            if (ruleFactory instanceof ExpressionTraverseListenerFactory) {
+                List<ExpressionListenerMatcher<? extends Expression>> listenersMatcher
+                        = ((ExpressionTraverseListenerFactory) ruleFactory).buildListeners();
+                for (ExpressionListenerMatcher<? extends Expression> listenerMatcher : listenersMatcher) {
+                    listeners.add(new ExpressionTraverseListenerMapping(listenerMatcher));
+                }
+            }
+            for (ExpressionPatternMatcher<? extends Expression> patternMatcher : ruleFactory.buildRules()) {
+                rules.add(new ExpressionPatternMatchRule(patternMatcher));
+            }
+        }
+
+        return new ExpressionBottomUpRewriter(
+                new ExpressionPatternRules(rules.build()),
+                new ExpressionPatternTraverseListeners(listeners.build())
+        );
+    }
+
+    public static <E extends Expression> List<E> rewriteAll(
+            Collection<E> exprs, ExpressionRuleExecutor rewriter, ExpressionRewriteContext context) {
+        ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (E expr : exprs) {
+            result.add((E) rewriter.rewrite(expr, context));
+        }
+        return result.build();
     }
 }

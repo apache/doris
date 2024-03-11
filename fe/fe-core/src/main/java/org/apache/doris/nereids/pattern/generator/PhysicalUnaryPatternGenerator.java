@@ -23,9 +23,9 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /** used to generate pattern for PhysicalUnary. */
-public class PhysicalUnaryPatternGenerator extends PatternGenerator {
+public class PhysicalUnaryPatternGenerator extends PlanPatternGenerator {
 
-    public PhysicalUnaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
+    public PhysicalUnaryPatternGenerator(PlanPatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
         super(analyzer, opType, parentClass, isMemoPattern);
     }

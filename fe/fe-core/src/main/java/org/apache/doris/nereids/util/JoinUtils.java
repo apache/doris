@@ -47,6 +47,7 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -98,8 +99,8 @@ public class JoinUtils {
         Set<ExprId> rightExprIds;
 
         public JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
-            leftExprIds = left.stream().map(Slot::getExprId).collect(Collectors.toSet());
-            rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
+            leftExprIds = left.stream().map(Slot::getExprId).collect(ImmutableSet.toImmutableSet());
+            rightExprIds = right.stream().map(Slot::getExprId).collect(ImmutableSet.toImmutableSet());
         }
 
         /**

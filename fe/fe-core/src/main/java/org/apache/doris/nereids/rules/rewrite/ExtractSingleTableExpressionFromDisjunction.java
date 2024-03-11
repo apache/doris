@@ -30,7 +30,6 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Paper: Quantifying TPC-H Choke Points and Their Optimizations
@@ -84,13 +83,9 @@ public class ExtractSingleTableExpressionFromDisjunction extends OneRewriteRuleF
             }
             // only check table in first disjunct.
             // In our example, qualifiers = { n1, n2 }
-            Expression first = disjuncts.get(0);
-            Set<String> qualifiers = first.getInputSlots()
-                    .stream()
-                    .map(slot -> String.join(".", slot.getQualifier()))
-                    .collect(Collectors.toSet());
             // try to extract
-            for (String qualifier : qualifiers) {
+            for (Slot inputSlot : disjuncts.get(0).getInputSlots()) {
+                String qualifier = String.join(".", inputSlot.getQualifier());
                 List<Expression> extractForAll = Lists.newArrayList();
                 boolean success = true;
                 for (Expression expr : ExpressionUtils.extractDisjunction(conjunct)) {

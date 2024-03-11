@@ -29,25 +29,24 @@ import org.apache.doris.nereids.pattern.generator.javaast.TypeType;
 
 import com.google.common.base.Joiner;
 
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
-/**
- * used to analyze plan class extends hierarchy and then generated pattern builder methods.
- */
-public class PatternGeneratorAnalyzer {
-    private final Map<String, TypeDeclaration> name2Ast = new LinkedHashMap<>();
-    private final IdentityHashMap<TypeDeclaration, String> ast2Name = new IdentityHashMap<>();
-    private final IdentityHashMap<TypeDeclaration, Map<String, String>> ast2Import = new IdentityHashMap<>();
-    private final IdentityHashMap<TypeDeclaration, Set<String>> parentClassMap = new IdentityHashMap<>();
+/** JavaAstAnalyzer */
+public class JavaAstAnalyzer {
+    protected final Map<String, TypeDeclaration> name2Ast = new LinkedHashMap<>();
+    protected final IdentityHashMap<TypeDeclaration, String> ast2Name = new IdentityHashMap<>();
+    protected final IdentityHashMap<TypeDeclaration, Map<String, String>> ast2Import = new IdentityHashMap<>();
+    protected final IdentityHashMap<TypeDeclaration, Set<String>> parentClassMap = new IdentityHashMap<>();
+    protected final Map<String, Set<String>> parentNameMap = new LinkedHashMap<>();
+    protected final Map<String, Set<String>> childrenNameMap = new LinkedHashMap<>();
 
     /** add java AST. */
     public void addAsts(List<TypeDeclaration> typeDeclarations) {
@@ -56,14 +55,20 @@ public class PatternGeneratorAnalyzer {
         }
     }
 
-    /** generate pattern methods. */
-    public String generatePatterns(String className, String parentClassName, boolean isMemoPattern) {
-        analyzeImport();
-        analyzeParentClass();
-        return doGenerate(className, parentClassName, isMemoPattern);
+    public IdentityHashMap<TypeDeclaration, Set<String>> getParentClassMap() {
+        return parentClassMap;
     }
 
-    Optional<TypeDeclaration> getType(TypeDeclaration typeDeclaration, TypeType type) {
+    public Map<String, Set<String>> getParentNameMap() {
+        return parentNameMap;
+    }
+
+    public Map<String, Set<String>> getChildrenNameMap() {
+        return childrenNameMap;
+    }
+
+    /** getType */
+    public Optional<TypeDeclaration> getType(TypeDeclaration typeDeclaration, TypeType type) {
         String typeName = analyzeClass(new LinkedHashSet<>(), typeDeclaration, type);
         if (typeName != null) {
             TypeDeclaration ast = name2Ast.get(typeName);
@@ -73,34 +78,11 @@ public class PatternGeneratorAnalyzer {
         return Optional.empty();
     }
 
-    private String doGenerate(String className, String parentClassName, boolean isMemoPattern) {
-        Map<ClassDeclaration, Set<String>> planClassMap = parentClassMap.entrySet().stream()
-                .filter(kv -> kv.getValue().contains("org.apache.doris.nereids.trees.plans.Plan"))
-                .filter(kv -> !kv.getKey().name.equals("GroupPlan"))
-                .filter(kv -> !Modifier.isAbstract(kv.getKey().modifiers.mod)
-                        && kv.getKey() instanceof ClassDeclaration)
-                .collect(Collectors.toMap(kv -> (ClassDeclaration) kv.getKey(), kv -> kv.getValue()));
-
-        List<PatternGenerator> generators = planClassMap.entrySet()
-                .stream()
-                .map(kv -> PatternGenerator.create(this, kv.getKey(), kv.getValue(), isMemoPattern))
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .sorted((g1, g2) -> {
-                    // logical first
-                    if (g1.isLogical() != g2.isLogical()) {
-                        return g1.isLogical() ? -1 : 1;
-                    }
-                    // leaf first
-                    if (g1.childrenNum() != g2.childrenNum()) {
-                        return g1.childrenNum() - g2.childrenNum();
-                    }
-                    // string dict sort
-                    return g1.opType.name.compareTo(g2.opType.name);
-                })
-                .collect(Collectors.toList());
-
-        return PatternGenerator.generateCode(className, parentClassName, generators, this, isMemoPattern);
+    protected void analyze() {
+        analyzeImport();
+        analyzeParentClass();
+        analyzeParentName();
+        analyzeChildrenName();
     }
 
     private void analyzeImport() {
@@ -148,7 +130,28 @@ public class PatternGeneratorAnalyzer {
         parentClasses.addAll(currentParentClasses);
     }
 
-    String analyzeClass(Set<String> parentClasses, TypeDeclaration typeDeclaration, TypeType type) {
+    private void analyzeParentName() {
+        for (Entry<TypeDeclaration, Set<String>> entry : parentClassMap.entrySet()) {
+            String parentName = entry.getKey().getFullQualifiedName();
+            parentNameMap.put(parentName, entry.getValue());
+        }
+    }
+
+    private void analyzeChildrenName() {
+        for (Entry<String, TypeDeclaration> entry : name2Ast.entrySet()) {
+            Set<String> parentNames = parentClassMap.get(entry.getValue());
+            for (String parentName : parentNames) {
+                Set<String> childrenNames = childrenNameMap.get(parentName);
+                if (childrenNames == null) {
+                    childrenNames = new LinkedHashSet<>();
+                    childrenNameMap.put(parentName, childrenNames);
+                }
+                childrenNames.add(entry.getKey());
+            }
+        }
+    }
+
+    private String analyzeClass(Set<String> parentClasses, TypeDeclaration typeDeclaration, TypeType type) {
         if (type.classOrInterfaceType.isPresent()) {
             List<String> identifiers = new ArrayList<>();
             ClassOrInterfaceType classOrInterfaceType = type.classOrInterfaceType.get();

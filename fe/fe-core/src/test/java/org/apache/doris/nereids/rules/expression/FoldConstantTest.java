@@ -58,7 +58,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testCaseWhenFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
         // assertRewriteAfterTypeCoercion("case when 1 = 2 then 1 when '1' < 2 then 2 else 3 end", "2");
         // assertRewriteAfterTypeCoercion("case when 1 = 2 then 1 when '1' > 2 then 2 end", "null");
         assertRewriteAfterTypeCoercion("case when (1 + 5) / 2 > 2 then 4  when '1' < 2 then 2 else 3 end", "4");
@@ -75,7 +77,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testInFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
         assertRewriteAfterTypeCoercion("1 in (1,2,3,4)", "true");
         // Type Coercion trans all to string.
         assertRewriteAfterTypeCoercion("3 in ('1', 2 + 8 / 2, 3, 4)", "true");
@@ -88,7 +92,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testLogicalFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
         assertRewriteAfterTypeCoercion("10 + 1 > 1 and 1 > 2", "false");
         assertRewriteAfterTypeCoercion("10 + 1 > 1 and 1 < 2", "true");
         assertRewriteAfterTypeCoercion("null + 1 > 1 and 1 < 2", "null");
@@ -126,7 +132,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testIsNullFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
         assertRewriteAfterTypeCoercion("100 is null", "false");
         assertRewriteAfterTypeCoercion("null is null", "true");
         assertRewriteAfterTypeCoercion("null is not null", "false");
@@ -137,7 +145,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testNotPredicateFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
         assertRewriteAfterTypeCoercion("not 1 > 2", "true");
         assertRewriteAfterTypeCoercion("not null + 1 > 2", "null");
         assertRewriteAfterTypeCoercion("not (1 + 5) / 2 + (10 - 1) * 3 > 3 * 5 + 1", "false");
@@ -145,7 +155,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testCastFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
 
         // cast '1' as tinyint
         Cast c = new Cast(Literal.of("1"), TinyIntType.INSTANCE);
@@ -156,7 +168,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testCompareFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
         assertRewriteAfterTypeCoercion("'1' = 2", "false");
         assertRewriteAfterTypeCoercion("1 = 2", "false");
         assertRewriteAfterTypeCoercion("1 != 2", "true");
@@ -173,7 +187,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testArithmeticFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
         assertRewrite("1 + 1", Literal.of((short) 2));
         assertRewrite("1 - 1", Literal.of((short) 0));
         assertRewrite("100 + 100", Literal.of((short) 200));
@@ -206,7 +222,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testTimestampFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
         String interval = "'1991-05-01' - interval 1 day";
         Expression e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         Expression e8 = Config.enable_date_conversion

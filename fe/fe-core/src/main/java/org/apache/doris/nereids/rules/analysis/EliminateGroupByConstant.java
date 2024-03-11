@@ -64,7 +64,7 @@ public class EliminateGroupByConstant extends OneRewriteRuleFactory {
                 //   because we rely on expression matching to replace subtree that same as group by expr in output
                 //   if we do constant folding before normalize aggregate, the subtree will change and matching fail
                 //   such as: select a + 1 + 2 + 3, sum(b) from t group by a + 1 + 2
-                Expression foldExpression = FoldConstantRule.INSTANCE.rewrite(expression, context);
+                Expression foldExpression = FoldConstantRule.evaluate(expression, context);
                 if (!foldExpression.isConstant()) {
                     slotGroupByExprs.add(expression);
                 } else {

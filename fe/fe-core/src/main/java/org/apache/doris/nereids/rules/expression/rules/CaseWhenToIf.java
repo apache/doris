@@ -17,25 +17,35 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+
 /**
  * Rewrite rule to convert CASE WHEN to IF.
  * For example:
  * CASE WHEN a > 1 THEN 1 ELSE 0 END -> IF(a > 1, 1, 0)
  */
-public class CaseWhenToIf extends AbstractExpressionRewriteRule {
+public class CaseWhenToIf implements ExpressionPatternRuleFactory {
 
     public static CaseWhenToIf INSTANCE = new CaseWhenToIf();
 
     @Override
-    public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesTopType(CaseWhen.class).then(CaseWhenToIf::rewrite)
+        );
+    }
+
+    private static Expression rewrite(CaseWhen caseWhen) {
         Expression expr = caseWhen;
         if (caseWhen.getWhenClauses().size() == 1) {
             WhenClause whenClause = caseWhen.getWhenClauses().get(0);

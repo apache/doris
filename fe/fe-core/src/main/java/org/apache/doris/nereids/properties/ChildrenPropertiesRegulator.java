@@ -120,8 +120,22 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     && agg.getOutputExpressions().size() == 1) {
                 return true;
             }
+            // `select count(distinct null) from tbl` will create third/four phases aggregation,
+            // like this:
+            //         PhysicalHashAggregate(phase=BUFFER_TO_RESULT, groupBy=[], output=[count(distinct null)])
+            //                                          |
+            //                 PhysicalHashAggregate(phase=BUFFER_TO_BUFFER, groupBy=[], output=[])
+            //                                          |
+            //                              PhysicalDistribute(GATHER)
+            //                                          |
+            //                 PhysicalHashAggregate(phase=INPUT_TO_BUFFER, groupBy=[], output=[])
+            //
+            // we must generate a gather distribution on the first aggregation node, or else
+            // no any strategies to process the physical aggregation, so we allow this case
+            if (agg.getGroupByExpressions().isEmpty() && agg.getOutputExpressions().isEmpty()) {
+                return true;
+            }
             return false;
-
         }
 
         // forbid TWO_PHASE_AGGREGATE_WITH_DISTINCT after shuffle
