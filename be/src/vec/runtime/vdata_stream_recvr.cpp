@@ -425,7 +425,7 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
 
 Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
                                    int64_t packet_seq, ::google::protobuf::Closure** done) {
-    SCOPED_ATTACH_TASK_WITH_ID(_query_mem_tracker, _query_id, _fragment_instance_id);
+    SCOPED_ATTACH_TASK_WITH_ID(_query_mem_tracker, _query_id);
     int use_sender_id = _is_merging ? sender_id : 0;
     return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
 }
