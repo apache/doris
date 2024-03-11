@@ -45,6 +45,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -290,8 +291,11 @@ public class JoinUtils {
     }
 
     private static List<Slot> applyNullable(List<Slot> slots, boolean nullable) {
-        return slots.stream().map(o -> o.withNullable(nullable))
-                .collect(ImmutableList.toImmutableList());
+        Builder<Slot> newSlots = ImmutableList.builderWithExpectedSize(slots.size());
+        for (Slot slot : slots) {
+            newSlots.add(slot.withNullable(nullable));
+        }
+        return newSlots.build();
     }
 
     private static Map<Slot, Slot> mapPrimaryToForeign(ImmutableEqualSet<Slot> equivalenceSet,
