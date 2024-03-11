@@ -20,5 +20,6 @@ package org.apache.doris.statistics;
 public enum JobPriority {
     HIGH,
     MID,
-    LOW;
+    LOW,
+    MANUAL;
 }

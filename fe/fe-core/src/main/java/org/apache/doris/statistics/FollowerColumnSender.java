@@ -32,14 +32,16 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class FollowerColumnSender extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(FollowerColumnSender.class);
 
-    public static final long INTERVAL = 5000;
+    public static final long INTERVAL = 60000;
 
     public FollowerColumnSender() {
         super("Follower Column Sender", INTERVAL);
@@ -68,21 +70,28 @@ public class FollowerColumnSender extends MasterDaemon {
         if (analysisManager.highPriorityColumns.isEmpty() && analysisManager.midPriorityColumns.isEmpty()) {
             return;
         }
-        List<TQueryColumn> highPriorityColumns
+        Set<TQueryColumn> highPriorityColumns
                 = analysisManager.highPriorityColumns
                 .stream()
+                .filter(c -> StatisticsUtil.needAnalyzeColumn(c))
                 .map(HighPriorityColumn::toThrift)
-                .collect(Collectors.toList());
-        List<TQueryColumn> midPriorityColumns
+                .collect(Collectors.toSet());
+        Set<TQueryColumn> midPriorityColumns
                 = analysisManager.midPriorityColumns
                 .stream()
+                .filter(c -> StatisticsUtil.needAnalyzeColumn(c))
+                .filter(c -> !highPriorityColumns.contains(c))
                 .map(HighPriorityColumn::toThrift)
-                .collect(Collectors.toList());
+                .collect(Collectors.toSet());
         analysisManager.highPriorityColumns.clear();
         analysisManager.midPriorityColumns.clear();
         TSyncQueryColumns queryColumns = new TSyncQueryColumns();
-        queryColumns.highPriorityColumns = highPriorityColumns;
-        queryColumns.midPriorityColumns = midPriorityColumns;
+        List<TQueryColumn> highs = new ArrayList<>();
+        highs.addAll(highPriorityColumns);
+        queryColumns.highPriorityColumns = highs;
+        List<TQueryColumn> mids = new ArrayList<>();
+        mids.addAll(midPriorityColumns);
+        queryColumns.midPriorityColumns = mids;
         Frontend master = null;
         try {
             InetSocketAddress masterAddress = currentEnv.getHaProtocol().getLeader();

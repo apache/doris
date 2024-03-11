@@ -23,9 +23,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -58,29 +59,22 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     @Override
     protected void collect() {
         while (canCollect()) {
-            Map.Entry<TableName, Set<String>> job = getJob();
+            Pair<Entry<TableName, Set<String>>, JobPriority> job = getJob();
             if (job == null) {
                 // No more job to process, break and sleep.
                 break;
             }
             try {
-                TableName tblName = job.getKey();
+                TableName tblName = job.first.getKey();
                 TableIf table = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
                 if (!supportAutoAnalyze(table)) {
                     continue;
                 }
-                Set<String> columns = job.getValue()
-                        .stream()
-                        .filter(c -> {
-                            boolean needAnalyzeColumn = needAnalyzeColumn(table, c);
-                            LOG.info("Need analyze column " + c + " ? " + needAnalyzeColumn);
-                            return needAnalyzeColumn;
-                        })
-                        .collect(Collectors.toSet());
-                processOneJob(table, columns);
+                Set<String> columns = job.first.getValue().stream().collect(Collectors.toSet());
+                processOneJob(table, columns, job.second);
             } catch (Exception e) {
-                LOG.warn("Failed to analyze table {} with columns [{}]",
-                        job.getKey().getTbl(), job.getValue().stream().collect(Collectors.joining(",")), e);
+                LOG.warn("Failed to analyze table {} with columns [{}]", job.first.getKey().getTbl(),
+                        job.first.getValue().stream().collect(Collectors.joining(",")), e);
             }
         }
     }
@@ -90,18 +84,18 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             && StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
     }
 
-    protected Map.Entry<TableName, Set<String>> getJob() {
+    protected Pair<Entry<TableName, Set<String>>, JobPriority> getJob() {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
-        Optional<Map.Entry<TableName, Set<String>>> job = fetchJobFromMap(manager.highPriorityJobs);
+        Optional<Entry<TableName, Set<String>>> job = fetchJobFromMap(manager.highPriorityJobs);
         if (job.isPresent()) {
-            return job.get();
+            return Pair.of(job.get(), JobPriority.HIGH);
         }
         job = fetchJobFromMap(manager.midPriorityJobs);
         if (job.isPresent()) {
-            return job.get();
+            return Pair.of(job.get(), JobPriority.MID);
         }
         job = fetchJobFromMap(manager.lowPriorityJobs);
-        return job.isPresent() ? job.get() : null;
+        return job.isPresent() ? Pair.of(job.get(), JobPriority.LOW) : null;
     }
 
     protected Optional<Map.Entry<TableName, Set<String>>> fetchJobFromMap(Map<TableName, Set<String>> jobMap) {
@@ -112,12 +106,12 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         }
     }
 
-    protected void processOneJob(TableIf table, Set<String> columns) throws DdlException {
+    protected void processOneJob(TableIf table, Set<String> columns, JobPriority priority) throws DdlException {
         appendPartitionColumns(table, columns);
         if (columns.isEmpty()) {
             return;
         }
-        AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns);
+        AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
         LOG.info("Analyze job : {}", analyzeJob.toString());
         createSystemAnalysisJob(analyzeJob);
     }
@@ -134,69 +128,6 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         }
     }
 
-    // TODO: Need refactor, hard to understand now.
-    protected boolean needAnalyzeColumn(TableIf table, String column) {
-        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
-        TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
-        if (tableStatsStatus == null) {
-            return true;
-        }
-        if (tableStatsStatus.userInjected) {
-            return false;
-        }
-        ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(column);
-        if (columnStatsMeta == null) {
-            return true;
-        }
-        if (table instanceof OlapTable) {
-            long currentUpdatedRows = tableStatsStatus.updatedRows.get();
-            long lastAnalyzeUpdateRows = columnStatsMeta.updatedRows;
-            if (lastAnalyzeUpdateRows == 0 && currentUpdatedRows > 0) {
-                return true;
-            }
-            if (lastAnalyzeUpdateRows > currentUpdatedRows) {
-                // Shouldn't happen. Just in case.
-                return true;
-            }
-            OlapTable olapTable = (OlapTable) table;
-            long currentRowCount = olapTable.getRowCount();
-            long lastAnalyzeRowCount = columnStatsMeta.rowCount;
-            if (tableStatsStatus.newPartitionLoaded.get() && olapTable.isPartitionColumn(column)) {
-                return true;
-            }
-            if (lastAnalyzeRowCount == 0 && currentRowCount > 0) {
-                return true;
-            }
-            if (currentUpdatedRows == lastAnalyzeUpdateRows) {
-                return false;
-            }
-            double healthValue = ((double) (currentUpdatedRows - lastAnalyzeUpdateRows)
-                    / (double) currentUpdatedRows) * 100.0;
-            LOG.info("Column " + column + " update rows health value is " + healthValue);
-            if (healthValue < StatisticsUtil.getTableStatsHealthThreshold()) {
-                return true;
-            }
-            if (currentRowCount == 0 && lastAnalyzeRowCount != 0) {
-                return true;
-            }
-            if (currentRowCount == 0 && lastAnalyzeRowCount == 0) {
-                return false;
-            }
-            healthValue = ((double) (currentRowCount - lastAnalyzeRowCount) / (double) currentRowCount) * 100.0;
-            return healthValue < StatisticsUtil.getTableStatsHealthThreshold();
-        } else {
-            if (!(table instanceof HMSExternalTable)) {
-                return false;
-            }
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            if (!hmsTable.getDlaType().equals(DLAType.HIVE)) {
-                return false;
-            }
-            return System.currentTimeMillis()
-                    - tableStatsStatus.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
-        }
-    }
-
     protected boolean supportAutoAnalyze(TableIf tableIf) {
         if (tableIf == null) {
             return false;
@@ -206,7 +137,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 && ((HMSExternalTable) tableIf).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
     }
 
-    protected AnalysisInfo createAnalyzeJobForTbl(TableIf table, Set<String> columns) {
+    protected AnalysisInfo createAnalyzeJobForTbl(TableIf table, Set<String> columns, JobPriority priority) {
         AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
@@ -236,6 +167,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setRowCount(rowCount)
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
                 .setColToPartitions(colToPartitions)
+                .setPriority(priority)
                 .build();
     }
 }

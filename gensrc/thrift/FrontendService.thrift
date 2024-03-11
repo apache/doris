@@ -1412,9 +1412,9 @@ struct TReportCommitTxnResultRequest {
 }
 
 struct TQueryColumn {
-    1: optional i64 catalogId
-    2: optional i64 dbId
-    3: optional i64 tblId
+    1: optional string catalogId
+    2: optional string dbId
+    3: optional string tblId
     4: optional string colName
 }
 
