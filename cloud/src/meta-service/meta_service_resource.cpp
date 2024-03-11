@@ -330,25 +330,12 @@ static int add_hdfs_storage_valut(InstanceInfoPB& instance, Transaction* txn,
     return 0;
 }
 
-[[maybe_unused]] static int remove_hdfs_storage_valut(std::string_view vault_key, TxnKv* txn_kv,
+// TODO(ByteYue): Implement drop storage vault.
+[[maybe_unused]] static int remove_hdfs_storage_valut(std::string_view vault_key, Transaction* txn,
                                                       MetaServiceCode& code, std::string& msg) {
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
-        return -1;
-    }
     txn->remove(vault_key);
     LOG(INFO) << "remove storage_vault_key=" << hex(vault_key);
 
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit for removing storage vault_key={}, err={}", vault_key,
-                          err);
-        return -1;
-    }
     return 0;
 }
 
@@ -780,9 +767,8 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
 
 static int create_instance_with_object_info(const InstanceInfoPB& instance,
                                             ObjectStoreInfoPB* obj_info,
-                                            const ObjectStoreInfoPB& obj, TxnKv* txn_kv,
-                                            bool sse_enabled, MetaServiceCode& code,
-                                            std::string& msg) {
+                                            const ObjectStoreInfoPB& obj, bool sse_enabled,
+                                            MetaServiceCode& code, std::string& msg) {
     std::string plain_ak = obj.has_ak() ? obj.ak() : "";
     std::string plain_sk = obj.has_sk() ? obj.sk() : "";
     std::string bucket = obj.has_bucket() ? obj.bucket() : "";
@@ -858,8 +844,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     if (request->has_obj_info()) {
         ObjectStoreInfoPB obj_info;
         if (0 != create_instance_with_object_info(instance, &obj_info, request->obj_info(),
-                                                  txn_kv_.get(), request->sse_enabled(), code,
-                                                  msg)) {
+                                                  request->sse_enabled(), code, msg)) {
             return;
         }
         instance.mutable_obj_info()->Add(std::move(obj_info));
