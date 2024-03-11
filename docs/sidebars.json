@@ -737,7 +737,9 @@
                             "items": [
                                 "sql-manual/sql-functions/hll-functions/hll-cardinality",
                                 "sql-manual/sql-functions/hll-functions/hll-empty",
+                                "sql-manual/sql-functions/hll-functions/hll-from_base64",
                                 "sql-manual/sql-functions/hll-functions/hll-hash"
+                                "sql-manual/sql-functions/hll-functions/hll-to_base64"
                             ]
                         },
                         {

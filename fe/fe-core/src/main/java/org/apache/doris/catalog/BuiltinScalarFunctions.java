@@ -188,6 +188,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinalit
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllFromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
@@ -616,6 +617,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(HllEmpty.class, "hll_empty"),
             scalar(HllFromBase64.class, "hll_from_base64"),
             scalar(HllHash.class, "hll_hash"),
+            scalar(HllToBase64.class, "hll_to_base64"),
             scalar(Hour.class, "hour"),
             scalar(HourCeil.class, "hour_ceil"),
             scalar(HourFloor.class, "hour_floor"),
