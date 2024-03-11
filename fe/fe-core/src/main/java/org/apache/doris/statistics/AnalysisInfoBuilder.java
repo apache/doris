@@ -65,6 +65,7 @@ public class AnalysisInfoBuilder {
     private long rowCount;
     private boolean userInject;
     private long updateRows;
+    private JobPriority priority;
 
     public AnalysisInfoBuilder() {
     }
@@ -105,6 +106,7 @@ public class AnalysisInfoBuilder {
         rowCount = info.rowCount;
         userInject = info.userInject;
         updateRows = info.updateRows;
+        priority = info.priority;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -282,12 +284,18 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setPriority(JobPriority priority) {
+        this.priority = priority;
+        return this;
+    }
+
     public AnalysisInfo build() {
         return new AnalysisInfo(jobId, taskId, taskIds, catalogId, dbId, tblId, jobColumns, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 externalTableLevelTask, partitionOnly, samplingPartition, isAllPartition, partitionCount,
-                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, rowCount, userInject, updateRows);
+                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, rowCount, userInject, updateRows,
+                priority);
     }
 
 }

@@ -200,7 +200,11 @@ public class AnalysisInfo implements Writable {
      */
     public final long tblUpdateTime;
 
+    @SerializedName("userInject")
     public final boolean userInject;
+
+    @SerializedName("priority")
+    public final JobPriority priority;
 
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             List<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
@@ -210,7 +214,7 @@ public class AnalysisInfo implements Writable {
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
             boolean usingSqlForPartitionColumn, long tblUpdateTime, long rowCount, boolean userInject,
-            long updateRows) {
+            long updateRows, JobPriority priority) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -249,6 +253,7 @@ public class AnalysisInfo implements Writable {
         this.rowCount = rowCount;
         this.userInject = userInject;
         this.updateRows = updateRows;
+        this.priority = priority;
     }
 
     @Override
@@ -293,6 +298,7 @@ public class AnalysisInfo implements Writable {
         sj.add("rowCount: " + rowCount);
         sj.add("userInject: " + userInject);
         sj.add("updateRows: " + updateRows);
+        sj.add("priority: " + priority.name());
         return sj.toString();
     }
 
