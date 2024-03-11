@@ -814,9 +814,6 @@ public abstract class Type {
      * here is to avoid special-casing logic in callers for concrete types.
      */
     public boolean matchesType(Type t) {
-        if (this.isArrayType() && t.isArrayType()) {
-            return true;
-        }
         return false;
     }
 
