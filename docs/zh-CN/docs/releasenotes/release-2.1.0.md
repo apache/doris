@@ -46,7 +46,7 @@ under the License.
 - 不论是基础的过滤、排序、聚合，或者复杂的多表关联查询、子查询以及窗口函数计算，2.1.0 版本都有更为明显的性能优势；
 - 2.0.5 版本或 2.1.0 版本，都可以完整执行 TPC-DS 的 99 个查询。
 
-![复杂查询性能提升 100%，TPC-DS 业界领先](../images/2.1-Doris-TPC-DS-best-performance.png)
+![复杂查询性能提升 100%，TPC-DS 业界领先](../../../images/2.1-Doris-TPC-DS-best-performance.png)
 
 
 以上详细测试结果我们将在后续提交到 Apache Doris 官网文档中，也欢迎所有用户在完成最新版本的部署后进行测试复现。
