@@ -370,6 +370,7 @@ public:
     bool from_date_str(const char* str, int len);
     bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone);
 
+    bool from_simple_format(const char* format, size_t format_len, const char* value, size_t value_len);
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
     bool from_date_int64(int64_t value);
@@ -1184,7 +1185,7 @@ public:
             return date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
         }
     }
-
+    bool from_simple_format(const char* format, size_t format_len, const char* value, size_t value_len);
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
     static constexpr int MAX_DATE_PARTS = 7;

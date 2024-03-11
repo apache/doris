@@ -214,18 +214,21 @@ private:
         for (size_t i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             size_t l_str_size = loffsets[i] - loffsets[i - 1];
-
             _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, format_str.data,
                                                            format_str.size, context, res, null_map,
                                                            i);
         }
     }
-    template <typename DateValueType, typename NativeType>
-    static void _execute_inner_loop(const char* l_raw_str, size_t l_str_size, const char* r_raw_str,
-                                    size_t r_str_size, FunctionContext* context,
-                                    PaddedPODArray<NativeType>& res, NullMap& null_map,
+
+    template<typename DateValueType, typename NativeType>
+    static void _execute_inner_loop(const char *l_raw_str, size_t l_str_size, const char *r_raw_str,
+                                    size_t r_str_size, FunctionContext *context,
+                                    PaddedPODArray<NativeType> &res, NullMap &null_map,
                                     size_t index) {
-        auto& ts_val = *reinterpret_cast<DateValueType*>(&res[index]);
+        auto &ts_val = *reinterpret_cast<DateValueType *>(&res[index]);
+        if (ts_val.from_simple_format(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
+            return;
+        }
         if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
             null_map[index] = 1;
         } else {

@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "util/timezone_utils.h"
 #include "vec/common/int_exp.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -1187,6 +1188,97 @@ static int check_word(const char* lib[], const char* str, const char* end, const
     return pos;
 }
 
+bool VecDateTimeValue::from_simple_format(const char* format, size_t format_len, const char* value,size_t value_len) {
+    if (value_len <= 0) [[unlikely]] {
+        return false;
+    }
+    const char *val = value;
+    const char *val_end = value + value_len;
+    const static std::string simple_format[3] = {"%Y-%m-%d", "%Y-%m-%d %H:%i:%s", "%H:%i:%s"};
+    StringRef format_r{format, format_len};
+    auto [year, month, day, hour, minute, second] = std::tuple{0, 0, 0, 0, 0, 0};
+    if (format_r == StringRef{simple_format[0].data(), simple_format[0].size()}) {
+        const char *end1 = val + 4, *end2 = val + 6;
+        val_end = value + 10;
+        int64_t int_value;
+        if (!str_to_int64(val, &end1, &int_value)) {
+            return false;
+        }
+
+        end1 = end1 + 1, end2 = end2 + 1;
+
+        year = int_value;
+        if (!str_to_int64(end1, &end2, &int_value)) {
+            return false;
+        }
+
+        end2 = end2 + 1;
+
+        month = int_value;
+        if (!str_to_int64(end2, &val_end, &int_value)) {
+            return false;
+        }
+        day = int_value;
+    } else if (format_r == StringRef{simple_format[1].data(), simple_format[1].size()}) {
+        const char *end1 = val + 4, *end2 = val + 7, *end3 = val + 10, *end4 = val + 13, *end5 = val + 16;
+        val_end = value + 19;
+        int64_t int_value;
+        // y mon day
+        if (!str_to_int64(val, &end1, &int_value)) {
+            return false;
+        }
+        year = int_value;
+        if (!str_to_int64(end1 + 1, &end2, &int_value)) {
+            return false;
+        }
+        month = int_value;
+        if (!str_to_int64(end2 + 1, &end3, &int_value)) {
+            return false;
+        }
+        day = int_value;
+
+        // h min s
+        if (!str_to_int64(end3 + 1, &end4, &int_value)) {
+            return false;
+        }
+        hour = int_value;
+        if (!str_to_int64(end4 + 1, &end5, &int_value)) {
+            return false;
+        }
+        minute = int_value;
+        if (!str_to_int64(end5 + 1, &val_end, &int_value)) {
+            return false;
+        }
+        second = int_value;
+    } else if (format_r == StringRef{simple_format[2].data(), simple_format[2].size()}) {
+
+        month = 1;
+        day = 1;
+        const char *end1 = val + 2, *end2 = val + 4;
+        val_end = value + 6;
+        int64_t int_value;
+        if (!str_to_int64(val, &end1, &int_value)) {
+            return false;
+        }
+
+        end1 = end1 + 1, end2 = end2 + 1;
+
+        hour = int_value;
+        if (!str_to_int64(end1, &end2, &int_value)) {
+            return false;
+        }
+
+        end2 = end2 + 1;
+
+        minute = int_value;
+        if (!str_to_int64(end2, &val_end, &int_value)) {
+            return false;
+        }
+        second = int_value;
+    } else return false;
+
+    return check_range_and_set_time(year, month, day, hour, minute, second,  TIME_DATETIME);
+}
 // this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
 // change this method should also change that.
 bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, const char* value,
@@ -2171,6 +2263,100 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
 template <typename T>
 void DateV2Value<T>::set_zero() {
     int_val_ = 0;
+}
+template <typename T>
+bool DateV2Value<T>::from_simple_format(const char* format, size_t format_len, const char* value,size_t value_len) {
+    if (value_len <= 0) [[unlikely]] {
+        return false;
+    }
+    const char *val = value;
+    const char *val_end = value + value_len;
+    const static std::string simple_format[3] = {"%Y-%m-%d", "%Y-%m-%d %H:%i:%s", "%H:%i:%s"};
+    StringRef format_r{format, format_len};
+    bool only_time=false;
+    auto [year, month, day, hour, minute, second] = std::tuple{0, 0, 0, 0, 0, 0};
+    if (format_r == StringRef{simple_format[0].data(), simple_format[0].size()}) {
+        const char *end1 = val + 4, *end2 = val + 6;
+        val_end = value + 10;
+        int64_t int_value;
+        if (!str_to_int64(val, &end1, &int_value)) {
+            return false;
+        }
+
+        end1 = end1 + 1, end2 = end2 + 1;
+
+        year = int_value;
+        if (!str_to_int64(end1, &end2, &int_value)) {
+            return false;
+        }
+
+        end2 = end2 + 1;
+
+        month = int_value;
+        if (!str_to_int64(end2, &val_end, &int_value)) {
+            return false;
+        }
+        day = int_value;
+    } else if (format_r == StringRef{simple_format[1].data(), simple_format[1].size()}) {
+        const char *end1 = val + 4, *end2 = val + 7, *end3 = val + 10, *end4 = val + 13, *end5 = val + 16;
+        val_end = value + 19;
+        int64_t int_value;
+        // y mon day
+        if (!str_to_int64(val, &end1, &int_value)) {
+            return false;
+        }
+        year = int_value;
+        if (!str_to_int64(end1 + 1, &end2, &int_value)) {
+            return false;
+        }
+        month = int_value;
+        if (!str_to_int64(end2 + 1, &end3, &int_value)) {
+            return false;
+        }
+        day = int_value;
+        if (is_datetime) {
+            // h min s
+            if (!str_to_int64(end3 + 1, &end4, &int_value)) {
+                return false;
+            }
+            hour = int_value;
+            if (!str_to_int64(end4 + 1, &end5, &int_value)) {
+                return false;
+            }
+            minute = int_value;
+            if (!str_to_int64(end5 + 1, &val_end, &int_value)) {
+                return false;
+            }
+        }
+        second = int_value;
+    } else if (format_r == StringRef{simple_format[2].data(), simple_format[2].size()} && is_datetime) {
+        month = 1;
+        day = 1;
+        only_time = true;
+        const char *end1 = val + 2, *end2 = val + 4;
+        val_end = value + 8;
+        int64_t int_value;
+        if (!str_to_int64(val, &end1, &int_value)) {
+            return false;
+        }
+
+        end1 = end1 + 1, end2 = end2 + 1;
+
+        hour = int_value;
+        if (!str_to_int64(end1, &end2, &int_value)) {
+            return false;
+        }
+
+        end2 = end2 + 1;
+
+        minute = int_value;
+        if (!str_to_int64(end2, &val_end, &int_value)) {
+            return false;
+        }
+        second = int_value;
+    } else return false;
+
+    return check_range_and_set_time(year, month, day, hour, minute, second, 0, only_time);
 }
 
 // this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
