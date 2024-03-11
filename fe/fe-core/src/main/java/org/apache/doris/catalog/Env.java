@@ -5742,6 +5742,9 @@ public class Env {
             Long lastFailedVersion, long updateTime, boolean isReplay)
             throws MetaNotFoundException {
         try {
+            if (Config.isCloudMode()) {
+                throw new MetaNotFoundException("not support modify replica version in cloud mode");
+            }
             TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
             if (meta == null) {
                 throw new MetaNotFoundException("tablet does not exist");
