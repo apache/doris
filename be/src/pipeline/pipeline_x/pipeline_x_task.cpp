@@ -283,7 +283,9 @@ Status PipelineXTask::execute(bool* eos) {
                      << ",\nmin revocable mem: "
                      << PrettyPrinter::print(_state->min_revocable_mem(), TUnit::BYTES)
                      << ",\nrevocable mem: "
-                     << PrettyPrinter::print(_sink->revocable_mem_size(_state), TUnit::BYTES);
+                     << PrettyPrinter::print(
+                                static_cast<uint64_t>(_sink->revocable_mem_size(_state)),
+                                TUnit::BYTES);
         }
         if (sys_mem_available < sys_mem_warning_water_mark * config::spill_mem_warning_water_mark_multiplier /*&&
             (double)query_mem >= (double)_state->query_mem_limit() * 0.8*/) {
