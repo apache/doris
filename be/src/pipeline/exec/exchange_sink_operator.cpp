@@ -481,12 +481,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             auto select_rows = row_ids.size();
             std::vector<uint32_t> crc_hash_vals(select_rows);
             auto* __restrict crc_hashes = crc_hash_vals.data();
-            auto column_int64 = vectorized::ColumnVector<int64>::create();
-
-            column_int64->insert_many_in_copy_way(reinterpret_cast<const char*>(tablet_ids.data()),
-                                                  select_rows);
-            column_int64->update_crcs_with_value(crc_hashes, PrimitiveType::TYPE_BIGINT,
-                                                 select_rows, 0, nullptr);
+            for (size_t i = 0; i < select_rows; i++) {
+                crc_hashes[i] =
+                        HashUtil::zlib_crc_hash(&tablet_ids[i], sizeof(int64), crc_hashes[i]);
+            }
             for (int idx = 0; idx < select_rows; ++idx) {
                 const auto& row = row_ids[idx];
                 const auto& tablet_id_hash = crc_hash_vals[idx];
