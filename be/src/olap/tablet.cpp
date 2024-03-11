@@ -2389,6 +2389,19 @@ std::string Tablet::get_segment_filepath(std::string_view rowset_id, int64_t seg
     return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
 }
 
+std::string Tablet::get_segment_index_filepath(std::string_view rowset_id,
+                                               std::string_view segment_index,
+                                               std::string_view index_id) const {
+    // TODO(qiye): support inverted index file format v2, when https://github.com/apache/doris/pull/30145 is merged
+    return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index, index_id);
+}
+
+std::string Tablet::get_segment_index_filepath(std::string_view rowset_id, int64_t segment_index,
+                                               int64_t index_id) const {
+    // TODO(qiye): support inverted index file format v2, when https://github.com/apache/doris/pull/30145 is merged
+    return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index, index_id);
+}
+
 std::vector<std::string> Tablet::get_binlog_filepath(std::string_view binlog_version) const {
     const auto& [rowset_id, num_segments] = get_binlog_info(binlog_version);
     std::vector<std::string> binlog_filepath;
@@ -2418,7 +2431,6 @@ void Tablet::gc_binlogs(int64_t version) {
 
     const auto& tablet_uid = this->tablet_uid();
     const auto tablet_id = this->tablet_id();
-    const auto& tablet_path = this->tablet_path();
     std::string begin_key = make_binlog_meta_key_prefix(tablet_uid);
     std::string end_key = make_binlog_meta_key_prefix(tablet_uid, version + 1);
     LOG(INFO) << fmt::format("gc binlog meta, tablet_id:{}, begin_key:{}, end_key:{}", tablet_id,
@@ -2432,10 +2444,16 @@ void Tablet::gc_binlogs(int64_t version) {
         wait_for_deleted_binlog_keys.emplace_back(key);
         wait_for_deleted_binlog_keys.push_back(get_binlog_data_key_from_meta_key(key));
 
+        // add binlog segment files and index files
         for (int64_t i = 0; i < num_segments; ++i) {
-            auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
-            wait_for_deleted_binlog_files.emplace_back(
-                    fmt::format("{}/_binlog/{}", tablet_path, segment_file));
+            wait_for_deleted_binlog_files.emplace_back(get_segment_filepath(rowset_id, i));
+            for (const auto& index : this->tablet_schema()->indexes()) {
+                if (index.index_type() != IndexType::INVERTED) {
+                    continue;
+                }
+                wait_for_deleted_binlog_files.emplace_back(
+                        get_segment_index_filepath(rowset_id, i, index.index_id()));
+            }
         }
     };
 
