@@ -277,7 +277,7 @@ suite("test_unique_model_schema_key_change","p0") {
       *  Test the unique model by modify a value type
       */
 
-
+     sql """ DROP TABLE IF EXISTS ${tbName} """
      initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
              "          (\n" +
              "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
@@ -437,7 +437,7 @@ suite("test_unique_model_schema_key_change","p0") {
      /**
       *  Test the unique model by modify a key type from TINYINT to other type
       */
-
+     sql """ DROP TABLE IF EXISTS ${tbName} """
      initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
              "          (\n" +
              "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
@@ -611,7 +611,7 @@ suite("test_unique_model_schema_key_change","p0") {
      /**
       *  Test the unique model by modify a key type from SMALLINT to other type
       */
-
+     sql """ DROP TABLE IF EXISTS ${tbName} """
      initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
              "          (\n" +
              "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
