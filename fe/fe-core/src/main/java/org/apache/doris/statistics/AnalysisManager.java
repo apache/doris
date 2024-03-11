@@ -144,7 +144,7 @@ public class AnalysisManager implements Writable {
         if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
             throw new DdlException("Stats table not available, please make sure your cluster status is normal");
         }
-        if (Config.force_sample_analyze) {
+        if (ConnectContext.get().getSessionVariable().forceSampleAnalyze) {
             analyzeStmt.checkAndSetSample();
         }
         if (analyzeStmt instanceof AnalyzeDBStmt) {
