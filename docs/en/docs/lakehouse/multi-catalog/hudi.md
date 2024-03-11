@@ -33,8 +33,8 @@ under the License.
 
 |  Table Type   | Supported Query types  |
 |  ----  | ----  |
-| Copy On Write  | Snapshot Query + Time Travel |
-| Merge On Read  | Snapshot Queries + Read Optimized Queries + Time Travel |
+| Copy On Write  | Snapshot Query, Time Travel, Icremental Read |
+| Merge On Read  | Snapshot Queries, Read Optimized Queries, Time Travel, Icremental Read |
 
 2. Doris supports Hive Metastore(Including catalogs compatible with Hive MetaStore, like [AWS Glue](./hive.md)/[Alibaba DLF](./dlf.md)) Catalogs.
 
@@ -94,16 +94,29 @@ Users can view the perfomace of Java SDK through [profile](../../admin-manual/ht
 
 ## Time Travel
 
-Supports reading snapshots specified in Hudi table.
-
-Every write operation to the Hudi table will generate a new snapshot.
-
-By default, query requests will only read the latest version of the snapshot.
+Every write operation to the Hudi table will generate a new snapshot. [Time Travel](https://hudi.apache.org/docs/0.14.0/quick-start-guide/#timetravel) supports reading snapshots specified in Hudi table. By default, query requests will only read the latest version of the snapshot.
 
 You can use the `FOR TIME AS OF` statement, based on the time of the snapshot to read historical version data. Examples are as follows:
-
-`SELECT * FROM hudi_tbl FOR TIME AS OF "2022-10-07 17:20:37";`
-
-`SELECT * FROM hudi_tbl FOR TIME AS OF "20221007172037";`
-
+```
+SELECT * FROM hudi_tbl FOR TIME AS OF "2022-10-07 17:20:37";
+SELECT * FROM hudi_tbl FOR TIME AS OF "20221007172037";
+SELECT * FROM hudi_tbl FOR TIME AS OF "2022-10-07";
+```
 Hudi table does not support the `FOR VERSION AS OF` statement. Using this syntax to query the Hudi table will throw an error.
+
+## Incremental Read
+Incremental Read obtains a set of records that changed between a start and end commit time, providing you with the "latest state" for each such record as of the end commit time.
+
+Doris uses `@incr` syntax to support Incremental Read:
+```
+SELECT * from hudi_table@incr('beginTime'='xxx', ['endTime'='xxx'], ['hoodie.read.timeline.holes.resolution.policy'='FAIL'], ...);
+```
+`beginTime` is required, the time format is consistent with [hudi_table_changes](https://hudi.apache.org/docs/0.14.0/quick-start-guide/#incremental-query), and also supports "earliest". `endTime` is optional, default to latest commit time. The remaining optional parameters can be [Spark Read Options](https://hudi.apache.org/docs/0.14.0/configurations#Read-Options).
+
+Incremental Read should turn on Nereids Planner. Doris translates `@incr` as `predicates` and pushdown to `VHUDI_SCAN_NODE`:
+```
+|   0:VHUDI_SCAN_NODE(113)                                                                                            |
+|      table: lineitem_mor                                                                                            |
+|      predicates: (_hoodie_commit_time[#0] >= '20240311151019723'), (_hoodie_commit_time[#0] <= '20240311151606605') |
+|      inputSplitNum=1, totalFileSize=13099711, scanRanges=1                                                          |
+```
