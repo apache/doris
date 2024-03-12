@@ -340,7 +340,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
     ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
-    if (http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
+    if (http_req != nullptr && http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
         // FIXME find a way to avoid chunked stream load write large WALs
         size_t content_length = 0;
         if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
