@@ -70,7 +70,12 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status open(doris::RuntimeState* state) override;
-    [[nodiscard]] const RowDescriptor& row_desc() const override { return *_output_row_desc; }
+    [[nodiscard]] const RowDescriptor& row_desc() const override {
+        if (Base::_output_row_descriptor) {
+            return *Base::_output_row_descriptor;
+        }
+        return *_output_row_desc;
+    }
 
     [[nodiscard]] const RowDescriptor& intermediate_row_desc() const override {
         return *_intermediate_row_desc;
