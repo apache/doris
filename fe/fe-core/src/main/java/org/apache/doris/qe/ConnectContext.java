@@ -1066,55 +1066,6 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
-    public void setCloudCluster() {
-        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
-        // try set default cluster
-        String defaultCloudCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
-        if (!Strings.isNullOrEmpty(defaultCloudCluster)) {
-            // check cluster validity
-            if (cloudClusterNames.contains(defaultCloudCluster)) {
-                // valid
-                setCloudCluster(defaultCloudCluster);
-                LOG.info("use default cluster {}", defaultCloudCluster);
-                return;
-            } else {
-                // invalid
-                LOG.warn("default cluster {} current invalid, please change it", defaultCloudCluster);
-                getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
-                        "default cluster " + defaultCloudCluster + "current invalid, please change it");
-                return;
-            }
-        }
-
-        // get all available cluster of the user
-        for (String cloudClusterName : cloudClusterNames) {
-            if (Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
-                    cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-                // find a cluster has more than one alive be
-                List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(
-                        cloudClusterName);
-                AtomicBoolean hasAliveBe = new AtomicBoolean(false);
-                bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudClusterName, backend);
-                    hasAliveBe.set(true);
-                });
-                if (hasAliveBe.get()) {
-                    // set a cluster to context cloudCluster
-                    setCloudCluster(cloudClusterName);
-                    LOG.debug("set context cluster name {}", cloudClusterName);
-                    break;
-                }
-            }
-        }
-        if (Strings.isNullOrEmpty(this.cloudCluster)) {
-            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
-            getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
-                    "Cant get a Valid cluster for you to use, plz connect admin");
-            return;
-        }
-        LOG.info("finally set context cluster name {}", cloudCluster);
-    }
-
     /**
      * @return Returns an available cluster in the following order
      *         1 Use an explicitly specified cluster

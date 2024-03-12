@@ -452,7 +452,7 @@ public class StatisticsUtil {
         }
         if (Config.isCloudMode()) {
             try (AutoCloseConnectContext r = buildConnectContext()) {
-                r.connectContext.setCloudCluster();
+                r.connectContext.getCloudCluster();
                 for (OlapTable table : statsTbls) {
                     for (Partition partition : table.getPartitions()) {
                         if (partition.getBaseIndex().getTablets().stream()
