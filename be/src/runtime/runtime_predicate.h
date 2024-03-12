@@ -53,7 +53,7 @@ public:
 
     void set_tablet_schema(TabletSchemaSPtr tablet_schema) {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
-        if (_tablet_schema) {
+        if (_tablet_schema || !_inited) {
             return;
         }
         _tablet_schema = tablet_schema;
