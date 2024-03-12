@@ -207,8 +207,11 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
     }
     auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     io::FileReaderOptions reader_options {
-            .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                    : io::FileCachePolicy::NO_CACHE,
+            .cache_type =
+                    _context.write_file_cache
+                            ? (config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                         : io::FileCachePolicy::NO_CACHE)
+                            : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true};
     auto s = segment_v2::Segment::open(fs, path, segment_id, rowset_id(), _context.tablet_schema,
                                        reader_options, &segment);
