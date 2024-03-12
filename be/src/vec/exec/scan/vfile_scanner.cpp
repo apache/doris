@@ -64,6 +64,7 @@
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
+#include "vec/exec/format/table/lakesoul_jni_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
@@ -807,6 +808,12 @@ Status VFileScanner::_get_next_reader() {
                 init_status =
                         ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
             } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "lakesoul") {
+                _cur_reader = LakeSoulJniReader::create_unique( range.table_format_params.lakesoul_params,
+                                                           _file_slot_descs, _state, _profile);
+                init_status =
+                        ((LakeSoulJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
+            } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "trino_connector") {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
@@ -1218,3 +1225,4 @@ void VFileScanner::_collect_profile_before_close() {
 }
 
 } // namespace doris::vectorized
+
