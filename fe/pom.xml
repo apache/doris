@@ -322,7 +322,7 @@ under the License.
         <httpclient.version>4.5.13</httpclient.version>
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
-        <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
+        <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <dlf-metastore-client-hive.version>0.2.14</dlf-metastore-client-hive.version>
         <hadoop.version>3.3.6</hadoop.version>
         <joda.version>2.8.1</joda.version>
