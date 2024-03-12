@@ -432,6 +432,15 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
+                } else if constexpr (IsDataTypeNumber<FromDataType> &&
+                                     IsDataTypeNumber<ToDataType>) {
+                    for (size_t i = 0; i < size; ++i) {
+                        if (vec_from[i] < min_result || vec_from[i] > max_result) {
+                            return Status::RuntimeError("{}({}) out of range", col_to->get_name(),
+                                                        vec_from[i]);
+                        }
+                        vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                    }
                 } else {
                     for (size_t i = 0; i < size; ++i) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
