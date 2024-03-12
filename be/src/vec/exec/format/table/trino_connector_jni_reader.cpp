@@ -60,8 +60,6 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
              range.table_format_params.trino_connector_params.trino_connector_column_handles},
             {"trino_connector_column_metadata",
              range.table_format_params.trino_connector_params.trino_connector_column_metadata},
-            {"trino_connector_column_names",
-             range.table_format_params.trino_connector_params.trino_connector_column_names},
             {"trino_connector_predicate",
              range.table_format_params.trino_connector_params.trino_connector_predicate},
             {"trino_connector_trascation_handle",
