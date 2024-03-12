@@ -78,7 +78,7 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
-    public static final String PROP_SEPERATOR_CHAR = "seperatorChar";
+    public static final String PROP_SEPARATOR_CHAR = "separatorChar";
     public static final String PROP_QUOTA_CHAR = "quoteChar";
 
 
@@ -369,8 +369,8 @@ public class HiveScanNode extends FileQueryScanNode {
         java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
         if (delimiter.containsKey(PROP_FIELD_DELIMITER)) {
             textParams.setColumnSeparator(delimiter.get(PROP_FIELD_DELIMITER));
-        } else if (delimiter.containsKey(PROP_SEPERATOR_CHAR)) {
-            textParams.setColumnSeparator(delimiter.get(PROP_SEPERATOR_CHAR));
+        } else if (delimiter.containsKey(PROP_SEPARATOR_CHAR)) {
+            textParams.setColumnSeparator(delimiter.get(PROP_SEPARATOR_CHAR));
         } else {
             textParams.setColumnSeparator(DEFAULT_FIELD_DELIMITER);
         }
