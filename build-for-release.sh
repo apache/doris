@@ -122,6 +122,7 @@ fi
 echo "ARCH: ${ARCH}"
 
 ORI_OUTPUT="${ROOT}/output"
+rm -rf "${ORI_OUTPUT}"
 
 FE="fe"
 BE="be"
