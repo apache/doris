@@ -77,7 +77,7 @@ public class ModifyBackendTest {
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         backends = infoService.getAllBackends();
         Assert.assertEquals(1, backends.size());
-        Assert.assertEquals(Tag.VALUE_DEFAULT_TAG, backends.get(0).getRack().value);
+        Assert.assertEquals(null, backends.get(0).getRack());
 
         // modify backend tags
         Config.enable_multi_tags = true;
@@ -87,7 +87,7 @@ public class ModifyBackendTest {
         backends = infoService.getAllBackends();
         Assert.assertEquals(1, backends.size());
         Assert.assertEquals(2, backends.get(0).getTagMap().size());
-        Assert.assertEquals("a", backends.get(0).getRack().value);
+        Assert.assertEquals("a", backends.get(0).getRack());
         Config.enable_multi_tags = true;
 
         // create table

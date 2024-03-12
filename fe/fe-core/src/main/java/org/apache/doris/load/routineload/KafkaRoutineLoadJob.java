@@ -40,7 +40,6 @@ import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -138,6 +137,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     public Map<String, String> getConvertedCustomProperties(String rack) {
+        if (rack == null) {
+            return convertedCustomProperties;
+        }
         if (!convertedRackCustomProperties.containsKey(rack)) {
             Map<String, String> result = new HashMap<>(convertedCustomProperties);
             result.put(ConsumerConfig.CLIENT_RACK_CONFIG, rack);
@@ -750,7 +752,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // all offsets to be consumed are newer than offsets in cachedPartitionWithLatestOffsets,
             // maybe the cached offset is out-of-date, fetch from kafka server again
             List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, getBrokerList(),
-                    getTopic(), getConvertedCustomProperties(Tag.VALUE_DEFAULT_TAG),
+                    getTopic(), getConvertedCustomProperties(null),
                     Lists.newArrayList(partitionIdToOffset.keySet()));
             for (Pair<Integer, Long> pair : tmp) {
                 cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
