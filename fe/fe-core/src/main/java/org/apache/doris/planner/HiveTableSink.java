@@ -22,6 +22,8 @@ package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -35,7 +37,6 @@ import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveTableSink;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 
@@ -80,7 +81,7 @@ public class HiveTableSink extends DataSink {
         return DataPartition.RANDOM;
     }
 
-    public void init(List<Column> insertCols, List<Long> partitionIds) throws AnalysisException {
+    public void init(List<Column> insertCols) throws AnalysisException {
         THiveTableSink tSink = new THiveTableSink();
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
@@ -113,7 +114,7 @@ public class HiveTableSink extends DataSink {
         }
         tSink.setColumns(targetColumns);
 
-        setPartitionValues(partitionIds, tSink);
+        setPartitionValues(tSink);
 
         StorageDescriptor sd = targetTable.getRemoteTable().getSd();
         THiveBucket bucketInfo = new THiveBucket();
@@ -121,15 +122,18 @@ public class HiveTableSink extends DataSink {
         bucketInfo.setBucketCount(sd.getNumBuckets());
         tSink.setBucketInfo(bucketInfo);
 
-        TFileFormatType formatType = getFileFormatType();
+        TFileFormatType formatType = getFileFormatType(sd);
         tSink.setFileFormat(formatType);
         setCompressType(tSink, formatType);
 
         THiveLocationParams locationParams = new THiveLocationParams();
-        locationParams.setWritePath(sd.getLocation());
-        locationParams.setTargetPath(sd.getLocation());
+        String location = sd.getLocation();
+        locationParams.setWritePath(location);
+        locationParams.setTargetPath(location);
+        locationParams.setFileType(LocationPath.getTFileTypeForBE(location));
         tSink.setLocation(locationParams);
 
+        tSink.setHadoopConfig(targetTable.getHadoopProperties());
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
     }
@@ -163,28 +167,31 @@ public class HiveTableSink extends DataSink {
         }
     }
 
-    private void setPartitionValues(List<Long> partitionIds, THiveTableSink tSink) throws AnalysisException {
+    private void setPartitionValues(THiveTableSink tSink) {
         List<THivePartition> partitions = new ArrayList<>();
-        if (partitionIds.isEmpty()) {
-            return;
-        }
-        for (Long partitionId : partitionIds) {
-            String partName = targetTable.getPartitionName(partitionId);
-            if (StringUtils.isNotEmpty(partName)) {
-                THivePartition hivePartition = new THivePartition();
-                // TODO: use partition format type itself.
-                hivePartition.setFileFormat(getFileFormatType());
-                hivePartition.setValues(new ArrayList<>(targetTable.getPartitionNames()));
-                // TODO: set partition location: hivePartition.setLocation();
-                partitions.add(hivePartition);
-            }
+        List<org.apache.hadoop.hive.metastore.api.Partition> hivePartitions =
+                ((HMSExternalCatalog) targetTable.getCatalog())
+                        .getClient().listPartitions(targetTable.getDbName(), targetTable.getName());
+        for (org.apache.hadoop.hive.metastore.api.Partition partition : hivePartitions) {
+            THivePartition hivePartition = new THivePartition();
+            StorageDescriptor sd = partition.getSd();
+            hivePartition.setFileFormat(getFileFormatType(sd));
+
+            hivePartition.setValues(partition.getValues());
+            THiveLocationParams locationParams = new THiveLocationParams();
+            String location = sd.getLocation();
+            locationParams.setWritePath(location);
+            locationParams.setTargetPath(location);
+            locationParams.setFileType(LocationPath.getTFileTypeForBE(location));
+            hivePartition.setLocation(locationParams);
+            partitions.add(hivePartition);
         }
         tSink.setPartitions(partitions);
     }
 
-    private TFileFormatType getFileFormatType() {
+    private TFileFormatType getFileFormatType(StorageDescriptor sd) {
         TFileFormatType fileFormatType;
-        if (targetTable.getRemoteTable().getSd().getInputFormat().toLowerCase().contains("orc")) {
+        if (sd.getInputFormat().toLowerCase().contains("orc")) {
             fileFormatType = TFileFormatType.FORMAT_ORC;
         } else {
             fileFormatType = TFileFormatType.FORMAT_PARQUET;

@@ -122,6 +122,10 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
         return listPartitionNames(dbName, tblName, (long) -1);
     }
 
+    public List<Partition> listPartitions(String dbName, String tblName) {
+        return getPartitionsByNames(dbName, tblName, ImmutableList.of());
+    }
+
     @Override
     public List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum) {
         String sql = String.format("SELECT \"PART_NAME\" from \"PARTITIONS\" WHERE \"TBL_ID\" = ("
@@ -172,15 +176,27 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     private List<Partition> getPartitionsByNames(String dbName, String tblName, List<String> partitionNames) {
         List<String> partitionNamesWithQuote = partitionNames.stream().map(partitionName -> "'" + partitionName + "'")
                 .collect(Collectors.toList());
-        String partitionNamesString = Joiner.on(", ").join(partitionNamesWithQuote);
-        String sql = String.format("SELECT \"PART_ID\", \"PARTITIONS\".\"CREATE_TIME\","
-                        + " \"PARTITIONS\".\"LAST_ACCESS_TIME\","
-                        + " \"PART_NAME\", \"PARTITIONS\".\"SD_ID\" FROM \"PARTITIONS\""
-                        + " join \"TBLS\" on \"TBLS\".\"TBL_ID\" = \"PARTITIONS\".\"TBL_ID\""
-                        + " join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\""
-                        + " WHERE \"DBS\".\"NAME\" = '%s' AND \"TBLS\".\"TBL_NAME\"='%s'"
-                        + " AND \"PART_NAME\" in (%s);",
-                dbName, tblName, partitionNamesString);
+        String sql;
+        if (partitionNamesWithQuote.isEmpty()) {
+            sql = String.format("SELECT \"PART_ID\", \"PARTITIONS\".\"CREATE_TIME\","
+                            + " \"PARTITIONS\".\"LAST_ACCESS_TIME\","
+                            + " \"PART_NAME\", \"PARTITIONS\".\"SD_ID\" FROM \"PARTITIONS\""
+                            + " join \"TBLS\" on \"TBLS\".\"TBL_ID\" = \"PARTITIONS\".\"TBL_ID\""
+                            + " join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\""
+                            + " WHERE \"DBS\".\"NAME\" = '%s' AND \"TBLS\".\"TBL_NAME\"='%s'"
+                            + " AND \"PART_NAME\";",
+                    dbName, tblName);
+        } else {
+            String partitionNamesString = Joiner.on(", ").join(partitionNamesWithQuote);
+            sql = String.format("SELECT \"PART_ID\", \"PARTITIONS\".\"CREATE_TIME\","
+                            + " \"PARTITIONS\".\"LAST_ACCESS_TIME\","
+                            + " \"PART_NAME\", \"PARTITIONS\".\"SD_ID\" FROM \"PARTITIONS\""
+                            + " join \"TBLS\" on \"TBLS\".\"TBL_ID\" = \"PARTITIONS\".\"TBL_ID\""
+                            + " join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\""
+                            + " WHERE \"DBS\".\"NAME\" = '%s' AND \"TBLS\".\"TBL_NAME\"='%s'"
+                            + " AND \"PART_NAME\" in (%s);",
+                    dbName, tblName, partitionNamesString);
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("getPartitionsByNames exec sql: {}", sql);
         }

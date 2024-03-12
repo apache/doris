@@ -281,6 +281,7 @@ struct TOlapTableSink {
 struct THiveLocationParams {
   1: optional string write_path
   2: optional string target_path
+  3: optional Types.TFileType file_type
 }
 
 struct TSortedColumn {
@@ -336,6 +337,7 @@ struct THiveTableSink {
     6: optional PlanNodes.TFileFormatType file_format
     7: optional THiveCompressionType compression_type
     8: optional THiveLocationParams location
+    9: optional map<string, string> hadoop_config
 }
 
 enum TUpdateMode {
