@@ -89,11 +89,8 @@ void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
 }
 
 void EnginePublishVersionTask::get_all_tablet_info(
-        int64_t partition_id, int64_t transaction_id,
-        std::map<TabletInfo, RowsetSharedPtr>* tablet_related_rs,
+        int64_t partition_id, std::set<TabletInfo>* txn_related_tablets,
         std::set<TabletInfo>* partition_related_tablet_infos) {
-    _engine.txn_manager()->get_txn_related_tablets(transaction_id, partition_id, tablet_related_rs);
-
     // get all partition related tablets and check whether the tablet have the related version
     _engine.tablet_manager()->get_partition_related_tablets(partition_id,
                                                             partition_related_tablet_infos);
@@ -104,14 +101,12 @@ void EnginePublishVersionTask::get_all_tablet_info(
         tmp_tablet_ids.insert(it.tablet_id);
     }
 
-    for (auto it : *tablet_related_rs) {
-        if (!tmp_tablet_ids.contains(it.first.tablet_id)) {
-            LOG(WARNING) << "partition_id: " << partition_id
-                         << " transaction_id: " << transaction_id
-                         << " add tablet_id: " << it.first.tablet_id
+    for (auto it : *txn_related_tablets) {
+        if (!tmp_tablet_ids.contains(it.tablet_id)) {
+            LOG(WARNING) << "partition_id: " << partition_id << " add tablet_id: " << it.tablet_id
                          << " may be due to partition id eq 0 obtained partial tablets by "
                             "get_partition_related_tablets";
-            partition_related_tablet_infos->insert(it.first);
+            partition_related_tablet_infos->insert(it);
         }
     }
 }
@@ -147,14 +142,21 @@ Status EnginePublishVersionTask::execute() {
 #endif
 
     std::vector<std::shared_ptr<TabletPublishTxnTask>> tablet_tasks;
+    std::map<int64_t, std::set<TabletInfo>> tmp;
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
         // get all partition related tablets and check whether the tablet have the related version
         std::set<TabletInfo> partition_related_tablet_infos;
         map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-        get_all_tablet_info(partition_id, transaction_id, &tablet_related_rs,
-                            &partition_related_tablet_infos);
+        _engine.txn_manager()->get_txn_related_tablets(transaction_id, partition_id,
+                                                       &tablet_related_rs);
+        std::set<TabletInfo> tmpset;
+        for (auto it : tablet_related_rs) {
+            tmpset.insert(it.first);
+        }
+        tmp.emplace(partition_id, tmpset);
+        get_all_tablet_info(partition_id, &tmp[partition_id], &partition_related_tablet_infos);
 
         if (_publish_version_req.strict_mode && partition_related_tablet_infos.empty()) {
             LOG(INFO) << "could not find related tablet for partition " << partition_id
@@ -302,9 +304,7 @@ Status EnginePublishVersionTask::execute() {
         int64_t partition_id = par_ver_info.partition_id;
         // get all partition related tablets and check whether the tablet have the related version
         std::set<TabletInfo> partition_related_tablet_infos;
-        map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-        get_all_tablet_info(partition_id, transaction_id, &tablet_related_rs,
-                            &partition_related_tablet_infos);
+        get_all_tablet_info(partition_id, &tmp[partition_id], &partition_related_tablet_infos);
 
         Version version(par_ver_info.version, par_ver_info.version);
         for (auto& tablet_info : partition_related_tablet_infos) {
