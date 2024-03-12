@@ -1435,6 +1435,8 @@ service FrontendService {
 
     TMySqlLoadAcquireTokenResult acquireToken()
 
+    bool checkToken(1: string token)
+
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 
     TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
