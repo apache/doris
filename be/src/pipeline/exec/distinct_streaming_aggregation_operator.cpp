@@ -250,17 +250,6 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     // need use _cur_num_rows_returned to decide whether to do continue emplace into hash table
     _cur_num_rows_returned += _distinct_row.size();
 
-    // if (stop_emplace_flag) {
-    //     vectorized::ColumnsWithTypeAndName columns_with_schema;
-    //     for (int i = 0; i < key_size; ++i) {
-    //         columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
-    //                                          _probe_expr_ctxs[i]->root()->data_type(),
-    //                                          _probe_expr_ctxs[i]->root()->expr_name());
-    //     }
-    //     out_block->swap(vectorized::Block(columns_with_schema));
-    //     in_block->clear();
-    //     return Status::OK();
-    // }
     bool mem_reuse = _parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys.empty() &&
                      out_block->mem_reuse();
     if (mem_reuse) {
