@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNestedLoopJoinNode;
@@ -127,7 +128,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
             nullableTupleIds.addAll(outer.getTupleIds());
         }
         vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
-        vOutputTupleDesc = outputTuple;
+        outputTupleDesc = outputTuple;
         vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
@@ -186,20 +187,17 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         }
 
         msg.nested_loop_join_node.setIsMark(isMarkJoin());
-        if (vSrcToOutputSMap != null) {
-            for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                // TODO: Enable it after we support new optimizers
-                // if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-                //     msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                // } else
-                msg.nested_loop_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+
+        if (!ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+            // legacy planner use vSrcExprList
+            // while nereids use PlanNode.projections
+            if (vSrcToOutputSMap != null) {
+                for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
+                    msg.nested_loop_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                }
             }
         }
-        if (vOutputTupleDesc != null) {
-            msg.nested_loop_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
-            // TODO Enable it after we support new optimizers
-            // msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
-        }
+
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
                 msg.nested_loop_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
@@ -258,10 +256,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         }
         output.append(detailPrefix).append("is output left side only: ").append(isOutputLeftSideOnly).append("\n");
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
-        // todo unify in plan node
-        if (vOutputTupleDesc != null) {
-            output.append(detailPrefix).append("vec output tuple id: ").append(vOutputTupleDesc.getId()).append("\n");
-        }
+
         if (vIntermediateTupleDescList != null) {
             output.append(detailPrefix).append("vIntermediate tuple ids: ");
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {

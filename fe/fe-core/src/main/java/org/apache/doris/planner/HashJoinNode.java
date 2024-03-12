@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.THashJoinNode;
 import org.apache.doris.thrift.TJoinDistributionType;
 import org.apache.doris.thrift.TPlanNode;
@@ -171,7 +172,7 @@ public class HashJoinNode extends JoinNodeBase {
             nullableTupleIds.addAll(outer.getTupleIds());
         }
         vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
-        vOutputTupleDesc = outputTuple;
+        this.outputTupleDesc = outputTuple;
         vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
@@ -220,7 +221,7 @@ public class HashJoinNode extends JoinNodeBase {
             nullableTupleIds.addAll(outer.getTupleIds());
         }
         vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
-        vOutputTupleDesc = outputTuple;
+        this.outputTupleDesc = outputTuple;
         vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
@@ -800,20 +801,18 @@ public class HashJoinNode extends JoinNodeBase {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
             }
         }
-        if (vSrcToOutputSMap != null) {
+        if (vSrcToOutputSMap != null && vSrcToOutputSMap.getLhs() != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                // TODO: Enable it after we support new optimizers
-                // if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-                //     msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                // } else
-                msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                TExpr tExpr = vSrcToOutputSMap.getLhs().get(i).treeToThrift();
+                msg.hash_join_node.addToSrcExprList(tExpr);
+                // make legacy planner compatible
+                msg.addToProjections(tExpr);
             }
         }
-        if (vOutputTupleDesc != null) {
-            msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
-            // TODO Enable it after we support new optimizers
-            // msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
+        if (outputTupleDesc != null) {
+            msg.hash_join_node.setVoutputTupleId(outputTupleDesc.getId().asInt());
         }
+
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
                 msg.hash_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
@@ -862,9 +861,11 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(getRuntimeFilterExplainString(true));
         }
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
-        // todo unify in plan node
-        if (vOutputTupleDesc != null) {
-            output.append(detailPrefix).append("vec output tuple id: ").append(vOutputTupleDesc.getId()).append("\n");
+        if (outputTupleDesc != null) {
+            output.append(detailPrefix).append("vec output tuple id: ").append(outputTupleDesc.getId()).append("\n");
+        }
+        if (outputTupleDesc != null) {
+            output.append(detailPrefix).append("output tuple id: ").append(outputTupleDesc.getId()).append("\n");
         }
         if (vIntermediateTupleDescList != null) {
             output.append(detailPrefix).append("vIntermediate tuple ids: ");
