@@ -135,10 +135,8 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         } else {
             // null safe equal runtime filter only support bloom filter
             EqualPredicate eq = (EqualPredicate) builderNode.getHashJoinConjuncts().get(exprOrder);
-            if (eq instanceof NullSafeEqual && type == TRuntimeFilterType.IN_OR_BLOOM) {
-                type = TRuntimeFilterType.BLOOM;
-            }
-            if (eq instanceof NullSafeEqual && type != TRuntimeFilterType.BLOOM) {
+            if (eq instanceof NullSafeEqual && type == TRuntimeFilterType.MIN_MAX
+                    || type == TRuntimeFilterType.BITMAP) {
                 return false;
             }
             filter = new RuntimeFilter(generator.getNextId(),

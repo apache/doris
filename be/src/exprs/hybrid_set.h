@@ -192,6 +192,7 @@ public:
             insert(value);
             iter->next();
         }
+        _contains_null |= set->_contains_null;
     }
 
     virtual int size() = 0;
@@ -231,6 +232,9 @@ public:
     };
 
     virtual IteratorBase* begin() = 0;
+
+    bool contain_null() const { return _contains_null && _null_aware; }
+    bool _contains_null = false;
 };
 
 template <typename Type>
@@ -268,10 +272,12 @@ public:
 
     void insert(const void* data) override {
         if (data == nullptr) {
+            _contains_null = true;
             return;
         }
         _set.insert(*reinterpret_cast<const ElementType*>(data));
     }
+
     void insert(void* data, size_t /*unused*/) override { insert(data); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
@@ -288,6 +294,8 @@ public:
             for (size_t i = start; i < size; i++) {
                 if (!nullmap[i]) {
                     _set.insert(*(data + i));
+                } else {
+                    _contains_null = true;
                 }
             }
         } else {
@@ -392,6 +400,7 @@ public:
 
     void insert(const void* data) override {
         if (data == nullptr) {
+            _contains_null = true;
             return;
         }
 
@@ -417,6 +426,8 @@ public:
             for (size_t i = start; i < nullable->size(); i++) {
                 if (!nullmap[i]) {
                     _set.insert(col.get_data_at(i).to_string());
+                } else {
+                    _contains_null = true;
                 }
             }
         } else {
@@ -534,6 +545,7 @@ public:
 
     void insert(const void* data) override {
         if (data == nullptr) {
+            _contains_null = true;
             return;
         }
 
@@ -559,6 +571,8 @@ public:
             for (size_t i = start; i < nullable->size(); i++) {
                 if (!nullmap[i]) {
                     _set.insert(col.get_data_at(i));
+                } else {
+                    _contains_null = true;
                 }
             }
         } else {
