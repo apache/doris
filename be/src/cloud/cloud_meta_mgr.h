@@ -16,8 +16,6 @@
 // under the License.
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
-
 #include <memory>
 #include <string>
 #include <tuple>
