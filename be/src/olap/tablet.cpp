@@ -223,6 +223,10 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
             VLOG_NOTICE << "tablet " << tablet_id << " is not cooldown replica";
             return;
         }
+        if (tablet->tablet_state() == TABLET_SHUTDOWN) [[unlikely]] {
+            LOG_INFO("tablet {} has been dropped, don't do cooldown", tablet_id);
+            return;
+        }
     }
     {
         // one tablet could at most have one cooldown task to be done
