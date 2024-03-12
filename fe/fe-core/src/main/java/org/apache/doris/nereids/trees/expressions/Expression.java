@@ -65,6 +65,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     // Mark this expression is from predicate infer or something else infer
     private final boolean inferred;
     private final boolean hasUnbound;
+    private final boolean compareWidthAndDepth;
     private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(() -> collect(Slot.class::isInstance));
 
     protected Expression(Expression... children) {
@@ -72,14 +73,17 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         int maxChildDepth = 0;
         int sumChildWidth = 0;
         boolean hasUnbound = false;
+        boolean compareWidthAndDepth = true;
         for (int i = 0; i < children.length; ++i) {
             Expression child = children[i];
             maxChildDepth = Math.max(child.depth, maxChildDepth);
             sumChildWidth += child.width;
             hasUnbound |= child.hasUnbound;
+            compareWidthAndDepth &= (child.compareWidthAndDepth & child.supportCompareWidthAndDepth());
         }
         this.depth = maxChildDepth + 1;
         this.width = sumChildWidth + ((children.length == 0) ? 1 : 0);
+        this.compareWidthAndDepth = compareWidthAndDepth;
 
         checkLimit();
         this.inferred = false;
@@ -95,14 +99,17 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         int maxChildDepth = 0;
         int sumChildWidth = 0;
         boolean hasUnbound = false;
+        boolean compareWidthAndDepth = true;
         for (int i = 0; i < children.size(); ++i) {
             Expression child = children.get(i);
             maxChildDepth = Math.max(child.depth, maxChildDepth);
             sumChildWidth += child.width;
             hasUnbound |= child.hasUnbound;
+            compareWidthAndDepth &= (child.compareWidthAndDepth & child.supportCompareWidthAndDepth());
         }
         this.depth = maxChildDepth + 1;
         this.width = sumChildWidth + ((children.isEmpty()) ? 1 : 0);
+        this.compareWidthAndDepth = compareWidthAndDepth;
 
         checkLimit();
         this.inferred = inferred;
@@ -345,7 +352,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             return false;
         }
         Expression that = (Expression) o;
-        if (this.width != that.width || this.depth != that.depth || arity() != that.arity() || !extraEquals(that)) {
+        if ((compareWidthAndDepth && (this.width != that.width || this.depth != that.depth))
+                || arity() != that.arity() || !extraEquals(that)) {
             return false;
         }
         return equalsChildren(that);
@@ -380,5 +388,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     public String shapeInfo() {
         return toSql();
+    }
+
+    protected boolean supportCompareWidthAndDepth() {
+        return true;
     }
 }
