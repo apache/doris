@@ -254,7 +254,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
 
         RowsetMetaSharedPtr existed_rs_meta;
         auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(),
-                                                                  true, &existed_rs_meta);
+                                                                  &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {
                 LOG(INFO) << "Rowset " << rs_reader->version() << " has already existed in tablet "
@@ -285,7 +285,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                                          st.to_string());
         }
 
-        st = _cloud_storage_engine.meta_mgr().commit_rowset(*rowset_writer->rowset_meta(), true,
+        st = _cloud_storage_engine.meta_mgr().commit_rowset(*rowset_writer->rowset_meta(),
                                                             &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {

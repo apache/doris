@@ -56,10 +56,10 @@ public:
 
     Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false);
 
-    Status prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+    Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+    Status commit_rowset(const RowsetMeta& rs_meta,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
