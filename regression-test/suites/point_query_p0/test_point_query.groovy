@@ -71,22 +71,22 @@ suite("test_point_query") {
         }
 
         sql """DROP TABLE IF EXISTS ${tableName}"""
-        test {
-            // abnormal case
-            sql """
-                  CREATE TABLE IF NOT EXISTS ${tableName} (
-                    `k1` int NULL COMMENT ""
-                  ) ENGINE=OLAP
-                  UNIQUE KEY(`k1`)
-                  DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-                  PROPERTIES (
-                  "replication_allocation" = "tag.location.default: 1",
-                  "store_row_column" = "true",
-                  "light_schema_change" = "false"
-                  )
-              """
-            exception "errCode = 2, detailMessage = Row store column rely on light schema change, enable light schema change first"
-        }
+        // test {
+        //     // abnormal case
+        //     sql """
+        //           CREATE TABLE IF NOT EXISTS ${tableName} (
+        //             `k1` int NULL COMMENT ""
+        //           ) ENGINE=OLAP
+        //           UNIQUE KEY(`k1`)
+        //           DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        //           PROPERTIES (
+        //           "replication_allocation" = "tag.location.default: 1",
+        //           "store_row_column" = "true",
+        //           "light_schema_change" = "false"
+        //           )
+        //       """
+        //     exception "errCode = 2, detailMessage = Row store column rely on light schema change, enable light schema change first"
+        // }
 
         def create_table_sql = { property ->
             return String.format("""

@@ -158,9 +158,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // Just use in withXXX method. Don't need check/copyOf()
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
-        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
-        this.markJoinConjuncts = ImmutableList.copyOf(markJoinConjuncts);
+        this.hashJoinConjuncts = Utils.fastToImmutableList(hashJoinConjuncts);
+        this.otherJoinConjuncts = Utils.fastToImmutableList(otherJoinConjuncts);
+        this.markJoinConjuncts = Utils.fastToImmutableList(markJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
         if (joinReorderContext != null) {
             this.joinReorderContext.copyFrom(joinReorderContext);
@@ -185,11 +185,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      * getConditionSlot
      */
     public Set<Slot> getConditionSlot() {
-        // this function is called by rules which reject mark join
-        // so markJoinConjuncts is not processed here
-        Preconditions.checkState(!isMarkJoin(),
-                "shouldn't call mark join's getConditionSlot method");
-        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+        return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                markJoinConjuncts.stream())
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(ImmutableSet.toImmutableSet());
     }
@@ -198,11 +195,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      * getConditionExprId
      */
     public Set<ExprId> getConditionExprId() {
-        // this function is called by rules which reject mark join
-        // so markJoinConjuncts is not processed here
-        Preconditions.checkState(!isMarkJoin(),
-                "shouldn't call mark join's getConditionExprId method");
-        return Stream.concat(getHashJoinConjuncts().stream(), getOtherJoinConjuncts().stream())
+        return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                markJoinConjuncts.stream())
                 .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
     }
 

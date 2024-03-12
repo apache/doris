@@ -196,11 +196,11 @@ JDBC Catalog 对于外部表大小写的映射规则存在如下三个阶段：
 
 * Doris 2.1.0 以及之后版本：
 
-    为了避免和 FE conf 的 `lower_case_table_names` 参数混淆，此配置名改为 `lower_case_meta_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.4 ，需要 `Refresh <catalog_name>` 才能生效。
+    为了避免和 FE conf 的 `lower_case_table_names` 参数混淆，此配置名改为 `lower_case_meta_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.1.0 ，需要 `Refresh <catalog_name>` 才能生效。
 
     具体规则参考本小节开始对于 `lower_case_meta_names` 的介绍。
 
-    此前设置过 JDBC Catalog `lower_case_table_names` 参数的用户会在升级到 2.0.4 时，自动将 `lower_case_table_names` 转换为 `lower_case_meta_names`。
+    此前设置过 JDBC Catalog `lower_case_table_names` 参数的用户会在升级到 2.1.0 时，自动将 `lower_case_table_names` 转换为 `lower_case_meta_names`。
 
 ### 指定同步数据库
 
@@ -409,7 +409,7 @@ CALL EXECUTE_STMT(jdbc_catalog", "create table dbl1.tbl2 (k1 int)");
         "user"="root",
         "password"="123456",
         "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-        "driver_url" = "mysql-connector-java-5.1.47.jar",
+        "driver_url" = "mysql-connector-java-5.1.49.jar",
         "driver_class" = "com.mysql.jdbc.Driver"
     )
     ```
@@ -613,6 +613,7 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 | datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                              |
 | char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                              |
 | time/datetimeoffset                    | STRING        |                                                              |
+| timestamp                              | STRING        | 读取二进制数据的十六进制显示，无实际意义                            |
 | Other                                  | UNSUPPORTED   |                                                              |
 
 ### Doris
@@ -627,7 +628,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
-    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_url" = "mysql-connector-java-5.1.49.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 ```
@@ -892,6 +893,7 @@ CREATE CATALOG `jdbc_db2` PROPERTIES (
 | LONG VARGRAPHIC  | STRING       |       |
 | TIME             | STRING       |       |
 | CLOB             | STRING       |       |
+| XML              | STRING       |       |
 | OTHER            | UNSUPPORTED  |       |
 
 ## JDBC Driver 列表
@@ -900,12 +902,12 @@ CREATE CATALOG `jdbc_db2` PROPERTIES (
 
 |    Source    |                        JDBC Driver Version                        |
 |:------------:|:-----------------------------------------------------------------:|
-|  MySQL 5.x   |                  mysql-connector-java-5.1.47.jar                  |
+|  MySQL 5.x   |                  mysql-connector-java-5.1.49.jar                  |
 |  MySQL 8.x   |                  mysql-connector-java-8.0.25.jar                  |
 |  PostgreSQL  |                       postgresql-42.5.1.jar                       |
 |    Oracle    |                            ojdbc8.jar                             |
 |  SQLServer   |                    mssql-jdbc-11.2.3.jre8.jar                     |
-|    Doris     | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+|    Doris     | mysql-connector-java-5.1.49.jar / mysql-connector-java-8.0.25.jar |
 |  Clickhouse  |                   clickhouse-jdbc-0.4.2-all.jar                   |
 |   SAP HAHA   |                             ngdbc.jar                             |
 | Trino/Presto |            trino-jdbc-389.jar / presto-jdbc-0.280.jar             |

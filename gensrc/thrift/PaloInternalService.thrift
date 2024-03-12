@@ -274,6 +274,16 @@ struct TQueryOptions {
   // Increase concurrency of scanners adaptively, the maxinum times to scale up
   99: optional double scanner_scale_up_ratio = 0;
 
+  100: optional bool enable_distinct_streaming_aggregation = true;
+
+  101: optional bool enable_join_spill = false
+
+  102: optional bool enable_sort_spill = false
+
+  103: optional bool enable_agg_spill = false
+
+  104: optional i64 min_revocable_mem = 0
+  
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
@@ -496,6 +506,8 @@ struct TExecPlanFragmentParams {
 
   30: optional list<TPipelineWorkloadGroup> workload_groups
 
+  31: optional bool is_nereids = true;
+
   // For cloud
   1000: optional bool is_mow_table;
 }
@@ -681,6 +693,7 @@ struct TPipelineInstanceParams {
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  8: optional list<i32> topn_filter_source_node_ids
 }
 
 // ExecPlanFragment
@@ -726,6 +739,7 @@ struct TPipelineFragmentParams {
   37: optional i32 parallel_instances
   38: optional i32 total_instances
   39: optional map<i32, i32> shuffle_idx_to_instance_idx
+  40: optional bool is_nereids = true;
 
   // For cloud
   1000: optional bool is_mow_table;

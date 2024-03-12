@@ -156,6 +156,10 @@ DEFINE_Int32(tablet_publish_txn_max_thread, "32");
 DEFINE_Int32(publish_version_task_timeout_s, "8");
 // the count of thread to calc delete bitmap
 DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
+// the count of thread to calc delete bitmap worker, only used for cloud
+DEFINE_Int32(calc_delete_bitmap_worker_count, "8");
+// the count of thread to calc tablet delete bitmap task, only used for cloud
+DEFINE_Int32(calc_tablet_delete_bitmap_task_max_thread, "32");
 // the count of thread to clear transaction task
 DEFINE_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
@@ -908,6 +912,8 @@ DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
     return config.empty() || config == "file_block_cache";
 });
 
+DEFINE_String(tmp_file_dir, "tmp");
+
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
 
 DEFINE_Bool(enable_time_lut, "true");
@@ -1175,10 +1181,21 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
+// limit the storage space that query spill files can use
+DEFINE_String(spill_storage_root_path, "${DORIS_HOME}/storage");
+DEFINE_mInt64(spill_storage_limit, "10737418240"); // 10G
+DEFINE_mInt32(spill_gc_interval_ms, "2000");       // 2s
+DEFINE_Int32(spill_io_thread_pool_per_disk_thread_num, "2");
+DEFINE_Int32(spill_io_thread_pool_queue_size, "1024");
+DEFINE_Int32(spill_async_task_thread_pool_thread_num, "2");
+DEFINE_Int32(spill_async_task_thread_pool_queue_size, "1024");
+DEFINE_mInt32(spill_mem_warning_water_mark_multiplier, "2");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
 
 // clang-format off
 #ifdef BE_TEST

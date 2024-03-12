@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 // to describe the key range partition's information in create table stmt
 public class RangePartitionDesc extends PartitionDesc {
@@ -35,6 +36,9 @@ public class RangePartitionDesc extends PartitionDesc {
                               List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
         super(partitionColNames, allPartitionDescs);
         type = org.apache.doris.catalog.PartitionType.RANGE;
+        this.partitionExprs = new ArrayList<>(partitionColNames.stream()
+            .map(col -> new SlotRef(null, col))
+            .collect(Collectors.toList()));
         this.isAutoCreatePartitions = false;
     }
 

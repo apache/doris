@@ -153,7 +153,7 @@ public:
     // ignore_chidren set to false will treat field as variant
     // when it contains children with field paths.
     // nullptr will returned if storage type does not contains such column
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(vectorized::PathInData path,
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(vectorized::PathInDataPtr path,
                                                                   bool is_nullable,
                                                                   bool ignore_children) const;
 

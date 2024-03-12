@@ -115,9 +115,4 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     return Status::OK();
 }
 
-Status CloudRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
-    // TODO(plat1ko)
-    return Status::NotSupported("CloudRowsetWriter::_generate_delete_bitmap is not implemented");
-}
-
 } // namespace doris

@@ -194,11 +194,11 @@ JDBC catalog has the following three stages for mapping rules for external table
 
 * Doris 2.1.0 and later versions:
 
-  In order to avoid confusion with the `lower_case_table_names` parameter of FE conf, this configuration name is changed to `lower_case_meta_names`, which is valid for all databases. During query, all library names, table names and column names will be converted into real names, and then Check it out. If you upgrade from an old version to 2.0.4, you need `Refresh <catalog_name>` to take effect.
+  In order to avoid confusion with the `lower_case_table_names` parameter of FE conf, this configuration name is changed to `lower_case_meta_names`, which is valid for all databases. During query, all library names, table names and column names will be converted into real names, and then Check it out. If you upgrade from an old version to 2.1.0, you need `Refresh <catalog_name>` to take effect.
 
   For specific rules, please refer to the introduction of `lower_case_meta_names` at the beginning of this section.
 
-  Users who have previously set the JDBC catalog `lower_case_table_names` parameter will automatically have `lower_case_table_names` converted to `lower_case_meta_names` when upgrading to 2.0.4.
+  Users who have previously set the JDBC catalog `lower_case_table_names` parameter will automatically have `lower_case_table_names` converted to `lower_case_meta_names` when upgrading to 2.1.0.
 
 ### Specify synchronization database:
 
@@ -407,7 +407,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
     "user" = "root",
     "password" = "123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_url" = "mysql-connector-java-5.1.49.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 ```
@@ -594,23 +594,24 @@ As for data mapping from SQLServer to Doris, one Database in Doris corresponds t
 
 #### Type Mapping
 
-| SQLServer Type                         | Doris Type    | Comment                                                                  |
-|----------------------------------------|---------------|--------------------------------------------------------------------------|
-| bit                                    | BOOLEAN       |                                                                          |
-| tinyint                                | SMALLINT      | SQLServer's tinyint is an unsigned number, so it maps to Doris' SMALLINT |
-| smallint                               | SMALLINT      |                                                                          |
-| int                                    | INT           |                                                                          |
-| bigint                                 | BIGINT        |                                                                          |
-| real                                   | FLOAT         |                                                                          |
-| float                                  | DOUBLE        |                                                                          |
-| money                                  | DECIMAL(19,4) |                                                                          |
-| smallmoney                             | DECIMAL(10,4) |                                                                          |
-| decimal/numeric                        | DECIMAL       |                                                                          |
-| date                                   | DATE          |                                                                          |
-| datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                                          |
-| char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                                          |
-| time/datetimeoffset                    | STRING        |                                                                          |
-| Other                                  | UNSUPPORTED   |                                                                          |
+| SQLServer Type                         | Doris Type    | Comment                                                                          |
+|----------------------------------------|---------------|----------------------------------------------------------------------------------|
+| bit                                    | BOOLEAN       |                                                                                  |
+| tinyint                                | SMALLINT      | SQLServer's tinyint is an unsigned number, so it maps to Doris' SMALLINT         |
+| smallint                               | SMALLINT      |                                                                                  |
+| int                                    | INT           |                                                                                  |
+| bigint                                 | BIGINT        |                                                                                  |
+| real                                   | FLOAT         |                                                                                  |
+| float                                  | DOUBLE        |                                                                                  |
+| money                                  | DECIMAL(19,4) |                                                                                  |
+| smallmoney                             | DECIMAL(10,4) |                                                                                  |
+| decimal/numeric                        | DECIMAL       |                                                                                  |
+| date                                   | DATE          |                                                                                  |
+| datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                                                  |
+| char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                                                  |
+| time/datetimeoffset                    | STRING        |                                                                                  |
+| timestamp                              | STRING        | Read the hexadecimal display of binary data, which has no practical significance.|
+| Other                                  | UNSUPPORTED   |                                                                                  |
 
 ### Doris
 
@@ -624,7 +625,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
     "user" = "root",
     "password" = "123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
-    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_url" = "mysql-connector-java-5.1.49.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 ```
@@ -889,6 +890,7 @@ When mapping DB2, Doris's Database corresponds to a Schema under the specified D
 | LONG VARGRAPHIC  | STRING       |       |
 | TIME             | STRING       |       |
 | CLOB             | STRING       |       |
+| XML              | STRING       |       |
 | OTHER            | UNSUPPORTED  |       |
 
 ## JDBC Drivers
@@ -897,12 +899,12 @@ It is recommended to use the following versions of Driver to connect to the corr
 
 |    Source    |                        JDBC Driver Version                        |
 |:------------:|:-----------------------------------------------------------------:|
-| MySQL 5.x    |                  mysql-connector-java-5.1.47.jar                  |
+| MySQL 5.x    |                  mysql-connector-java-5.1.49.jar                  |
 |  MySQL 8.x   |                  mysql-connector-java-8.0.25.jar                  |
 |  PostgreSQL  |                       postgresql-42.5.1.jar                       |
 |    Oracle    |                            ojdbc8.jar                             |
 |  SQLServer   |                    mssql-jdbc-11.2.3.jre8.jar                     |
-|    Doris     | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+|    Doris     | mysql-connector-java-5.1.49.jar / mysql-connector-java-8.0.25.jar |
 |  Clickhouse  |                   clickhouse-jdbc-0.4.2-all.jar                   |
 |   SAP HAHA   |                             ngdbc.jar                             |
 | Trino/Presto |            trino-jdbc-389.jar / presto-jdbc-0.280.jar             |

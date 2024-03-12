@@ -49,6 +49,7 @@ import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -121,6 +122,7 @@ public class PlanChecker {
     public PlanChecker analyze() {
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
+        InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         return this;
     }
 

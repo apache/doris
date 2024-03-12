@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -49,8 +48,7 @@ import java.util.Optional;
 /**
  * Use the visitor to iterate sub expression.
  */
-class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
-
+class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     private final Scope scope;
     private final CascadesContext cascadesContext;
 
@@ -60,7 +58,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitNot(Not not, CascadesContext context) {
+    public Expression visitNot(Not not, T context) {
         Expression child = not.child();
         if (child instanceof Exists) {
             return visitExistsSubquery(
@@ -73,7 +71,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
+    public Expression visitExistsSubquery(Exists exists, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
         if (analyzedResult.rootIsLimitZero()) {
             return BooleanLiteral.of(exists.isNot());
@@ -87,7 +85,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitInSubquery(InSubquery expr, CascadesContext context) {
+    public Expression visitInSubquery(InSubquery expr, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
@@ -101,7 +99,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitScalarSubquery(ScalarSubquery scalar, CascadesContext context) {
+    public Expression visitScalarSubquery(ScalarSubquery scalar, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
@@ -109,13 +107,6 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         checkHasNoGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
-    }
-
-    private boolean childrenAtLeastOneInOrExistsSub(BinaryOperator binaryOperator) {
-        return binaryOperator.left().anyMatch(InSubquery.class::isInstance)
-                || binaryOperator.left().anyMatch(Exists.class::isInstance)
-                || binaryOperator.right().anyMatch(InSubquery.class::isInstance)
-                || binaryOperator.right().anyMatch(Exists.class::isInstance);
     }
 
     private void checkOutputColumn(LogicalPlan plan) {

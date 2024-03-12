@@ -21,6 +21,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
@@ -45,7 +46,9 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
     protected void initCatalog() {
         icebergCatalogType = ICEBERG_GLUE;
         GlueCatalog glueCatalog = new GlueCatalog();
-        glueCatalog.setConf(getConfiguration());
+        Configuration conf = getConfiguration();
+        initS3Param(conf);
+        glueCatalog.setConf(conf);
         // initialize glue catalog
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         String warehouse = catalogProperty.getOrDefault(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);

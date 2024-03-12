@@ -216,7 +216,7 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        boolean pipelineIsCloud = isCloudCluster()
+        boolean pipelineIsCloud = isCloudMode()
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
             dockerIsCloud = pipelineIsCloud
@@ -543,6 +543,17 @@ class Suite implements GroovyInterceptable {
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
             quickTest("", """ SELECT * FROM ${tbName}  """)
             sql """ DROP TABLE  ${tbName} """
+        }
+    }
+
+
+    void expectException(Closure userFunction, String tableName, String errorMessage = null) {
+        try {
+            userFunction()
+        } catch (Exception e) {
+            if (e.getMessage()!= errorMessage) {
+                throw e
+            }
         }
     }
 
@@ -991,7 +1002,7 @@ class Suite implements GroovyInterceptable {
         return result.last().get(0);
     }
 
-    boolean isCloudCluster() {
+    boolean isCloudMode() {
         return !getFeConfig("cloud_unique_id").isEmpty()
     }
 

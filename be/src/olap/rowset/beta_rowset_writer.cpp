@@ -166,7 +166,7 @@ Status BaseBetaRowsetWriter::add_block(const vectorized::Block* block) {
     return _segment_creator.add_block(block);
 }
 
-Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
+Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
     if (!_context.tablet->enable_unique_key_merge_on_write() ||
         (_context.partial_update_info && _context.partial_update_info->is_partial_update)) {
@@ -207,8 +207,11 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
     }
     auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     io::FileReaderOptions reader_options {
-            .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                    : io::FileCachePolicy::NO_CACHE,
+            .cache_type =
+                    _context.write_file_cache
+                            ? (config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                         : io::FileCachePolicy::NO_CACHE)
+                            : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true};
     auto s = segment_v2::Segment::open(fs, path, segment_id, rowset_id(), _context.tablet_schema,
                                        reader_options, &segment);
@@ -351,8 +354,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     int ret;
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (_context.tablet_schema->has_inverted_index(column)) {
-            auto index_info = _context.tablet_schema->get_inverted_index(column);
+        if (_context.tablet_schema->has_inverted_index(*column)) {
+            auto index_info = _context.tablet_schema->get_inverted_index(*column);
             auto index_id = index_info->index_id();
             auto src_idx_path =
                     begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
@@ -373,8 +376,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                         ret, errno);
             }
             // Erase the origin index file cache
-            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
-            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
         }
     }
     return Status::OK();

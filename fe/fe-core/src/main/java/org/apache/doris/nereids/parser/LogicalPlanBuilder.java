@@ -161,6 +161,8 @@ import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
+import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
@@ -346,7 +348,6 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -363,13 +364,13 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -399,6 +400,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -531,10 +535,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (isOverwrite) {
             command = new InsertOverwriteTableCommand(sink, labelName);
         } else {
-            if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()) {
+            if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()
+                    && sink.child() instanceof LogicalInlineTable) {
+                // FIXME: In legacy, the `insert into select 1` is handled as `insert into values`.
+                //  In nereids, the original way is throw an AnalysisException and fallback to legacy.
+                //  Now handle it as `insert into select`(a separate load job), should fix it as the legacy.
                 command = new BatchInsertIntoTableCommand(sink);
             } else {
-                command = new InsertIntoTableCommand(sink, labelName);
+                command = new InsertIntoTableCommand(sink, labelName, Optional.empty());
             }
         }
         if (ctx.explain() != null) {
@@ -2414,6 +2422,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.INTEGER_VALUE() != null) {
             bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
         }
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         DistributionDescriptor desc = null;
         if (ctx.HASH() != null) {
             desc = new DistributionDescriptor(true, ctx.autoBucket != null, bucketNum,
@@ -2429,33 +2439,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
                 ? Maps.newHashMap(visitPropertyClause(ctx.extProperties))
                 : Maps.newHashMap();
-        String partitionType = null;
-        if (ctx.PARTITION() != null) {
-            partitionType = ctx.RANGE() != null ? "RANGE" : "LIST";
-        }
-        boolean isAutoPartition = ctx.autoPartition != null;
-        ImmutableList.Builder<Expression> autoPartitionExpr = new ImmutableList.Builder<>();
-        if (isAutoPartition) {
-            if (ctx.RANGE() != null) {
-                // AUTO PARTITION BY RANGE FUNC_CALL_EXPR
-                if (ctx.partitionExpr != null) {
-                    autoPartitionExpr.add(visitFunctionCallExpression(ctx.partitionExpr));
-                } else {
-                    throw new AnalysisException(
-                            "AUTO PARTITION BY RANGE must provide a function expr");
-                }
-            } else {
-                // AUTO PARTITION BY LIST(`partition_col`)
-                if (ctx.partitionKeys != null) {
-                    // only support one column in auto partition
-                    autoPartitionExpr.addAll(visitIdentifierList(ctx.partitionKeys).stream()
-                            .distinct().map(name -> UnboundSlot.quoted(name))
-                            .collect(Collectors.toList()));
-                } else {
-                    throw new AnalysisException(
-                            "AUTO PARTITION BY List must provide a partition column");
-                }
-            }
+
+        // solve partition by
+        PartitionTableInfo partitionInfo;
+        if (ctx.partition != null) {
+            partitionInfo = (PartitionTableInfo) ctx.partitionTable().accept(this);
+        } else {
+            partitionInfo = PartitionTableInfo.EMPTY;
         }
 
         if (ctx.columnDefs() != null) {
@@ -2473,12 +2463,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     engineName,
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
-                    "",
-                    isAutoPartition,
-                    autoPartitionExpr.build(),
-                    partitionType,
-                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    comment,
+                    partitionInfo,
                     desc,
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
@@ -2495,12 +2481,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     engineName,
                     keysType,
                     ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
-                    "",
-                    isAutoPartition,
-                    autoPartitionExpr.build(),
-                    partitionType,
-                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    comment,
+                    partitionInfo,
                     desc,
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
@@ -2509,6 +2491,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             throw new AnalysisException("Should contain at least one column in a table");
         }
+    }
+
+    @Override
+    public PartitionTableInfo visitPartitionTable(DorisParser.PartitionTableContext ctx) {
+        boolean isAutoPartition = ctx.autoPartition != null;
+        ImmutableList<Expression> partitionList = ctx.partitionList.identityOrFunction().stream()
+                .map(partition -> {
+                    IdentifierContext identifier = partition.identifier();
+                    if (identifier != null) {
+                        return UnboundSlot.quoted(identifier.getText());
+                    } else {
+                        return visitFunctionCallExpression(partition.functionCallExpression());
+                    }
+                })
+                .collect(ImmutableList.toImmutableList());
+        return new PartitionTableInfo(
+            isAutoPartition,
+            ctx.RANGE() != null ? "RANGE" : "LIST",
+            ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+            partitionList);
     }
 
     @Override
@@ -2673,6 +2675,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return Literal.of(toStringValue(ctx.STRING_LITERAL().getText()));
         } else if (ctx.MAXVALUE() != null) {
             return MaxValue.INSTANCE;
+        } else if (ctx.NULL() != null) {
+            return Literal.of(null);
         }
         throw new AnalysisException("Unsupported partition value: " + ctx.getText());
     }
@@ -3371,5 +3375,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         FuncNameInfo procedureName = new FuncNameInfo(nameParts);
         return ParserUtils.withOrigin(ctx, () -> new DropProcedureCommand(procedureName, getOriginSql(ctx)));
+    }
+
+    @Override
+    public LogicalPlan visitShowProcedureStatus(ShowProcedureStatusContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> new ShowProcedureStatusCommand());
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateProcedure(ShowCreateProcedureContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        FuncNameInfo procedureName = new FuncNameInfo(nameParts);
+        return ParserUtils.withOrigin(ctx, () -> new ShowCreateProcedureCommand(procedureName));
     }
 }

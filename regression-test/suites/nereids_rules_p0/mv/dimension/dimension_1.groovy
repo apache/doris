@@ -520,9 +520,9 @@ suite("partition_mv_rewrite_dimension_1") {
             o_comment 
         """
     def agg_sql_explain_2 = sql """explain ${agg_sql_2};"""
-    def mv_index_1 = agg_sql_explain_2.toString().indexOf("MaterializedViewRewriteSuccessButNotChose:")
+    def mv_index_1 = agg_sql_explain_2.toString().indexOf("MaterializedViewRewriteFail:")
     assert(mv_index_1 != -1)
-    assert(agg_sql_explain_2.toString().substring(mv_index_1).indexOf(agg_mv_name_2) != -1)
+    assert(agg_sql_explain_2.toString().substring(0, mv_index_1).indexOf(agg_mv_name_2) != -1)
     sql """DROP MATERIALIZED VIEW IF EXISTS ${agg_mv_name_2};"""
 
     // agg + with group by + with agg function
@@ -559,9 +559,9 @@ suite("partition_mv_rewrite_dimension_1") {
             o_comment 
         """
     def agg_sql_explain_3 = sql """explain ${agg_sql_3};"""
-    def mv_index_2 = agg_sql_explain_3.toString().indexOf("MaterializedViewRewriteSuccessButNotChose:")
+    def mv_index_2 = agg_sql_explain_3.toString().indexOf("MaterializedViewRewriteFail:")
     assert(mv_index_2 != -1)
-    assert(agg_sql_explain_3.toString().substring(mv_index_2).indexOf(agg_mv_name_3) != -1)
+    assert(agg_sql_explain_3.toString().substring(0, mv_index_2).indexOf(agg_mv_name_3) != -1)
     sql """DROP MATERIALIZED VIEW IF EXISTS ${agg_mv_name_3};"""
 
 

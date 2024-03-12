@@ -1934,20 +1934,6 @@ create table employee_gz(name string,salary string)
 row format serde 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
 with serdeproperties 
 ('quoteChar'='\"'
-,'seperatorChar'=',');
+,'separatorChar'=',');
 
 insert into employee_gz values ('a', '1.1'), ('b', '2.2');
-
-create database hive_schema_change;
-use hive_schema_change;
-
-create table struct_test (
-  id int,
-  sf struct<f1: int, f2: map<string, string>>) stored as parquet;
-
-insert into struct_test values
-(1, named_struct('f1', 1, 'f2', str_to_map('1:s2,2:s2'))),
-(2, named_struct('f1', 2, 'f2', str_to_map('k1:s3,k2:s4'))),
-(3, named_struct('f1', 3, 'f2', str_to_map('k1:s5,k2:s6')));
-
-alter table struct_test change sf sf struct<f1:int, f2: string>;

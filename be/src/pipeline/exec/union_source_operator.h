@@ -118,7 +118,7 @@ public:
     }
 
     Status prepare(RuntimeState* state) override {
-        static_cast<void>(Base::prepare(state));
+        RETURN_IF_ERROR(Base::prepare(state));
         // Prepare const expr lists.
         for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
             RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
@@ -137,14 +137,14 @@ public:
 
 private:
     bool _has_data(RuntimeState* state) const {
-        auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
+        auto& local_state = get_local_state(state);
         if (_child_size == 0) {
             return local_state._need_read_for_const_expr;
         }
         return local_state._shared_state->data_queue.remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {
-        auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
+        auto& local_state = get_local_state(state);
         return state->per_fragment_instance_idx() == 0 &&
                local_state._const_expr_list_idx < local_state._const_expr_lists.size();
     }
