@@ -44,31 +44,33 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
         RuntimeProfile* profile, const TFileRangeDesc& range)
         : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {
     std::vector<std::string> column_names;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         column_names.emplace_back(field);
     }
-    std::map<String, String> params;
-    params["catalog_name"] = range.table_format_params.trino_connector_params.catalog_name;
-    params["db_name"] = range.table_format_params.trino_connector_params.db_name;
-    params["table_name"] = range.table_format_params.trino_connector_params.table_name;
-    params["trino_connector_split"] =
-            range.table_format_params.trino_connector_params.trino_connector_split;
-    params["trino_connector_table_handle"] =
-            range.table_format_params.trino_connector_params.trino_connector_table_handle;
-    params["trino_connector_column_handles"] =
-            range.table_format_params.trino_connector_params.trino_connector_column_handles;
-    params["trino_connector_column_metadata"] =
-            range.table_format_params.trino_connector_params.trino_connector_column_metadata;
-    params["trino_connector_column_names"] =
-            range.table_format_params.trino_connector_params.trino_connector_column_names;
-    params["trino_connector_predicate"] =
-            range.table_format_params.trino_connector_params.trino_connector_predicate;
-    params["trino_connector_trascation_handle"] =
-            range.table_format_params.trino_connector_params.trino_connector_trascation_handle;
+    std::map<String, String> params = {
+            {"catalog_name", range.table_format_params.trino_connector_params.catalog_name},
+            {"db_name", range.table_format_params.trino_connector_params.db_name},
+            {"table_name", range.table_format_params.trino_connector_params.table_name},
+            {"trino_connector_split",
+             range.table_format_params.trino_connector_params.trino_connector_split},
+            {"trino_connector_table_handle",
+             range.table_format_params.trino_connector_params.trino_connector_table_handle},
+            {"trino_connector_column_handles",
+             range.table_format_params.trino_connector_params.trino_connector_column_handles},
+            {"trino_connector_column_metadata",
+             range.table_format_params.trino_connector_params.trino_connector_column_metadata},
+            {"trino_connector_column_names",
+             range.table_format_params.trino_connector_params.trino_connector_column_names},
+            {"trino_connector_predicate",
+             range.table_format_params.trino_connector_params.trino_connector_predicate},
+            {"trino_connector_trascation_handle",
+             range.table_format_params.trino_connector_params.trino_connector_trascation_handle},
+            {"required_fields", join(column_names, ",")}};
 
     // Used to create trino connector options
-    for (auto& kv : range.table_format_params.trino_connector_params.trino_connector_options) {
+    for (const auto& kv :
+         range.table_format_params.trino_connector_params.trino_connector_options) {
         params[TRINO_CONNECTOR_OPTION_PREFIX + kv.first] = kv.second;
     }
     _jni_connector = std::make_unique<JniConnector>(
