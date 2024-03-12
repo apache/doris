@@ -30,18 +30,26 @@ namespace doris {
 // Hold the list of all caches, for prune when memory not enough or timing.
 class CacheManager {
 public:
-    static CacheManager* create_global_instance() {
-        CacheManager* res = new CacheManager();
-        return res;
-    }
+    static CacheManager* create_global_instance() { return new CacheManager(); }
     static CacheManager* instance() { return ExecEnv::GetInstance()->get_cache_manager(); }
 
     void register_cache(CachePolicy* cache) {
         std::lock_guard<std::mutex> l(_caches_lock);
+        auto it = _caches.find(cache->type());
+        if (it != _caches.end()) {
+#ifdef BE_TEST
+            _caches.erase(it);
+#else
+            LOG(FATAL) << "Repeat register cache " << CachePolicy::type_string(cache->type());
+#endif // BE_TEST
+        }
         _caches.insert({cache->type(), cache});
     }
 
     void unregister_cache(CachePolicy::CacheType type) {
+#ifdef BE_TEST
+        return;
+#endif // BE_TEST
         std::lock_guard<std::mutex> l(_caches_lock);
         auto it = _caches.find(type);
         if (it != _caches.end()) {
