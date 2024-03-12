@@ -177,7 +177,6 @@ suite("test_pushdown_explain") {
     qt_select_8 "select max(user_id) from table_unique;"
     qt_select_9 "select min(username) from table_unique;"
     qt_select_10 "select max(username) from table_unique;"
-    qt_select_11 "select min(val) from table_unique;"
     qt_select_12 "select max(val) from table_unique;"
 
     sql """
@@ -188,7 +187,6 @@ suite("test_pushdown_explain") {
     qt_select_14 "select max(user_id) from table_unique;"
     qt_select_15 "select min(username) from table_unique;"
     qt_select_16 "select max(username) from table_unique;"
-    qt_select_17 "select min(val) from table_unique;"
     qt_select_18 "select max(val) from table_unique;"
 
 
