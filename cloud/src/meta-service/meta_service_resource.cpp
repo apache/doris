@@ -268,9 +268,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
                     LOG(WARNING) << msg << " key=" << hex(k);
                     return;
                 }
-                if (vault.has_hdfs_info()) {
-                    response->add_hdfs_info()->MergeFrom(vault.hdfs_info());
-                }
+                response->add_storage_vault()->MergeFrom(vault);
                 if (!it->has_next()) {
                     storage_vault_start = k;
                 }
