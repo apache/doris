@@ -111,7 +111,7 @@ Status CloudDeltaWriter::commit_rowset() {
         RETURN_IF_ERROR(_rowset_builder->init());
         RETURN_IF_ERROR(_rowset_builder->build_rowset());
     }
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), true);
+    return _engine.meta_mgr().commit_rowset(*rowset_meta());
 }
 
 Status CloudDeltaWriter::set_txn_related_delete_bitmap() {

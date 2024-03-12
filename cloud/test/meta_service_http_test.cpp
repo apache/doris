@@ -326,7 +326,6 @@ static void prepare_rowset(MetaService* meta_service, const doris::RowsetMetaClo
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
-    req->set_temporary(true);
     req->mutable_rowset_meta()->CopyFrom(rowset);
     meta_service->prepare_rowset(&cntl, req, &res, nullptr);
     if (!arena) delete req;
@@ -337,7 +336,6 @@ static void commit_rowset(MetaService* meta_service, const doris::RowsetMetaClou
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
-    req->set_temporary(true);
     req->mutable_rowset_meta()->CopyFrom(rowset);
     meta_service->commit_rowset(&cntl, req, &res, nullptr);
     if (!arena) delete req;
