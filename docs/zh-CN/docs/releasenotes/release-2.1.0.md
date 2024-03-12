@@ -28,10 +28,15 @@ under the License.
 亲爱的社区小伙伴们，我们很高兴地向大家宣布，在 3 月 8 日我们引来了 Apache Doris 2.1.0 版本的正式发布，欢迎大家下载使用。
 
 - 在查询性能方面， 2.1 系列版本我们着重提升了开箱盲测性能，力争不做调优的情况下取得较好的性能表现，包含了对复杂 SQL 查询性能的进一步提升，在 TPC-DS 1TB 测试数据集上获得超过 100% 的性能提升，查询性能居于业界领先地位。
+
 - 在数据湖分析场景，我们进行了大量性能方面的改进、相对于 Trino 和 Spark 分别有 4-6 倍的性能提升，并引入了多 SQL 方言兼容、便于用户可以从原有系统无缝切换至 Apache Doris。在面向数据科学以及其他形式的大规模数据读取场景，我们引入了基于 Arrow Flight 的高速读取接口，数据传输效率提升 100 倍。
+
 - 在半结构化数据分析场景，我们引入了全新的 Variant 和 IP 数据类型，完善了一系列分析函数，面向复杂半结构化数据的存储和分析处理更加得心应手。
+
 - 在 2.1.0 版本中我们也引入了基于多表的异步物化视图以提升查询性能，支持透明改写加速、自动刷新、外表到内表的物化视图以及物化视图直查，基于这一能力物化视图也可用于数据仓库分层建模、作业调度和数据加工。
+
 - 在存储方面，我们引入了自增列、自动分区、MemTable 前移以及服务端攒批的能力，使得大规模数据实时写入的效率更高。
+
 - 在负载管理方面，我们进一步完善了 Workload Group 资源组的隔离能力，并增加了运行时查看 SQL 资源用量的能力，进一步提升了多负载场景下的稳定性。
 
 在 2.1.0 版本的研发过程中，**有 237 位贡献者为 Apache Doris 带来了接近 6000 个 Commits。** 同时 2.1.0 版本也同样经过了近百家社区用户的大规模打磨，在测试过程中向我们反馈了许多有价值的优化项，在此向所有参与版本研发、测试和需求反馈的贡献者们表示最衷心的感谢。后续我们将会持续敏捷发版来响应所有用户对功能和稳定性的更高追求，欢迎大家在使用过程中给予我们更多反馈。
@@ -45,8 +50,11 @@ under the License.
  在 2.1 系列版本中，我们着重提升了开箱盲测性能，力争不做调优的情况下取得较好的性能表现，包含了对复杂 SQL 查询性能的进一步提升。在此我们以 TPC-DS 1TB 作为性能测试对比的基准，重点对比最新 2.1.0 版本与 2.0.5 版本的性能提升。集群规模均为 1FE、3BE，其中 BE 节点的服务器配置为 48C 192G。从以下测试结果中可以看到：
 
 - 2.1.0 版本的总查询耗时为 245.7 秒，相较于 2.0.5 版本的 489.6 秒，**性能提升达到 100 %；**
+
 - 在全部 99 个 SQL 中，有近三分之一的 SQL 查询性能提升达到 2 倍以上，超过 80 个 SQL 都获得显著性能提升；
+
 - 不论是基础的过滤、排序、聚合，或者复杂的多表关联查询、子查询以及窗口函数计算，2.1.0 版本都有更为明显的性能优势；
+
 - 2.0.5 版本或 2.1.0 版本，都可以完整执行 TPC-DS 的 99 个查询。
 
 ![复杂查询性能提升 100%，TPC-DS 业界领先](/images/2.1-Doris-TPC-DS-best-performance.png)
@@ -62,7 +70,9 @@ under the License.
 在 Apache Doris 2.0 版本中我们引入了全新查询优化器，在绝大多数场景无需任何调优即可实现极致的查询性能。而在最新发布的 Apache Doris 2.1 版本中，查询优化器在整体代际更新的基础上，进行了优化规则的扩展和枚举框架的完善，面向复杂分析场景更加得心应手：
 
 - **优化器基础设施完善**：在多种优化器基础设施方面进行了补充和增强，例如对统计信息推导和代价模型方面的持续改进，使之能够收集更多的特征信息为复杂优化提供基础；
+
 - **优化规则持续扩展**：得益于丰富的实际场景反馈，新版本中查询优化器增强了包括算子下压在内的许多经典规则，结合上述基础设施扩充而引入的新优化规则，使得新版本的查询优化器能覆盖更广泛的使用场景；
+
 - **枚举框架进一步优化**：在查询优化器 Cascades 和 DPhyper 两大融合框架的基础上，继续深耕框架能力、优化框架性能，确立了更为清晰的枚举策略，兼顾计划质量和枚举效率，为高性能引擎提供坚实基础。例如将 Cascades 默认枚举表上限从 5 提升到了 8、有效扩大了高质量计划的覆盖范围，同时进一步优化 DPhyper 枚举效率、使之能够枚举出更优计划。
 
 ### 无统计信息优化
@@ -77,7 +87,9 @@ under the License.
 
 因此在 2.1 版本以后，我们建议用户**在建表时设置的分桶数=整个集群磁盘的数量**，在 IO 层面能将整个集群所有的 IO 资源全部利用起来。
 
-注：当前 2.1.0 版本的 Parallel Adaptive Scan 只能针对 Unqiue Key 模型的 Merge-on-Write 表以及 Duplicate Key 模型生效， 预计在 2.1.1 版本中会增加对 Unique Key 模型 Merge-on-Read 表和 Aggregate Key 模型的支持。
+:::tip
+当前 2.1.0 版本的 Parallel Adaptive Scan 只能针对 Unqiue Key 模型的 Merge-on-Write 表以及 Duplicate Key 模型生效， 预计在 2.1.1 版本中会增加对 Unique Key 模型 Merge-on-Read 表和 Aggregate Key 模型的支持。
+:::
 
 ### Local Shuffle
 
@@ -92,7 +104,7 @@ under the License.
 ![Local Shuffle Clickbench and TPCH-100](/images/2.1-doris-clickbench-tpch.png)
 
 :::note
-- 参考文档：https://doris.apache.org/zh-CN/docs/query-acceleration/pipeline-x-execution-engine
+参考文档：https://doris.apache.org/zh-CN/docs/query-acceleration/pipeline-x-execution-engine
 :::
 
 ## ARM 架构深度适配，性能提升 230% 
@@ -100,6 +112,7 @@ under the License.
 在 Apache Doris 2.1 版本中我们针对 ARM 架构进行了深度的适配和指令集优化，可以在 ARM 架构上充分发挥 Apache Doris 的性能优势。相较于 2.0 版本，2.1 版本在 ClickBench、SSB 100G、TPC-H 100G 以及 TPC-DS 1TB 等多个测试数据集中取得了超过 100% 的性能提升。在此我们以大宽表场景的 ClickBench 以及多表关联场景的 TPC-H 为例，集群配置均为 1FE 3BE、BE 节点的服务器配置为 16C 64G 的 ARM 服务器，测试结论如下：
 
 - 在大宽表场景中， ClickBench 测试数据集 43 个 SQL 的总查询耗时从 102.36 秒降低至 30.73 秒，性能提升超过 230%；
+
 - 在多表关联场景中， TPC-H 22 个 SQL 的总查询耗时从 174.8 秒降低至 90.4 秒，性能提升 93%；
 
 ## 数据湖分析
@@ -113,6 +126,7 @@ under the License.
 在此我们以 TPC-DS 1TB 场景下进行测试，Apache Doris 2.1 版本和 Trino 435 版本的性能测试结果如下：
 
 - 在无缓存情况下，Apache Doris 的总体运行耗时间为 717s、Trino 为 1296s，查询耗时降低了 45%，全部 99 条 SQL 中有 80% 比 Trino 更快 ；
+
 - 在开启文件缓存功能并命中的情况下，Apache Doris 的总体性能可以进一步提升 2.2 倍以上，**较 Trino 有 4 倍以上的性能提升，全部 99 条 SQL 性能均优于 Trino**。
 
 与此同时也在 TPC-DS 10TB 场景下对 Apache Doris 2.1 版本与 Spark 3.5.0 以及 3.3.1 版本进行了性能测试，查询性能分别提升 4.2 倍和 6.1 倍。
@@ -128,6 +142,7 @@ under the License.
 
 :::note
 - 演示 Demo: https://www.bilibili.com/video/BV1cS421A7kA/?spm_id_from=333.999.0.0
+
 - 参考文档: https://doris.apache.org/zh-CN/docs/lakehouse/sql-dialect
 :::
 
@@ -162,13 +177,15 @@ print(cursor.fetchallarrow().to_pandas())
 
 
 :::note
-- 演示 Demo：https://www.bilibili.com/video/BV1mj421Z7b7/?spm_id_from=333.999.0.0
+演示 Demo：https://www.bilibili.com/video/BV1mj421Z7b7/?spm_id_from=333.999.0.0
 :::
 
 ### 其他
 
 - Paimon Catalog：Paimon 版本升级至 0.6.0，优化了 Read Optimized 表的读取，在 Paimon 数据充分合并的场景下，可以有 10 倍的性能提升；
+
 - Iceberg Catalog：Iceberg 版本升级至 1.4.3，同时解决了 AWS S3 认证的若干兼容性问题；
+
 - Hudi Catalog：Hudi 版本升级至 0.14.1，同时解决了 Hudi Flink Catalog 的若干兼容性问题。
 
 
@@ -275,12 +292,16 @@ CREATE MATERIALIZED VIEW mv1
 **目前异步物化视图已经具备以下功能：**
 
 - **透明改写加速：**支持常见算子的透明改写，如 Select、Where、Join、Group by、Aggregation 等，可以直接通过建立物化视图，对现有的查询进行加速。例如在 BI 报表场景，某些报表查询延时比较高，就可以通过建立合适的物化视图进行加速。
+
 - **自动刷新：**物化视图支持不同刷新策略，如定时刷新和手动刷新，也支持不同的刷新粒度，如全量刷新、分区粒度的增量刷新等。
+
 - **外表到内表的物化视图：**可以对存放在 Hive、Hudi、Iceberg 等数据湖系统上的数据建立物化视图，加速对数据湖的访问，也可以通过物化视图的方式将数据湖中的数据同步到 Apache Doris 内表中。
+
 - **物化视图直查：**用户也可以将物化视图的构建看做 ETL 的过程，把物化视图看做是 ETL 加工后的结果数据，由于物化视图本身也是一个表，所以用户可以直接查询物化视图。
 
 :::note
 - 演示 Demo: https://www.bilibili.com/video/BV1s2421T71z/?spm_id_from=333.999.0.0
+
 - 参考文档：https://doris.apache.org/zh-CN/docs/query-acceleration/async-materialized-view/
 :::
 
@@ -357,6 +378,7 @@ order by unique_value limit 100;
 
 :::note
 - 演示 Demo：https://www.bilibili.com/video/BV1VC411h7Gr/?spm_id_from=333.999.0.0
+
 - 参考文档：https://doris.apache.org/zh-CN/docs/advanced/auto-increment
 :::
 
@@ -383,11 +405,13 @@ PROPERTIES (
 );
 ```
 
-:::warning
+:::caution
 注意事项
 
 1. 当前自动分区功能仅支持一个分区列，并且分区列必须为 NOT NULL 列；
+
 2. 自动分区当前已支持 Range 分区和 List 分区，其中 Range 分区函数仅支持 `date_trunc`、分区列仅支持 `DATE` 或者 `DATETIME` 格式；List 分区不支持函数调用，分区列支持 `BOOLEAN、TINYINT、SMALLINT、INT、BIGINT、LARGEINT、DATE、DATETIME、CHAR、VARCHAR` 数据类型，分区值为枚举值；
+
 3. 使用 List 分区时，一旦分区列的值当前不存在，自动分区功能都会为其创建一个独立的新分区。
 :::
 
@@ -418,7 +442,7 @@ MemTable 前移和非前移的流程对比如上图所示，Sink 节点不再发
 ![INSERT INTO SELECT 导入性能提升 100%](/images/2.1-insert-into-table.png)
 
 :::note
-备注：MemTable 前移在 2.1 版本中默认开启，用户无需修改原有的导入命令即可获得大幅性能提升。如果在使用过程中遇到问题、希望回退到原有的导入方式，可以在 MySQL 连接中设置环境变量 `enable_memtable_on_sink_node=false` 来关闭 MemTable 前移。
+MemTable 前移在 2.1 版本中默认开启，用户无需修改原有的导入命令即可获得大幅性能提升。如果在使用过程中遇到问题、希望回退到原有的导入方式，可以在 MySQL 连接中设置环境变量 `enable_memtable_on_sink_node=false` 来关闭 MemTable 前移。
 :::
 
 ### 高频实时导入/服务端攒批 Group Commit
@@ -439,15 +463,21 @@ MemTable 前移和非前移的流程对比如上图所示，Sink 节点不再发
 我们分别采取 JDBC 和 Stream Load 两种方式对高并发写入场景下 Group Commit（异步模式 `async_mode`）的写入性能进行了测试，测试报告如下：
 
 - **JDBC 写入**：
+
   - 集群配置为 1FE 1BE，数据集为 TPC-H SF10 Lineitem 表，总共约 22GB、1.8 亿行；
+
   - 经测试，在并发数 20、单次 Insert 数据行数 100 行下，导入效率达到 10.69w 行/秒、导入吞吐达 11.46 MB/秒， BE 节点的 CPU 使用率稳定保持在 10%-20%；
+
 - **Stream Load 写入**：
+
   - 集群配置为 1FE 3BE，数据集为 httplogs、总共 31GB、2.47 亿行。在未开启 Group Commit 和 开启 Group Commit 的异步模式时，通过设置不同的单并发数据量和并发数，对比数据的写入性能。
+
   - 经测试，在并发数 10、单次导入数据量 1 MB 下，未开启 Group Commit 时会提示 -235 错误，开启后可稳定运行且导入效率达 81w 行/秒、导入吞吐达 104 MB/秒；在并发数 10、单次导入数据量 10MB 下，开启 Group Commit 后耗时降低至原先的 55%、导入吞吐提升 79%；
 
 
 :::note
 - 演示 Demo：https://www.bilibili.com/video/BV1um411o7Ha/?spm_id_from=333.999.0.0
+
 - 参考文档和完整测试报告：https://doris.apache.org/zh-CN/docs/data-operate/import/import-way/group-commit-manual/
 :::
 
@@ -458,6 +488,7 @@ MemTable 前移和非前移的流程对比如上图所示，Sink 节点不再发
 过去 Apache Doris 在应对复杂半结构化数据的存储和分析处理时，一般有两种方式：
 
 1. 一种方式是用户提前预定好表结构，加工成宽表，在数据进入前将数据解析好，这种方案的优点是写入性能好，查询也不需要解析，但是使用不够灵活、对表结构发起变更增加运维、研发的成本。
+
 2. 使用 Doris 中的 JSON 类型、或是存成 JSON String，将原始 JSON 数据不经过加工直接入库， 查询的时候，用解析函数处理。优点是不需要额外的数据加工、预定义表结构拍平嵌套结构，运维、研发方便，但存在解析性能以及数据读取效率低下的问题。
 
 为了解决上述半结构化数据的挑战，在 Apache Doris 2.1 版本中我们引入全新的数据类型`VARIANT`，支持存储半结构化数据、允许存储包含不同数据类型（如整数、字符串、布尔值等）的复杂数据结构，无需在表结构中提前定义具体的列，其存储和查询与传统的 String、JSONB 等行存类型发生了本质的改变，期望其作为半结构化数据首选数据类型，给用户带来更加高效的数据处理机制。
@@ -501,18 +532,23 @@ SELECT v["properties"]["title"] from ${table_name}
 ![相比 JSON 类型的优势](/images/2.1-comparied-to-Json-2.png)
 
 
-:::warning
-**注意事项：**
+:::caution
+注意事项：
 
 - 目前 Variant 暂不支持 Aggregate 模型，也不支持将 Variant 类型作为 Unique 或 Duplicate 模型的主键及排序键；
+
 - 推荐使用 RANDOM 模式或者开启 Group Commit 导入，写入性能更高效；
+
 - 日期、Decimal 等非标准 JSON 类型尽可能提取出来作为静态字段，性能更好；
+
 - 二维及其以上的数组以及数组嵌套对象，列存化会被存成 JSONB 编码，性能不如原生数组；
+
 - 查询过滤、聚合需要带 Cast，存储层会根据存储类型和 Cast 目标类型来提示（hint）存储引擎谓词下推，加速查询。
 :::
 
 :::note
 - 演示 Demo: https://www.bilibili.com/video/BV13u4m1g7ra/?spm_id_from=333.999.0.0
+
 - 参考文档：https://doris.apache.org/zh-CN/docs/sql-manual/sql-reference/Data-Types/VARIANT
 :::
 
@@ -642,7 +678,9 @@ mysql> select struct(1,"2") not in (struct(1,3), struct(1,"2"), struct(1,1), nul
 
 - `MAP_AGG`： 接收 expr1 作为键，expr2 作为对应的值，返回一个 MAP 
 
+:::note
 参考文档：https://doris.apache.org/zh-CN/docs/sql-manual/sql-functions/aggregate-functions/map-agg/
+:::
 
 
 
@@ -654,16 +692,19 @@ mysql> select struct(1,"2") not in (struct(1,3), struct(1,"2"), struct(1,1), nul
 
 这意味着不管单机的资源是否充足，该 Workload Group 的最大可用 CPU 资源都是固定的，只要用户的查询负载不发生大的变化，那么查询性能就会相对稳定。由于影响一个查询性能稳定性的因素很多，除了 CPU之外，内存、IO 以及软件层面的资源竞争也都会产生影响，因此当集群的负载在空闲和满载之间切换时，即使配置了 CPU 的硬限，查询性能的稳定性也会产生波动，但是预期的表现应该是优于软限制。
 
-:::warning
-**注意事项**
+:::caution
+注意事项
 
 1. Doris 2.0 版本的 CPU 隔离是基于优先级队列实现的，而在 2.1 版本中 Apache Doris 是基于 CGroup 实现了 CPU 资源的隔离，因此从 2.0 版本升级到 2.1 版本时，需要在使用前完成 CGroup 的配置，详细注意事项参考官网文档。
+
 2. 目前 Workload Group 支持的工作负载类型包括查询间的隔离以及导入与查询之间的隔离，需要注意的是如果期望对导入负载进行彻底的限制，那么需要开启 MemTable 前移。
+
 3. 用户需要通过开关指定当前集群的 CPU 限制模式是软限还是硬限，暂不支持两种模式同时运行，两种模式的切换可以参考官网文档，后续我们也会根据用户的实际需求决定是否要同时支持这两种模式。
 :::
 
 :::note
 - 演示 Demo：https://www.bilibili.com/video/BV1Fz421X7XE/?spm_id_from=333.999.0.0
+
 - 参考文档：https://doris.apache.org/zh-CN/docs/admin-manual/workload-group/
 :::
 
@@ -763,8 +804,8 @@ select k1, k2, k1 + k2 a from test_arithmetic_expressions_256 order by 1, 2;
 3 rows in set (0.09 sec)
 ```
 
-:::warning
-**注意事项**
+:::caution
+注意事项
 - Decimal256 类型对于计算 CPU 的消耗更高，因此在性能上会有一些损耗。
 :::
 
@@ -774,23 +815,33 @@ select k1, k2, k1 + k2 a from test_arithmetic_expressions_256 order by 1, 2;
 同社区用户多次交流中，我们发现许多场景下用户使用 Apache Doris 时都存在定时调度的需求，例如：
 
 - 周期性的 Backup；
+
 - 过期数据定时清理；
+
 - 周期性的导入任务，如定时通过 Catalog 的方式去进行增量或全量数据同步；
+
 - 定期 ETL，如部分用户定期从宽表中 Load 数据至指定表、从明细表中定时拉取数据存至聚合表、ODS 层表定时打宽并写入原有宽表更新；
 
 尽管诸如 Airflow、DolphinScheduler 等可供选择的外部调度系统非常多，但仍面临一致性的问题——在极端情况下，外部调度系统触发 Doris 导入任务并执行成功，因意外情况忽然宕机时，外部调度系统无法正确获取执行结果，会认为此次调度失败，导致触发调度系统的容错机制，通常是重试或者直接失败。而无论采用哪种策略，最终都会导致以下几个情况发生：
 
 - **资源浪费**：由于调度系统误认为任务失败，可能会重新调度执行已经成功的任务，导致不必要的资源消耗。
+
 - **数据重复或丢失**：如果调度系统选择重试导入任务，可能导致数据重复导入，造成数据冗余和不一致。另一方面，如果调度系统直接标记任务为失败，可能导致实际已成功导入的数据被忽略或丢失。
+
 - **时间延误**：由于调度系统的容错机制被触发，可能需要进行额外的任务调度和重试，导致整体数据处理时间延长，影响业务效率和响应速度。
+
 - **系统稳定性下降**：频繁的重试或直接失败可能导致调度系统和 Doris 的负载增加，进而影响系统的稳定性和性能。
 
 因此我们在 Apache Doris 2.1 版本中引入了 Job Scheduler 功能并具备了自行任务调度的能力。Doris Job Scheduler 是根据既定计划运行的任务，用于在特定时间或指定时间间隔触发预定义的操作，从而帮助我们自动执行一些任务。从功能上来讲，它类似于操作系统上的定时任务（如：Linux 中的 cron、Windows 中的计划任务），但 Doris 的 Job 调度可以精确到秒级。对于导入场景，我们能够做到完全的一致性保障。除此之外，Doris 内置的 Jon Scheduler 还具有以下特点：
 
 1. **高效调度**：Job Scheduler 可以在指定的时间间隔内安排任务和事件，确保数据处理的高效性。采用时间轮算法保证事件能够精准做到秒级触发。
+
 2. **灵活调度**：Job Scheduler 提供了多种调度选项，如按 分、小时、天或周的间隔进行调度，同时支持一次性调度以及循环（周期）事件调度，并且周期调度也可以指定开始时间、结束时间。
+
 3. **事件池和高性能处理队列**：Job Scheduler 采用 Disruptor 实现高性能的生产消费者模型，最大可能的避免任务执行过载。
+
 4. **调度记录可追溯**：Job Scheduler 会存储最新的 Task 执行记录（可配置），通过简单的命令即可查看任务执行记录，确保过程可追溯。
+
 5. **高可用**：依托于 Doris 自身的高可用机制，Job 可以很轻松的做到自恢复，高可用。
 
 在此我们创建一个定时调度任务作为示例：
@@ -810,20 +861,31 @@ JOB e_daily
         FROM site_activity.sessions where create_time >=  days_add(now(),-1) ;
 ```
 
-:::warning
-注意：当前 Job Scheduler 仅支持 Insert 内表，参考文档：https://doris.apache.org/zh-CN/docs/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-JOB
+:::caution
+注意事项
+
+当前 Job Scheduler 仅支持 Insert 内表，参考文档：https://doris.apache.org/zh-CN/docs/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-JOB
 :::
 
 ## Behavior Changed
 
 - Unique Key 模型默认开启 Merge On Write 写时合并，新创建的 Unique Key 模型的表将自动设置 `enable_unique_key_merge_on_write=true`。
+
 - 倒排索引 Invert Index 经过一年多时间的打磨，已实现了对原本的位图索引 Bitmap Index 功能和场景的全覆盖，且功能上和性能上都大幅优于原本的位图索引 Bitmap Index，因此从 Apache Doris 2.1 版本起，我们将默认停止对位图索引 Bitmap Index 的支持，已经创建的位图索引保持不变将继续生效，不允许创建新的位图索引，在未来我们将会移除位图索引的相关代码。
+
 - `cpu_resource_limit`不再支持，其本身是限制 BE 上 Scanner 线程数目的功能，而 Workload Group 也能支持设置 BE Scanner 线程数目，所以已设置的 `cpu_resource_limit `将失效。
+
 - Segment Compaction 主要应对单批次大数据量的导入，可以在同一批次数据中进行多个 Segment 的 Compaction 操作，在 2.1 版本开始 Segment Compaction 将默认开启，`enable_segcompaction` 默认值设置为 True。
+
 - Audit Log 插件
+
   - 从 2.1 版本开始，Apache Doris 开始内置 Audit Log 审计日志插件，用户只需通过设置全局变量 `enable_audit_plugin` 开启或关闭审计日志功能。
+
   - 对于之前已经安装过审计日志插件的用户，升级后可以继续使用原有插件，也可以通过 uninstall 命令卸载原有插件后，使用新的插件。但注意，切换插件后，审计日志表也将切换到新的表中。
+
   - 具体可参阅：https://doris.apache.org/docs/ecosystem/audit-plugin/
+
+
 
 ## 致谢
 
