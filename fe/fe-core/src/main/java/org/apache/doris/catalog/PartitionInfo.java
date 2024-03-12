@@ -25,6 +25,7 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -419,6 +420,14 @@ public class PartitionInfo implements Writable {
 
             idToReplicaAllocation.get(entry.getKey()).write(out);
             out.writeBoolean(idToInMemory.get(entry.getKey()));
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     out.writeBoolean(idToPersistent.get(entry.getKey()));
+                //
+                // keep the compatibility here.
+                out.writeBoolean(false);
+            }
         }
         int size = partitionExprs.size();
         out.writeInt(size);
@@ -452,6 +461,14 @@ public class PartitionInfo implements Writable {
             }
 
             idToInMemory.put(partitionId, in.readBoolean());
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     idToPersistent.put(partitionId, in.readBoolean());
+                //
+                // keep the compatibility here.
+                in.readBoolean();
+            }
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {
             int size = in.readInt();
