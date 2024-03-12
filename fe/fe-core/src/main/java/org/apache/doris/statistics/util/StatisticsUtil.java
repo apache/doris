@@ -125,7 +125,7 @@ public class StatisticsUtil {
     public static List<ResultRow> executeQuery(String template, Map<String, String> params) {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(template);
-        return execStatisticQuery(sql);
+        return execStatisticQuery(sql, true);
     }
 
     public static void execUpdate(String template, Map<String, String> params) throws Exception {
@@ -135,10 +135,15 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {
+        return execStatisticQuery(sql, false);
+    }
+
+    public static List<ResultRow> execStatisticQuery(String sql, boolean enableFileCache) {
         if (!FeConstants.enableInternalSchemaDb) {
             return Collections.emptyList();
         }
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+        boolean useFileCacheForStat = (enableFileCache && Config.allow_analyze_statistics_info_polluting_file_cache);
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, useFileCacheForStat)) {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             return stmtExecutor.executeInternalQuery();
@@ -173,10 +178,10 @@ public class StatisticsUtil {
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
-        return buildConnectContext(false);
+        return buildConnectContext(false, false);
     }
 
-    public static AutoCloseConnectContext buildConnectContext(boolean limitScan) {
+    public static AutoCloseConnectContext buildConnectContext(boolean limitScan, boolean useFileCacheForStat) {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
@@ -202,7 +207,14 @@ public class StatisticsUtil {
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         connectContext.setStartTime();
-        return new AutoCloseConnectContext(connectContext);
+        if (Config.isCloudMode()) {
+            AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
+            ctx.connectContext.getCloudCluster();
+            sessionVariable.disableFileCache = !useFileCacheForStat;
+            return ctx;
+        } else {
+            return new AutoCloseConnectContext(connectContext);
+        }
     }
 
     public static void analyze(StatementBase statementBase) throws UserException {
