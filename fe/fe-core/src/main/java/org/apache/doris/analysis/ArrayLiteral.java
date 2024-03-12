@@ -107,7 +107,7 @@ public class ArrayLiteral extends LiteralExpr {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toSqlImpl()));
 
-        return "ARRAY(" + StringUtils.join(list, ", ") + ")";
+        return "[" + StringUtils.join(list, ", ") + "]";
     }
 
     @Override
@@ -115,7 +115,7 @@ public class ArrayLiteral extends LiteralExpr {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toDigestImpl()));
 
-        return "ARRAY(" + StringUtils.join(list, ", ") + ")";
+        return "[" + StringUtils.join(list, ", ") + "]";
     }
 
     @Override

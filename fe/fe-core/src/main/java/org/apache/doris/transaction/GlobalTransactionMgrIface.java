@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -183,4 +184,6 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void replayBatchRemoveTransactions(BatchRemoveTransactionsOperation operation) throws Exception;
 
     public void replayBatchRemoveTransactionV2(BatchRemoveTransactionsOperationV2 operation) throws Exception;
+
+    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse);
 }

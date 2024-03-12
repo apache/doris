@@ -469,7 +469,7 @@ public:
 
     bool allocates_memory_in_arena() const override { return ENABLE_ARENA; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         auto& data = this->data(place);
         if constexpr (HasLimit::value) {

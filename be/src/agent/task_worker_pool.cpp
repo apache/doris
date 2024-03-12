@@ -45,6 +45,7 @@
 
 #include "agent/utils.h"
 #include "cloud/cloud_delete_task.h"
+#include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 #include "cloud/cloud_schema_change_job.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -54,6 +55,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
@@ -761,8 +763,8 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.compaction_policy) {
-            if (tablet_meta_info.compaction_policy != "size_based" &&
-                tablet_meta_info.compaction_policy != "time_series") {
+            if (tablet_meta_info.compaction_policy != CUMULATIVE_SIZE_BASED_POLICY &&
+                tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "invalid compaction policy, only support for size_based or "
                         "time_series");
@@ -772,7 +774,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_goal_size_mbytes) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
@@ -782,7 +784,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_file_count_threshold) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
@@ -792,7 +794,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_time_threshold_seconds) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
@@ -802,13 +804,23 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_empty_rowsets_threshold) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
             }
             tablet->tablet_meta()->set_time_series_compaction_empty_rowsets_threshold(
                     tablet_meta_info.time_series_compaction_empty_rowsets_threshold);
+            need_to_save = true;
+        }
+        if (tablet_meta_info.__isset.time_series_compaction_level_threshold) {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
+                status = Status::InvalidArgument(
+                        "only time series compaction policy support time series config");
+                continue;
+            }
+            tablet->tablet_meta()->set_time_series_compaction_level_threshold(
+                    tablet_meta_info.time_series_compaction_level_threshold);
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.replica_id) {
@@ -1859,6 +1871,37 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     finish_task_request.__set_task_type(req.task_type);
     finish_task_request.__set_signature(req.signature);
     finish_task_request.__set_task_status(status.to_thrift());
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
+void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    std::vector<TTabletId> error_tablet_ids;
+    std::vector<TTabletId> succ_tablet_ids;
+    Status status;
+    error_tablet_ids.clear();
+    const auto& calc_delete_bitmap_req = req.calc_delete_bitmap_req;
+    CloudEngineCalcDeleteBitmapTask engine_task(engine, calc_delete_bitmap_req, &error_tablet_ids,
+                                                &succ_tablet_ids);
+    status = engine_task.execute();
+
+    TFinishTaskRequest finish_task_request;
+    if (!status) {
+        DorisMetrics::instance()->publish_task_failed_total->increment(1);
+        LOG_WARNING("failed to calculate delete bitmap")
+                .tag("signature", req.signature)
+                .tag("transaction_id", calc_delete_bitmap_req.transaction_id)
+                .tag("error_tablets_num", error_tablet_ids.size())
+                .error(status);
+    }
+
+    status.to_thrift(&finish_task_request.task_status);
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    finish_task_request.__set_report_version(s_report_version);
+    finish_task_request.__set_error_tablet_ids(error_tablet_ids);
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);

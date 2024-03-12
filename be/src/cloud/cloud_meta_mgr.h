@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 #include <tuple>
+#include <variant>
 #include <vector>
 
 #include "common/status.h"
@@ -55,10 +56,10 @@ public:
 
     Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false);
 
-    Status prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+    Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+    Status commit_rowset(const RowsetMeta& rs_meta,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
@@ -69,7 +70,8 @@ public:
 
     Status precommit_txn(const StreamLoadContext& ctx);
 
-    Status get_s3_info(std::vector<std::tuple<std::string, S3Conf>>* s3_infos);
+    Status get_storage_vault_info(
+            std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>>* vault_infos);
 
     Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
 

@@ -241,6 +241,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 String.valueOf(isBeingSynced));
     }
 
+    public void setStorageVault(String storageVaultName) {
+        if (storageVaultName == null && storageVaultName.isEmpty()) {
+            return;
+        }
+        getOrCreatTableProperty().setStorageVaultName(storageVaultName);
+    }
+
     public boolean isBeingSynced() {
         return getOrCreatTableProperty().isBeingSynced();
     }
@@ -2193,6 +2200,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     public Long getTimeSeriesCompactionEmptyRowsetsThreshold() {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionEmptyRowsetsThreshold();
+        }
+        return null;
+    }
+
+    public void setTimeSeriesCompactionLevelThreshold(long timeSeriesCompactionLevelThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                                                Long.valueOf(timeSeriesCompactionLevelThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionLevelThreshold();
+    }
+
+    public Long getTimeSeriesCompactionLevelThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionLevelThreshold();
         }
         return null;
     }

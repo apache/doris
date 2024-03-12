@@ -41,7 +41,8 @@ merge_pr_to_target_branch_latest() {
         return 1
     fi
 }
-if ! merge_pr_to_target_branch_latest "${pr_num_from_trigger}" "${target_branch}";then return 1; fi
+# It should not merge, otherwise binary and cases may mismatch!
+# if ! merge_pr_to_target_branch_latest "${pr_num_from_trigger}" "${target_branch}";then return 1; fi
 export PATH=/usr/local/software/apache-maven-3.6.3/bin:${PATH}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/
@@ -61,7 +62,7 @@ if ${DEBUG:-false}; then
 fi
 
 # shellcheck source=/dev/null
-# stop_doris, clean_fdb, install_fdb
+# stop_doris, clean_fdb, install_fdb, install_java
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 # shellcheck source=/dev/null
 # check_oss_file_exist
@@ -94,7 +95,8 @@ fi
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 if [[ "${target_branch}" == "master" ]]; then
-    echo "INFO: PR target branch ${target_branch} is in (master)"
+    echo "INFO: PR target branch ${target_branch}"
+    install_java
 else
     echo "WARNING: PR target branch ${target_branch} is NOT in (master), skip pipeline."
     bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"

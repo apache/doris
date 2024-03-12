@@ -103,6 +103,7 @@ message PTabletWriterOpenRequest {
     optional bool is_incremental = 15 [default = false];
     optional int64 txn_expiration = 16; // Absolute time
     optional bool write_file_cache = 17;
+    optional string storage_vault_id = 18;
 };
 
 message PTabletWriterOpenResult {
@@ -533,12 +534,15 @@ message PMergeFilterRequest {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional bool opt_remote_rf = 9;
+    optional PColumnType column_type = 10;
+    optional bool contain_null = 11;
 };
 
 message PMergeFilterResponse {
     required PStatus status = 1;
 };
 
+// delete PPublishFilterRequest after upgrade doris 2.1
 message PPublishFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
@@ -549,6 +553,8 @@ message PPublishFilterRequest {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
+    optional PColumnType column_type = 10;
+    optional bool contain_null = 11;
 };
 
 message PPublishFilterRequestV2 {
@@ -561,6 +567,7 @@ message PPublishFilterRequestV2 {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
+    optional bool contain_null = 10;
 };
 
 message PPublishFilterResponse {

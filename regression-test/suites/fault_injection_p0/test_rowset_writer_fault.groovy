@@ -35,7 +35,7 @@ suite("test_rowset_writer_fault", "nonConcurrent") {
             `k13` largeint(40) null comment ""
         ) engine=olap
         UNIQUE KEY (k0)
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 5 properties("replication_num" = "1")
         """
         
     GetDebugPoint().clearDebugPointsForAllBEs()

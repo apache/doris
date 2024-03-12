@@ -43,6 +43,7 @@ struct WriteRequest {
     std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr;
     bool is_high_priority = false;
     bool write_file_cache = false;
+    std::string storage_vault_id;
 };
 
 } // namespace doris

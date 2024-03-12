@@ -24,19 +24,24 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <atomic>
+#include <memory>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/txn_manager.h"
 
 namespace doris {
 using namespace ErrorCode;
+
+static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
         : BaseTablet(std::move(tablet_meta)), _engine(engine) {
@@ -351,6 +356,37 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
+// create a rowset writer with rowset_id and seg_id
+// after writer, merge this transient rowset with original rowset
+Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_writer(
+        const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
+        int64_t txn_expiration) {
+    RowsetWriterContext context;
+    context.rowset_state = PREPARED;
+    context.segments_overlap = OVERLAPPING;
+    context.tablet_schema = std::make_shared<TabletSchema>();
+    context.tablet_schema->copy_from(*(rowset.tablet_schema()));
+    context.newest_write_timestamp = UnixSeconds();
+    context.tablet_id = table_id();
+    context.enable_segcompaction = false;
+    context.write_type = DataWriteType::TYPE_DIRECT;
+    context.partial_update_info = std::move(partial_update_info);
+    context.is_transient_rowset_writer = true;
+    context.rowset_id = rowset.rowset_id();
+    context.tablet_id = tablet_id();
+    context.index_id = index_id();
+    context.partition_id = partition_id();
+    context.rowset_dir = remote_tablet_path(tablet_id());
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    context.txn_expiration = txn_expiration;
+    context.fs = _engine.latest_fs();
+    return RowsetFactory::create_rowset_writer(_engine, context, false)
+            .transform([&](auto&& writer) {
+                writer->set_segment_start_id(rowset.num_segments());
+                return writer;
+            });
+}
+
 int64_t CloudTablet::get_cloud_base_compaction_score() const {
     return _approximate_num_rowsets.load(std::memory_order_relaxed) -
            _approximate_cumu_num_rowsets.load(std::memory_order_relaxed);
@@ -441,6 +477,137 @@ void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
             << "Unexpected cumulative point: " << new_point
             << ", origin: " << _cumulative_point.load();
     _cumulative_point = new_point;
+}
+
+std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction() {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (const auto& [version, rs] : _rs_version_map) {
+            // Do compaction on local rowsets only.
+            if (version.first < _cumulative_point && rs->is_local()) {
+                candidate_rowsets.push_back(rs);
+            }
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
+}
+
+std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_single_replica_compaction() {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (const auto& [version, rs] : _rs_version_map) {
+            if (rs->is_local()) {
+                candidate_rowsets.push_back(rs);
+            }
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
+}
+
+std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_full_compaction() {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [v, rs] : _rs_version_map) {
+            // MUST NOT compact rowset [0-1] for some historical reasons (see cloud_schema_change)
+            if (v.first != 0) {
+                candidate_rowsets.push_back(rs);
+            }
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
+}
+
+CalcDeleteBitmapExecutor* CloudTablet::calc_delete_bitmap_executor() {
+    return _engine.calc_delete_bitmap_executor();
+}
+
+Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
+                                       DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
+                                       const RowsetIdUnorderedSet& cur_rowset_ids) {
+    RowsetSharedPtr rowset = txn_info->rowset;
+    int64_t cur_version = rowset->start_version();
+    // update delete bitmap info, in order to avoid recalculation when trying again
+    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(txn_id, tablet_id(), delete_bitmap,
+                                                             cur_rowset_ids);
+
+    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update &&
+        rowset_writer->num_rows() > 0) {
+        const auto& rowset_meta = rowset->rowset_meta();
+        RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta));
+    }
+
+    DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
+    for (auto iter = delete_bitmap->delete_bitmap.begin();
+         iter != delete_bitmap->delete_bitmap.end(); ++iter) {
+        new_delete_bitmap->merge({std::get<0>(iter->first), std::get<1>(iter->first), cur_version},
+                                 iter->second);
+    }
+
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
+            *this, txn_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
+
+    return Status::OK();
+}
+
+Status CloudTablet::calc_delete_bitmap_for_compaciton(
+        const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
+        const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
+        int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap) {
+    output_rowset_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
+    std::set<RowLocation> missed_rows;
+    std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
+
+    // 1. calc delete bitmap for historical data
+    RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
+    Version version = max_version();
+    calc_compaction_output_rowset_delete_bitmap(
+            input_rowsets, rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
+            tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+    std::size_t missed_rows_size = missed_rows.size();
+    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        if (merged_rows >= 0 && merged_rows != missed_rows_size) {
+            std::string err_msg = fmt::format(
+                    "cumulative compaction: the merged rows({}) is not equal to missed "
+                    "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                    merged_rows, missed_rows_size, tablet_id(), table_id());
+            DCHECK(false) << err_msg;
+            LOG(WARNING) << err_msg;
+        }
+    }
+    if (config::enable_rowid_conversion_correctness_check) {
+        RETURN_IF_ERROR(check_rowid_conversion(output_rowset, location_map));
+    }
+    location_map.clear();
+
+    // 2. calc delete bimap for incremental data
+    RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
+            *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
+    RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
+
+    calc_compaction_output_rowset_delete_bitmap(
+            input_rowsets, rowid_conversion, version.second, UINT64_MAX, &missed_rows,
+            &location_map, tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+    if (config::enable_rowid_conversion_correctness_check) {
+        RETURN_IF_ERROR(check_rowid_conversion(output_rowset, location_map));
+    }
+    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        DCHECK_EQ(missed_rows.size(), missed_rows_size);
+        if (missed_rows.size() != missed_rows_size) {
+            LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
+                         << " after: " << missed_rows.size();
+        }
+    }
+
+    // 3. store delete bitmap
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
+                                                            output_rowset_delete_bitmap.get()));
+    return Status::OK();
 }
 
 } // namespace doris

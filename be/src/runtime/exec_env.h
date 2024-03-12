@@ -33,6 +33,7 @@
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_fwd.h"
 #include "pipeline/pipeline_tracing.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
@@ -42,6 +43,7 @@ namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
+class SpillStreamManager;
 class DeltaWriterV2Pool;
 } // namespace vectorized
 namespace pipeline {
@@ -58,6 +60,7 @@ class FileCacheFactory;
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
+class TmpFileDirs;
 } // namespace segment_v2
 
 class WorkloadSchedPolicyMgr;
@@ -121,6 +124,7 @@ public:
 
     // Initial exec environment. must call this to init all
     [[nodiscard]] static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths,
+                                     const std::vector<StorePath>& spill_store_paths,
                                      const std::set<std::string>& broken_paths);
 
     // Stop all threads and delete resources.
@@ -171,6 +175,7 @@ public:
     ThreadPool* buffered_reader_prefetch_thread_pool() {
         return _buffered_reader_prefetch_thread_pool.get();
     }
+    ThreadPool* send_table_stats_thread_pool() { return _send_table_stats_thread_pool.get(); }
     ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
@@ -196,6 +201,7 @@ public:
     std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
+    doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
@@ -272,10 +278,13 @@ public:
         return _pipeline_tracer_ctx.get();
     }
 
+    segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
+
 private:
     ExecEnv();
 
     [[nodiscard]] Status _init(const std::vector<StorePath>& store_paths,
+                               const std::vector<StorePath>& spill_store_paths,
                                const std::set<std::string>& broken_paths);
     void _destroy();
 
@@ -286,6 +295,7 @@ private:
 
     inline static std::atomic_bool _s_ready {false};
     std::vector<StorePath> _store_paths;
+    std::vector<StorePath> _spill_store_paths;
 
     io::FileCacheFactory* _file_cache_factory = nullptr;
     UserFunctionCache* _user_function_cache = nullptr;
@@ -313,6 +323,8 @@ private:
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
     // Threadpool used to prefetch remote file for buffered reader
     std::unique_ptr<ThreadPool> _buffered_reader_prefetch_thread_pool;
+    // Threadpool used to send TableStats to FE
+    std::unique_ptr<ThreadPool> _send_table_stats_thread_pool;
     // Threadpool used to upload local file to s3
     std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
     // Pool used by fragment manager to send profile or status to FE coordinator
@@ -385,6 +397,8 @@ private:
     RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
 
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
+    std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
+    doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
 };
 
 template <>

@@ -385,11 +385,12 @@ WHERE o_orderkey > 5 AND o_orderkey <= 10;
 | MaterializedViewRewriteSuccessAndChose:                                                                                                                                                                  |
 |   Names: mv1  
 ```
-**MaterializedViewRewriteFail**：列举透明改写失败及原因摘要。
+**MaterializedViewRewriteSuccessAndChose**：透明改写成功，并且CBO选择的物化视图名称列表。
 
 **MaterializedViewRewriteSuccessButNotChose**：透明改写成功，但是最终CBO没有选择的物化视图名称列表。
 
-**MaterializedViewRewriteSuccessAndChose**：透明改写成功，并且CBO选择的物化视图名称列表。
+**MaterializedViewRewriteFail**：列举透明改写失败及原因摘要。
+
 
 如果想知道物化视图候选，改写和最终选择情况的过程详细信息，可以执行如下语句，会展示透明改写过程详细的信息。
 
@@ -397,11 +398,12 @@ WHERE o_orderkey > 5 AND o_orderkey <= 10;
 
 ## 相关环境变量
 
-| 开关                                                                     | 说明                                     |
-|------------------------------------------------------------------------|----------------------------------------|
-| SET enable_nereids_planner = true;                                     | 异步物化视图只有在新优化器下才支持，所以需要开启新优化器           |
-| SET enable_materialized_view_rewrite = true;                           | 开启或者关闭查询透明改写，默认关闭                      |
-| SET materialized_view_rewrite_enable_contain_external_table = true;    | 参与透明改写的物化视图是否允许包含外表，默认不允许              |
+| 开关                                                                  | 说明                                |
+|---------------------------------------------------------------------|-----------------------------------|
+| SET enable_nereids_planner = true;                                  | 异步物化视图只有在新优化器下才支持，所以需要开启新优化器      |
+| SET enable_materialized_view_rewrite = true;                        | 开启或者关闭查询透明改写，默认关闭                 |
+| SET materialized_view_rewrite_enable_contain_external_table = true; | 参与透明改写的物化视图是否允许包含外表，默认不允许         |
+| SET materialized_view_rewrite_success_candidate_num = 3;            | 透明改写成功的结果集合，允许参与到CBO候选的最大数量，默认是3个 |
 
 
 ## 限制

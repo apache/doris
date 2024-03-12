@@ -1168,14 +1168,6 @@ public class Config extends ConfigBase {
     public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
 
     /**
-     * If set to true, the insert stmt with processing error will still return a label to user.
-     * And user can use this label to check the load job's status.
-     * The default value is false, which means if insert operation encounter errors,
-     * exception will be thrown to user client directly without load label.
-     */
-    @ConfField(mutable = true, masterOnly = true) public static boolean using_old_load_usage_pattern = false;
-
-    /**
      * This will limit the max recursion depth of hash distribution pruner.
      * eg: where a in (5 elements) and b in (4 elements) and c in (3 elements) and d in (2 elements).
      * a/b/c/d are distribution columns, so the recursion depth will be 5 * 4 * 3 * 2 = 120, larger than 100,
@@ -2267,6 +2259,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
 
+    @ConfField(mutable = true)
+    public static boolean force_sample_analyze = false; // avoid full analyze for performance reason
+
     @ConfField(mutable = true, description = {
             "Export任务允许的最大分区数量",
             "The maximum number of partitions allowed by Export job"})
@@ -2524,6 +2519,10 @@ public class Config extends ConfigBase {
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
 
+    @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
+            "Specify the default plugins loading path for the trino-connector catalog"})
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -2583,6 +2582,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int cloud_cold_read_percent = 10; // 10%
 
+    @ConfField(mutable = true)
+    public static int get_tablet_stat_batch_size = 1000;
+
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
@@ -2597,6 +2599,9 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
+
+    @ConfField
+    public static int cloud_txn_tablet_batch_size = 50;
 
     //==========================================================================
     //                      end of cloud config

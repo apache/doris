@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -78,6 +79,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJobLifeCycle {
@@ -301,6 +303,23 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 // using to update schema of the rowset, so full columns should be included
                 for (Column column : targetTbl.getSchemaByIndexId(indexId, true)) {
                     columnsDesc.add(column.toThrift());
+                }
+
+                Map<String, TColumn> colNameToColDesc = columnsDesc.stream()
+                        .collect(Collectors.toMap(c -> c.getColumnName(), Function.identity(), (v1, v2) -> v1,
+                                () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
+                for (Predicate condition : deleteConditions) {
+                    SlotRef slotRef = (SlotRef) condition.getChild(0);
+                    String columnName = new String(slotRef.getColumnName());
+                    TColumn column = colNameToColDesc.get(slotRef.getColumnName());
+                    if (column == null) {
+                        columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
+                        column = colNameToColDesc.get(columnName);
+                    }
+                    if (column == null) {
+                        throw new AnalysisException(
+                                "condition's column not founded in index, column=" + columnName + " , index=" + index);
+                    }
                 }
 
                 for (Tablet tablet : index.getTablets()) {
