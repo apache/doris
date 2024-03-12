@@ -33,28 +33,26 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/hash_util.hpp"
-#include "util/metrics.h"
 #include "util/thread.h"
 
 namespace doris {
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(broker_count, MetricUnit::NOUNIT);
 
 BrokerMgr::BrokerMgr(ExecEnv* exec_env) : _exec_env(exec_env), _stop_background_threads_latch(1) {
     CHECK(Thread::create(
                   "BrokerMgr", "ping_worker", [this]() { this->ping_worker(); }, &_ping_thread)
                   .ok());
 
-    REGISTER_HOOK_METRIC(broker_count, [this]() {
+    DORIS_REGISTER_HOOK_METRIC(g_adder_broker_count, [this]() {
         // std::lock_guard<std::mutex> l(_mutex);
         return _broker_set.size();
-    });
+    })
 }
 
 void BrokerMgr::stop() {
-    DEREGISTER_HOOK_METRIC(broker_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_broker_count)
     _stop_background_threads_latch.count_down();
     if (_ping_thread) {
         _ping_thread->join();

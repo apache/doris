@@ -36,8 +36,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "util/bvar_metrics.h"
 #include "util/hash_util.hpp"
-#include "util/metrics.h"
 #include "util/thrift_client.h"
 #include "util/thrift_server.h"
 
@@ -121,13 +121,13 @@ private:
     // max connections per host in this cache, -1 means unlimited
     int _max_cache_size_per_host;
 
-    std::shared_ptr<MetricEntity> _thrift_client_metric_entity;
+    std::shared_ptr<BvarMetricEntity> thrift_client_metric_entity_;
 
     // Number of clients 'checked-out' from the cache
-    IntGauge* thrift_used_clients = nullptr;
+    std::shared_ptr<BvarAdderMetric<int64_t>> thrift_used_clients;
 
     // Total clients in the cache, including those in use
-    IntGauge* thrift_opened_clients = nullptr;
+    std::shared_ptr<BvarAdderMetric<int64_t>> thrift_opened_clients;
 
     // Create a new client for specific host/port in 'client' and put it in _client_map
     Status _create_client(const TNetworkAddress& hostport, ClientFactory& factory_method,

@@ -17,20 +17,17 @@
 
 #include "runtime/stream_load/new_load_stream_mgr.h"
 
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
+#include "util/doris_bvar_metrics.h"
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(new_stream_load_pipe_count, MetricUnit::NOUNIT);
-
 NewLoadStreamMgr::NewLoadStreamMgr() {
-    // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
-    // actual size of all StreamLoadPipe.
-    REGISTER_HOOK_METRIC(new_stream_load_pipe_count, [this]() { return _stream_map.size(); });
-}
+        // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
+        // actual size of all StreamLoadPipe.
+        DORIS_REGISTER_HOOK_METRIC(g_adder_new_stream_load_pipe_count,
+                                   [this]() { return _stream_map.size(); })}
 
 NewLoadStreamMgr::~NewLoadStreamMgr() {
-    DEREGISTER_HOOK_METRIC(new_stream_load_pipe_count);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_new_stream_load_pipe_count)
 }
 } // namespace doris

@@ -39,7 +39,7 @@
 #include <thread>
 
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 
 namespace apache {
 namespace thrift {
@@ -52,11 +52,6 @@ class TServerTransport;
 } // namespace apache
 
 namespace doris {
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_current_connections, MetricUnit::CONNECTIONS,
-                                   "Number of currently active connections");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(thrift_connections_total, MetricUnit::CONNECTIONS,
-                                     "Total connections made over the lifetime of this server");
 
 // Helper class that starts a server in a separate thread, and handles
 // the inter-thread communication to monitor whether it started
@@ -252,7 +247,6 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
 
     _thrift_server->thrift_connections_total->increment(1L);
     _thrift_server->thrift_current_connections->increment(1L);
-
     // Store the _session_key in the per-client context to avoid recomputing
     // it. If only this were accessible from RPC method calls, we wouldn't have to
     // mess around with thread locals.
@@ -293,10 +287,16 @@ ThriftServer::ThriftServer(const std::string& name,
           _server(nullptr),
           _processor(processor),
           _session_handler(nullptr) {
-    _thrift_server_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
+    thrift_server_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             std::string("thrift_server.") + name, {{"name", name}});
-    INT_GAUGE_METRIC_REGISTER(_thrift_server_metric_entity, thrift_current_connections);
-    INT_COUNTER_METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_server_metric_entity_, thrift_current_connections,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::CONNECTIONS,
+                                    "Number of currently active connections", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_server_metric_entity_, thrift_connections_total,
+                                    BvarMetricType::COUNTER, BvarMetricUnit::CONNECTIONS,
+                                    "Total connections made over the lifetime of this server", "",
+                                    BvarMetric::Labels(), false)
 }
 
 ThriftServer::~ThriftServer() {

@@ -34,7 +34,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_segment.h"
-#include "util/metrics.h"
+#include "util/bvar_metrics.h"
 
 namespace doris {
 class TUniqueId;
@@ -205,26 +205,26 @@ private:
     size_t _num_hit_segments = 0;
     size_t _num_removed_segments = 0;
 
-    std::shared_ptr<MetricEntity> _entity;
+    std::shared_ptr<BvarMetricEntity> entity_;
 
-    DoubleGauge* file_cache_hits_ratio = nullptr;
-    UIntGauge* file_cache_removed_elements = nullptr;
+    std::shared_ptr<BvarAdderMetric<double>> file_cache_hits_ratio;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_removed_elements;
 
-    UIntGauge* file_cache_index_queue_max_size = nullptr;
-    UIntGauge* file_cache_index_queue_curr_size = nullptr;
-    UIntGauge* file_cache_index_queue_max_elements = nullptr;
-    UIntGauge* file_cache_index_queue_curr_elements = nullptr;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_index_queue_max_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_index_queue_curr_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_index_queue_max_elements;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_index_queue_curr_elements;
 
-    UIntGauge* file_cache_normal_queue_max_size = nullptr;
-    UIntGauge* file_cache_normal_queue_curr_size = nullptr;
-    UIntGauge* file_cache_normal_queue_max_elements = nullptr;
-    UIntGauge* file_cache_normal_queue_curr_elements = nullptr;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_normal_queue_max_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_normal_queue_curr_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_normal_queue_max_elements;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_normal_queue_curr_elements;
 
-    UIntGauge* file_cache_disposable_queue_max_size = nullptr;
-    UIntGauge* file_cache_disposable_queue_curr_size = nullptr;
-    UIntGauge* file_cache_disposable_queue_max_elements = nullptr;
-    UIntGauge* file_cache_disposable_queue_curr_elements = nullptr;
-    UIntGauge* file_cache_segment_reader_cache_size = nullptr;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_disposable_queue_max_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_disposable_queue_curr_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_disposable_queue_max_elements;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_disposable_queue_curr_elements;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_segment_reader_cache_size;
 };
 
 } // namespace io

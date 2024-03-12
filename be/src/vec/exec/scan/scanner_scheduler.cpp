@@ -39,7 +39,7 @@
 #include "util/blocking_queue.hpp"
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -52,15 +52,6 @@
 #include "vfile_scanner.h"
 
 namespace doris::vectorized {
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(remote_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(remote_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(limited_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(limited_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(group_local_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(group_local_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
 
 ScannerScheduler::ScannerScheduler() = default;
 
@@ -313,28 +304,28 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 }
 
 void ScannerScheduler::_register_metrics() {
-    REGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size,
-                         [this]() { return _local_scan_thread_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num,
-                         [this]() { return _local_scan_thread_pool->get_active_threads(); });
-    REGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size,
-                         [this]() { return _remote_scan_thread_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num,
-                         [this]() { return _remote_scan_thread_pool->get_active_threads(); });
-    REGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size,
-                         [this]() { return _limited_scan_thread_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num,
-                         [this]() { return _limited_scan_thread_pool->num_threads(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_local_scan_thread_pool_queue_size,
+                               [this]() { return _local_scan_thread_pool->get_queue_size(); })
+    DORIS_REGISTER_HOOK_METRIC(g_adder_local_scan_thread_pool_thread_num,
+                               [this]() { return _local_scan_thread_pool->get_active_threads(); })
+    DORIS_REGISTER_HOOK_METRIC(g_adder_remote_scan_thread_pool_queue_size,
+                               [this]() { return _remote_scan_thread_pool->get_queue_size(); })
+    DORIS_REGISTER_HOOK_METRIC(g_adder_remote_scan_thread_pool_thread_num,
+                               [this]() { return _remote_scan_thread_pool->get_active_threads(); })
+    DORIS_REGISTER_HOOK_METRIC(g_adder_limited_scan_thread_pool_queue_size,
+                               [this]() { return _limited_scan_thread_pool->get_queue_size(); })
+    DORIS_REGISTER_HOOK_METRIC(g_adder_limited_scan_thread_pool_thread_num,
+                               [this]() { return _limited_scan_thread_pool->num_threads(); })
 }
 
 void ScannerScheduler::_deregister_metrics() {
-    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_thread_num);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_local_scan_thread_pool_queue_size)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_local_scan_thread_pool_thread_num)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_remote_scan_thread_pool_queue_size)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_remote_scan_thread_pool_thread_num)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_limited_scan_thread_pool_queue_size)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_limited_scan_thread_pool_thread_num)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_group_local_scan_thread_pool_queue_size)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_group_local_scan_thread_pool_thread_num)
 }
 } // namespace doris::vectorized

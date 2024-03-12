@@ -414,6 +414,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
+
      /**
       *  Test the unique model by modify a value type from TINYINT to other type
       */

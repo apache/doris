@@ -21,14 +21,10 @@
 
 #include "common/config.h"
 #include "olap/memtable_writer.h"
-#include "util/doris_metrics.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/mem_info.h"
-#include "util/metrics.h"
-
 namespace doris {
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memtable_memory_limiter_mem_consumption, MetricUnit::BYTES, "",
-                                   memtable_memory_limiter_mem_consumption,
-                                   Labels({{"type", "load"}}));
 
 bvar::LatencyRecorder g_memtable_memory_limit_latency_ms("mm_limiter_limit_time_ms");
 bvar::Adder<int> g_memtable_memory_limit_waiting_threads("mm_limiter_waiting_threads");
@@ -53,8 +49,7 @@ static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
 MemTableMemoryLimiter::MemTableMemoryLimiter() {}
 
 MemTableMemoryLimiter::~MemTableMemoryLimiter() {
-    DEREGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption);
-}
+        DORIS_DEREGISTER_HOOK_METRIC(g_adder_memtable_memory_limiter_mem_consumption)}
 
 Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
@@ -65,8 +60,8 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     g_load_soft_mem_limit.set_value(_load_soft_mem_limit);
     _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
                                                        "MemTableMemoryLimiter");
-    REGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption,
-                         [this]() { return _mem_tracker->consumption(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_memtable_memory_limiter_mem_consumption,
+                               [this]() { return _mem_tracker->consumption(); })
     _log_timer.start();
     return Status::OK();
 }

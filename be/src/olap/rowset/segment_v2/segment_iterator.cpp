@@ -64,7 +64,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/key_util.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -353,7 +353,7 @@ Status SegmentIterator::init_iterators() {
 
 Status SegmentIterator::_lazy_init() {
     SCOPED_RAW_TIMER(&_opts.stats->block_init_ns);
-    DorisMetrics::instance()->segment_read_total->increment(1);
+    g_adder_segment_read_total.increment(1);
     _row_bitmap.addRange(0, _segment->num_rows());
     // z-order can not use prefix index
     if (_segment->_tablet_schema->sort_type() != SortType::ZORDER &&
@@ -385,8 +385,7 @@ Status SegmentIterator::_lazy_init() {
 }
 
 Status SegmentIterator::_get_row_ranges_by_keys() {
-    DorisMetrics::instance()->segment_row_total->increment(num_rows());
-
+    g_adder_segment_row_total.increment(num_rows());
     // fast path for empty segment or empty key ranges
     if (_row_bitmap.isEmpty() || _opts.key_ranges.empty()) {
         return Status::OK();

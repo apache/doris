@@ -215,7 +215,7 @@ class Suite implements GroovyInterceptable {
         if (context.config.excludeDockerTest) {
             return
         }
-
+        
         boolean pipelineIsCloud = isCloudMode()
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {

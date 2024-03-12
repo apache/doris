@@ -34,7 +34,7 @@
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/jsonb/serialize.h"
@@ -126,21 +126,20 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
 
 } // namespace
 
-extern MetricPrototype METRIC_query_scan_bytes;
-extern MetricPrototype METRIC_query_scan_rows;
-extern MetricPrototype METRIC_query_scan_count;
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
-
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move(tablet_meta)) {
-    _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
+    metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             fmt::format("Tablet.{}", tablet_id()), {{"tablet_id", std::to_string(tablet_id())}},
-            MetricEntityType::kTablet);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_bytes);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_rows);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
+            BvarMetricEntityType::kTablet);
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, query_scan_bytes, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, query_scan_rows, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::ROWS, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, query_scan_count, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, flush_bytes, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(metric_entity_, flush_finish_count, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::OPERATIONS, "", "", BvarMetric::Labels(), false)
 
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
@@ -161,7 +160,7 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
 }
 
 BaseTablet::~BaseTablet() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
+    DorisBvarMetrics::instance()->metric_registry()->deregister_entity(metric_entity_);
 }
 
 TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(

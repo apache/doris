@@ -87,11 +87,11 @@
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
+#include "util/bvar_metrics.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/mem_info.h"
-#include "util/metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
@@ -111,10 +111,6 @@
 namespace doris {
 class PBackendService_Stub;
 class PFunctionService_Stub;
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
@@ -136,7 +132,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
             return;
         }
     }
-    DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
+    DorisBvarMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
@@ -514,17 +510,17 @@ void ExecEnv::init_mem_tracker() {
 }
 
 void ExecEnv::_register_metrics() {
-    REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num,
-                         [this]() { return _send_batch_thread_pool->num_threads(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_thread_num,
+                               [this]() { return _send_batch_thread_pool->num_threads(); })
 
-    REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size,
-                         [this]() { return _send_batch_thread_pool->get_queue_size(); });
+    DORIS_REGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_queue_size,
+                               [this]() { return _send_batch_thread_pool->get_queue_size(); })
 }
 
 void ExecEnv::_deregister_metrics() {
-    DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_scanner_thread_pool_queue_size)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_thread_num)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_send_batch_thread_pool_queue_size)
 }
 
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.

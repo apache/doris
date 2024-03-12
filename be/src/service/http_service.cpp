@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
+#include "http/action/bvar_metrics_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
@@ -42,7 +43,6 @@
 #include "http/action/http_stream.h"
 #include "http/action/jeprofile_actions.h"
 #include "http/action/meta_action.h"
-#include "http/action/metrics_action.h"
 #include "http/action/pad_rowset_action.h"
 #include "http/action/pipeline_task_action.h"
 #include "http/action/pprof_actions.h"
@@ -65,7 +65,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 
 namespace doris {
 namespace {
@@ -164,12 +164,12 @@ Status HttpService::start() {
     // register jeprof actions
     static_cast<void>(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
 
-    // register metrics
+    // register bvar_metrics
     {
-        auto* action =
-                _pool.add(new MetricsAction(DorisMetrics::instance()->metric_registry(), _env,
-                                            TPrivilegeHier::GLOBAL, TPrivilegeType::NONE));
-        _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
+        auto* action = _pool.add(
+                new BvarMetricsAction(DorisBvarMetrics::instance()->metric_registry(), _env,
+                                      TPrivilegeHier::GLOBAL, TPrivilegeType::NONE));
+        _ev_http_server->register_handler(HttpMethod::GET, "/bvar_metrics", action);
     }
 
     MetaAction* meta_action =

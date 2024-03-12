@@ -24,10 +24,6 @@
 namespace doris {
 namespace io {
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_total, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_cache, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_remote, MetricUnit::OPERATIONS);
-
 std::shared_ptr<AtomicStatistics> FileCacheProfile::report(int64_t table_id, int64_t partition_id) {
     std::shared_ptr<AtomicStatistics> stats = std::make_shared<AtomicStatistics>();
     if (_profile.count(table_id) == 1 && _profile[table_id].count(partition_id) == 1) {
@@ -112,14 +108,18 @@ void FileCacheProfile::deregister_metric(int64_t table_id, int64_t partition_id)
 void FileCacheMetric::register_entity() {
     std::string table_id_str = std::to_string(table_id);
     std::string partition_id_str = partition_id != -1 ? std::to_string(partition_id) : "total";
-    entity = DorisMetrics::instance()->metric_registry()->register_entity(
+
+    entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             std::string("cloud_file_cache"),
             {{"table_id", table_id_str}, {"partition_id", partition_id_str}});
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_total);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_from_cache);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_from_remote);
-    entity->register_hook("cloud_file_cache",
-                          std::bind(&FileCacheMetric::update_table_metrics, this));
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, num_io_bytes_read_total, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::OPERATIONS, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, num_io_bytes_read_from_cache, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::OPERATIONS, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, num_io_bytes_read_from_remote, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::OPERATIONS, "", "", BvarMetric::Labels(), false)
+    entity_->register_hook("cloud_file_cache",
+                           std::bind(&FileCacheMetric::update_table_metrics, this));
 }
 
 void FileCacheMetric::update_table_metrics() const {

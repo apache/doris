@@ -35,9 +35,9 @@
 #include "http/rest_monitor_iface.h"
 #include "runtime/query_context.h"
 #include "runtime_filter_mgr.h"
+#include "util/bvar_metrics.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
-#include "util/metrics.h"
 
 namespace butil {
 class IOBufAsZeroCopyInputStream;
@@ -207,8 +207,8 @@ private:
     // every job is a pool
     std::unique_ptr<ThreadPool> _thread_pool;
 
-    std::shared_ptr<MetricEntity> _entity;
-    UIntGauge* timeout_canceled_fragment_count = nullptr;
+    std::shared_ptr<BvarMetricEntity> entity_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> timeout_canceled_fragment_count;
 
     RuntimeFilterMergeController _runtimefilter_controller;
     std::unique_ptr<ThreadPool> _async_report_thread_pool =

@@ -35,6 +35,7 @@
 #include "olap/memtable_flush_executor.h"
 #include "olap/storage_policy.h"
 #include "runtime/memory/cache_manager.h"
+#include "util/doris_bvar_metrics.h"
 
 namespace doris {
 
@@ -458,11 +459,9 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
 
     if (max_compaction_score > 0) {
         if (compaction_type == CompactionType::BASE_COMPACTION) {
-            DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(
-                    max_compaction_score);
+            g_adder_tablet_base_max_compaction_score.set_value(max_compaction_score);
         } else {
-            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
-                    max_compaction_score);
+            g_adder_tablet_cumulative_max_compaction_score.set_value(max_compaction_score);
         }
     }
 

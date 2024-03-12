@@ -28,17 +28,14 @@
 #include "common/signal_handler.h"
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
+#include "util/bvar_metrics.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 
 namespace doris {
 using namespace ErrorCode;
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(flush_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(flush_thread_pool_thread_num, MetricUnit::NOUNIT);
 
 bvar::Adder<int64_t> g_flush_task_num("memtable_flush_task_num");
 
@@ -145,8 +142,8 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
                 _rowset_writer->flush_memtable(block.get(), segment_id, flush_size)));
     }
     _memtable_stat += memtable->stat();
-    DorisMetrics::instance()->memtable_flush_total->increment(1);
-    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
+    g_adder_memtable_flush_total.increment(1);
+    g_adder_memtable_flush_duration_us.increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
                   << ", flushsize: " << *flush_size;
     return Status::OK();
@@ -251,15 +248,15 @@ Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>& fl
 }
 
 void MemTableFlushExecutor::_register_metrics() {
-    REGISTER_HOOK_METRIC(flush_thread_pool_queue_size,
-                         [this]() { return _flush_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(flush_thread_pool_thread_num,
-                         [this]() { return _flush_pool->num_threads(); })
+    DORIS_REGISTER_HOOK_METRIC(g_adder_flush_thread_pool_queue_size,
+                               [this]() { return _flush_pool->get_queue_size(); })
+    DORIS_REGISTER_HOOK_METRIC(g_adder_flush_thread_pool_thread_num,
+                               [this]() { return _flush_pool->num_threads(); })
 }
 
 void MemTableFlushExecutor::_deregister_metrics() {
-    DEREGISTER_HOOK_METRIC(flush_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(flush_thread_pool_thread_num);
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_flush_thread_pool_queue_size)
+    DORIS_DEREGISTER_HOOK_METRIC(g_adder_flush_thread_pool_thread_num)
 }
 
 } // namespace doris

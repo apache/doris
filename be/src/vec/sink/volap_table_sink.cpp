@@ -53,6 +53,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "util/doris_bvar_metrics.h"
 #include "util/runtime_profile.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -82,7 +83,6 @@
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
 #include "util/network_util.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"

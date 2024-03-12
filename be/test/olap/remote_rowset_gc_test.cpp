@@ -55,7 +55,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -233,8 +233,7 @@ TEST_F(RemoteRowsetGcTest, normal) {
     ASSERT_EQ(Status::OK(), st);
     st = tablet->cooldown(); // rowset [2-2]
     ASSERT_EQ(Status::OK(), st);
-    ASSERT_EQ(DorisMetrics::instance()->upload_rowset_count->value(), 1);
-
+    ASSERT_EQ(g_adder_upload_rowset_count->get_value(), 1);
     delete delta_writer;
 
     auto fs = get_storage_resource(kResourceId).fs;

@@ -42,7 +42,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -372,10 +372,10 @@ Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_
     }
     auto st = dest_fs->batch_upload(local_paths, dest_paths);
     if (st.ok()) {
-        DorisMetrics::instance()->upload_rowset_count->increment(1);
-        DorisMetrics::instance()->upload_total_byte->increment(data_disk_size());
+        g_adder_upload_rowset_count.increment(1);
+        g_adder_upload_total_byte.increment(data_disk_size());
     } else {
-        DorisMetrics::instance()->upload_fail_count->increment(1);
+        g_adder_upload_fail_count.increment(1);
     }
     return st;
 }

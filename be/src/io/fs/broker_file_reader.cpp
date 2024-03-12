@@ -32,7 +32,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 
 namespace doris::io {
 struct IOContext;
@@ -44,8 +44,8 @@ BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, Path path
           _broker_addr(broker_addr),
           _fd(fd),
           _fs(std::move(fs)) {
-    DorisMetrics::instance()->broker_file_open_reading->increment(1);
-    DorisMetrics::instance()->broker_file_reader_total->increment(1);
+    g_adder_broker_file_open_reading.increment(1);
+    g_adder_broker_file_reader_total.increment(1);
 }
 
 BrokerFileReader::~BrokerFileReader() {
@@ -56,7 +56,7 @@ Status BrokerFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         RETURN_IF_ERROR(_fs->close_file(_fd));
-        DorisMetrics::instance()->broker_file_open_reading->increment(-1);
+        g_adder_broker_file_open_reading.increment(-1);
     }
     return Status::OK();
 }

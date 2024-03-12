@@ -61,7 +61,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h" // for check_dir_existed
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
@@ -104,15 +104,6 @@ Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
 
 } // namespace
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_avail_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_local_used_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_remote_used_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_trash_used_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
-
 DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacity_bytes,
                  TStorageMedium::type storage_medium)
         : _engine(engine),
@@ -124,20 +115,35 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
           _is_used(false),
           _cluster_id(-1),
           _to_be_deleted(false) {
-    _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
+    data_dir_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             std::string("data_dir.") + path, {{"path", path}});
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_local_used_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_used_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_trash_used_capacity);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
-    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_total_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_avail_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_local_used_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_remote_used_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_trash_used_capacity,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_state, BvarMetricType::GAUGE,
+                                    BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_score,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_num,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                    BvarMetric::Labels(), false)
 }
 
 DataDir::~DataDir() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_data_dir_metric_entity);
+    DorisBvarMetrics::instance()->metric_registry()->deregister_entity(data_dir_metric_entity_);
     delete _meta;
 }
 

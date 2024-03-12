@@ -21,8 +21,8 @@
 
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -277,7 +277,7 @@ struct LRUHandle {
         (*deleter)(key(), value);
         if (bytes != 0) { // DummyLRUCache bytes always equal to 0
             THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
-            DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes);
+            g_adder_lru_cache_memory_bytes.increment(-bytes);
         }
         ::free(this);
     }
@@ -459,13 +459,14 @@ private:
     size_t _total_capacity;
 
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
-    std::shared_ptr<MetricEntity> _entity;
-    IntGauge* cache_capacity = nullptr;
-    IntGauge* cache_usage = nullptr;
-    DoubleGauge* cache_usage_ratio = nullptr;
-    IntAtomicCounter* cache_lookup_count = nullptr;
-    IntAtomicCounter* cache_hit_count = nullptr;
-    DoubleGauge* cache_hit_ratio = nullptr;
+
+    std::shared_ptr<BvarMetricEntity> entity_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> cache_capacity;
+    std::shared_ptr<BvarAdderMetric<int64_t>> cache_usage;
+    std::shared_ptr<BvarAdderMetric<double>> cache_usage_ratio;
+    std::shared_ptr<BvarAdderMetric<int64_t>> cache_lookup_count;
+    std::shared_ptr<BvarAdderMetric<int64_t>> cache_hit_count;
+    std::shared_ptr<BvarAdderMetric<double>> cache_hit_ratio;
     // bvars
     std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;
     std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _hit_count_per_second;

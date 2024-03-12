@@ -27,9 +27,9 @@
 #include "olap/compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "service/backend_options.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/trace.h"
 #include "util/uuid_generator.h"
-
 namespace doris {
 using namespace ErrorCode;
 
@@ -187,8 +187,8 @@ Status CloudCumulativeCompaction::execute_compact() {
 
     _state = CompactionState::SUCCESS;
 
-    DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
+    g_adder_cumulative_compaction_deltas_total.increment(_input_rowsets.size());
+    g_adder_cumulative_compaction_bytes_total.increment(_input_rowsets_size);
     cumu_output_size << _output_rowset->data_disk_size();
 
     return Status::OK();

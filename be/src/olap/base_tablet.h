@@ -27,7 +27,7 @@
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
 #include "olap/version_graph.h"
-#include "util/metrics.h"
+#include "util/bvar_metrics.h"
 
 namespace doris {
 struct RowSetSplits;
@@ -272,17 +272,17 @@ protected:
     std::string _tablet_path;
 
     // metrics of this tablet
-    std::shared_ptr<MetricEntity> _metric_entity;
+    std::shared_ptr<BvarMetricEntity> metric_entity_;
 
 protected:
     std::mutex _schema_change_lock;
 
 public:
-    IntCounter* query_scan_bytes = nullptr;
-    IntCounter* query_scan_rows = nullptr;
-    IntCounter* query_scan_count = nullptr;
-    IntCounter* flush_bytes = nullptr;
-    IntCounter* flush_finish_count = nullptr;
+    std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_bytes;
+    std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_rows;
+    std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_count;
+    std::shared_ptr<BvarAdderMetric<int64_t>> flush_bytes;
+    std::shared_ptr<BvarAdderMetric<int64_t>> flush_finish_count;
     std::atomic<int64_t> published_count = 0;
 };
 

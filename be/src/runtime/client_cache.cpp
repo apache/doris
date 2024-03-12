@@ -21,15 +21,10 @@
 #include <utility>
 
 #include "common/logging.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/network_util.h"
 
 namespace doris {
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_used_clients, MetricUnit::NOUNIT,
-                                   "Number of clients 'checked-out' from the cache");
-DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_opened_clients, MetricUnit::NOUNIT,
-                                   "Total clients in the cache, including those in use");
 
 ClientCacheHelper::~ClientCacheHelper() {
     for (auto& it : _client_map) {
@@ -199,10 +194,16 @@ void ClientCacheHelper::init_metrics(const std::string& name) {
     // usage, but ensures that _metrics_enabled is published.
     std::lock_guard<std::mutex> lock(_lock);
 
-    _thrift_client_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
+    thrift_client_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             std::string("thrift_client.") + name, {{"name", name}});
-    INT_GAUGE_METRIC_REGISTER(_thrift_client_metric_entity, thrift_used_clients);
-    INT_GAUGE_METRIC_REGISTER(_thrift_client_metric_entity, thrift_opened_clients);
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_client_metric_entity_, thrift_used_clients,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                                    "Number of clients 'checked-out' from the cache", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_client_metric_entity_, thrift_opened_clients,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                                    "Total clients in the cache, including those in use", "",
+                                    BvarMetric::Labels(), false)
 
     _metrics_enabled = true;
 }

@@ -59,9 +59,7 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
-#include "util/doris_metrics.h"
 #include "util/load_util.h"
-#include "util/metrics.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -70,20 +68,22 @@
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_requests_total, MetricUnit::REQUESTS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_duration_ms, MetricUnit::MILLISECONDS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(http_stream_current_processing, MetricUnit::REQUESTS);
-
 HttpStreamAction::HttpStreamAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    _http_stream_entity =
-            DorisMetrics::instance()->metric_registry()->register_entity("http_stream");
-    INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_duration_ms);
-    INT_GAUGE_METRIC_REGISTER(_http_stream_entity, http_stream_current_processing);
+    http_stream_entity_ =
+            DorisBvarMetrics::instance()->metric_registry()->register_entity("http_stream");
+    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_requests_total,
+                                    BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_duration_ms,
+                                    BvarMetricType::COUNTER, BvarMetricUnit::MILLISECONDS, "", "",
+                                    BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_current_processing,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::REQUESTS, "", "",
+                                    BvarMetric::Labels(), false)
 }
 
 HttpStreamAction::~HttpStreamAction() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_http_stream_entity);
+    DorisBvarMetrics::instance()->metric_registry()->deregister_entity(http_stream_entity_);
 }
 
 void HttpStreamAction::handle(HttpRequest* req) {

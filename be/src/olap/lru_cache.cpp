@@ -13,20 +13,13 @@
 
 #include "gutil/bits.h"
 #include "runtime/thread_context.h"
-#include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/time.h"
 
 using std::string;
 using std::stringstream;
 
 namespace doris {
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage_ratio, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_lookup_count, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_hit_count, MetricUnit::OPERATIONS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_hit_ratio, MetricUnit::NOUNIT);
 
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     // Similar to murmur hash
@@ -377,7 +370,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
     THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
-    DorisMetrics::instance()->lru_cache_memory_bytes->increment(e->bytes);
+    g_adder_lru_cache_memory_bytes.increment(e->bytes);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -552,15 +545,21 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     }
     _shards = shards;
 
-    _entity = DorisMetrics::instance()->metric_registry()->register_entity(
+    entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
             std::string("lru_cache:") + name, {{"name", name}});
-    _entity->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
-    INT_GAUGE_METRIC_REGISTER(_entity, cache_capacity);
-    INT_GAUGE_METRIC_REGISTER(_entity, cache_usage);
-    INT_DOUBLE_METRIC_REGISTER(_entity, cache_usage_ratio);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
-    INT_DOUBLE_METRIC_REGISTER(_entity, cache_hit_ratio);
+    entity_->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, cache_capacity, BvarMetricType::GAUGE,
+                                    BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, cache_usage, BvarMetricType::GAUGE,
+                                    BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_DOUBLE_BVAR_METRIC(entity_, cache_usage_ratio, BvarMetricType::GAUGE,
+                                     BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, cache_lookup_count, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::OPERATIONS, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, cache_hit_count, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::OPERATIONS, "", "", BvarMetric::Labels(), false)
+    REGISTER_INIT_DOUBLE_BVAR_METRIC(entity_, cache_hit_ratio, BvarMetricType::GAUGE,
+                                     BvarMetricUnit::NOUNIT, "", "", BvarMetric::Labels(), false)
 
     _hit_count_bvar.reset(new bvar::Adder<uint64_t>("doris_cache", _name));
     _hit_count_per_second.reset(new bvar::PerSecond<bvar::Adder<uint64_t>>(
@@ -583,8 +582,8 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 }
 
 ShardedLRUCache::~ShardedLRUCache() {
-    _entity->deregister_hook(_name);
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
+    entity_->deregister_hook(_name);
+    DorisBvarMetrics::instance()->metric_registry()->deregister_entity(entity_);
     if (_shards) {
         for (int s = 0; s < _num_shards; s++) {
             delete _shards[s];

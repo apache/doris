@@ -77,8 +77,8 @@
 #include "olap/txn_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
@@ -99,7 +99,6 @@ namespace doris {
 using namespace ErrorCode;
 extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
 namespace {
 bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
@@ -157,11 +156,10 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _create_tablet_idx_lru_cache(
                   new CreateTabletIdxCache(config::partition_disk_index_lru_size)),
           _snapshot_mgr(std::make_unique<SnapshotManager>(*this)) {
-    REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
+    DORIS_REGISTER_HOOK_METRIC(g_adder_unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
-    });
-
+    })
     _broken_paths = options.broken_paths;
 }
 
