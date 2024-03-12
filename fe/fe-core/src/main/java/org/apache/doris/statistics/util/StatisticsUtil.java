@@ -144,6 +144,9 @@ public class StatisticsUtil {
         }
         boolean useFileCacheForStat = (enableFileCache && Config.allow_analyze_statistics_info_polluting_file_cache);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, useFileCacheForStat)) {
+            if (Config.isCloudMode()) {
+                r.connectContext.getCloudCluster();
+            }
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             return stmtExecutor.executeInternalQuery();
@@ -459,11 +462,25 @@ public class StatisticsUtil {
         } catch (Throwable t) {
             return false;
         }
-        for (OlapTable table : statsTbls) {
-            for (Partition partition : table.getPartitions()) {
-                if (partition.getBaseIndex().getTablets().stream()
-                        .anyMatch(t -> t.getNormalReplicaBackendIds().isEmpty())) {
-                    return false;
+        if (Config.isCloudMode()) {
+            try (AutoCloseConnectContext r = buildConnectContext()) {
+                r.connectContext.getCloudCluster();
+                for (OlapTable table : statsTbls) {
+                    for (Partition partition : table.getPartitions()) {
+                        if (partition.getBaseIndex().getTablets().stream()
+                                .anyMatch(t -> t.getNormalReplicaBackendIds().isEmpty())) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        } else {
+            for (OlapTable table : statsTbls) {
+                for (Partition partition : table.getPartitions()) {
+                    if (partition.getBaseIndex().getTablets().stream()
+                            .anyMatch(t -> t.getNormalReplicaBackendIds().isEmpty())) {
+                        return false;
+                    }
                 }
             }
         }
