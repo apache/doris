@@ -55,6 +55,7 @@ public class Tag implements Writable {
     public static final String TYPE_ROLE = "role";
     public static final String TYPE_FUNCTION = "function";
     public static final String TYPE_LOCATION = "location";
+    public static final String TYPE_RACK = "rack";
     public static final String VALUE_FRONTEND = "frontend";
     public static final String VALUE_BACKEND = "backend";
     public static final String VALUE_BROKER = "broker";
@@ -74,7 +75,7 @@ public class Tag implements Writable {
     public static final String CLOUD_CLUSTER_STATUS = "cloud_cluster_status";
 
     public static final ImmutableSet<String> RESERVED_TAG_TYPE = ImmutableSet.of(
-            TYPE_ROLE, TYPE_FUNCTION, TYPE_LOCATION);
+            TYPE_ROLE, TYPE_FUNCTION, TYPE_LOCATION, TYPE_RACK);
     public static final ImmutableSet<String> RESERVED_TAG_VALUES = ImmutableSet.of(
             VALUE_FRONTEND, VALUE_BACKEND, VALUE_BROKER, VALUE_REMOTE_STORAGE, VALUE_STORE, VALUE_COMPUTATION,
             VALUE_MIX, VALUE_DEFAULT_CLUSTER);
@@ -84,12 +85,14 @@ public class Tag implements Writable {
 
     public static final Tag DEFAULT_BACKEND_TAG;
     public static final Tag DEFAULT_NODE_ROLE_TAG;
+    public static final Tag DEFAULT_BACKEND_RACK_TAG;
     public static final Tag INVALID_TAG;
 
     static {
         DEFAULT_BACKEND_TAG = new Tag(TYPE_LOCATION, VALUE_DEFAULT_TAG);
         DEFAULT_NODE_ROLE_TAG = new Tag(TYPE_ROLE, VALUE_MIX);
         INVALID_TAG = new Tag(TYPE_LOCATION, VALUE_INVALID_TAG);
+        DEFAULT_BACKEND_RACK_TAG = new Tag(TYPE_RACK, VALUE_DEFAULT_TAG);
     }
 
     @SerializedName(value = "type")

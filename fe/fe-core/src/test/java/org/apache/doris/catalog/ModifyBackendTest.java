@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -76,6 +77,18 @@ public class ModifyBackendTest {
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         backends = infoService.getAllBackends();
         Assert.assertEquals(1, backends.size());
+        Assert.assertEquals(Tag.VALUE_DEFAULT_TAG, backends.get(0).getRack().value);
+
+        // modify backend tags
+        Config.enable_multi_tags = true;
+        stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('tag.location' = 'zone1', 'tag.rack' = 'a')";
+        stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
+        DdlExecutor.execute(Env.getCurrentEnv(), stmt);
+        backends = infoService.getAllBackends();
+        Assert.assertEquals(1, backends.size());
+        Assert.assertEquals(2, backends.get(0).getTagMap().size());
+        Assert.assertEquals("a", backends.get(0).getRack().value);
+        Config.enable_multi_tags = true;
 
         // create table
         String createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n"

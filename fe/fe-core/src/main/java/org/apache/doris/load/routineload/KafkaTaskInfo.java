@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
@@ -86,7 +87,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tKafkaLoadInfo.setTopic(routineLoadJob.getTopic());
         tKafkaLoadInfo.setBrokers(routineLoadJob.getBrokerList());
         tKafkaLoadInfo.setPartitionBeginOffset(partitionIdToOffset);
-        tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
+        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+        if (backend == null) {
+            throw new UserException("failed to get be:" + beId + " rack because not exist");
+        }
+        tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties(backend.getRack().value));
         tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
         tRoutineLoadTask.setIsMultiTable(isMultiTable);

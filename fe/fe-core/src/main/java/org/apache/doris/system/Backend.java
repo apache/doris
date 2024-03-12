@@ -115,6 +115,9 @@ public class Backend implements Writable {
     @SerializedName("nodeRole")
     private Tag nodeRoleTag = Tag.DEFAULT_NODE_ROLE_TAG;
 
+    @SerializedName("rack")
+    private Tag rackTag = Tag.DEFAULT_BACKEND_RACK_TAG;
+
     // tag type -> tag value.
     // A backend can only be assigned to one tag type, and each type can only have one value.
     @SerializedName("tagMap")
@@ -851,6 +854,10 @@ public class Backend implements Writable {
         return nodeRoleTag;
     }
 
+    public Tag getRack() {
+        return rackTag;
+    }
+
     public boolean isMixNode() {
         return nodeRoleTag.value.equals(Tag.VALUE_MIX);
     }
@@ -862,7 +869,10 @@ public class Backend implements Writable {
     public void setTagMap(Map<String, String> tagMap) {
         Preconditions.checkState(tagMap.containsKey(Tag.TYPE_LOCATION));
         this.tagMap = tagMap;
-        this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
+        if (tagMap.containsKey(Tag.TYPE_LOCATION)) {
+            this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
+        }
+        this.rackTag = Tag.createNotCheck(Tag.TYPE_RACK, tagMap.getOrDefault(Tag.TYPE_RACK, Tag.VALUE_DEFAULT_TAG));
         if (tagMap.containsKey(Tag.TYPE_ROLE) && Tag.validNodeRoleTag(tagMap.get(Tag.TYPE_ROLE))) {
             this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, tagMap.get(Tag.TYPE_ROLE));
         }
