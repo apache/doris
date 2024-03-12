@@ -20,6 +20,7 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 class StructInfoMapTest extends SqlTestBase {
     @Test
@@ -77,5 +79,51 @@ class StructInfoMapTest extends SqlTestBase {
         root.getstructInfoMap().refresh(root);
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
+        dropMvByNereids("drop materialized view mv1");
+    }
+
+    @Test
+    void testTableChild() throws Exception {
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id from T1 inner join T2 "
+                        + "on T1.id = T2.id "
+                        + "inner join T3 on T1.id = T3.id",
+                connectContext
+        );
+        new MockUp<MTMVRelationManager>() {
+            @Mock
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx) {
+                return true;
+            }
+        };
+        connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select T1.id from T1 inner join T2 "
+                + "on T1.id = T2.id;");
+        c1 = createCascadesContext(
+                "select T1.id from T1 inner join T2 "
+                        + "on T1.id = T2.id "
+                        + "inner join T3 on T1.id = T3.id",
+                connectContext
+        );
+        PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .optimize();
+        Group root = c1.getMemo().getRoot();
+        root.getstructInfoMap().refresh(root);
+        StructInfoMap structInfoMap = root.getstructInfoMap();
+        Assertions.assertEquals(2, structInfoMap.getTableMaps().size());
+        BitSet mvMap = structInfoMap.getTableMaps().stream()
+                .filter(b -> b.cardinality() == 2)
+                .collect(Collectors.toList()).get(0);
+        StructInfo structInfo = structInfoMap.getStructInfo(mvMap, mvMap, root);
+        System.out.println(structInfo.getOriginalPlan().treeString());
+        BitSet bitSet = new BitSet();
+        structInfo.getRelations().forEach(r -> bitSet.set((int) r.getTable().getId()));
+        Assertions.assertEquals(bitSet, mvMap);
+        dropMvByNereids("drop materialized view mv1");
     }
 }
