@@ -326,6 +326,8 @@ protected:
     std::string _op_name;
     bool _ignore_data_distribution = false;
     int _parallel_tasks = 0;
+
+    bool _keep_origin = false;
 };
 
 template <typename LocalStateType>

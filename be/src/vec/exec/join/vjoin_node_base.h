@@ -63,7 +63,12 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    const RowDescriptor& row_desc() const override { return *_output_row_desc; }
+    const RowDescriptor& row_desc() const override {
+        if (_output_row_descriptor) {
+            return *_output_row_descriptor;
+        }
+        return *_output_row_desc;
+    }
 
     const RowDescriptor& intermediate_row_desc() const override { return *_intermediate_row_desc; }
 
