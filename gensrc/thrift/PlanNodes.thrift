@@ -361,6 +361,13 @@ struct THudiFileDesc {
     10: optional list<string> nested_fields;
 }
 
+struct TLakeSoulFileDesc {
+    1: optional list<string> file_paths;
+    2: optional list<string> primary_keys;
+    3: optional list<string> partition_descs;
+    4: optional string table_schema;
+}
+
 struct TTransactionalHiveDeleteDeltaDesc {
     1: optional string directory_location
     2: optional list<string> file_names
@@ -379,6 +386,7 @@ struct TTableFormatFileDesc {
     5: optional TTransactionalHiveDesc transactional_hive_params
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
+    8: optional TLakeSoulFileDesc lakesoul_params
 }
 
 enum TTextSerdeType {
@@ -1237,7 +1245,7 @@ struct TRuntimeFilterDesc {
   // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
   // ignore bloom_filter_size_bytes
   14: optional bool bloom_filter_size_calculated_by_ndv;
- 
+
   // true, if join type is null aware like <=>. rf should dispose the case
   15: optional bool null_aware;
 
