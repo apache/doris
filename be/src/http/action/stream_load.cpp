@@ -729,7 +729,8 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
     // allow chunked stream load in flink
     auto is_chunk = !req->header(HttpHeaders::TRANSFER_ENCODING).empty() &&
                     req->header(HttpHeaders::TRANSFER_ENCODING).find(CHUNK) != std::string::npos;
-    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode") || !is_chunk) {
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode") ||
+        (content_length == 0 && !is_chunk)) {
         // off_mode and empty
         ctx->group_commit = false;
         return Status::OK();
