@@ -90,7 +90,10 @@ public class RangerHiveAccessController extends RangerAccessController {
             request.setResource(resource);
             requests.add(request);
         }
-
+        for (RangerAccessRequest request: requests) {
+            RangerAccessResult evalResult = hivePlugin.evalDataMaskPolicies(request, auditHandler);
+            RangerAccessResult rowPolicyResult = hivePlugin.evalRowFilterPolicies(request, auditHandler);
+        }
         Collection<RangerAccessResult> results = hivePlugin.isAccessAllowed(requests, auditHandler);
         checkRequestResults(results, accessType.name());
     }
@@ -101,6 +104,10 @@ public class RangerHiveAccessController extends RangerAccessController {
         request.setResource(resource);
 
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
+        RangerAccessResult evalResult = hivePlugin.evalDataMaskPolicies(request, auditHandler);
+        String maskType = evalResult.getMaskType();
+        RangerAccessResult rowPolicyResult = hivePlugin.evalRowFilterPolicies(request, auditHandler);
+        String filterExpr = rowPolicyResult.getFilterExpr();
         return checkRequestResult(request, result, accessType.name());
     }
 
