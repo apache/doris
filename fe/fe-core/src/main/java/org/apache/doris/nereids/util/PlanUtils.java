@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -152,7 +151,7 @@ public class PlanUtils {
     /**
      * collect non_window_agg_func
      */
-    public static class CollectNonWindowedAggFuncs extends DefaultExpressionVisitor<Void, List<AggregateFunction>> {
+    public static class CollectNonWindowedAggFuncs {
         public static List<AggregateFunction> collect(Collection<? extends Expression> expressions) {
             List<AggregateFunction> aggFunctions = Lists.newArrayList();
             for (Expression expression : expressions) {

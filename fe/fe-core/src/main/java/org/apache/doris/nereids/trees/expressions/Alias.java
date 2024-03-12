@@ -121,7 +121,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     @Override
     public String toSql() {
-        return child().toSql() + " AS `" + name + "`";
+        return child().toSql() + " AS `" + name.get() + "`";
     }
 
     @Override
