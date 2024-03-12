@@ -106,7 +106,7 @@ void LocalFileWriter::_abort() {
 
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     if (_closed) [[unlikely]] {
-        return Status::InternalError("append to closed file: ", _path.native());
+        return Status::InternalError("append to closed file: {}", _path.native());
     }
     _dirty = true;
 
