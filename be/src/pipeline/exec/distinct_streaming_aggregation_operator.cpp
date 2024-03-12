@@ -227,6 +227,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
 
     size_t key_size = _probe_expr_ctxs.size();
     vectorized::ColumnRawPtrs key_columns(key_size);
+    std::vector<int> result_idxs(key_size);
     {
         SCOPED_TIMER(_expr_timer);
         for (size_t i = 0; i < key_size; ++i) {
@@ -236,42 +237,62 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
+            result_idxs[i] = result_column_id;
         }
     }
 
     int rows = in_block->rows();
-    bool stop_emplace_flag = false;
     _distinct_row.clear();
     _distinct_row.reserve(rows);
 
-    RETURN_IF_CATCH_EXCEPTION(_emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows,
-                                                                   &stop_emplace_flag));
+    RETURN_IF_CATCH_EXCEPTION(
+            _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
     // need use _cur_num_rows_returned to decide whether to do continue emplace into hash table
     _cur_num_rows_returned += _distinct_row.size();
 
-    if (stop_emplace_flag) {
-        for (int i = 0; i < rows; ++i) {
-            _distinct_row.push_back(i);
-        }
-    }
-
+    // if (stop_emplace_flag) {
+    //     vectorized::ColumnsWithTypeAndName columns_with_schema;
+    //     for (int i = 0; i < key_size; ++i) {
+    //         columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
+    //                                          _probe_expr_ctxs[i]->root()->data_type(),
+    //                                          _probe_expr_ctxs[i]->root()->expr_name());
+    //     }
+    //     out_block->swap(vectorized::Block(columns_with_schema));
+    //     in_block->clear();
+    //     return Status::OK();
+    // }
     bool mem_reuse = _parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys.empty() &&
                      out_block->mem_reuse();
     if (mem_reuse) {
         for (int i = 0; i < key_size; ++i) {
-            auto dst = out_block->get_by_position(i).column->assume_mutable();
-            key_columns[i]->append_data_by_selector(dst, _distinct_row);
+            auto output_column = out_block->get_by_position(i).column;
+            if (_stop_emplace_flag) { // swap the column directly, to solve Check failed: d.column->use_count() == 1 (2 vs. 1)
+                out_block->replace_by_position(i, key_columns[i]->assume_mutable());
+                in_block->replace_by_position(result_idxs[i], output_column);
+            } else {
+                auto dst = output_column->assume_mutable();
+                key_columns[i]->append_data_by_selector(dst, _distinct_row);
+            }
         }
     } else {
         vectorized::ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
-            auto distinct_column = key_columns[i]->clone_empty();
-            key_columns[i]->append_data_by_selector(distinct_column, _distinct_row);
-            columns_with_schema.emplace_back(std::move(distinct_column),
-                                             _probe_expr_ctxs[i]->root()->data_type(),
-                                             _probe_expr_ctxs[i]->root()->expr_name());
+            if (_stop_emplace_flag) {
+                columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
+                                                 _probe_expr_ctxs[i]->root()->data_type(),
+                                                 _probe_expr_ctxs[i]->root()->expr_name());
+            } else {
+                auto distinct_column = key_columns[i]->clone_empty();
+                key_columns[i]->append_data_by_selector(distinct_column, _distinct_row);
+                columns_with_schema.emplace_back(std::move(distinct_column),
+                                                 _probe_expr_ctxs[i]->root()->data_type(),
+                                                 _probe_expr_ctxs[i]->root()->expr_name());
+            }
         }
         out_block->swap(vectorized::Block(columns_with_schema));
+        if (_stop_emplace_flag) {
+            in_block->clear(); // clear the column ref with stop_emplace_flag = true
+        }
     }
     return Status::OK();
 }
@@ -287,7 +308,7 @@ void DistinctStreamingAggLocalState::_make_nullable_output_key(vectorized::Block
 
 void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
         vectorized::IColumn::Selector& distinct_row, vectorized::ColumnRawPtrs& key_columns,
-        const size_t num_rows, bool* stop_emplace_flag) {
+        const size_t num_rows) {
     std::visit(
             [&](auto&& agg_method) -> void {
                 SCOPED_TIMER(_hash_table_compute_timer);
@@ -297,7 +318,7 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                 if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg &&
                     hash_tbl.add_elem_size_overflow(num_rows)) {
                     if (!_should_expand_preagg_hash_tables()) {
-                        *stop_emplace_flag = true;
+                        _stop_emplace_flag = true;
                         return;
                     }
                 }
@@ -439,12 +460,12 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
                 in_block, local_state._aggregated_block.get()));
 
         // get enough data or reached limit rows, need push block to queue
-        if (_limit != -1 &&
+        if (!local_state._stop_emplace_flag && _limit != -1 &&
             (local_state._aggregated_block->rows() + local_state._output_distinct_rows) >= _limit) {
             auto limit_rows = _limit - local_state._output_distinct_rows;
             local_state._aggregated_block->set_num_rows(limit_rows);
             local_state._output_distinct_rows += limit_rows;
-        } else if (local_state._aggregated_block->rows() >= state->batch_size()) {
+        } else if (!local_state._stop_emplace_flag) {
             local_state._output_distinct_rows += local_state._aggregated_block->rows();
         }
     }
@@ -471,7 +492,7 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
         RETURN_IF_ERROR(
                 vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
     }
-
+    local_state.add_num_rows_returned(block->rows());
     *eos = local_state._child_eos || (_limit != -1 && local_state._output_distinct_rows >= _limit);
     return Status::OK();
 }
