@@ -34,12 +34,12 @@ TPCDS_QUERIE_DIR="${CURDIR}/../queries"
 
 usage() {
     echo "
-This script is used to generate TPC-DS 99 queries of different scale, 
+This script is used to generate TPC-DS 99 queries of different scale,
 Usage: $0 <options>
   Optional options:
-    -s             scale factor, default is 1
+    -s             scale factor, default is 100
   Eg.
-    $0 -s 100        generate tpcds queries with scale factor 100.
+    $0 -s 1        generate tpcds queries with scale factor 1.
   "
     exit 1
 }
@@ -52,7 +52,7 @@ OPTS=$(getopt \
 
 eval set -- "${OPTS}"
 HELP=0
-SCALE=1
+SCALE=100
 
 if [[ $# == 0 ]]; then
     usage
@@ -164,7 +164,7 @@ if [[ -f query_0.sql ]]; then
         i=$((i + 1))
     done
     echo -e "\033[32m
-tpcds queries generated in: 
+tpcds queries generated in:
     ${TPCDS_QUERIE_DIR}/tpcds_queries.sql
 \033[0m"
 else

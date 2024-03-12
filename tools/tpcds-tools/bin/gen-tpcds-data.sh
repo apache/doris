@@ -54,7 +54,7 @@ OPTS=$(getopt \
 
 eval set -- "${OPTS}"
 
-SCALE_FACTOR=1
+SCALE_FACTOR=100
 PARALLEL=10
 HELP=0
 
