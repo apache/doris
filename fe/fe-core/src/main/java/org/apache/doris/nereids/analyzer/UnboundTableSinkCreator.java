@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,7 +43,8 @@ public class UnboundTableSinkCreator {
     public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
                 List<String> colNames, List<String> hints, List<String> partitions, Plan query)
             throws UserException {
-        CatalogIf<?> curCatalog = Env.getCurrentEnv().getCurrentCatalog();
+        String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
+        CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (curCatalog instanceof InternalCatalog) {
             return new UnboundTableSink<>(nameParts, colNames, hints, partitions, query);
         } else if (curCatalog instanceof HMSExternalCatalog) {
@@ -56,7 +59,8 @@ public class UnboundTableSinkCreator {
     public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
                 List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
                 boolean isPartialUpdate, DMLCommandType dmlCommandType, LogicalPlan plan) {
-        CatalogIf<?> curCatalog = Env.getCurrentEnv().getCurrentCatalog();
+        String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
+        CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (curCatalog instanceof InternalCatalog) {
             return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
                     isPartialUpdate, dmlCommandType, Optional.empty(),

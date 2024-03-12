@@ -365,7 +365,6 @@ public class BindSink implements AnalysisRuleFactory {
         if (sink.getColNames().isEmpty()) {
             bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
         } else {
-            // TODO: process nullable column default values
             bindColumns = sink.getColNames().stream().map(cn -> {
                 Column column = table.getColumn(cn);
                 if (column == null) {

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.ExprId;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -29,7 +28,7 @@ public class DistributionSpecHivePartitionShuffle extends DistributionSpec {
 
     public static final DistributionSpecHivePartitionShuffle INSTANCE = new DistributionSpecHivePartitionShuffle();
 
-    private final List<ExprId> outputColExprIds = new ArrayList<>();
+    private List<ExprId> outputColExprIds;
 
     private DistributionSpecHivePartitionShuffle() {
         super();
@@ -37,6 +36,10 @@ public class DistributionSpecHivePartitionShuffle extends DistributionSpec {
 
     public List<ExprId> getOutputColExprIds() {
         return outputColExprIds;
+    }
+
+    public void setOutputColExprIds(List<ExprId> outputColExprIds) {
+        this.outputColExprIds = outputColExprIds;
     }
 
     @Override

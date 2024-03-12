@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -44,6 +45,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 public class HiveTableSink extends DataSink {
 
@@ -128,7 +130,9 @@ public class HiveTableSink extends DataSink {
 
         THiveLocationParams locationParams = new THiveLocationParams();
         String location = sd.getLocation();
-        locationParams.setWritePath(location);
+
+        String writeTempPath = createTempPath(location);
+        locationParams.setWritePath(writeTempPath);
         locationParams.setTargetPath(location);
         locationParams.setFileType(LocationPath.getTFileTypeForBE(location));
         tSink.setLocation(locationParams);
@@ -136,6 +140,11 @@ public class HiveTableSink extends DataSink {
         tSink.setHadoopConfig(targetTable.getHadoopProperties());
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
+    }
+
+    private String createTempPath(String location) {
+        String user = ConnectContext.get().getUserIdentity().getUser();
+        return location + "/tmp/doris-" + user + "/" + UUID.randomUUID().toString().replace("-", "");
     }
 
     private void setCompressType(THiveTableSink tSink, TFileFormatType formatType) {

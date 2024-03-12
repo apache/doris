@@ -158,7 +158,7 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
-            shuffleInfo.getOutputColExprIds().addAll(exprIds);
+            shuffleInfo.setOutputColExprIds(exprIds);
             return PhysicalProperties.HIVE_PARTITIONED;
         }
         return PhysicalProperties.ANY;
