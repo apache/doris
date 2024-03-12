@@ -36,7 +36,8 @@ public:
     template <typename T>
     class ObjValue : public LRUCacheValueBase {
     public:
-        ObjValue(const T* value) : value(value) {}
+        ObjValue(const T* value)
+                : LRUCacheValueBase(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE), value(value) {}
         ~ObjValue() override { delete value; }
 
         const T* value;

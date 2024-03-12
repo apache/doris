@@ -71,7 +71,8 @@ public:
 
     class CacheValueWithKey : public LRUCacheValueBase {
     public:
-        CacheValueWithKey(int key, void* value) : key(key), value(value) {}
+        CacheValueWithKey(int key, void* value)
+                : LRUCacheValueBase(CachePolicy::CacheType::FOR_UT), key(key), value(value) {}
         ~CacheValueWithKey() override {
             _s_current->_deleted_keys.push_back(key);
             _s_current->_deleted_values.push_back(DecodeValue(value));
@@ -83,7 +84,7 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue(void* value) : value(value) {}
+        CacheValue(void* value) : LRUCacheValueBase(CachePolicy::CacheType::FOR_UT), value(value) {}
         ~CacheValue() override = default;
 
         void* value;

@@ -17,34 +17,34 @@
 
 #pragma once
 
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
 // Base of the lru cache value.
 class LRUCacheValueBase {
 public:
-    LRUCacheValueBase() = default;
+    LRUCacheValueBase(CachePolicy::CacheType type) {
+        _mem_tracker = CacheManager::instance()->get_cache(type)->mem_tracker();
+    }
+    LRUCacheValueBase(const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
+            : _mem_tracker(mem_tracker) {}
 
     virtual ~LRUCacheValueBase() {
-        if (bytes_with_handle != 0) { // DummyLRUCache bytes always equal to 0
-            if (mem_tracker != nullptr) {
-                // value not alloc use Allocator
-                mem_tracker->cache_consume(-bytes_with_handle);
-            }
-            DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes_with_handle);
+        if (_tracking_bytes > 0) {
+            // value not alloc use Allocator
+            _mem_tracker->cache_consume(-_tracking_bytes);
         }
     }
 
-    void bind_memory_tracking(size_t bytes_with_handle, MemTrackerLimiter* mem_tracker) {
-        this->bytes_with_handle = bytes_with_handle;
-        this->mem_tracker = mem_tracker;
-    }
+    void set_tracking_bytes(size_t tracking_bytes) { this->_tracking_bytes = tracking_bytes; }
 
-private:
-    size_t bytes_with_handle = 0;
-    MemTrackerLimiter* mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> mem_tracker() { return _mem_tracker; }
+
+protected:
+    size_t _tracking_bytes = 0;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker = nullptr;
 };
 
 } // namespace doris

@@ -104,6 +104,8 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::SCHEMA_CACHE) {}
+
         Type type;
         // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;

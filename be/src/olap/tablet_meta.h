@@ -504,6 +504,8 @@ public:
     public:
         class Value : public LRUCacheValueBase {
         public:
+            Value() : LRUCacheValueBase(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE) {}
+
             roaring::Roaring bitmap;
         };
 

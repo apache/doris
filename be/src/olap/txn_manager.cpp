@@ -867,7 +867,7 @@ int64_t TxnManager::get_txn_by_tablet_version(int64_t tablet_id, int64_t version
     if (handle == nullptr) {
         return -1;
     }
-    int64_t res = *(int64_t*)_tablet_version_cache->value(handle);
+    int64_t res = *(int64_t*)((CacheValue*)_tablet_version_cache->value(handle))->value;
     _tablet_version_cache->release(handle);
     return res;
 }

@@ -529,6 +529,8 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE) {}
+
         int idx = 0;
     };
 

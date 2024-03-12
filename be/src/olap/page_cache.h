@@ -43,7 +43,7 @@ public:
     PageBase() = default;
 
     PageBase(size_t b, const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
-            : _size(b), _capacity(b), _mem_tracker(mem_tracker) {
+            : LRUCacheValueBase(mem_tracker), _size(b), _capacity(b) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
         _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
     }
@@ -73,7 +73,6 @@ private:
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
     size_t _size = 0;
     size_t _capacity = 0;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 using DataPage = PageBase<Allocator<false>>;

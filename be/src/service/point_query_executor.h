@@ -129,6 +129,7 @@ public:
 
     class RowCacheValue : public LRUCacheValueBase {
     public:
+        RowCacheValue() : LRUCacheValueBase(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE) {}
         ~RowCacheValue() override { free(cache_value); }
         char* cache_value;
     };
@@ -161,7 +162,6 @@ public:
         bool valid() { return _cache != nullptr && _handle != nullptr; }
 
         LRUCachePolicy* cache() const { return _cache; }
-        Slice data() const { return _cache->value_slice(_handle); }
 
     private:
         LRUCachePolicy* _cache = nullptr;
@@ -244,6 +244,8 @@ private:
 
     class CacheValue : public LRUCacheValueBase {
     public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE) {}
+
         std::shared_ptr<Reusable> item;
     };
 };

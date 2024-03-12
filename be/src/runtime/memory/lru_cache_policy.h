@@ -25,7 +25,6 @@
 #include "runtime/memory/cache_policy.h"
 #include "runtime/memory/lru_cache_value_base.h"
 #include "runtime/thread_context.h"
-#include "util/doris_metrics.h"
 #include "util/time.h"
 
 namespace doris {
@@ -92,19 +91,16 @@ public:
         }
     }
 
-    std::shared_ptr<MemTrackerLimiter> mem_tracker() { return _mem_tracker; }
-
+    // Insert and cache value destroy will be manually consume tracking_bytes to mem tracker.
+    // If memory is allocated from Allocator, tracking_bytes will is 0, no longer manual tracking.
+    // If lru cache is LRUCacheType::SIZE, tracking_bytes will be equal to charge.
     Cache::Handle* insert(const CacheKey& key, void* value, size_t charge, size_t tracking_bytes,
                           CachePriority priority = CachePriority::NORMAL) {
         size_t bytes_with_handle = _get_bytes_with_handle(key, charge, tracking_bytes);
-        if (tracking_bytes > 0) {
+        if (value != nullptr && tracking_bytes > 0) {
+            CHECK(((LRUCacheValueBase*)value)->mem_tracker()->label() == _mem_tracker->label());
             _mem_tracker->cache_consume(bytes_with_handle);
-        }
-        DorisMetrics::instance()->lru_cache_memory_bytes->increment(bytes_with_handle);
-        if (value != nullptr) {
-            ((LRUCacheValueBase*)value)
-                    ->bind_memory_tracking(bytes_with_handle,
-                                           tracking_bytes > 0 ? _mem_tracker.get() : nullptr);
+            ((LRUCacheValueBase*)value)->set_tracking_bytes(bytes_with_handle);
         }
         return _cache->insert(key, value, charge, priority);
     }
@@ -115,14 +111,7 @@ public:
 
     void* value(Cache::Handle* handle) { return _cache->value(handle); }
 
-    Slice value_slice(Cache::Handle* handle) {
-        return _cache->value_slice(handle);
-        ;
-    }
-
     void erase(const CacheKey& key) { _cache->erase(key); }
-
-    int64_t mem_consumption() { return _mem_tracker->consumption(); }
 
     int64_t get_usage() { return _cache->get_usage(); }
 
@@ -213,7 +202,6 @@ private:
     // compatible with ShardedLRUCache usage, but will not actually cache.
     std::shared_ptr<Cache> _cache;
     LRUCacheType _lru_cache_type;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // namespace doris

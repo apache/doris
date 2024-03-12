@@ -87,7 +87,7 @@ public:
         size_t size = 0;
         int64_t last_visit_time;
 
-        CacheValue() = default;
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE) {}
         explicit CacheValue(IndexSearcherPtr searcher, size_t mem_size, int64_t visit_time)
                 : index_searcher(std::move(searcher)) {
             size = mem_size;
@@ -235,6 +235,8 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE) {}
+
         std::shared_ptr<roaring::Roaring> bitmap;
     };
 
@@ -291,7 +293,6 @@ public:
     }
 
     LRUCachePolicy* cache() const { return _cache; }
-    Slice data() const { return _cache->value_slice(_handle); }
 
     std::shared_ptr<roaring::Roaring> get_bitmap() const {
         if (!_cache) {

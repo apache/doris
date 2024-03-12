@@ -23,7 +23,6 @@
 #include "runtime/memory/lru_cache_value_base.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
-#include "util/slice.h"
 
 namespace doris {
 
@@ -201,10 +200,6 @@ public:
     // REQUIRES: handle must not have been released yet.
     // REQUIRES: handle must have been returned by a method on *this.
     virtual void* value(Handle* handle) = 0;
-
-    // Return the value in Slice format encapsulated in the given handle
-    // returned by a successful lookup()
-    virtual Slice value_slice(Handle* handle) = 0;
 
     // If the cache contains entry for key, erase it.  Note that the
     // underlying entry will be kept around until all existing handles
@@ -403,7 +398,6 @@ public:
     virtual void release(Handle* handle) override;
     virtual void erase(const CacheKey& key) override;
     virtual void* value(Handle* handle) override;
-    Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id() override;
     PrunedInfo prune() override;
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override;
@@ -460,7 +454,6 @@ public:
     void release(Handle* handle) override;
     void erase(const CacheKey& key) override {};
     void* value(Handle* handle) override;
-    Slice value_slice(Handle* handle) override;
     uint64_t new_id() override { return 0; };
     PrunedInfo prune() override { return {0, 0}; };
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override {

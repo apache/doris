@@ -603,11 +603,6 @@ void* ShardedLRUCache::value(Handle* handle) {
     return reinterpret_cast<LRUHandle*>(handle)->value;
 }
 
-Slice ShardedLRUCache::value_slice(Handle* handle) {
-    auto* lru_handle = reinterpret_cast<LRUHandle*>(handle);
-    return Slice((char*)lru_handle->value, lru_handle->charge);
-}
-
 uint64_t ShardedLRUCache::new_id() {
     return _last_id.fetch_add(1, std::memory_order_relaxed);
 }
@@ -686,11 +681,6 @@ void DummyLRUCache::release(Cache::Handle* handle) {
 
 void* DummyLRUCache::value(Handle* handle) {
     return reinterpret_cast<LRUHandle*>(handle)->value;
-}
-
-Slice DummyLRUCache::value_slice(Handle* handle) {
-    auto* lru_handle = reinterpret_cast<LRUHandle*>(handle);
-    return Slice((char*)lru_handle->value, lru_handle->charge);
 }
 
 } // namespace doris

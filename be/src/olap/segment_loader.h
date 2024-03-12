@@ -74,6 +74,7 @@ public:
     // Holding all opened segments of a rowset.
     class CacheValue : public LRUCacheValueBase {
     public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::SEGMENT_CACHE) {}
         ~CacheValue() override { segment.reset(); }
 
         segment_v2::SegmentSharedPtr segment;
