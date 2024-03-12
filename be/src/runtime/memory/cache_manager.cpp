@@ -27,7 +27,7 @@ int64_t CacheManager::for_each_cache_prune_stale_wrap(
     int64_t freed_size = 0;
     std::lock_guard<std::mutex> l(_caches_lock);
     for (const auto& pair : _caches) {
-        auto* cache_policy = pair->second;
+        auto* cache_policy = pair.second;
         if (!cache_policy->enable_prune()) {
             continue;
         }

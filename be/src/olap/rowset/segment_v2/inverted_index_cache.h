@@ -89,7 +89,8 @@ public:
 
         CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE) {}
         explicit CacheValue(IndexSearcherPtr searcher, size_t mem_size, int64_t visit_time)
-                : index_searcher(std::move(searcher)) {
+                : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE),
+                  index_searcher(std::move(searcher)) {
             size = mem_size;
             last_visit_time = visit_time;
         }

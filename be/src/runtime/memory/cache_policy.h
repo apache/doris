@@ -116,6 +116,10 @@ protected:
         _cost_timer = ADD_TIMER(_profile, "CostTime");
     }
 
+    void init_mem_tracker(const std::string& name) {
+        _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, name);
+    }
+
     CacheType _type;
 
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;

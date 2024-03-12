@@ -25,6 +25,7 @@ namespace doris {
 // Base of the lru cache value.
 class LRUCacheValueBase {
 public:
+    LRUCacheValueBase() = delete;
     LRUCacheValueBase(CachePolicy::CacheType type) {
         _mem_tracker = CacheManager::instance()->get_cache(type)->mem_tracker();
     }

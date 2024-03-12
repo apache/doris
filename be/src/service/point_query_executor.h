@@ -162,6 +162,10 @@ public:
         bool valid() { return _cache != nullptr && _handle != nullptr; }
 
         LRUCachePolicy* cache() const { return _cache; }
+        Slice data() const {
+            return {(char*)((RowCacheValue*)_cache->value(_handle))->cache_value,
+                    reinterpret_cast<LRUHandle*>(_handle)->charge};
+        }
 
     private:
         LRUCachePolicy* _cache = nullptr;

@@ -45,7 +45,8 @@ public:
             CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
-        _init_mem_tracker();
+        init_mem_tracker(
+                fmt::format("{}[{}]", type_string(_type), lru_cache_type_string(_lru_cache_type)));
     }
 
     LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
@@ -63,7 +64,8 @@ public:
             CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
-        _init_mem_tracker();
+        init_mem_tracker(
+                fmt::format("{}[{}]", type_string(_type), lru_cache_type_string(_lru_cache_type)));
     }
 
     ~LRUCachePolicy() override { _cache.reset(); }
@@ -98,8 +100,7 @@ public:
                           CachePriority priority = CachePriority::NORMAL) {
         size_t bytes_with_handle = _get_bytes_with_handle(key, charge, tracking_bytes);
         if (value != nullptr && tracking_bytes > 0) {
-            CHECK(((LRUCacheValueBase*)value)->mem_tracker()->label() == _mem_tracker->label());
-            _mem_tracker->cache_consume(bytes_with_handle);
+            ((LRUCacheValueBase*)value)->mem_tracker()->cache_consume(bytes_with_handle);
             ((LRUCacheValueBase*)value)->set_tracking_bytes(bytes_with_handle);
         }
         return _cache->insert(key, value, charge, priority);
@@ -182,12 +183,6 @@ public:
     }
 
 private:
-    void _init_mem_tracker() {
-        _mem_tracker = std::make_shared<MemTrackerLimiter>(
-                MemTrackerLimiter::Type::GLOBAL,
-                fmt::format("{}[{}]", type_string(_type), lru_cache_type_string(_lru_cache_type)));
-    }
-
     // LRUCacheType::SIZE equal to total_size.
     size_t _get_bytes_with_handle(const CacheKey& key, size_t charge, size_t bytes) {
         size_t handle_size = sizeof(LRUHandle) - 1 + key.size();

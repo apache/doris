@@ -129,9 +129,8 @@ public:
     class CacheValue : public LRUCacheValueBase {
     public:
         CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::TABLET_VERSION_CACHE) {}
-        ~CacheValue() override { delete value; }
 
-        int64_t* value;
+        int64_t value;
     };
 
     // add a txn to manager
