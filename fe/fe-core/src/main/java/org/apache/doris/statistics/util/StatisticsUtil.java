@@ -140,7 +140,7 @@ public class StatisticsUtil {
         }
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             if (Config.isCloudMode()) {
-                r.connectContext.setCloudCluster();
+                r.connectContext.getCloudCluster();
             }
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
