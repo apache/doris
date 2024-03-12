@@ -703,16 +703,10 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 
             const auto& row_ids = _row_part_tablet_ids[0].row_ids;
             const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
-            auto select_rows = row_ids.size();
-            std::vector<uint32_t> crc_hash_vals(select_rows);
-            auto* __restrict crc_hashes = crc_hash_vals.data();
-            for (size_t i = 0; i < select_rows; i++) {
-                crc_hashes[i] =
-                        HashUtil::zlib_crc_hash(&tablet_ids[i], sizeof(int64), crc_hashes[i]);
-            }
-            for (int idx = 0; idx < select_rows; ++idx) {
+            for (int idx = 0; idx < row_ids.size(); ++idx) {
                 const auto& row = row_ids[idx];
-                const auto& tablet_id_hash = crc_hash_vals[idx];
+                const auto& tablet_id_hash =
+                        HashUtil::zlib_crc_hash(&tablet_ids[idx], sizeof(int64), 0);
                 channel2rows[tablet_id_hash % num_channels].emplace_back(row);
             }
         }
