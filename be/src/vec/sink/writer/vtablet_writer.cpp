@@ -397,7 +397,9 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_index_id(_index_channel->_index_id);
     request->set_txn_id(_parent->_txn_id);
     request->set_allocated_schema(_parent->_schema->to_protobuf());
-
+    if (_parent->_t_sink.olap_table_sink.__isset.storage_vault_id) {
+        request->set_storage_vault_id(_parent->_t_sink.olap_table_sink.storage_vault_id);
+    }
     std::set<int64_t> deduper;
     for (auto& tablet : _tablets_wait_open) {
         if (deduper.contains(tablet.tablet_id)) {

@@ -15,35 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <brpc/stream.h>
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/types.pb.h>
-
-#include <vector>
-
-namespace doris {
-
-class TupleDescriptor;
-class SlotDescriptor;
-class OlapTableSchemaParam;
-
-struct WriteRequest {
-    int64_t tablet_id = 0;
-    int32_t schema_hash = 0;
-    int64_t txn_id = 0;
-    int64_t txn_expiration = 0; // For cloud mode
-    int64_t index_id = 0;
-    int64_t partition_id = 0;
-    PUniqueId load_id;
-    TupleDescriptor* tuple_desc = nullptr;
-    // slots are in order of tablet's schema
-    const std::vector<SlotDescriptor*>* slots = nullptr;
-    std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr;
-    bool is_high_priority = false;
-    bool write_file_cache = false;
-    std::string storage_vault_id;
-};
-
-} // namespace doris
+suite("date_function_rewrite") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+    sql "drop table if exists test_date_func"
+    sql """
+        create table test_date_func(a int, test_time int(11)) distributed by hash (a) buckets 5
+        properties("replication_num"="1");
+        """
+    sql "insert into test_date_func values(1,1690128000);\n"
+    qt_test """
+    select if (date(date_add(FROM_UNIXTIME(t1.test_time, '%Y-%m-%d'),2)) > '2023-07-25',1,0) from test_date_func t1;
+    """
+}
