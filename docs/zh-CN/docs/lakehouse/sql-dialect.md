@@ -34,7 +34,7 @@ under the License.
 
 ## 部署服务
 
-1. 下载最新版本的 [SQL 方言转换工具](https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/transform-doris-tool/transform-doris-tool-1.0.0-bin-x86)。
+1. 下载最新版本的 [SQL 方言转换工具(1.0.1)](https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/transform-doris-tool/transform-doris-tool-1.0.0-bin-x86)
 2.  在任意 FE 节点，通过以下命令启动服务：
 
 	`nohup ./doris-sql-convertor-1.0.1-bin-x86 run --host=0.0.0.0 --port=5001 &`
