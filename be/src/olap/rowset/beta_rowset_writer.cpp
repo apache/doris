@@ -804,6 +804,11 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
         update_rowset_schema(flush_schema);
     }
     if (_context.mow_context != nullptr) {
+        // ensure that the segment file writing is complete
+        auto* file_writer = _segment_creator.get_file_writer(segment_id);
+        if (file_writer) {
+            RETURN_IF_ERROR(file_writer->close());
+        }
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     }
     return Status::OK();
