@@ -195,7 +195,7 @@ mysql -hDoris_HOST -PDoris_PORT -ujack -p 123456
 
 ### LDAP group authorization details
 
-If a DLAP user dn is the "member" attribute of an LDAP group node, Doris assumes that the user belongs to the group. Doris will revoke the corresponding role privileges after the user logs out. Before using LDAP group authorization, you should create the corresponding role pairs in Doris and authorize the roles.
+If a LDAP user dn is the "member" attribute of an LDAP group node, Doris assumes that the user belongs to the group. Doris will revoke the corresponding role privileges after the user logs out. Before using LDAP group authorization, you should create the corresponding role pairs in Doris and authorize the roles.
 
 Login user Privileges are related to Doris user and group Privileges, as shown in the following table:  
 |LDAP Users|Doris Users|Login User Privileges|
