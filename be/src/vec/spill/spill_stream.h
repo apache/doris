@@ -20,29 +20,28 @@
 #include <future>
 #include <memory>
 
-#include "olap/data_dir.h"
 #include "vec/spill/spill_reader.h"
 #include "vec/spill/spill_writer.h"
 
 namespace doris {
 class RuntimeProfile;
-class DataDir;
 class ThreadPool;
 
 namespace vectorized {
 
 class Block;
+class SpillDataDir;
 
 class SpillStream {
 public:
-    SpillStream(RuntimeState* state, int64_t stream_id, doris::DataDir* data_dir,
+    SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                 std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                 RuntimeProfile* profile);
 
     int64_t id() const { return stream_id_; }
 
-    DataDir* get_data_dir() const { return data_dir_; }
-    const std::string& get_spill_root_dir() const { return data_dir_->path(); }
+    SpillDataDir* get_data_dir() const { return data_dir_; }
+    const std::string& get_spill_root_dir() const;
 
     const std::string& get_spill_dir() const { return spill_dir_; }
 
@@ -85,7 +84,7 @@ private:
     ThreadPool* io_thread_pool_;
     int64_t stream_id_;
     std::atomic_bool closed_ = false;
-    doris::DataDir* data_dir_ = nullptr;
+    SpillDataDir* data_dir_ = nullptr;
     std::string spill_dir_;
     size_t batch_rows_;
     size_t batch_bytes_;

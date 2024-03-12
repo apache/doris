@@ -68,6 +68,7 @@ suite("test_export_data_consistency", "p0") {
         `name` string NULL,
         `age` int(11) NULL
         )
+        UNIQUE KEY(`id`)
         PARTITION BY RANGE(id)
         (
             PARTITION less_than_20 VALUES LESS THAN ("20"),
@@ -149,6 +150,7 @@ suite("test_export_data_consistency", "p0") {
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator" = ",",
+                "parallelism" = "10",
                 "data_consistency" = "partition"
             );
         """

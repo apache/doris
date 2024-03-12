@@ -32,7 +32,7 @@
 #include "vec/spill/spill_writer.h"
 
 namespace doris::vectorized {
-SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, doris::DataDir* data_dir,
+SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                          std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                          RuntimeProfile* profile)
         : state_(state),
@@ -72,6 +72,9 @@ void SpillStream::close() {
     (void)reader_->close();
 }
 
+const std::string& SpillStream::get_spill_root_dir() const {
+    return data_dir_->path();
+}
 Status SpillStream::prepare_spill() {
     DCHECK(!spill_promise_);
     RETURN_IF_ERROR(writer_->open());

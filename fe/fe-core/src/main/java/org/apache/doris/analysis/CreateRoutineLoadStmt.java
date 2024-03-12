@@ -111,6 +111,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public static final String PARTIAL_COLUMNS = "partial_columns";
 
+    public static final String WORKLOAD_GROUP = "workload_group";
+
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
@@ -138,6 +140,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(SEND_BATCH_PARALLELISM)
             .add(LOAD_TO_SINGLE_TABLET)
             .add(PARTIAL_COLUMNS)
+            .add(WORKLOAD_GROUP)
             .build();
 
     private final LabelName labelName;
@@ -178,6 +181,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String enclose;
 
     private String escape;
+
+    private long workloadGroupId = -1;
 
     /**
      * support partial columns load(Only Unique Key Columns)
@@ -328,6 +333,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public String getComment() {
         return comment;
+    }
+
+    public long getWorkloadGroupId() {
+        return workloadGroupId;
     }
 
     @Override
@@ -505,6 +514,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         escape = jobProperties.get(LoadStmt.KEY_ESCAPE);
         if (escape != null && escape.length() != 1) {
             throw new AnalysisException("escape must be single-char");
+        }
+        String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
+        if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
+            this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), inputWorkloadGroupStr);
         }
 
         if (ConnectContext.get() != null) {

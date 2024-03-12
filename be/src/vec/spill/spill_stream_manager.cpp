@@ -29,9 +29,8 @@
 
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "olap/data_dir.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "vec/spill/spill_stream.h"
@@ -112,9 +111,9 @@ void SpillStreamManager::_spill_gc_thread_callback() {
 
 Status SpillStreamManager::_init_spill_store_map() {
     for (const auto& path : _spill_store_paths) {
-        auto store = std::make_unique<DataDir>(ExecEnv::GetInstance()->storage_engine().to_local(),
-                                               path.path, path.capacity_bytes, path.storage_medium);
-        auto st = store->init(false);
+        auto store =
+                std::make_unique<SpillDataDir>(path.path, path.capacity_bytes, path.storage_medium);
+        auto st = store->init();
         if (!st.ok()) {
             LOG(WARNING) << "Store load failed, status=" << st.to_string()
                          << ", path=" << store->path();
@@ -126,9 +125,9 @@ Status SpillStreamManager::_init_spill_store_map() {
     return Status::OK();
 }
 
-std::vector<DataDir*> SpillStreamManager::_get_stores_for_spill(
+std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
-    std::vector<DataDir*> stores;
+    std::vector<SpillDataDir*> stores;
     for (auto&& [_, store] : _spill_store_map) {
         if (store->storage_medium() == storage_medium && !store->reach_capacity_limit(0)) {
             stores.push_back(store.get());
@@ -136,7 +135,7 @@ std::vector<DataDir*> SpillStreamManager::_get_stores_for_spill(
     }
 
     std::sort(stores.begin(), stores.end(),
-              [](DataDir* a, DataDir* b) { return a->get_usage(0) < b->get_usage(0); });
+              [](SpillDataDir* a, SpillDataDir* b) { return a->get_usage(0) < b->get_usage(0); });
 
     size_t seventy_percent_index = stores.size();
     size_t eighty_five_percent_index = stores.size();
@@ -176,7 +175,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
 
     int64_t id = id_++;
     std::string spill_dir;
-    doris::DataDir* data_dir = nullptr;
+    SpillDataDir* data_dir = nullptr;
     for (auto& dir : data_dirs) {
         data_dir = dir;
         std::string spill_root_dir = fmt::format("{}/{}", data_dir->path(), SPILL_DIR_PREFIX);
@@ -258,5 +257,34 @@ void SpillStreamManager::gc(int64_t max_file_count) {
             }
         }
     }
+}
+
+SpillDataDir::SpillDataDir(const std::string& path, int64_t capacity_bytes,
+                           TStorageMedium::type storage_medium)
+        : _path(path),
+          _available_bytes(0),
+          _disk_capacity_bytes(0),
+          _storage_medium(storage_medium) {}
+
+Status SpillDataDir::init() {
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(_path, &exists));
+    if (!exists) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError("opendir failed, path={}", _path),
+                                       "check file exist failed");
+    }
+
+    return Status::OK();
+}
+bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
+    double used_pct = get_usage(incoming_data_size);
+    int64_t left_bytes = _available_bytes - incoming_data_size;
+    if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
+        left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
+        LOG(WARNING) << "reach capacity limit. used pct: " << used_pct
+                     << ", left bytes: " << left_bytes << ", path: " << _path;
+        return true;
+    }
+    return false;
 }
 } // namespace doris::vectorized

@@ -145,10 +145,7 @@ suite("test_in_expr", "query,arrow_flight_sql") {
 
     sql """ INSERT INTO `array_in_test` VALUES (1, [1,2,3,4,5]); """
 
-    test {
-        sql """ select c_array, c_array in (null) from array_in_test; """
-        exception "errCode"
-    }
+    qt_select """ select c_array, c_array in (null) from array_in_test; """
 
     sql " drop table if exists `json_in_test` "
     sql """

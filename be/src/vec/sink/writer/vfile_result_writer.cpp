@@ -420,17 +420,21 @@ Status VFileResultWriter::_delete_dir() {
     return Status::OK();
 }
 
-Status VFileResultWriter::close(Status) {
-    // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
-    // must be outside the `_close_file_writer()`.
-    // because `_close_file_writer()` may be called in deconstructor,
-    // at that time, the RuntimeState may already been deconstructed,
-    // so does the profile in RuntimeState.
-    if (_written_rows_counter) {
-        COUNTER_SET(_written_rows_counter, _written_rows);
-        SCOPED_TIMER(_writer_close_timer);
+Status VFileResultWriter::close(Status exec_status) {
+    Status st = exec_status;
+    if (st.ok()) {
+        // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
+        // must be outside the `_close_file_writer()`.
+        // because `_close_file_writer()` may be called in deconstructor,
+        // at that time, the RuntimeState may already been deconstructed,
+        // so does the profile in RuntimeState.
+        if (_written_rows_counter) {
+            COUNTER_SET(_written_rows_counter, _written_rows);
+            SCOPED_TIMER(_writer_close_timer);
+        }
+        st = _close_file_writer(true);
     }
-    return _close_file_writer(true);
+    return st;
 }
 
 } // namespace doris::vectorized

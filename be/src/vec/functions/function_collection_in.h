@@ -48,11 +48,11 @@ struct ColumnRowRef {
 
     // equals when call set insert, this operator will be used
     bool operator==(const ColumnRowRef& other) const {
-        return column->compare_at(row_idx, other.row_idx, *column, 0) == 0;
+        return column->compare_at(row_idx, other.row_idx, *other.column, 0) == 0;
     }
     // compare
     bool operator<(const ColumnRowRef& other) const {
-        return column->compare_at(row_idx, other.row_idx, *column, 0) < 0;
+        return column->compare_at(row_idx, other.row_idx, *other.column, 0) < 0;
     }
 
     // when call set find, will use hash to find
@@ -63,18 +63,18 @@ struct ColumnRowRef {
     }
 };
 
-struct StructInState {
-    ENABLE_FACTORY_CREATOR(StructInState)
+struct CollectionInState {
+    ENABLE_FACTORY_CREATOR(CollectionInState)
     std::unordered_set<ColumnRowRef, ColumnRowRef> args_set;
     bool null_in_set = false;
 };
 
 template <bool negative>
-class FunctionStructIn : public IFunction {
+class FunctionCollectionIn : public IFunction {
 public:
-    static constexpr auto name = negative ? "struct_not_in" : "struct_in";
+    static constexpr auto name = negative ? "collection_not_in" : "collection_in";
 
-    static FunctionPtr create() { return std::make_shared<FunctionStructIn>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionCollectionIn>(); }
 
     String get_name() const override { return name; }
 
@@ -98,14 +98,17 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
-        std::shared_ptr<StructInState> state = std::make_shared<StructInState>();
+        int num_args = context->get_num_args();
+        DCHECK(num_args >= 1);
+
+        std::shared_ptr<CollectionInState> state = std::make_shared<CollectionInState>();
         context->set_function_state(scope, state);
-        DCHECK(context->get_num_args() >= 1);
+
         auto* col_desc = context->get_arg_type(0);
-        DataTypePtr args_type = DataTypeFactory::instance().create_data_type(*col_desc);
-        MutableColumnPtr column_struct_ptr_args = remove_nullable(args_type)->create_column();
-        NullMap null_map(context->get_num_args(), false);
-        for (int i = 1; i < context->get_num_args(); ++i) {
+        DataTypePtr args_type = DataTypeFactory::instance().create_data_type(*col_desc, false);
+        MutableColumnPtr args_column_ptr = args_type->create_column();
+
+        for (int i = 1; i < num_args; i++) {
             // FE should make element type consistent and
             // equalize the length of the elements in struct
             const auto& const_column_ptr = context->get_constant_col(i);
@@ -117,34 +120,33 @@ public:
                 auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);
                 if (null_col->has_null()) {
                     state->null_in_set = true;
-                    null_map[i - 1] = true;
                 } else {
-                    column_struct_ptr_args->insert_from(null_col->get_nested_column(), 0);
+                    args_column_ptr->insert_from(null_col->get_nested_column(), 0);
                 }
             } else {
-                column_struct_ptr_args->insert_from(*col, 0);
+                args_column_ptr->insert_from(*col, 0);
             }
         }
-        ColumnPtr column_ptr = std::move(column_struct_ptr_args);
-        // make StructRef into set
-        for (size_t i = 1; i < context->get_num_args(); ++i) {
-            if (state->null_in_set && null_map[i - 1]) {
-                continue;
-            }
-            state->args_set.insert({column_ptr, i - 1});
+        ColumnPtr column_ptr = std::move(args_column_ptr);
+        // make collection ref into set
+        int col_size = column_ptr->size();
+        for (size_t i = 0; i < col_size; i++) {
+            state->args_set.insert({column_ptr, i});
         }
+
         return Status::OK();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        auto in_state = reinterpret_cast<StructInState*>(
+        auto in_state = reinterpret_cast<CollectionInState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
-            return Status::RuntimeError("funciton context for function '{}' must have Set;",
+            return Status::RuntimeError("function context for function '{}' must have Set;",
                                         get_name());
         }
         const auto& args_set = in_state->args_set;
+        const bool null_in_set = in_state->null_in_set;
         auto res = ColumnUInt8::create();
         ColumnUInt8::Container& vec_res = res->get_data();
         vec_res.resize(input_rows_count);
@@ -155,15 +157,24 @@ public:
 
         const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
         const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
+        auto materialized_column_not_null = materialized_column;
+        if (materialized_column_not_null->is_nullable()) {
+            materialized_column_not_null = assert_cast<ColumnPtr>(
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                            materialized_column_not_null)
+                            ->get_nested_column_ptr());
+        }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            bool find = args_set.find({materialized_column, i}) != args_set.end();
+            bool find = args_set.find({materialized_column_not_null, i}) != args_set.end();
+
             if constexpr (negative) {
                 vec_res[i] = !find;
             } else {
                 vec_res[i] = find;
             }
-            if (in_state->null_in_set) {
+
+            if (null_in_set) {
                 vec_null_map_to[i] = negative == vec_res[i];
             } else {
                 vec_null_map_to[i] = false;

@@ -45,8 +45,8 @@
 // This will save some info about a working thread in the thread context.
 // Looking forward to tracking memory during thread execution into MemTrackerLimiter.
 #define SCOPED_ATTACH_TASK(arg1) auto VARNAME_LINENUM(attach_task) = AttachTask(arg1)
-#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2, arg3) \
-    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, arg2, arg3)
+#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) \
+    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, arg2)
 
 // Switch MemTrackerLimiter for count memory during thread execution.
 // Used after SCOPED_ATTACH_TASK, in order to count the memory into another
@@ -60,7 +60,7 @@
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
 #else
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
-#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2, arg3) (void)0
+#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) (void)0
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) (void)0
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) (void)0
 #endif
@@ -134,7 +134,7 @@ public:
 
     ~ThreadContext() = default;
 
-    void attach_task(const TUniqueId& task_id, const TUniqueId& fragment_instance_id,
+    void attach_task(const TUniqueId& task_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
 #ifndef BE_TEST
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
@@ -144,7 +144,7 @@ public:
                 << ", attach mem tracker label: " << mem_tracker->label();
 #endif
         _task_id = task_id;
-        thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, fragment_instance_id);
+        thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, _task_id);
     }
 
     void detach_task() {
@@ -292,8 +292,7 @@ private:
 class AttachTask {
 public:
     explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                        const TUniqueId& task_id = TUniqueId(),
-                        const TUniqueId& fragment_instance_id = TUniqueId());
+                        const TUniqueId& task_id = TUniqueId());
 
     explicit AttachTask(RuntimeState* runtime_state);
 

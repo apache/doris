@@ -606,7 +606,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         state = JobState.CANCELLED;
     }
 
-    private void executeFinish() {
+    protected void executeFinish() {
         progress = 100;
         finishTimestamp = System.currentTimeMillis();
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);

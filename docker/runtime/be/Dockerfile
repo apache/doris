@@ -31,7 +31,10 @@ FROM ubuntu:22.04
 
 ARG TARGETARCH
 
-RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+ARG DORIS_VERSION="x.x.x"
+
+RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     patchelf gdb binutils binutils-common mysql-client \
     curl wget less vim htop iproute2 numactl jq iotop sysstat \
     tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
@@ -44,7 +47,7 @@ ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} \
         PATH="/opt/apache-doris/be/bin:${PATH}"
 
 # apache-doris/be from doris release xxxx.tar.gz.please update the version in follows x.x.x.
-ADD resource/apache-doris-x.x.x-bin-${TARGETARCH:-amd64}/be /opt/apache-doris/be
+ADD resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/be /opt/apache-doris/be
 
 COPY resource/be_*.sh /opt/apache-doris/
 

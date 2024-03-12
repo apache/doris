@@ -31,6 +31,45 @@ class RuntimeProfile;
 
 namespace vectorized {
 
+class SpillDataDir {
+public:
+    SpillDataDir(const std::string& path, int64_t capacity_bytes = -1,
+                 TStorageMedium::type storage_medium = TStorageMedium::HDD);
+
+    Status init();
+
+    const std::string& path() const { return _path; }
+
+    bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
+
+    TStorageMedium::type storage_medium() const { return _storage_medium; }
+
+    // check if the capacity reach the limit after adding the incoming data
+    // return true if limit reached, otherwise, return false.
+    // TODO(cmy): for now we can not precisely calculate the capacity Doris used,
+    // so in order to avoid running out of disk capacity, we currently use the actual
+    // disk available capacity and total capacity to do the calculation.
+    // So that the capacity Doris actually used may exceeds the user specified capacity.
+    bool reach_capacity_limit(int64_t incoming_data_size);
+
+    Status update_capacity();
+
+    double get_usage(int64_t incoming_data_size) const {
+        return _disk_capacity_bytes == 0
+                       ? 0
+                       : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
+                                 (double)_disk_capacity_bytes;
+    }
+
+private:
+    std::string _path;
+
+    // the actual available capacity of the disk of this data dir
+    size_t _available_bytes;
+    // the actual capacity of the disk of this data dir
+    size_t _disk_capacity_bytes;
+    TStorageMedium::type _storage_medium;
+};
 class SpillStreamManager {
 public:
     SpillStreamManager(const std::vector<StorePath>& paths);
@@ -74,10 +113,10 @@ public:
 private:
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
-    std::vector<DataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
+    std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
 
     std::vector<StorePath> _spill_store_paths;
-    std::unordered_map<std::string, std::unique_ptr<DataDir>> _spill_store_map;
+    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
 
     CountDownLatch _stop_background_threads_latch;
     std::unique_ptr<ThreadPool> async_task_thread_pool_;

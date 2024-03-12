@@ -21,7 +21,6 @@
 #include "io/file_factory.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
-#include "olap/data_dir.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "vec/spill/spill_stream_manager.h"
