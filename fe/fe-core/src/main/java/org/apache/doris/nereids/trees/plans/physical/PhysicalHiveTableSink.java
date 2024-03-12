@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecHivePartitionShuffle;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -38,6 +39,7 @@ import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /** abstract physical hive sink */
 public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
@@ -141,6 +143,11 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     public PhysicalProperties getRequirePhysicalProperties() {
         List<FieldSchema> originPartitionKeys = targetTable.getRemoteTable().getPartitionKeys();
         if (!originPartitionKeys.isEmpty()) {
+            DistributionSpecHivePartitionShuffle shuffleInfo =
+                    (DistributionSpecHivePartitionShuffle) PhysicalProperties.HIVE_PARTITIONED.getDistributionSpec();
+            shuffleInfo.getOutputColExprIds().addAll(child().getOutput().stream()
+                    .map(NamedExpression::getExprId)
+                    .collect(Collectors.toList()));
             return PhysicalProperties.HIVE_PARTITIONED;
         }
         return PhysicalProperties.ANY;

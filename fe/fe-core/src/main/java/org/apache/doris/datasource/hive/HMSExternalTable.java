@@ -430,6 +430,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return new HashSet<>(names);
     }
 
+    public List<Partition> getPartitionValuesByNames(List<String> partitionNames) {
+        makeSureInitialized();
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
+        return client.getPartitions(dbName, name, partitionNames);
+    }
+
     @Override
     public List<Column> initSchemaAndUpdateTime() {
         org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()

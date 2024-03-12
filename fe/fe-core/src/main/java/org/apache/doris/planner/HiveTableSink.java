@@ -20,7 +20,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -37,7 +36,6 @@ import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveTableSink;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.thrift.TPartitionType;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 
@@ -116,12 +114,6 @@ public class HiveTableSink extends DataSink {
         tSink.setColumns(targetColumns);
 
         setPartitionValues(partitionIds, tSink);
-
-        if (fragment.getPlanRoot() instanceof ExchangeNode
-                && fragment.getDataPartition().getType() == TPartitionType.HIVE_SINK_SHUFFLE_PARTITIONED) {
-            DataPartition dataPartition = fragment.getDataPartition();
-            dataPartition.getPartitionExprs();
-        }
 
         StorageDescriptor sd = targetTable.getRemoteTable().getSd();
         THiveBucket bucketInfo = new THiveBucket();

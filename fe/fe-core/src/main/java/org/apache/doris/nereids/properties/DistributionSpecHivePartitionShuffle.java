@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.trees.expressions.ExprId;
+
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * use for shuffle data by partition keys before sink.
  */
@@ -24,8 +29,14 @@ public class DistributionSpecHivePartitionShuffle extends DistributionSpec {
 
     public static final DistributionSpecHivePartitionShuffle INSTANCE = new DistributionSpecHivePartitionShuffle();
 
-    public DistributionSpecHivePartitionShuffle() {
+    private final List<ExprId> outputColExprIds = new ArrayList<>();
+
+    private DistributionSpecHivePartitionShuffle() {
         super();
+    }
+
+    public List<ExprId> getOutputColExprIds() {
+        return outputColExprIds;
     }
 
     @Override

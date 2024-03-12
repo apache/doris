@@ -48,8 +48,6 @@ public class DataPartition {
     public static final DataPartition UNPARTITIONED = new DataPartition(TPartitionType.UNPARTITIONED);
     public static final DataPartition RANDOM = new DataPartition(TPartitionType.RANDOM);
     public static final DataPartition TABLET_ID = new DataPartition(TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED);
-    public static final DataPartition HIVE_PARTITIONED =
-            new DataPartition(TPartitionType.HIVE_SINK_SHUFFLE_PARTITIONED);
 
     private final TPartitionType type;
     // for hash partition: exprs used to compute hash value
@@ -60,6 +58,7 @@ public class DataPartition {
         Preconditions.checkState(!exprs.isEmpty());
         Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
                 || type == TPartitionType.RANGE_PARTITIONED
+                || type == TPartitionType.HIVE_SINK_SHUFFLE_PARTITIONED
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
@@ -68,7 +67,6 @@ public class DataPartition {
     public DataPartition(TPartitionType type) {
         Preconditions.checkState(type == TPartitionType.UNPARTITIONED
                 || type == TPartitionType.RANDOM
-                || type == TPartitionType.HIVE_SINK_SHUFFLE_PARTITIONED
                 || type == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
