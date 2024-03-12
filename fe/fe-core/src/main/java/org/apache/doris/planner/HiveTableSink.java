@@ -189,7 +189,7 @@ public class HiveTableSink extends DataSink {
             hivePartition.setValues(partition.getValues());
             THiveLocationParams locationParams = new THiveLocationParams();
             String location = sd.getLocation();
-            locationParams.setWritePath(location);
+            locationParams.setWritePath(createTempPath(location));
             locationParams.setTargetPath(location);
             locationParams.setFileType(LocationPath.getTFileTypeForBE(location));
             hivePartition.setLocation(locationParams);
