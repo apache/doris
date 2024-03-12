@@ -38,7 +38,10 @@ public:
     public:
         ObjValue(const T* value)
                 : LRUCacheValueBase(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE), value(value) {}
-        ~ObjValue() override { delete value; }
+        ~ObjValue() override {
+            T* v = (T*)value;
+            delete v;
+        }
 
         const T* value;
     };
@@ -68,7 +71,8 @@ public:
         bool valid() { return _cache != nullptr && _handle != nullptr; }
 
         LRUCachePolicy* cache() const { return _cache; }
-        void* data() const { return _cache->value(_handle); }
+        template <typename T>
+        void* data() const { return (void*)((ObjValue<T>*)_cache->value(_handle))->value; }
 
     private:
         LRUCachePolicy* _cache = nullptr;
