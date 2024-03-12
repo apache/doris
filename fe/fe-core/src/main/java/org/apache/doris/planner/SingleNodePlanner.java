@@ -73,6 +73,7 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
+import org.apache.doris.planner.external.lakesoul.LakeSoulScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.statistics.StatisticalType;
@@ -1996,6 +1997,9 @@ public class SingleNodePlanner {
             case JDBC_EXTERNAL_TABLE:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
+            case LAKESOUl_EXTERNAL_TABLE:
+                scanNode = new LakeSoulScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                break;
             case TEST_EXTERNAL_TABLE:
                 scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
@@ -2901,3 +2905,4 @@ public class SingleNodePlanner {
         return result;
     }
 }
+

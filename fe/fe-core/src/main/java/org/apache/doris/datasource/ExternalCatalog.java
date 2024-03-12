@@ -29,6 +29,7 @@ import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.external.LakeSoulExternalDatabase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -642,6 +643,8 @@ public abstract class ExternalCatalog
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
             //case HUDI:
                 //return new HudiExternalDatabase(this, dbId, dbName);
+            case LAKESOUL:
+                return new LakeSoulExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
