@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
@@ -167,6 +168,18 @@ public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorCo
                 .flatMap(s -> backtrace(s, context).stream())
                 .collect(Collectors.toSet()));
         return filter;
+    }
+
+    @Override
+    public Plan visitLogicalWindow(LogicalWindow<? extends Plan> window, CollectorContext context) {
+        window.child(0).accept(this, context);
+        context.usedInPredicate.addAll(window
+                .getWindowExpressions()
+                .stream()
+                .flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
+                .flatMap(s -> backtrace(s, context).stream())
+                .collect(Collectors.toSet()));
+        return window;
     }
 
     private Set<Slot> backtrace(Slot slot, CollectorContext context) {
