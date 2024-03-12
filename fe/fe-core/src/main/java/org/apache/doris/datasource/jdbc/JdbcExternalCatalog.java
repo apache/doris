@@ -74,16 +74,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             throws DdlException {
         super(catalogId, name, InitCatalogLog.Type.JDBC, comment);
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props, isReplay));
-        if (isTestConnection()) {
-            try {
-                initLocalObjectsImpl();
-                testFeToJdbcConnection();
-                testBeToJdbcConnection();
-            } finally {
-                jdbcClient.closeClient();
-                jdbcClient = null;
-            }
-        }
+        testJdbcConnection(isReplay);
     }
 
     @Override
@@ -303,6 +294,21 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         jdbcClient.executeStmt(stmt);
     }
 
+    private void testJdbcConnection(boolean isReplay) throws DdlException {
+        if (!isReplay) {
+            if (isTestConnection()) {
+                try {
+                    initLocalObjectsImpl();
+                    testFeToJdbcConnection();
+                    testBeToJdbcConnection();
+                } finally {
+                    jdbcClient.closeClient();
+                    jdbcClient = null;
+                }
+            }
+        }
+    }
+
     private void testFeToJdbcConnection() throws DdlException {
         try {
             jdbcClient.testConnection();
@@ -329,7 +335,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             PJdbcTestConnectionRequest request = InternalService.PJdbcTestConnectionRequest.newBuilder()
                     .setJdbcTable(ByteString.copyFrom(new TSerializer().serialize(jdbcTable.toThrift())))
                     .setJdbcTableType(jdbcTable.getJdbcTableType().getValue())
-                    .addQueryStr(jdbcClient.getTestQuery()).build();
+                    .setQueryStr(jdbcClient.getTestQuery()).build();
             InternalService.PJdbcTestConnectionResult result = null;
             Future<PJdbcTestConnectionResult> future = BackendServiceProxy.getInstance()
                     .testJdbcConnection(address, request);

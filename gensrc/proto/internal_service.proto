@@ -663,14 +663,13 @@ message PFetchTableSchemaResult {
 }
 
 message PJdbcTestConnectionRequest {
-    required bytes jdbc_table = 1;
-    required int32 jdbc_table_type = 2;
-    repeated string query_str = 3;
+    optional bytes jdbc_table = 1;
+    optional int32 jdbc_table_type = 2;
+    optional string query_str = 3;
 }
 
 message PJdbcTestConnectionResult {
-    required PStatus status = 1;
-    repeated string err_msg = 2;
+    optional PStatus status = 1;
 }
 
 message PRowLocation {
