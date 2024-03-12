@@ -149,8 +149,8 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
     auto* row_cache_value = new RowCacheValue;
     row_cache_value->cache_value = cache_value;
     const std::string& encoded_key = key.encode();
-    auto* handle =
-            LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, CachePriority::NORMAL);
+    auto* handle = LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, value.size,
+                                          CachePriority::NORMAL);
     // handle will released
     auto tmp = CacheHandle {this, handle};
 }

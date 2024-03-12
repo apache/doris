@@ -86,8 +86,8 @@ public:
         if (_enabled) {
             const std::string& encoded_key = key.key;
             auto* obj_value = new ObjValue<T>(value);
-            auto* handle = LRUCachePolicy::insert(encoded_key, obj_value, 1, CachePriority::NORMAL,
-                                                  sizeof(T));
+            auto* handle = LRUCachePolicy::insert(encoded_key, obj_value, 1, sizeof(T),
+                                                  CachePriority::NORMAL);
             *cache_handle = CacheHandle {this, handle};
         } else {
             cache_handle = nullptr;

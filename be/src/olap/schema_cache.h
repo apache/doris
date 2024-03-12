@@ -95,7 +95,7 @@ public:
             value->schema = schema;
         }
 
-        auto lru_handle = insert(key, value, 1, CachePriority::NORMAL, schema->mem_size());
+        auto lru_handle = insert(key, value, 1, schema->mem_size(), CachePriority::NORMAL);
         release(lru_handle);
     }
 

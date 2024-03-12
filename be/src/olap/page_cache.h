@@ -40,7 +40,7 @@ class PageCacheHandle;
 template <typename TAllocator>
 class PageBase : private TAllocator, public LRUCacheValueBase {
 public:
-    PageBase() : _data(nullptr), _size(0), _capacity(0) {}
+    PageBase() = default;
 
     PageBase(size_t b, const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
             : _size(b), _capacity(b), _mem_tracker(mem_tracker) {
@@ -71,7 +71,7 @@ public:
 private:
     char* _data = nullptr;
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
-    size_t _size;
+    size_t _size = 0;
     size_t _capacity = 0;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };

@@ -26,6 +26,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "runtime/memory/lru_cache_value_base.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "testutil/test_util.h"
 
@@ -68,10 +69,25 @@ class CacheTest : public testing::Test {
 public:
     static CacheTest* _s_current;
 
-    static void Deleter(const CacheKey& key, void* v) {
-        _s_current->_deleted_keys.push_back(DecodeKey(key));
-        _s_current->_deleted_values.push_back(DecodeValue(v));
-    }
+    class CacheValueWithKey : public LRUCacheValueBase {
+    public:
+        CacheValueWithKey(int key, void* value) : key(key), value(value) {}
+        ~CacheValueWithKey() override {
+            _s_current->_deleted_keys.push_back(key);
+            _s_current->_deleted_values.push_back(DecodeValue(value));
+        }
+
+        int key;
+        void* value;
+    };
+
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue(void* value) : value(value) {}
+        ~CacheValue() override = default;
+
+        void* value;
+    };
 
     class CacheTestPolicy : public LRUCachePolicy {
     public:
@@ -97,7 +113,9 @@ public:
     int Lookup(int key) const {
         std::string result;
         Cache::Handle* handle = cache()->lookup(EncodeKey(&result, key));
-        const int r = (handle == nullptr) ? -1 : DecodeValue(cache()->value(handle));
+        const int r = (handle == nullptr)
+                              ? -1
+                              : DecodeValue(((CacheValueWithKey*)cache()->value(handle))->value);
 
         if (handle != nullptr) {
             cache()->release(handle);
@@ -108,14 +126,17 @@ public:
 
     void Insert(int key, int value, int charge) const {
         std::string result;
-        cache()->release(cache()->insert(EncodeKey(&result, key), EncodeValue(value), charge,
-                                         &CacheTest::Deleter));
+        CacheKey cache_key = EncodeKey(&result, key);
+        auto* cache_value = new CacheValueWithKey(DecodeKey(cache_key), EncodeValue(value));
+        cache()->release(cache()->insert(cache_key, cache_value, charge, charge));
     }
 
     void InsertDurable(int key, int value, int charge) const {
         std::string result;
-        cache()->release(cache()->insert(EncodeKey(&result, key), EncodeValue(value), charge,
-                                         &CacheTest::Deleter, CachePriority::DURABLE));
+        CacheKey cache_key = EncodeKey(&result, key);
+        auto* cache_value = new CacheValueWithKey(DecodeKey(cache_key), EncodeValue(value));
+        cache()->release(
+                cache()->insert(cache_key, cache_value, charge, charge, CachePriority::DURABLE));
     }
 
     void Erase(int key) const {
@@ -175,12 +196,12 @@ TEST_F(CacheTest, EntriesArePinned) {
     Insert(100, 101, 1);
     std::string result1;
     Cache::Handle* h1 = cache()->lookup(EncodeKey(&result1, 100));
-    EXPECT_EQ(101, DecodeValue(cache()->value(h1)));
+    EXPECT_EQ(101, DecodeValue(((CacheValueWithKey*)cache()->value(h1))->value));
 
     Insert(100, 102, 1);
     std::string result2;
     Cache::Handle* h2 = cache()->lookup(EncodeKey(&result2, 100));
-    EXPECT_EQ(102, DecodeValue(cache()->value(h2)));
+    EXPECT_EQ(102, DecodeValue(((CacheValueWithKey*)cache()->value(h2))->value));
     EXPECT_EQ(0, _deleted_keys.size());
 
     cache()->release(h1);
@@ -230,61 +251,53 @@ TEST_F(CacheTest, EvictionPolicyWithDurable) {
     EXPECT_EQ(201, Lookup(200));
 }
 
-static void deleter(const CacheKey& key, void* v) {}
-
 static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
                             CachePriority priority) {
     uint32_t hash = key.hash(key.data(), key.size(), 0);
-    static std::unique_ptr<MemTrackerLimiter> lru_cache_tracker =
-            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL,
-                                                "TestSizeLruCache");
-    cache.release(cache.insert(key, hash, EncodeValue(value), value, &deleter,
-                               lru_cache_tracker.get(), priority, value));
+    auto* cache_value = new CacheTest::CacheValue(EncodeValue(value));
+    cache.release(cache.insert(key, hash, cache_value, value, priority));
 }
 
 static void insert_number_LRUCache(LRUCache& cache, const CacheKey& key, int value, int charge,
                                    CachePriority priority) {
     uint32_t hash = key.hash(key.data(), key.size(), 0);
-    static std::unique_ptr<MemTrackerLimiter> lru_cache_tracker =
-            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL,
-                                                "TestNumberLruCache");
-    cache.release(cache.insert(key, hash, EncodeValue(value), charge, &deleter,
-                               lru_cache_tracker.get(), priority, value));
+    auto* cache_value = new CacheTest::CacheValue(EncodeValue(value));
+    cache.release(cache.insert(key, hash, cache_value, charge, priority));
 }
 
 TEST_F(CacheTest, Usage) {
     LRUCache cache(LRUCacheType::SIZE);
-    cache.set_capacity(1050);
+    cache.set_capacity(1040);
 
     // The lru usage is handle_size + charge.
-    // handle_size = sizeof(handle) - 1 + key size = 120 - 1 + 3 = 122
+    // handle_size = sizeof(handle) - 1 + key size = 96 - 1 + 3 = 98
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(222, cache.get_usage()); // 100 + 122
+    ASSERT_EQ(198, cache.get_usage()); // 100 + 98
 
     CacheKey key2("200");
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(544, cache.get_usage()); // 222 + 322(d), d = DURABLE
+    ASSERT_EQ(496, cache.get_usage()); // 198 + 298(d), d = DURABLE
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(966, cache.get_usage()); // 222 + 322(d) + 422
+    ASSERT_EQ(894, cache.get_usage()); // 198 + 298(d) + 398
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    ASSERT_EQ(844, cache.get_usage()); // 322(d) + 522, evict 222 422
+    ASSERT_EQ(796, cache.get_usage()); // 298(d) + 498, evict 198 398
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(944, cache.get_usage()); // 322(d) + 622, evict 522
+    ASSERT_EQ(896, cache.get_usage()); // 298(d) + 598, evict 498
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(1044, cache.get_usage()); // 322(d) + 722, evict 622
+    ASSERT_EQ(996, cache.get_usage()); // 298(d) + 698, evict 598
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(0, cache.get_usage()); // evict 322 722, because 950 + 122 > 1050, so insert failed
+    ASSERT_EQ(0, cache.get_usage()); // evict 298 698, because 950 + 98 > 1040, so insert failed
 }
 
 TEST_F(CacheTest, Prune) {
@@ -325,7 +338,7 @@ TEST_F(CacheTest, Prune) {
     EXPECT_EQ(5, cache.get_usage());
 
     auto pred2 = [](const LRUHandle* handle) -> bool {
-        return DecodeValue((void*)(handle->value)) > 400;
+        return DecodeValue((void*)(((CacheValue*)handle->value)->value)) > 400;
     };
     cache.prune_if(pred2);
     EXPECT_EQ(2, cache.get_usage());
@@ -381,7 +394,7 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     // in lazy mode, the first item not satisfied the pred2, `prune_if` then stopped
     // and no item's removed.
     auto pred2 = [](const LRUHandle* handle) -> bool {
-        return DecodeValue((void*)(handle->value)) > 400;
+        return DecodeValue((void*)(((CacheValue*)handle->value)->value)) > 400;
     };
     cache.prune_if(pred2, true);
     EXPECT_EQ(7, cache.get_usage());
@@ -389,7 +402,7 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     // in normal priority, 100, 300 are removed
     // in durable priority, 200 is removed
     auto pred3 = [](const LRUHandle* handle) -> bool {
-        return DecodeValue((void*)(handle->value)) <= 600;
+        return DecodeValue((void*)(((CacheValue*)handle->value)->value)) <= 600;
     };
     PrunedInfo pruned_info = cache.prune_if(pred3, true);
     EXPECT_EQ(3, pruned_info.pruned_count);
@@ -441,7 +454,7 @@ TEST_F(CacheTest, Number) {
     EXPECT_EQ(2, cache.get_usage());
 
     auto pred2 = [](const LRUHandle* handle) -> bool {
-        return DecodeValue((void*)(handle->value)) > 100;
+        return DecodeValue((void*)(((CacheValue*)handle->value)->value)) > 100;
     };
     cache.prune_if(pred2);
     EXPECT_EQ(1, cache.get_usage());
@@ -509,7 +522,6 @@ TEST(CacheHandleTest, HandleTableTest) {
         CacheKey* key = &keys[i];
         auto* h = reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key->size()));
         h->value = nullptr;
-        h->deleter = nullptr;
         h->charge = 1;
         h->total_size = sizeof(LRUHandle) - 1 + key->size() + 1;
         h->key_length = key->size();
@@ -542,7 +554,6 @@ TEST(CacheHandleTest, HandleTableTest) {
         CacheKey* key = &keys[i];
         auto* h = reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key->size()));
         h->value = nullptr;
-        h->deleter = nullptr;
         h->charge = 1;
         h->total_size = sizeof(LRUHandle) - 1 + key->size() + 1;
         h->key_length = key->size();

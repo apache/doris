@@ -179,8 +179,8 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                 return nullptr;
             }
 
-            auto* handle = _cache->insert(key, value.release(), 1, CachePriority::NORMAL,
-                                          sizeof(CloudTablet));
+            auto* handle = _cache->insert(key, value.release(), 1, sizeof(CloudTablet),
+                                          CachePriority::NORMAL);
             auto ret = std::shared_ptr<CloudTablet>(
                     tablet.get(), [this, handle](...) { _cache->release(handle); });
             _tablet_map->put(std::move(tablet));

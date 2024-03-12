@@ -180,7 +180,7 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
         if (_load_channels.find(load_id) != _load_channels.end()) {
             _load_channels.erase(load_id);
         }
-        auto* handle = _last_success_channels->insert(load_id.to_string(), nullptr, 1);
+        auto* handle = _last_success_channels->insert(load_id.to_string(), nullptr, 1, 1);
         _last_success_channels->release(handle);
     }
     VLOG_CRITICAL << "removed load channel " << load_id;

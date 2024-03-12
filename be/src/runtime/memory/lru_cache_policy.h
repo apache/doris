@@ -67,7 +67,7 @@ public:
         _init_mem_tracker();
     }
 
-    ~LRUCachePolicy() override = default;
+    ~LRUCachePolicy() override { _cache.reset(); }
 
     bool check_capacity(size_t capacity, uint32_t num_shards) {
         if (capacity < num_shards) {
@@ -94,15 +94,19 @@ public:
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker() { return _mem_tracker; }
 
-    Cache::Handle* insert(const CacheKey& key, void* value, size_t charge,
-                          CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) {
-        return _insert(true, key, value, charge, priority, bytes);
-    }
-
-    Cache::Handle* insert_no_tracking(const CacheKey& key, void* value, size_t charge,
-                                      CachePriority priority = CachePriority::NORMAL,
-                                      size_t bytes = -1) {
-        return _insert(false, key, value, charge, priority, bytes);
+    Cache::Handle* insert(const CacheKey& key, void* value, size_t charge, size_t tracking_bytes,
+                          CachePriority priority = CachePriority::NORMAL) {
+        size_t bytes_with_handle = _get_bytes_with_handle(key, charge, tracking_bytes);
+        if (tracking_bytes > 0) {
+            _mem_tracker->cache_consume(bytes_with_handle);
+        }
+        DorisMetrics::instance()->lru_cache_memory_bytes->increment(bytes_with_handle);
+        if (value != nullptr) {
+            ((LRUCacheValueBase*)value)
+                    ->bind_memory_tracking(bytes_with_handle,
+                                           tracking_bytes > 0 ? _mem_tracker.get() : nullptr);
+        }
+        return _cache->insert(key, value, charge, priority);
     }
 
     Cache::Handle* lookup(const CacheKey& key) { return _cache->lookup(key); }
@@ -123,6 +127,8 @@ public:
     int64_t get_usage() { return _cache->get_usage(); }
 
     size_t get_total_capacity() { return _cache->get_total_capacity(); }
+
+    uint64_t new_id() { return _cache->new_id(); };
 
     // Try to prune the cache if expired.
     void prune_stale() override {
@@ -201,21 +207,6 @@ private:
         // if LRUCacheType::NUMBER and bytes equals 0, such as some caches cannot accurately track memory size.
         // cache mem tracker value and _usage divided by handle_size(106) will get the number of cache entries.
         return _lru_cache_type == LRUCacheType::SIZE ? handle_size + charge : handle_size + bytes;
-    }
-
-    Cache::Handle* _insert(bool need_tracking, const CacheKey& key, void* value, size_t charge,
-                           CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) {
-        size_t bytes_with_handle = _get_bytes_with_handle(key, charge, bytes);
-        if (need_tracking) {
-            _mem_tracker->cache_consume(bytes_with_handle);
-        }
-        DorisMetrics::instance()->lru_cache_memory_bytes->increment(bytes_with_handle);
-        if (value != nullptr) {
-            ((LRUCacheValueBase*)value)
-                    ->bind_release_memory_callback(bytes_with_handle,
-                                                   need_tracking ? _mem_tracker : nullptr);
-        }
-        return _cache->insert(key, value, charge, priority);
     }
 
     // if check_capacity failed, will return dummy lru cache,

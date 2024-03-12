@@ -114,7 +114,7 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
     for (auto& [k, v] : val->delete_bitmap->delete_bitmap) {
         charge += v.getSizeInBytes();
     }
-    auto* handle = insert(key, val, charge, CachePriority::NORMAL);
+    auto* handle = insert(key, val, charge, charge, CachePriority::NORMAL);
     // must call release handle to reduce the reference count,
     // otherwise there will be memory leak
     release(handle);
@@ -137,7 +137,7 @@ void CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transactio
     for (auto& [k, v] : val->delete_bitmap->delete_bitmap) {
         charge += v.getSizeInBytes();
     }
-    auto* handle = insert(key, val, charge, CachePriority::NORMAL);
+    auto* handle = insert(key, val, charge, charge, CachePriority::NORMAL);
     // must call release handle to reduce the reference count,
     // otherwise there will be memory leak
     release(handle);

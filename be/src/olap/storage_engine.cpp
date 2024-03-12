@@ -1501,7 +1501,7 @@ void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
     assert(next_idx >= 0);
     auto* value = new CacheValue;
     value->idx = next_idx;
-    auto* lru_handle = insert(key, value, 1, CachePriority::NORMAL, sizeof(int));
+    auto* lru_handle = insert(key, value, 1, sizeof(int), CachePriority::NORMAL);
     release(lru_handle);
 }
 

@@ -1109,7 +1109,7 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
             }
         }
         size_t charge = val->bitmap.getSizeInBytes() + sizeof(AggCache::Value);
-        handle = _agg_cache->repr()->insert(key, val, charge, CachePriority::NORMAL);
+        handle = _agg_cache->repr()->insert(key, val, charge, charge, CachePriority::NORMAL);
     }
 
     // It is natural for the cache to reclaim the underlying memory

@@ -112,8 +112,8 @@ void InvertedIndexSearcherCache::insert(const InvertedIndexSearcherCache::CacheK
 
 Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCache::CacheKey& key,
                                                    CacheValue* value) {
-    Cache::Handle* lru_handle =
-            _policy->insert(key.index_file_path, value, value->size, CachePriority::NORMAL);
+    Cache::Handle* lru_handle = _policy->insert(key.index_file_path, value, value->size,
+                                                value->size, CachePriority::NORMAL);
     return lru_handle;
 }
 
@@ -139,7 +139,8 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
     }
 
     auto* lru_handle = LRUCachePolicy::insert(key.encode(), (void*)cache_value_ptr.release(),
-                                              bitmap->getSizeInBytes(), CachePriority::NORMAL);
+                                              bitmap->getSizeInBytes(), bitmap->getSizeInBytes(),
+                                              CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(this, lru_handle);
 }
 

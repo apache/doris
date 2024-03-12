@@ -37,15 +37,14 @@ public:
         }
     }
 
-    void bind_release_memory_callback(size_t bytes_with_handle,
-                                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+    void bind_memory_tracking(size_t bytes_with_handle, MemTrackerLimiter* mem_tracker) {
         this->bytes_with_handle = bytes_with_handle;
         this->mem_tracker = mem_tracker;
     }
 
 private:
     size_t bytes_with_handle = 0;
-    std::shared_ptr<MemTrackerLimiter> mem_tracker;
+    MemTrackerLimiter* mem_tracker = nullptr;
 };
 
 } // namespace doris

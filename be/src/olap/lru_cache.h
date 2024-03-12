@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <butil/macros.h>
+#include <bvar/bvar.h>
 #include <glog/logging.h>
 #include <gtest/gtest_prod.h>
 #include <stdint.h>
