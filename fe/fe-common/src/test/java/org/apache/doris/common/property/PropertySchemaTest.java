@@ -230,7 +230,7 @@ public class PropertySchemaTest {
                 new PropertySchema.DateProperty("key",
                         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()));
         prop.write(Date.from(
-                        LocalDateTime.parse("2021-06-30 20:34:51", dateFormat).atZone(ZoneId.systemDefault()).toInstant()),
+                        LocalDateTime.parse("2021-06-30 12:34:51", dateFormat).atZone(ZoneId.systemDefault()).toInstant()),
                 output);
 
         ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
@@ -241,7 +241,7 @@ public class PropertySchemaTest {
         prop.write(new Date(1625056491000L), tProp);
         Assert.assertEquals(1625056491000L, prop.read(tProp).getTime());
 
-        Assert.assertEquals(1625056491000L, prop.read("2021-06-30 20:34:51").getTime());
+        Assert.assertEquals(1625056491000L, prop.read("2021-06-30 12:34:51").getTime());
     }
 
     @Test
