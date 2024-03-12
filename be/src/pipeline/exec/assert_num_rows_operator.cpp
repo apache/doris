@@ -18,6 +18,7 @@
 #include "assert_num_rows_operator.h"
 
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::pipeline {
 
@@ -44,12 +45,14 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     local_state.add_num_rows_returned(block->rows());
     int64_t num_rows_returned = local_state.num_rows_returned();
     bool assert_res = false;
+    const auto has_more_rows = !(*eos);
     switch (_assertion) {
     case TAssertion::EQ:
-        assert_res = num_rows_returned == _desired_num_rows;
+        assert_res = num_rows_returned == _desired_num_rows ||
+                     (has_more_rows && num_rows_returned < _desired_num_rows);
         break;
     case TAssertion::NE:
-        assert_res = num_rows_returned != _desired_num_rows;
+        assert_res = num_rows_returned != _desired_num_rows || (has_more_rows);
         break;
     case TAssertion::LT:
         assert_res = num_rows_returned < _desired_num_rows;
@@ -58,19 +61,43 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         assert_res = num_rows_returned <= _desired_num_rows;
         break;
     case TAssertion::GT:
-        assert_res = num_rows_returned > _desired_num_rows;
+        assert_res = num_rows_returned > _desired_num_rows || has_more_rows;
         break;
     case TAssertion::GE:
-        assert_res = num_rows_returned >= _desired_num_rows;
+        assert_res = num_rows_returned >= _desired_num_rows || has_more_rows;
         break;
     default:
         break;
     }
 
+    /**
+     * For nereids planner:
+     * The output of `AssertNumRowsOperatorX` should be nullable.
+     * If the `num_rows_returned` is 0 and `_desired_num_rows` is 1,
+     * here need to insert one row of null.
+     */
+    if (state->is_nereids()) {
+        if (block->rows() > 0) {
+            auto& data = block->get_by_position(0);
+            data.type = vectorized::make_nullable(data.type);
+            data.column = vectorized::make_nullable(data.column);
+        } else if (!has_more_rows && _assertion == TAssertion::EQ && num_rows_returned == 0 &&
+                   _desired_num_rows == 1) {
+            auto new_block = vectorized::VectorizedUtils::create_columns_with_type_and_name(
+                    _output_row_descriptor ? *_output_row_descriptor : _row_descriptor);
+            block->swap(new_block);
+            auto& column = block->get_by_position(0).column;
+            auto& type = block->get_by_position(0).type;
+            type = vectorized::make_nullable(type);
+            column = type->create_column();
+            column->assume_mutable()->insert_default();
+            assert_res = true;
+        }
+    }
+
     if (!assert_res) {
         auto to_string_lambda = [](TAssertion::type assertion) {
-            std::map<int, const char*>::const_iterator it =
-                    _TAssertion_VALUES_TO_NAMES.find(assertion);
+            auto it = _TAssertion_VALUES_TO_NAMES.find(assertion);
 
             if (it == _TAggregationOp_VALUES_TO_NAMES.end()) {
                 return "NULL";

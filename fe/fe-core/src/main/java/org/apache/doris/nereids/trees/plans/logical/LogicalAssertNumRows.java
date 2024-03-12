@@ -34,6 +34,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Assert num rows node is used to determine whether the number of rows is less than desired num of rows.
@@ -115,8 +116,6 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.<Slot>builder()
-                .addAll(child().getOutput())
-                .build();
+        return child().getOutput().stream().map(o -> o.withNullable(true)).collect(Collectors.toList());
     }
 }
