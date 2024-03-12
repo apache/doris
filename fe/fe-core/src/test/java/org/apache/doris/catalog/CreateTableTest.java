@@ -229,6 +229,18 @@ public class CreateTableTest extends TestWithFeService {
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
         Assert.assertEquals(tbl13.getSequenceMapCol(), "v1");
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl14\n" + "(k1 int, k2 int default 10)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl15\n" + "(k1 int, k2 bigint default 11)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl17\n" + "(k1 int, k2 decimal(10,2) default 10.3)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
     }
 
     @Test
