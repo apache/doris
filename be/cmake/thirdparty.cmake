@@ -117,6 +117,7 @@ add_thirdparty(bitshuffle)
 add_thirdparty(roaring)
 add_thirdparty(fmt)
 add_thirdparty(cctz)
+add_thirdparty(base64)
 
 add_thirdparty(aws-cpp-sdk-core LIB64)
 add_thirdparty(aws-cpp-sdk-s3 LIB64)
