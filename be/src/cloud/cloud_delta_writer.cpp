@@ -64,7 +64,7 @@ Status CloudDeltaWriter::write(const vectorized::Block* block,
         return Status::OK();
     }
     std::lock_guard lock(_mtx);
-    CHECK(_is_init);
+    CHECK(_is_init || _is_cancelled);
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
         while (_memtable_writer->flush_running_count() >=
