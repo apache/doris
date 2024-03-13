@@ -23,6 +23,7 @@ import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.cloud.load.CloudCopyJob;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -766,6 +767,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             job = new InsertLoadJob();
         } else if (type == EtlJobType.MINI) {
             job = new MiniLoadJob();
+        } else if (type == EtlJobType.COPY) {
+            job = new CloudCopyJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }
