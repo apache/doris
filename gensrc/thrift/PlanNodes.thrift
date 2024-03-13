@@ -324,7 +324,7 @@ struct TTrinoConnectorFileDesc {
     5: optional string trino_connector_table_handle
     6: optional string trino_connector_column_handles
     7: optional string trino_connector_column_metadata
-    8: optional string trino_connector_column_names // not used
+    8: optional string trino_connector_column_names
     9: optional string trino_connector_split
     10: optional string trino_connector_predicate
     11: optional string trino_connector_trascation_handle
@@ -511,7 +511,7 @@ struct TTasksMetadataParams {
 
 struct TQueriesMetadataParams {
   1: optional string cluster_name
-  2: optional bool relay_to_other_fe
+  2: optional bool   relay_to_other_fe
   3: optional TMaterializedViewsMetadataParams materialized_views_params
   4: optional TJobsMetadataParams jobs_params
   5: optional TTasksMetadataParams tasks_params
@@ -1134,6 +1134,7 @@ struct TAssertNumRowsNode {
     1: optional i64 desired_num_rows;
     2: optional string subquery_string;
     3: optional TAssertion assertion;
+    4: optional bool should_convert_output_to_nullable;
 }
 
 enum TRuntimeFilterType {

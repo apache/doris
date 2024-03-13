@@ -43,7 +43,14 @@ public class AssertNumRowsNode extends PlanNode {
     private String subqueryString;
     private AssertNumRowsElement.Assertion assertion;
 
+    private boolean shouldConvertOutputToNullable = false;
+
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement) {
+        this(id, input, assertNumRowsElement, false);
+    }
+
+    public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement,
+                             boolean convertToNullable) {
         super(id, "ASSERT NUMBER OF ROWS", StatisticalType.ASSERT_NUM_ROWS_NODE);
         this.desiredNumOfRows = assertNumRowsElement.getDesiredNumOfRows();
         this.subqueryString = assertNumRowsElement.getSubqueryString();
@@ -56,6 +63,7 @@ public class AssertNumRowsNode extends PlanNode {
         }
         this.tblRefIds.addAll(input.getTblRefIds());
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
+        this.shouldConvertOutputToNullable = convertToNullable;
     }
 
     @Override
@@ -94,6 +102,7 @@ public class AssertNumRowsNode extends PlanNode {
         msg.assert_num_rows_node.setDesiredNumRows(desiredNumOfRows);
         msg.assert_num_rows_node.setSubqueryString(subqueryString);
         msg.assert_num_rows_node.setAssertion(assertion.toThrift());
+        msg.assert_num_rows_node.setShouldConvertOutputToNullable(shouldConvertOutputToNullable);
     }
 
     @Override
