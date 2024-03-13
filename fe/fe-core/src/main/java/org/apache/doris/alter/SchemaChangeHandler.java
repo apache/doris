@@ -2047,14 +2047,16 @@ public class SchemaChangeHandler extends AlterHandler {
                 //for schema change add/drop value column optimize, direct modify table meta.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              null, isDropIndex, jobId, false);
-            } else if (lightIndexChange) {
+            } else if (Config.enable_light_index_change && lightIndexChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop inverted index optimize, direct modify table meta firstly.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              alterIndexes, isDropIndex, jobId, false);
             } else if (buildIndexChange) {
-                buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
-                                                  alterIndexes, invertedIndexOnPartitions, false);
+                if (Config.enable_light_index_change) {
+                    buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                                                      alterIndexes, invertedIndexOnPartitions, false);
+                }
             } else {
                 createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
             }

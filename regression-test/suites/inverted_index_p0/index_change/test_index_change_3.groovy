@@ -121,6 +121,7 @@ suite("test_index_change_3") {
     sql """ DROP INDEX idx_note ON ${tableName} """
     wait_for_build_index_on_partition_finish(tableName, timeout)
 
+    sleep(2*1000)
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
     assertEquals(show_result.size(), 1)
