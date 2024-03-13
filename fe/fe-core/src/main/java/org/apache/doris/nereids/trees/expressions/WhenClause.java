@@ -90,21 +90,6 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        if (!super.equals(o)) {
-            return false;
-        }
-        WhenClause other = (WhenClause) o;
-        return Objects.equals(left(), other.left()) && Objects.equals(right(), other.right());
-    }
-
-    @Override
     public int hashCode() {
         return Objects.hash(left(), right());
     }
