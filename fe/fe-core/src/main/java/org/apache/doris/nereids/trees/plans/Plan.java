@@ -61,8 +61,14 @@ public interface Plan extends TreeNode<Plan> {
         return !(getLogicalProperties() instanceof UnboundLogicalProperties);
     }
 
+    /** hasUnboundExpression */
     default boolean hasUnboundExpression() {
-        return getExpressions().stream().anyMatch(Expression::hasUnbound);
+        for (Expression expression : getExpressions()) {
+            if (expression.hasUnbound()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     default boolean containsSlots(ImmutableSet<Slot> slots) {

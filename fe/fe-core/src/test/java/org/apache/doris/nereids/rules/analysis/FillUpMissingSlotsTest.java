@@ -529,7 +529,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias minXX = new Alias(new ExprId(5), new Min(xx.toSlot()), "min(xx)");
         PlanChecker.from(connectContext).analyze(sql).printlnTree().matches(logicalProject(
                 logicalSort(logicalProject(logicalAggregate(logicalProject(logicalOlapScan())
-                        .when(FieldChecker.check("projects", Lists.newArrayList(xx, a2, a1))))))
+                        .when(FieldChecker.check("projects", Lists.newArrayList(xx, a1, a2))))))
                                 .when(FieldChecker.check("orderKeys",
                                         ImmutableList
                                                 .of(new OrderKey(minXX.toSlot(), true, true)))))

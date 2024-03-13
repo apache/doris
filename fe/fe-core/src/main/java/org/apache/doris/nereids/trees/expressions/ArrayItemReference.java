@@ -147,7 +147,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
 
         @Override
         public ArrayItemSlot withExprId(ExprId exprId) {
-            return new ArrayItemSlot(exprId, name, dataType, nullable);
+            return new ArrayItemSlot(exprId, name.get(), dataType, nullable);
         }
 
         @Override
@@ -157,7 +157,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
 
         @Override
         public SlotReference withNullable(boolean newNullable) {
-            return new ArrayItemSlot(exprId, name, dataType, nullable);
+            return new ArrayItemSlot(exprId, name.get(), dataType, nullable);
         }
 
         @Override
