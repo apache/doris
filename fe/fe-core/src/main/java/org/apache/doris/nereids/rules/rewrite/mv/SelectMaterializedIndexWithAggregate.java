@@ -1487,7 +1487,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         @Override
         public Expression visitAggregateFunction(AggregateFunction aggregateFunction, RewriteContext context) {
             String aggStateName = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
-                    AggregateType.GENERIC_AGGREGATION, StateCombinator.create(aggregateFunction).toSql()));
+                    AggregateType.GENERIC, StateCombinator.create(aggregateFunction).toSql()));
 
             Column mvColumn = context.checkContext.getColumn(aggStateName);
             if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {

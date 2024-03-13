@@ -48,7 +48,7 @@ suite("test_agg_state_nereids") {
     sql """
             create table a_table(
                 k1 int null,
-                k2 agg_state max_by(int not null,int)
+                k2 agg_state<max_by(int not null, int)> generic
             )
             aggregate key (k1)
             distributed BY hash(k1) buckets 3
