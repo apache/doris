@@ -43,7 +43,8 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         current_wg_ids.insert(workload_group_info.id);
 
         // 2 update task group
-        auto tg = _exec_env->workload_group_mgr()->get_or_create_task_group(workload_group_info);
+        auto tg =
+                _exec_env->workload_group_mgr()->get_or_create_workload_group(workload_group_info);
 
         // 3 set cpu soft hard limit switch
         _exec_env->workload_group_mgr()->_enable_cpu_hard_limit.store(
@@ -62,6 +63,6 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
                   << ", cgroup home path=" << config::doris_cgroup_cpu_path;
     }
 
-    _exec_env->workload_group_mgr()->delete_task_group_by_ids(current_wg_ids);
+    _exec_env->workload_group_mgr()->delete_workload_group_by_ids(current_wg_ids);
 }
 } // namespace doris

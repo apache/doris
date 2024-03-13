@@ -61,7 +61,7 @@ public:
     };
     void record(ScheduleRecord record); // record one schedule record
     void end_query(TUniqueId query_id,
-                   uint64_t task_group); // tell context this query is end. may leads to dump.
+                   uint64_t workload_group); // tell context this query is end. may leads to dump.
     Status change_record_params(const std::map<std::string, std::string>& params);
 
     bool enabled() const { return !(_dump_type == RecordType::None); }

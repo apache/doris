@@ -642,7 +642,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             WorkloadGroupPtr task_group_ptr =
                     _exec_env->workload_group_mgr()->get_task_group_by_id(tg_id);
             if (task_group_ptr != nullptr) {
-                RETURN_IF_ERROR(query_ctx->set_task_group(task_group_ptr));
+                RETURN_IF_ERROR(query_ctx->set_workload_group(task_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "task_group.h"
+#include "workload_group.h"
 
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>

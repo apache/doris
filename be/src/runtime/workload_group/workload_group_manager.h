@@ -21,7 +21,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "task_group.h"
+#include "workload_group.h"
 
 namespace doris {
 
@@ -37,12 +37,12 @@ public:
     WorkloadGroupMgr() = default;
     ~WorkloadGroupMgr() = default;
 
-    WorkloadGroupPtr get_or_create_task_group(const WorkloadGroupInfo& workload_group_info);
+    WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
 
     void get_related_workload_groups(const std::function<bool(const WorkloadGroupPtr& ptr)>& pred,
                                      std::vector<WorkloadGroupPtr>* task_groups);
 
-    void delete_task_group_by_ids(std::set<uint64_t> id_set);
+    void delete_workload_group_by_ids(std::set<uint64_t> id_set);
 
     WorkloadGroupPtr get_task_group_by_id(uint64_t tg_id);
 
@@ -56,7 +56,7 @@ public:
 
 private:
     std::shared_mutex _group_mutex;
-    std::unordered_map<uint64_t, WorkloadGroupPtr> _task_groups;
+    std::unordered_map<uint64_t, WorkloadGroupPtr> _workload_groups;
 
     std::shared_mutex _init_cg_ctl_lock;
     std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;

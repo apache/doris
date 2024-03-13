@@ -28,25 +28,25 @@
 
 namespace doris {
 
-WorkloadGroupPtr WorkloadGroupMgr::get_or_create_task_group(
+WorkloadGroupPtr WorkloadGroupMgr::get_or_create_workload_group(
         const WorkloadGroupInfo& workload_group_info) {
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-        if (LIKELY(_task_groups.count(workload_group_info.id))) {
-            auto task_group = _task_groups[workload_group_info.id];
-            task_group->check_and_update(workload_group_info);
-            return task_group;
+        if (LIKELY(_workload_groups.count(workload_group_info.id))) {
+            auto workload_group = _workload_groups[workload_group_info.id];
+            workload_group->check_and_update(workload_group_info);
+            return workload_group;
         }
     }
 
     auto new_task_group = std::make_shared<WorkloadGroup>(workload_group_info);
     std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
-    if (_task_groups.count(workload_group_info.id)) {
-        auto task_group = _task_groups[workload_group_info.id];
-        task_group->check_and_update(workload_group_info);
-        return task_group;
+    if (_workload_groups.count(workload_group_info.id)) {
+        auto workload_group = _workload_groups[workload_group_info.id];
+        workload_group->check_and_update(workload_group_info);
+        return workload_group;
     }
-    _task_groups[workload_group_info.id] = new_task_group;
+    _workload_groups[workload_group_info.id] = new_task_group;
     return new_task_group;
 }
 
@@ -54,28 +54,28 @@ void WorkloadGroupMgr::get_related_workload_groups(
         const std::function<bool(const WorkloadGroupPtr& ptr)>& pred,
         std::vector<WorkloadGroupPtr>* task_groups) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    for (const auto& [id, task_group] : _task_groups) {
-        if (pred(task_group)) {
-            task_groups->push_back(task_group);
+    for (const auto& [id, workload_group] : _workload_groups) {
+        if (pred(workload_group)) {
+            task_groups->push_back(workload_group);
         }
     }
 }
 
 WorkloadGroupPtr WorkloadGroupMgr::get_task_group_by_id(uint64_t tg_id) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    if (_task_groups.find(tg_id) != _task_groups.end()) {
-        return _task_groups.at(tg_id);
+    if (_workload_groups.find(tg_id) != _workload_groups.end()) {
+        return _workload_groups.at(tg_id);
     }
     return nullptr;
 }
 
-void WorkloadGroupMgr::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
+void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_id) {
     int64_t begin_time = MonotonicMillis();
     // 1 get delete group without running queries
     std::vector<WorkloadGroupPtr> deleted_task_groups;
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
-        for (auto iter = _task_groups.begin(); iter != _task_groups.end(); iter++) {
+        for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
             uint64_t tg_id = iter->first;
             auto task_group_ptr = iter->second;
             if (used_wg_id.find(tg_id) == used_wg_id.end()) {
@@ -100,7 +100,7 @@ void WorkloadGroupMgr::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
         for (auto& tg : deleted_task_groups) {
-            _task_groups.erase(tg->id());
+            _workload_groups.erase(tg->id());
         }
     }
 
@@ -135,7 +135,7 @@ void WorkloadGroupMgr::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
 }
 
 void WorkloadGroupMgr::stop() {
-    for (auto iter = _task_groups.begin(); iter != _task_groups.end(); iter++) {
+    for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
         iter->second->try_stop_schedulers();
     }
 }

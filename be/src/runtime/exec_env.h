@@ -150,7 +150,7 @@ public:
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
-    WorkloadGroupMgr* workload_group_mgr() { return _task_group_manager; }
+    WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
     RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
         return _runtime_query_statistics_mgr;
@@ -334,7 +334,7 @@ private:
 
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
-    WorkloadGroupMgr* _task_group_manager = nullptr;
+    WorkloadGroupMgr* _workload_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;

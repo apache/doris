@@ -46,10 +46,10 @@ void PipelineTracerContext::record(ScheduleRecord record) {
     }
 }
 
-void PipelineTracerContext::end_query(TUniqueId query_id, uint64_t task_group) {
+void PipelineTracerContext::end_query(TUniqueId query_id, uint64_t workload_group) {
     {
         std::unique_lock<std::mutex> l(_tg_lock);
-        _id_to_workload_group[query_id] = task_group;
+        _id_to_workload_group[query_id] = workload_group;
     }
     if (_dump_type == RecordType::PerQuery) {
         _dump(query_id);
