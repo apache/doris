@@ -64,11 +64,8 @@ public class MTMVCache {
         Plan originPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
         Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
             @Override
-            public Plan visit(Plan plan, Object context) {
-                if (plan instanceof LogicalResultSink) {
-                    return ((LogicalResultSink<Plan>) plan).child();
-                }
-                return super.visit(plan, context);
+            public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Object context) {
+                return logicalResultSink.child().accept(this, context);
             }
         }, null);
         return new MTMVCache(mvPlan, originPlan);

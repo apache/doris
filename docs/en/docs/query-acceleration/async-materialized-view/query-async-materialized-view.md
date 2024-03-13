@@ -61,6 +61,11 @@ CREATE TABLE IF NOT EXISTS lineitem (
     (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES ("replication_num" = "1");
+
+    insert into lineitem values
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-19', '2023-10-19', '2023-10-19', 'a', 'b', 'yyyyyyyyy');
 ```
 ```sql
 CREATE TABLE IF NOT EXISTS orders  (
@@ -79,6 +84,12 @@ CREATE TABLE IF NOT EXISTS orders  (
     FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES ("replication_num" = "1");
+
+    insert into orders values
+    (1, 1, 'o', 9.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (1, 1, 'o', 10.5, '2023-10-18', 'a', 'b', 1, 'yy'),
+    (2, 1, 'o', 11.5, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 12.5, '2023-10-19', 'a', 'b', 1, 'yy');
 ```
 
 ```sql
@@ -94,6 +105,11 @@ CREATE TABLE IF NOT EXISTS orders  (
     PROPERTIES (
       "replication_num" = "1"
     );
+
+    insert into partsupp values
+    (2, 3, 9, 10.01, 'supply1'),
+    (4, 3, 10, 11.01, 'supply2'),
+    (2, 3, 10, 11.01, 'supply3');
 ```
 
 ## Direct Query of Materialized View
@@ -106,15 +122,15 @@ Materialized view definition:
 ```sql
 CREATE MATERIALIZED VIEW mv1
 BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
-DISTRIBUTED BY RANDOM BUCKETS 12
+DISTRIBUTED BY RANDOM BUCKETS 3
 PROPERTIES ('replication_num' = '1')
 AS
 SELECT t1.l_linenumber,
        o_custkey,
        o_orderdate
-FROM (SELECT * FROM lineitem WHERE l_linenumber > 1) t1
-         LEFT OUTER JOIN orders
-                         ON l_orderkey = o_orderkey;
+FROM
+    (SELECT * FROM lineitem WHERE l_linenumber > 1) t1
+LEFT OUTER JOIN orders ON l_orderkey = o_orderkey;
 ```
 
 Query statement:
@@ -145,6 +161,11 @@ enabling transparent rewriting by expressing the query using the precomputed res
 
 Materialized view definition:
 ```sql
+CREATE MATERIALIZED VIEW mv2
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT t1.l_linenumber,
        o_custkey,
        o_orderdate
@@ -160,7 +181,7 @@ SELECT l_linenumber,
 FROM lineitem
 LEFT OUTER JOIN orders
 ON l_orderkey = o_orderkey
-WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
+WHERE l_linenumber > 1 and o_orderdate = '2023-10-18';
 ```
 
 **Case 2:**
@@ -173,6 +194,11 @@ For example:
 
 Materialized view definition:
 ```sql
+CREATE MATERIALIZED VIEW mv3
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT
     l_shipdate, l_suppkey, o_orderdate
     sum(o_totalprice) AS sum_total,
@@ -191,7 +217,7 @@ o_orderdate;
 Query statement:
 ```sql
 SELECT
-    l_shipdate, l_suppkey, o_orderdate
+    l_shipdate, l_suppkey, o_orderdate,
     sum(o_totalprice) AS sum_total,
     max(o_totalprice) AS max_total,
     min(o_totalprice) AS min_total,
@@ -199,7 +225,7 @@ SELECT
     count(distinct CASE WHEN o_shippriority > 1 AND o_orderkey IN (1, 3) THEN o_custkey ELSE null END) AS bitmap_union_basic
 FROM lineitem
 INNER JOIN orders ON lineitem.l_orderkey = orders.o_orderkey AND l_shipdate = o_orderdate
-WHERE o_orderdate = '2023-12-11' AND l_suppkey = 3
+WHERE o_orderdate = '2023-10-18' AND l_suppkey = 3
 GROUP BY
 l_shipdate,
 l_suppkey,
@@ -222,6 +248,11 @@ expressions after SELECT in the materialized view.
 Materialized view definition:
 
 ```sql
+CREATE MATERIALIZED VIEW mv4
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT
     o_shippriority, o_comment,
     count(distinct CASE WHEN o_shippriority > 1 AND o_orderkey IN (1, 3) THEN o_custkey ELSE null END) AS cnt_1,
@@ -267,6 +298,11 @@ the count(distinct) in the query.
 Materialized view definition:
 
 ```sql
+CREATE MATERIALIZED VIEW mv5
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT
     l_shipdate, o_orderdate, l_partkey, l_suppkey,
     sum(o_totalprice) AS sum_total,
@@ -295,7 +331,7 @@ SELECT
     count(distinct CASE WHEN o_shippriority > 1 AND o_orderkey IN (1, 3) THEN o_custkey ELSE null END) AS bitmap_union_basic
 FROM lineitem
 LEFT OUTER JOIN orders ON lineitem.l_orderkey = orders.o_orderkey AND l_shipdate = o_orderdate
-WHERE o_orderdate = '2023-12-11' AND l_partkey = 3
+WHERE o_orderdate = '2023-10-18' AND l_partkey = 3
 GROUP BY
 l_shipdate,
 l_suppkey;
@@ -323,6 +359,11 @@ For example:
 Materialized view definition:
 
 ```sql
+ CREATE MATERIALIZED VIEW mv6
+ BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+ DISTRIBUTED BY RANDOM BUCKETS 3
+ PROPERTIES ('replication_num' = '1')
+ AS
  SELECT
      l_linenumber,
      o_custkey,
@@ -353,6 +394,11 @@ For example:
 Materialized view definition:
 
 ```sql
+CREATE MATERIALIZED VIEW mv7
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT
     o_orderkey,
     o_custkey,
@@ -418,12 +464,20 @@ It will display a concise overview of the transparent rewriting process.
 
 `explain <query_sql>` The information returned is as follows, with the relevant information pertaining to materialized views extracted:
 ```text
-| MaterializedView                                                                                                                                                                                         |
-| MaterializedViewRewriteFail:                                                                                                                                                                             |
-| MaterializedViewRewriteSuccessButNotChose:                                                                                                                                                               |
-|   Names:                                                                                                                                                                                                 |
-| MaterializedViewRewriteSuccessAndChose:                                                                                                                                                                  |
-|   Names: mv1  
+| MaterializedView                                                                                                                                                                                                                                      |
+| MaterializedViewRewriteSuccessAndChose:                                                                                                                                                                                                               |
+|   Names: mv5                                                                                                                                                                                                                                          |
+| MaterializedViewRewriteSuccessButNotChose:                                                                                                                                                                                                            |
+|                                                                                                                                                                                                                                                       |
+| MaterializedViewRewriteFail:                                                                                                                                                                                                                          |
+|   Name: mv4                                                                                                                                                                                                                                           |
+|   FailSummary: Match mode is invalid, View struct info is invalid                                                                                                                                                                                     |
+|   Name: mv3                                                                                                                                                                                                                                           |
+|   FailSummary: Match mode is invalid, Rewrite compensate predicate by view fail, View struct info is invalid                                                                                                                                          |
+|   Name: mv1                                                                                                                                                                                                                                           |
+|   FailSummary: The columns used by query are not in view, View struct info is invalid                                                                                                                                                                 |
+|   Name: mv2                                                                                                                                                                                                                                           |
+|   FailSummary: The columns used by query are not in view, View struct info is invalid
 ```
 
 **MaterializedViewRewriteSuccessAndChose**: Transparent rewrite succeeded, and the materialized view names list
@@ -462,9 +516,13 @@ Support for other types of JOIN operations will be gradually added.
 - The use of non-deterministic functions to build materialized views is not supported,
 including rand, now, current_time, current_date, random, uuid, etc.
 
-- Transparent rewriting does not support window functions and LIMIT.
+- Transparent rewriting does not support window functions.
+
+- The materialized view SQL definition contains LIMIT and does not support transparent rewriting; queries can use LIMIT.
 
 - Currently, materialized view definitions cannot utilize views or other materialized views.
+
+- When the query or materialized view has no data, transparent rewriting is not supported.
 
 - Currently, WHERE clause compensation supports scenarios where the materialized view does not have a WHERE clause, 
 but the query does, or where the materialized view has a WHERE clause and the query's WHERE clause is a superset 

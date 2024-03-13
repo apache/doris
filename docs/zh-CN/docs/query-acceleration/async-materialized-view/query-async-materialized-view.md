@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS lineitem (
     (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES ("replication_num" = "1");
+
+    insert into lineitem values
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-19', '2023-10-19', '2023-10-19', 'a', 'b', 'yyyyyyyyy');
 ```
 ```sql
 CREATE TABLE IF NOT EXISTS orders  (
@@ -75,6 +80,12 @@ CREATE TABLE IF NOT EXISTS orders  (
     FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES ("replication_num" = "1");
+
+    insert into orders values
+    (1, 1, 'o', 9.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (1, 1, 'o', 10.5, '2023-10-18', 'a', 'b', 1, 'yy'),
+    (2, 1, 'o', 11.5, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 12.5, '2023-10-19', 'a', 'b', 1, 'yy');
 ```
 
 ```sql
@@ -90,6 +101,11 @@ CREATE TABLE IF NOT EXISTS orders  (
     PROPERTIES (
       "replication_num" = "1"
     );
+
+    insert into partsupp values
+    (2, 3, 9, 10.01, 'supply1'),
+    (4, 3, 10, 11.01, 'supply2'),
+    (2, 3, 10, 11.01, 'supply3');
 ```
 
 ## 直查物化视图
@@ -103,7 +119,7 @@ mv 定义:
 ```sql
 CREATE MATERIALIZED VIEW mv1
 BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
-DISTRIBUTED BY RANDOM BUCKETS 12
+DISTRIBUTED BY RANDOM BUCKETS 3
 PROPERTIES ('replication_num' = '1')
 AS
 SELECT t1.l_linenumber,
@@ -121,7 +137,7 @@ ON l_orderkey = o_orderkey;
 SELECT l_linenumber,
        o_custkey
 FROM mv1
-WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
+WHERE l_linenumber > 1 and o_orderdate = '2023-10-18';
 ```
 
 ## 透明改写能力
@@ -136,6 +152,11 @@ Join 改写指的是查询和物化使用的表相同，可以在物化视图和
 
 mv 定义:
 ```sql
+CREATE MATERIALIZED VIEW mv2
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT t1.l_linenumber,
        o_custkey,
        o_orderdate
@@ -150,7 +171,7 @@ SELECT l_linenumber,
 FROM lineitem
 LEFT OUTER JOIN orders
 ON l_orderkey = o_orderkey
-WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
+WHERE l_linenumber > 1 and o_orderdate = '2023-10-18';
 ```
 
 **用例2:**
@@ -161,8 +182,13 @@ JOIN衍生，当查询和物化视图的 JOIN 的类型不一致时，如果物�
 
 mv 定义:
 ```sql
+CREATE MATERIALIZED VIEW mv3
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT
-    l_shipdate, l_suppkey, o_orderdate
+    l_shipdate, l_suppkey, o_orderdate,
     sum(o_totalprice) AS sum_total,
     max(o_totalprice) AS max_total,
     min(o_totalprice) AS min_total,
@@ -179,7 +205,7 @@ o_orderdate;
 查询语句:
 ```sql
 SELECT
-    l_shipdate, l_suppkey, o_orderdate
+    l_shipdate, l_suppkey, o_orderdate,
     sum(o_totalprice) AS sum_total,
     max(o_totalprice) AS max_total,
     min(o_totalprice) AS min_total,
@@ -187,7 +213,7 @@ SELECT
     count(distinct CASE WHEN o_shippriority > 1 AND o_orderkey IN (1, 3) THEN o_custkey ELSE null END) AS bitmap_union_basic
 FROM lineitem
 INNER JOIN orders ON lineitem.l_orderkey = orders.o_orderkey AND l_shipdate = o_orderdate
-WHERE o_orderdate = '2023-12-11' AND l_suppkey = 3
+WHERE o_orderdate = '2023-10-18' AND l_suppkey = 3
 GROUP BY
 l_shipdate,
 l_suppkey,
@@ -205,6 +231,11 @@ o_orderdate;
 
 mv 定义:
 ```sql
+CREATE MATERIALIZED VIEW mv4
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT
     o_shippriority, o_comment,
     count(distinct CASE WHEN o_shippriority > 1 AND o_orderkey IN (1, 3) THEN o_custkey ELSE null END) AS cnt_1,
@@ -246,6 +277,11 @@ o_comment;
 
 mv 定义:
 ```sql
+CREATE MATERIALIZED VIEW mv5
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT
     l_shipdate, o_orderdate, l_partkey, l_suppkey,
     sum(o_totalprice) AS sum_total,
@@ -273,7 +309,7 @@ SELECT
     count(distinct CASE WHEN o_shippriority > 1 AND o_orderkey IN (1, 3) THEN o_custkey ELSE null END) AS bitmap_union_basic
 FROM lineitem
 LEFT OUTER JOIN orders ON lineitem.l_orderkey = orders.o_orderkey AND l_shipdate = o_orderdate
-WHERE o_orderdate = '2023-12-11' AND l_partkey = 3
+WHERE o_orderdate = '2023-10-18' AND l_partkey = 3
 GROUP BY
 l_shipdate,
 l_suppkey;
@@ -298,6 +334,11 @@ l_suppkey;
 
 mv 定义:
 ```sql
+ CREATE MATERIALIZED VIEW mv6
+ BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+ DISTRIBUTED BY RANDOM BUCKETS 3
+ PROPERTIES ('replication_num' = '1')
+ AS
  SELECT
      l_linenumber,
      o_custkey,
@@ -325,6 +366,11 @@ mv 定义:
 
 mv 定义:
 ```sql
+CREATE MATERIALIZED VIEW mv7
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 3
+PROPERTIES ('replication_num' = '1')
+AS
 SELECT
     o_orderkey,
     o_custkey,
@@ -378,12 +424,20 @@ WHERE o_orderkey > 5 AND o_orderkey <= 10;
 
 `explain <query_sql>` 返回的信息如下，截取了物化视图相关的信息
 ```text
-| MaterializedView                                                                                                                                                                                         |
-| MaterializedViewRewriteFail:                                                                                                                                                                             |
-| MaterializedViewRewriteSuccessButNotChose:                                                                                                                                                               |
-|   Names:                                                                                                                                                                                                 |
-| MaterializedViewRewriteSuccessAndChose:                                                                                                                                                                  |
-|   Names: mv1  
+| MaterializedView                                                                                                                                                                                                                                      |
+| MaterializedViewRewriteSuccessAndChose:                                                                                                                                                                                                               |
+|   Names: mv5                                                                                                                                                                                                                                          |
+| MaterializedViewRewriteSuccessButNotChose:                                                                                                                                                                                                            |
+|                                                                                                                                                                                                                                                       |
+| MaterializedViewRewriteFail:                                                                                                                                                                                                                          |
+|   Name: mv4                                                                                                                                                                                                                                           |
+|   FailSummary: Match mode is invalid, View struct info is invalid                                                                                                                                                                                     |
+|   Name: mv3                                                                                                                                                                                                                                           |
+|   FailSummary: Match mode is invalid, Rewrite compensate predicate by view fail, View struct info is invalid                                                                                                                                          |
+|   Name: mv1                                                                                                                                                                                                                                           |
+|   FailSummary: The columns used by query are not in view, View struct info is invalid                                                                                                                                                                 |
+|   Name: mv2                                                                                                                                                                                                                                           |
+|   FailSummary: The columns used by query are not in view, View struct info is invalid
 ```
 **MaterializedViewRewriteSuccessAndChose**：透明改写成功，并且CBO选择的物化视图名称列表。
 
@@ -411,7 +465,9 @@ WHERE o_orderkey > 5 AND o_orderkey <= 10;
 INNER 和 LEFT OUTER JOIN 其他类型的 JOIN 操作逐步支持。
 - 基于 External Table 的物化视图不保证查询结果强一致。
 - 不支持使用非确定性函数来构建物化视图，包括 rand、now、current_time、current_date、random、uuid等。
-- 不支持窗口函数和 LIMIT 的透明改写。
+- 不支持窗口函数的透明改写。
+- 物化视图 SQL 定义中有 LIMIT，不支持透明改写；查询可以使用 LIMIT。
 - 物化视图的定义暂时不能使用视图和物化视图。
+- 当查询或者物化视图没有数据时，不支持透明改写。
 - 目前 WHERE 条件补偿，支持物化视图没有 WHERE，查询有 WHERE情况的条件补偿；或者物化视图有 WHERE 且查询的 WHERE 条件是物化视图的超集。
 目前暂时还不支持范围的条件补偿，比如物化视图定义是 a > 5，查询是 a > 10，逐步支持。
