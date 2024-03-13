@@ -244,7 +244,6 @@ struct TQueryIngestBinlogResult {
 
 enum TTopicInfoType {
     WORKLOAD_GROUP
-    MOVE_QUERY_TO_GROUP
     WORKLOAD_SCHED_POLICY
 }
 

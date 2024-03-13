@@ -15,21 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.resource.workloadschedpolicy;
 
-#include <map>
+public class WorkloadActionMoveQueryToGroup implements WorkloadAction {
+    private long dstWgId;
 
-#include "runtime/query_context.h"
-#include "runtime/workload_management/workload_condition.h"
+    public WorkloadActionMoveQueryToGroup(long wgId) {
+        this.dstWgId = wgId;
+    }
 
-namespace doris {
+    @Override
+    public void exec(WorkloadQueryInfo queryInfo) {
+    }
 
-class WorkloadQueryInfo {
-public:
-    std::map<WorkloadMetricType, std::string> metric_map;
-    TUniqueId tquery_id;
-    std::string query_id;
-    std::weak_ptr<QueryContext> query_ctx_weak_ptr;
-};
+    @Override
+    public WorkloadActionType getWorkloadActionType() {
+        return WorkloadActionType.MOVE_QUERY_TO_GROUP;
+    }
 
-} // namespace doris
+    public static WorkloadActionMoveQueryToGroup createWorkloadAction(String groupIdStr) {
+        Long wgId = Long.parseLong(groupIdStr);
+        return new WorkloadActionMoveQueryToGroup(wgId);
+    }
+}

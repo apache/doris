@@ -29,7 +29,13 @@ void WorkloadActionCancelQuery::exec(WorkloadQueryInfo* query_info) {
 }
 
 void WorkloadActionMoveQuery::exec(WorkloadQueryInfo* query_info) {
-    LOG(INFO) << "[workload_schedule]move query action run group=" << _wg_name;
+    if (auto query_ctx_ptr = query_info->query_ctx_weak_ptr.lock()) {
+        Status ret = query_ctx_ptr->move_to_group(_wg_id);
+        if (!ret.ok()) {
+            LOG(INFO) << "[workload_schedule] move query " << query_info->query_id << " to group "
+                      << _wg_id << " failed, reason=" << ret.to_string_no_stack();
+        }
+    }
 };
 
 } // namespace doris

@@ -145,9 +145,8 @@ public:
 
     virtual bool empty_in_queue(int id);
 
-    SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
-
-    SimplifiedScanScheduler* get_remote_scan_scheduler() { return _remote_scan_task_scheduler; }
+    SimplifiedScanScheduler* get_local_scan_scheduler();
+    SimplifiedScanScheduler* get_remote_scan_scheduler();
 
     void stop_scanners(RuntimeState* state);
 
@@ -206,8 +205,6 @@ protected:
     int32_t _max_thread_num = 0;
     int64_t _max_bytes_in_queue;
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
-    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
-    SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     moodycamel::ConcurrentQueue<std::weak_ptr<ScannerDelegate>> _scanners;
     int32_t _num_scheduled_scanners = 0;
     int32_t _num_finished_scanners = 0;
