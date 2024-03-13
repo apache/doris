@@ -56,13 +56,16 @@ public:
 private:
     void _clean_thread_callback();
 
-    struct DeleteBitmapCacheValue {
+    class DeleteBitmapCacheValue : public LRUCacheValueBase {
+    public:
         DeleteBitmapPtr delete_bitmap;
         // records rowsets calc in commit txn
         RowsetIdUnorderedSet rowset_ids;
 
         DeleteBitmapCacheValue(DeleteBitmapPtr delete_bitmap_, const RowsetIdUnorderedSet& ids_)
-                : delete_bitmap(std::move(delete_bitmap_)), rowset_ids(ids_) {}
+                : LRUCacheValueBase(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE),
+                  delete_bitmap(std::move(delete_bitmap_)),
+                  rowset_ids(ids_) {}
     };
 
     struct TxnKey {

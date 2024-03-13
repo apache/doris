@@ -55,7 +55,7 @@ import java.util.stream.Collectors;
 /**
  * SlotBinder is used to bind slot
  */
-public class SlotBinder extends SubExprAnalyzer {
+public class SlotBinder extends SubExprAnalyzer<CascadesContext> {
     /*
     bounded={table.a, a}
     unbound=a

@@ -232,6 +232,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.io_ctx.query_id = &_read_context->runtime_state->query_id();
         _read_options.io_ctx.read_file_cache =
                 _read_context->runtime_state->query_options().enable_file_cache;
+        _read_options.io_ctx.is_disposable =
+                _read_context->runtime_state->query_options().disable_file_cache;
     }
 
     // load segments

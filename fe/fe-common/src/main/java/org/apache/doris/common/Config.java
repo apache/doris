@@ -2259,6 +2259,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
 
+    @ConfField(mutable = true)
+    public static boolean force_sample_analyze = false; // avoid full analyze for performance reason
+
     @ConfField(mutable = true, description = {
             "Export任务允许的最大分区数量",
             "The maximum number of partitions allowed by Export job"})
@@ -2582,6 +2585,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int get_tablet_stat_batch_size = 1000;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_light_index_change = true;
+
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
@@ -2596,6 +2602,9 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
+
+    @ConfField
+    public static int cloud_txn_tablet_batch_size = 50;
 
     //==========================================================================
     //                      end of cloud config

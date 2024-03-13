@@ -108,6 +108,13 @@ public:
         return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
                                                            : _query_options.mem_limit / 20;
     }
+    int64_t query_mem_limit() const {
+        if (_query_options.__isset.mem_limit && (_query_options.mem_limit > 0)) {
+            return _query_options.mem_limit;
+        }
+        return 0;
+    }
+
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
@@ -581,6 +588,33 @@ public:
                                             doris::IRuntimeFilter** producer_filter);
     bool is_nereids() const;
 
+    bool enable_join_spill() const {
+        return _query_options.__isset.enable_join_spill && _query_options.enable_join_spill;
+    }
+
+    bool enable_sort_spill() const {
+        return _query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill;
+    }
+
+    bool enable_agg_spill() const {
+        return _query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill;
+    }
+
+    int64_t min_revocable_mem() const {
+        if (_query_options.__isset.min_revocable_mem) {
+            return _query_options.min_revocable_mem;
+        }
+        return 0;
+    }
+
+    void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
+
+    int max_operator_id() const { return _max_operator_id; }
+
+    void set_task_id(int id) { _task_id = id; }
+
+    int task_id() const { return _task_id; }
+
 private:
     Status create_error_log_file();
 
@@ -689,6 +723,8 @@ private:
     std::ofstream* _error_log_file = nullptr; // error file path, absolute path
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
+    int _max_operator_id = 0;
+    int _task_id = -1;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
 

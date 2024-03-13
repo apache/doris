@@ -56,6 +56,8 @@ PROPERTIES ("key" = "value", ...)
 | `meta_names_mapping`      | No              |               | When the JDBC external data source has the same name but different case, e.g. DORIS and doris, Doris reports an error when querying the catalog due to ambiguity. In this case, the `meta_names_mapping` parameter needs to be specified to resolve the conflict. |
 | `include_database_list`   | No              |               | When `only_specified_database = true`，only synchronize the specified databases. Separate with `,`. Database name is case sensitive. |
 | `exclude_database_list`   | No              |               | When `only_specified_database = true`，do not synchronize the specified databases. Separate with `,`. Database name is case sensitive. |
+| `test_connection`         | No              | "false"       | Whether to test the connection when creating the catalog. If set to `true`, the connection will be tested when creating the catalog and will refuse to create the catalog if the connection fails. If set to `false`, the connection will not be tested. |
+
 
 ### Driver path
 
@@ -407,7 +409,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
     "user" = "root",
     "password" = "123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_url" = "mysql-connector-java-5.1.49.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 ```
@@ -625,7 +627,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
     "user" = "root",
     "password" = "123456",
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
-    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_url" = "mysql-connector-java-5.1.49.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 ```
@@ -899,12 +901,12 @@ It is recommended to use the following versions of Driver to connect to the corr
 
 |    Source    |                        JDBC Driver Version                        |
 |:------------:|:-----------------------------------------------------------------:|
-| MySQL 5.x    |                  mysql-connector-java-5.1.47.jar                  |
+| MySQL 5.x    |                  mysql-connector-java-5.1.49.jar                  |
 |  MySQL 8.x   |                  mysql-connector-java-8.0.25.jar                  |
 |  PostgreSQL  |                       postgresql-42.5.1.jar                       |
 |    Oracle    |                            ojdbc8.jar                             |
 |  SQLServer   |                    mssql-jdbc-11.2.3.jre8.jar                     |
-|    Doris     | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+|    Doris     | mysql-connector-java-5.1.49.jar / mysql-connector-java-8.0.25.jar |
 |  Clickhouse  |                   clickhouse-jdbc-0.4.2-all.jar                   |
 |   SAP HAHA   |                             ngdbc.jar                             |
 | Trino/Presto |            trino-jdbc-389.jar / presto-jdbc-0.280.jar             |

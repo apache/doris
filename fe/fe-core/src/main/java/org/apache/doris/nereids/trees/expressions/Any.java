@@ -74,4 +74,8 @@ public class Any extends Expression implements LeafExpression {
     public boolean deepEquals(TreeNode<?> that) {
         return true;
     }
+
+    protected boolean supportCompareWidthAndDepth() {
+        return false;
+    }
 }

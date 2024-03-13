@@ -676,7 +676,8 @@ terminal String
     KW_EXECUTE,
     KW_LINES,
     KW_IGNORE,
-    KW_CONVERT_LSC;
+    KW_CONVERT_LSC,
+    KW_VAULT;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -1915,6 +1916,11 @@ create_stmt ::=
     | KW_CREATE KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new CreateResourceStmt(false, ifNotExists, resourceName, properties);
+    :}
+    /* storage vault */
+    | KW_CREATE KW_STORAGE KW_VAULT opt_if_not_exists:ifNotExists ident_or_text:storageVaultName opt_properties:properties
+    {:
+        RESULT = new CreateStorageVaultStmt(ifNotExists, storageVaultName, properties);
     :}
     /* workload group*/
     | KW_CREATE KW_WORKLOAD KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:workloadGroupName opt_properties:properties

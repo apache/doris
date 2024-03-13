@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -102,6 +103,8 @@ public:
 
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
+    io::FileWriter* get_file_writer(int32_t segment_id);
+
     Status close();
 
 public:
@@ -153,7 +156,7 @@ private:
     RowsetWriterContext* _context;
 
     mutable SpinLock _lock; // protect following vectors.
-    std::vector<io::FileWriterPtr> _file_writers;
+    std::unordered_map<int32_t, io::FileWriterPtr> _file_writers;
 
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
@@ -195,6 +198,10 @@ public:
     }
 
     Status close();
+
+    io::FileWriter* get_file_writer(int32_t segment_id) {
+        return _segment_flusher.get_file_writer(segment_id);
+    }
 
 private:
     std::atomic<int32_t> _next_segment_id = 0;

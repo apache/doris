@@ -439,7 +439,7 @@ Status BetaRowset::add_to_binlog() {
     if (fs->type() != io::FileSystemType::LOCAL) {
         return Status::InternalError("should be local file system");
     }
-    io::LocalFileSystem* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
+    auto* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
 
     // all segments are in the same directory, so cache binlog_dir without multi times check
     std::string binlog_dir;
@@ -447,6 +447,22 @@ Status BetaRowset::add_to_binlog() {
     auto segments_num = num_segments();
     VLOG_DEBUG << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
                               rowset_id().to_string(), segments_num);
+
+    Status status;
+    std::vector<string> linked_success_files;
+    Defer remove_linked_files {[&]() { // clear linked files if errors happen
+        if (!status.ok()) {
+            LOG(WARNING) << "will delete linked success files due to error " << status;
+            std::vector<io::Path> paths;
+            for (auto& file : linked_success_files) {
+                paths.emplace_back(file);
+                LOG(WARNING) << "will delete linked success file " << file << " due to error";
+            }
+            static_cast<void>(local_fs->batch_delete(paths));
+            LOG(WARNING) << "done delete linked success files due to error " << status;
+        }
+    }};
+
     for (int i = 0; i < segments_num; ++i) {
         auto seg_file = segment_file_path(i);
 
@@ -465,8 +481,30 @@ Status BetaRowset::add_to_binlog() {
                         .string();
         VLOG_DEBUG << "link " << seg_file << " to " << binlog_file;
         if (!local_fs->link_file(seg_file, binlog_file).ok()) {
-            return Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
-                                           seg_file, binlog_file, Errno::no());
+            status = Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
+                                             seg_file, binlog_file, Errno::no());
+            return status;
+        }
+        linked_success_files.push_back(binlog_file);
+
+        for (const auto& index : _schema->indexes()) {
+            if (index.index_type() != IndexType::INVERTED) {
+                continue;
+            }
+            auto index_id = index.index_id();
+            auto index_file = InvertedIndexDescriptor::get_index_file_name(
+                    seg_file, index_id, index.get_index_suffix());
+            auto binlog_index_file = (std::filesystem::path(binlog_dir) /
+                                      std::filesystem::path(index_file).filename())
+                                             .string();
+            VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
+            if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
+                status = Status::Error<OS_ERROR>(
+                        "fail to create hard link. from={}, to={}, errno={}", index_file,
+                        binlog_index_file, Errno::no());
+                return status;
+            }
+            linked_success_files.push_back(binlog_index_file);
         }
     }
 

@@ -175,6 +175,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
+    public static final String PROPERTIES_STORAGE_VAULT = "storage_vault";
+    public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
+    public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -1017,6 +1020,15 @@ public class PropertyAnalyzer {
         }
 
         return storagePolicy;
+    }
+
+    public static String analyzeStorageVault(Map<String, String> properties) {
+        String storageVault = null;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT)) {
+            storageVault = properties.get(PROPERTIES_STORAGE_VAULT);
+        }
+
+        return storageVault;
     }
 
     // analyze property like : "type" = "xxx";

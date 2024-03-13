@@ -74,8 +74,6 @@ public abstract class TableValuedFunctionIf {
                 return new TasksTableValuedFunction(params);
             case GroupCommitTableValuedFunction.NAME:
                 return new GroupCommitTableValuedFunction(params);
-            case ActiveQueriesTableValuedFunction.NAME:
-                return new ActiveQueriesTableValuedFunction(params);
             case WorkloadSchedPolicyTableValuedFunction.NAME:
                 return new WorkloadSchedPolicyTableValuedFunction(params);
             default:

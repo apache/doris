@@ -169,8 +169,8 @@ public abstract class JdbcClient {
         try {
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s", e,
-                    this.getCatalogName());
+            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s",
+                    e.getMessage(), this.getCatalogName());
             throw new JdbcClientException(errorMessage, e);
         }
         return conn;
@@ -452,5 +452,23 @@ public abstract class JdbcClient {
             return ScalarType.createDecimalV3Type(precision, scale);
         }
         return ScalarType.createStringType();
+    }
+
+    public void testConnection() {
+        String testQuery = getTestQuery();
+        try (Connection conn = getConnection();
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(testQuery)) {
+            if (!rs.next()) {
+                throw new JdbcClientException(
+                        "Failed to test connection in FE: query executed but returned no results.");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to test connection in FE: " + e.getMessage(), e);
+        }
+    }
+
+    public String getTestQuery() {
+        return "select 1";
     }
 }
