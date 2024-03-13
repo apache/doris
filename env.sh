@@ -20,12 +20,6 @@
 # check DORIS_HOME
 export LC_ALL=C
 
-if [[ -z "${SKIP_ENV}" ]]; then
-    export SKIP_ENV=1
-else
-    exit 0
-fi
-
 if [[ -z "${DORIS_HOME}" ]]; then
     echo "Error: DORIS_HOME is not set"
     exit 1
