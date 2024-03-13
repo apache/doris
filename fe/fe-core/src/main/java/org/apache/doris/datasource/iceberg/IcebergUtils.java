@@ -229,7 +229,7 @@ public class IcebergUtils {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            if (dateLiteral.isDateType()) {
+            if (dateLiteral.isDateType() || dateLiteral.isDateTimeType()) {
                 return dateLiteral.getStringValue();
             } else {
                 return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
