@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -93,6 +94,8 @@ public:
     virtual void prune_all(bool force) = 0;
 
     CacheType type() { return _type; }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker() { return _mem_tracker; }
+    int64_t mem_consumption() { return _mem_tracker->consumption(); }
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
@@ -107,8 +110,13 @@ protected:
         _cost_timer = ADD_TIMER(_profile, "CostTime");
     }
 
+    void init_mem_tracker(const std::string& name) {
+        _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, name);
+    }
+
     CacheType _type;
-    std::list<CachePolicy*>::iterator _it;
+
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;

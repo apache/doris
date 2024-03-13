@@ -1093,11 +1093,8 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
                 val->bitmap |= bm;
             }
         }
-        static auto deleter = [](const CacheKey& key, void* value) {
-            delete (AggCache::Value*)value; // Just delete to reclaim
-        };
         size_t charge = val->bitmap.getSizeInBytes() + sizeof(AggCache::Value);
-        handle = _agg_cache->repr()->insert(key, val, charge, deleter, CachePriority::NORMAL);
+        handle = _agg_cache->repr()->insert(key, val, charge, charge, CachePriority::NORMAL);
     }
 
     // It is natural for the cache to reclaim the underlying memory
