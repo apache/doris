@@ -259,4 +259,10 @@ void AgentServer::publish_cluster_state(TAgentResult& t_agent_result,
     status.to_thrift(&t_agent_result.status);
 }
 
+void AgentServer::stop_report_workers() {
+    for (auto& work : _report_workers) {
+        work->stop();
+    }
+}
+
 } // namespace doris
