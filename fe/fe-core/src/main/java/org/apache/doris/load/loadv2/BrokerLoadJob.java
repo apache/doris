@@ -90,6 +90,10 @@ public class BrokerLoadJob extends BulkLoadJob {
         super(EtlJobType.BROKER);
     }
 
+    protected BrokerLoadJob(EtlJobType type) {
+        super(type);
+    }
+
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc,
                          OriginStatement originStmt, UserIdentity userInfo)
             throws MetaNotFoundException {
