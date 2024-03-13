@@ -105,7 +105,6 @@ import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
@@ -171,51 +170,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // after doing NormalizeAggregate in analysis job
                     // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                     bottomUp(new PullUpProjectUnderApply()),
-                    topDown(
-                            /*
-                             * for subquery unnest, we need hand sql like
-                             *
-                             * SELECT *
-                             *     FROM table1 AS t1
-                             * WHERE EXISTS
-                             *     (SELECT `pk`
-                             *         FROM table2 AS t2
-                             *     WHERE t1.pk = t2 .pk
-                             *     GROUP BY  t2.pk
-                             *     HAVING t2.pk > 0) ;
-                             *
-                             * before:
-                             *              apply
-                             *            /       \
-                             *          child    Filter(t2.pk > 0)
-                             *                     |
-                             *                  Project(t2.pk)
-                             *                     |
-                             *                    agg
-                             *                     |
-                             *                  Project(t2.pk)
-                             *                     |
-                             *              Filter(t1.pk=t2.pk)
-                             *                     |
-                             *                    child
-                             *
-                             * after:
-                             *              apply
-                             *            /       \
-                             *          child     agg
-                             *                      |
-                             *                  Project(t2.pk)
-                             *                      |
-                             *              Filter(t1.pk=t2.pk and t2.pk >0)
-                             *                      |
-                             *                     child
-                             *
-                             * then PullUpCorrelatedFilterUnderApplyAggregateProject rule can match the node pattern
-                             */
-                            new PushDownFilterThroughAggregation(),
-                            new PushDownFilterThroughProject(),
-                            new MergeFilters()
-                    ),
+                    topDown(new PushDownFilterThroughProject()),
                     custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
                             AggScalarSubQueryToWindowFunction::new),
                     bottomUp(
