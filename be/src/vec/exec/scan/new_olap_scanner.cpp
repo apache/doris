@@ -419,6 +419,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
 Status NewOlapScanner::_init_variant_columns() {
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    if (tablet_schema->num_variant_columns() == 0) {
+        return Status::OK();
+    }
     // Parent column has path info to distinction from each other
     for (auto slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
@@ -437,8 +440,8 @@ Status NewOlapScanner::_init_variant_columns() {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
         }
-        schema_util::inherit_tablet_index(tablet_schema);
     }
+    schema_util::inherit_tablet_index(tablet_schema);
     return Status::OK();
 }
 

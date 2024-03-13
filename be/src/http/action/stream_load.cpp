@@ -564,8 +564,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                                                       {"MERGE", TMergeType::MERGE}};
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
         std::string merge_type_str = http_req->header(HTTP_MERGE_TYPE);
-        if (merge_type_map.find(merge_type_str) != merge_type_map.end()) {
-            merge_type = merge_type_map.find(merge_type_str)->second;
+        auto iter = merge_type_map.find(merge_type_str);
+        if (iter != merge_type_map.end()) {
+            merge_type = iter->second;
         } else {
             return Status::InvalidArgument("Invalid merge type {}", merge_type_str);
         }
