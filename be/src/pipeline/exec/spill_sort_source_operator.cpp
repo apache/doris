@@ -258,15 +258,15 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
-    if (!local_state.Base::_shared_state->enable_spill) {
-        RETURN_IF_ERROR(
-                _sort_source_operator->get_block(local_state._runtime_state.get(), block, eos));
-    } else {
+    if (local_state.Base::_shared_state->enable_spill && local_state._shared_state->is_spilled) {
         if (!local_state._merger) {
             return local_state.initiate_merge_sort_spill_streams(state);
         } else {
             RETURN_IF_ERROR(local_state._merger->get_next(block, eos));
         }
+    } else {
+        RETURN_IF_ERROR(
+                _sort_source_operator->get_block(local_state._runtime_state.get(), block, eos));
     }
     local_state.reached_limit(block, eos);
     return Status::OK();

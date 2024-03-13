@@ -179,9 +179,20 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
             local_state._shared_state->in_mem_shared_state->sorter->data_size());
     if (eos) {
         if (_enable_spill) {
-            if (revocable_mem_size(state) > 0) {
-                RETURN_IF_ERROR(revoke_memory(state));
+            local_state.profile()->add_info_string(
+                    "Spilled", local_state._shared_state->is_spilled ? "true" : "false");
+            LOG(INFO) << "sort node " << id()
+                      << " sink eos, spilled: " << local_state._shared_state->is_spilled;
+            if (local_state._shared_state->is_spilled) {
+                if (revocable_mem_size(state) > 0) {
+                    RETURN_IF_ERROR(revoke_memory(state));
+                } else {
+                    local_state._dependency->set_ready_to_read();
+                    local_state._finish_dependency->set_ready();
+                }
             } else {
+                RETURN_IF_ERROR(
+                        local_state._shared_state->in_mem_shared_state->sorter->prepare_for_read());
                 local_state._dependency->set_ready_to_read();
                 local_state._finish_dependency->set_ready();
             }
@@ -196,6 +207,7 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
 Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
     DCHECK(!_is_spilling);
     _is_spilling = true;
+    _shared_state->is_spilled = true;
 
     LOG(INFO) << "sort node " << Base::_parent->id() << " revoke_memory"
               << ", eos: " << _eos;

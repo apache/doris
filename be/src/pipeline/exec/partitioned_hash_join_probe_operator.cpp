@@ -783,6 +783,11 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
                                                     bool* eos) {
     *eos = false;
     auto& local_state = get_local_state(state);
+    Defer defer([&] {
+        if (*eos) {
+            LOG(INFO) << "hash probe " << id() << " eos";
+        }
+    });
     SCOPED_TIMER(local_state.exec_time_counter());
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data();

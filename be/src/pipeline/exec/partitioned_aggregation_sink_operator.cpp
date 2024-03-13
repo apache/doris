@@ -168,13 +168,21 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
     auto* runtime_state = local_state._runtime_state.get();
     RETURN_IF_ERROR(_agg_sink_operator->sink(runtime_state, in_block, false));
     if (eos) {
-        LOG(INFO) << "agg node " << id() << " sink eos";
-        if (revocable_mem_size(state) > 0) {
-            RETURN_IF_ERROR(revoke_memory(state));
-        } else {
-            for (auto& partition : local_state._shared_state->spill_partitions) {
-                RETURN_IF_ERROR(partition->finish_current_spilling(eos));
+        local_state.profile()->add_info_string(
+                "Spilled", local_state._shared_state->is_spilled ? "true" : "false");
+        LOG(INFO) << "agg node " << id()
+                  << " sink eos, spilled: " << local_state._shared_state->is_spilled;
+        if (local_state._shared_state->is_spilled) {
+            if (revocable_mem_size(state) > 0) {
+                RETURN_IF_ERROR(revoke_memory(state));
+            } else {
+                for (auto& partition : local_state._shared_state->spill_partitions) {
+                    RETURN_IF_ERROR(partition->finish_current_spilling(eos));
+                }
+                local_state._dependency->set_ready_to_read();
+                local_state._finish_dependency->set_ready();
             }
+        } else {
             local_state._dependency->set_ready_to_read();
             local_state._finish_dependency->set_ready();
         }
@@ -234,6 +242,7 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
     RETURN_IF_ERROR(Base::_shared_state->sink_status);
     DCHECK(!_is_spilling);
     _is_spilling = true;
+    _shared_state->is_spilled = true;
 
     // TODO: spill thread may set_ready before the task::execute thread put the task to blocked state
     if (!_eos) {

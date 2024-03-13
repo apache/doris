@@ -133,13 +133,16 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
-    RETURN_IF_ERROR(local_state.initiate_merge_spill_partition_agg_data(state));
+    if (local_state._shared_state->is_spilled) {
+        RETURN_IF_ERROR(local_state.initiate_merge_spill_partition_agg_data(state));
 
-    /// When `_is_merging` is true means we are reading spilled data and merging the data into hash table.
-    if (local_state._is_merging) {
-        return Status::OK();
+        /// When `_is_merging` is true means we are reading spilled data and merging the data into hash table.
+        if (local_state._is_merging) {
+            return Status::OK();
+        }
     }
 
+    // not spilled in sink or current partition still has data
     auto* runtime_state = local_state._runtime_state.get();
     RETURN_IF_ERROR(_agg_source_operator->get_block(runtime_state, block, eos));
     if (local_state._runtime_state) {
@@ -148,7 +151,8 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
         local_state.update_profile(source_local_state->profile());
     }
     if (*eos) {
-        if (!local_state._shared_state->spill_partitions.empty()) {
+        if (local_state._shared_state->is_spilled &&
+            !local_state._shared_state->spill_partitions.empty()) {
             *eos = false;
         }
     }
