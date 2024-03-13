@@ -211,7 +211,7 @@ Status LoadChannelMgr::_start_bg_worker() {
             [this]() {
                 while (!_stop_background_threads_latch.wait_for(
                         std::chrono::seconds(START_BG_INTERVAL))) {
-                    RETURN_IF_ERROR(_start_load_channels_clean());
+                    static_cast<void>(_start_load_channels_clean());
                 }
             },
             &_load_channels_clean_thread));
