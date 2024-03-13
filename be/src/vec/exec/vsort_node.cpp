@@ -141,13 +141,15 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
 
-        // update runtime predicate
         if (_use_topn_opt) {
-            Field new_top = _sorter->get_top_value();
-            if (!new_top.is_null() && new_top != old_top) {
-                auto* query_ctx = state->get_query_ctx();
-                RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_id).update(new_top));
-                old_top = std::move(new_top);
+            auto& predicate = state->get_query_ctx()->get_runtime_predicate(_id);
+            if (predicate.need_update()) {
+                vectorized::Field new_top = _sorter->get_top_value();
+                if (!new_top.is_null() && new_top != old_top) {
+                    auto* query_ctx = state->get_query_ctx();
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_id).update(new_top));
+                    old_top = std::move(new_top);
+                }
             }
         }
         if (!_reuse_mem) {
