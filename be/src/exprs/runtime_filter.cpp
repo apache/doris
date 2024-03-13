@@ -895,8 +895,11 @@ public:
         if (_is_bloomfilter) {
             return _context.bloom_filter_func->contain_null();
         }
-        return get_real_type() == RuntimeFilterType::IN_FILTER &&
-               _context.hybrid_set->contain_null();
+        if (_context.hybrid_set) {
+            DCHECK(get_real_type() == RuntimeFilterType::IN_FILTER);
+            return _context.hybrid_set->contain_null();
+        }
+        return false;
     }
 
     bool is_ignored() const { return _ignored; }
