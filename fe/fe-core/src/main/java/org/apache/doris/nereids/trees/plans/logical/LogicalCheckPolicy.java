@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -33,8 +35,6 @@ import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.policy.PolicyMgr;
-import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -125,32 +125,39 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return Optional.empty();
         }
 
-        PolicyMgr policyMgr = connectContext.getEnv().getPolicyMgr();
+        AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return Optional.empty();
         }
 
         CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
-        long dbId = catalogRelation.getDatabase().getId();
-        long tableId = catalogRelation.getTable().getId();
-        List<RowPolicy> policies = policyMgr.getUserPolicies(dbId, tableId, currentUserIdentity);
+        String ctlName = catalogRelation.getDatabase().getCatalog().getName();
+        String dbName = catalogRelation.getDatabase().getFullName();
+        String tableName = catalogRelation.getTable().getName();
+        List<? extends RowFilterPolicy> policies = null;
+        try {
+            policies = accessManager.evalRowFilterPolicies(currentUserIdentity, ctlName,
+                    dbName, tableName);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         if (policies.isEmpty()) {
             return Optional.empty();
         }
         return Optional.ofNullable(mergeRowPolicy(policies));
     }
 
-    private Expression mergeRowPolicy(List<RowPolicy> policies) {
+    private Expression mergeRowPolicy(List<? extends RowFilterPolicy> policies) {
         List<Expression> orList = new ArrayList<>();
         List<Expression> andList = new ArrayList<>();
-        for (RowPolicy policy : policies) {
-            String sql = policy.getOriginStmt();
+        for (RowFilterPolicy policy : policies) {
+            String sql = policy.getFilterExpr();
             NereidsParser nereidsParser = new NereidsParser();
             CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
             Optional<Expression> wherePredicate = command.getWherePredicate();
             if (!wherePredicate.isPresent()) {
-                throw new AnalysisException("Invalid row policy [" + policy.getPolicyName() + "], " + sql);
+                throw new AnalysisException("Invalid row policy [" + policy.getPolicyIdent() + "], " + sql);
             }
             switch (policy.getFilterType()) {
                 case PERMISSIVE:

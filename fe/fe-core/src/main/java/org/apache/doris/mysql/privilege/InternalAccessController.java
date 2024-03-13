@@ -19,8 +19,18 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthorizationException;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.policy.PolicyMgr;
 
+import com.google.common.collect.Lists;
+
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class InternalAccessController implements CatalogAccessController {
@@ -68,7 +78,27 @@ public class InternalAccessController implements CatalogAccessController {
 
     @Override
     public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
-                                  PrivPredicate wanted, ResourceTypeEnum type) {
+            PrivPredicate wanted, ResourceTypeEnum type) {
         return auth.checkResourcePriv(currentUser, resourceName, wanted);
+    }
+
+    @Override
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+            String col) {
+        return Optional.empty();
+    }
+
+    @Override
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+            String tbl)
+            throws AnalysisException {
+        // current not support external catalog
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctl)) {
+            return Lists.newArrayList();
+        }
+        PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
+        Database database = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(db);
+        Table table = database.getTableOrAnalysisException(tbl);
+        return policyMgr.getUserPolicies(database.getId(), table.getId(), currentUser);
     }
 }

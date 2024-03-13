@@ -23,6 +23,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -36,7 +37,9 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -229,7 +232,7 @@ public class AccessControllerManager {
     }
 
     public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
-                                  PrivPredicate wanted, ResourceTypeEnum type) {
+            PrivPredicate wanted, ResourceTypeEnum type) {
         return defaultAccessController.checkCloudPriv(currentUser, cloudName, wanted, type);
     }
 
@@ -259,5 +262,24 @@ public class AccessControllerManager {
             }
         }
         return true;
+    }
+
+    public Map<String, Optional<DataMaskPolicy>> evalDataMaskPolicies(UserIdentity currentUser, String
+            ctl, String db, String tbl, Set<String> cols) {
+        Map<String, Optional<DataMaskPolicy>> res = Maps.newHashMap();
+        for (String col : cols) {
+            res.put(col, evalDataMaskPolicy(currentUser, ctl, db, tbl, col));
+        }
+        return res;
+    }
+
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String
+            ctl, String db, String tbl, String col) {
+        return getAccessControllerOrDefault(ctl).evalDataMaskPolicy(currentUser, ctl, db, tbl, col);
+    }
+
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String
+            ctl, String db, String tbl) throws AnalysisException {
+        return getAccessControllerOrDefault(ctl).evalRowFilterPolicies(currentUser, ctl, db, tbl);
     }
 }

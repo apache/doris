@@ -21,11 +21,17 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveResource;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthorizationException;
+import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.RangerDataMaskPolicy;
+import org.apache.doris.mysql.privilege.RangerRowFilterPolicy;
+import org.apache.doris.mysql.privilege.RowFilterPolicy;
 
+import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
@@ -36,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -70,6 +77,21 @@ public class RangerDorisAccessController extends RangerAccessController {
         return request;
     }
 
+    private RangerAccessRequestImpl createRequest(UserIdentity currentUser) {
+        RangerAccessRequestImpl request = new RangerAccessRequestImpl();
+        request.setUser(ClusterNamespace.getNameFromFullName(currentUser.getQualifiedUser()));
+        Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(currentUser, false);
+        request.setUserRoles(roles.stream().map(role -> ClusterNamespace.getNameFromFullName(role)).collect(
+                Collectors.toSet()));
+
+        request.setClientIPAddress(currentUser.getHost());
+        request.setClusterType(CLIENT_TYPE_DORIS);
+        request.setClientType(CLIENT_TYPE_DORIS);
+        request.setAccessTime(new Date());
+
+        return request;
+    }
+
     private void checkPrivileges(UserIdentity currentUser, DorisAccessType accessType,
             List<RangerDorisResource> dorisResources) throws AuthorizationException {
         List<RangerAccessRequest> requests = new ArrayList<>();
@@ -94,27 +116,6 @@ public class RangerDorisAccessController extends RangerAccessController {
 
         RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
         return checkRequestResult(request, result, accessType.name());
-    }
-
-    public String getFilterExpr(UserIdentity currentUser, DorisAccessType accessType,
-            RangerHiveResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-        request.setResource(resource);
-        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
-
-        return result.getFilterExpr();
-    }
-
-    public void getColumnMask(UserIdentity currentUser, DorisAccessType accessType,
-            RangerHiveResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-        request.setResource(resource);
-        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
-                    result.getMaskTypeDef(), result.getMaskedValue()));
-        }
     }
 
     @Override
@@ -159,7 +160,7 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
-                                  PrivPredicate wanted, ResourceTypeEnum type) {
+            PrivPredicate wanted, ResourceTypeEnum type) {
         return false;
     }
 
@@ -173,6 +174,58 @@ public class RangerDorisAccessController extends RangerAccessController {
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.WORKLOAD_GROUP, workloadGroupName);
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
+    }
+
+    @Override
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+            String col) {
+        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COLUMN,
+                ctl, ClusterNamespace.getNameFromFullName(db), tbl, col);
+        RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setResource(resource);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ranger request: {}", request);
+        }
+        RangerAccessResult policy = dorisPlugin.evalDataMaskPolicies(request, null);
+        if (policy == null) {
+            return Optional.empty();
+        }
+        String maskType = policy.getMaskType();
+        if (StringUtils.isEmpty(maskType)) {
+            return Optional.empty();
+        }
+        String transformer = policy.getMaskTypeDef().getTransformer();
+        if (StringUtils.isEmpty(transformer)) {
+            return Optional.empty();
+        }
+        return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                policy.getPolicyVersion(), maskType, transformer.replace("${col}", col)));
+    }
+
+    @Override
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+            String tbl) throws AnalysisException {
+        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
+                ctl, ClusterNamespace.getNameFromFullName(db), tbl);
+        RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setResource(resource);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ranger request: {}", request);
+        }
+        List<RangerRowFilterPolicy> res = Lists.newArrayList();
+        RangerAccessResult policy = dorisPlugin.evalRowFilterPolicies(request, null);
+        if (policy == null) {
+            return res;
+        }
+        String filterExpr = policy.getFilterExpr();
+        if (StringUtils.isEmpty(filterExpr)) {
+            return res;
+        }
+        res.add(new RangerRowFilterPolicy(currentUser, ctl, db, tbl, policy.getPolicyId(), policy.getPolicyVersion(),
+                filterExpr));
+        return res;
     }
 
     // For test only
