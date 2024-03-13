@@ -477,8 +477,8 @@ CREATE TABLE `demo`.`records_tbl2` (
     `phone` varchar(16) NOT NULL COMMENT "",
     `mktsegment` varchar(11) NOT NULL COMMENT "",
     `unique_value` BIGINT NOT NULL AUTO_INCREMENT
-) DUPLICATE KEY (`key`, `name`)
-DISTRIBUTED BY HASH(`key`) BUCKETS 10
+) DUPLICATE KEY (`user_id`, `name`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 10
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 3"
 );
