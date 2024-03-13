@@ -29,8 +29,8 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/sync_point.h"
+#include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "io/cache/block_file_cache_manager.h"
 #include "io/cache/file_block.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
@@ -45,12 +45,12 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         : _remote_file_reader(std::move(remote_file_reader)) {
     _is_doris_table = opts.is_doris_table;
     if (_is_doris_table) {
-        _cache_hash = BlockFileCacheManager::hash(path().filename().native());
+        _cache_hash = BlockFileCache::hash(path().filename().native());
         _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
     } else {
         // Use path and modification time to build cache key
         std::string unique_path = fmt::format("{}:{}", path().native(), opts.mtime);
-        _cache_hash = BlockFileCacheManager::hash(unique_path);
+        _cache_hash = BlockFileCache::hash(unique_path);
         if (opts.cache_base_path.empty()) {
             // if cache path is not specified by session variable, chose randomly.
             _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);

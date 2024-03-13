@@ -17,25 +17,32 @@
 
 #pragma once
 
-#include "io/cache/file_cache_utils.h"
+#include "io/cache/file_cache_common.h"
 #include "util/slice.h"
 
 namespace doris::io {
 
-class BlockFileCacheManager;
+class BlockFileCache;
 
+// The interface is for organizing datas in disk
 class FileCacheStorage {
 public:
     FileCacheStorage() = default;
     virtual ~FileCacheStorage() = default;
-    virtual Status init(BlockFileCacheManager* _mgr) = 0;
+    // init the manager, read the blocks meta into memory
+    virtual Status init(BlockFileCache* _mgr) = 0;
+    // append datas into block
     virtual Status append(const FileCacheKey& key, const Slice& value) = 0;
+    // finalize the block
     virtual Status finalize(const FileCacheKey& key) = 0;
+    // read the block
     virtual Status read(const FileCacheKey& key, size_t value_offset, Slice result) = 0;
+    // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
+    // change the block meta
     virtual Status change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) = 0;
     // use when lazy load cache
-    virtual void load_blocks_directly_unlocked(BlockFileCacheManager* _mgr, const FileCacheKey& key,
+    virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                                std::lock_guard<std::mutex>& cache_lock) {}
 };
 

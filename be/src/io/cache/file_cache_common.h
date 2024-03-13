@@ -33,8 +33,7 @@ inline static constexpr size_t DEFAULT_INDEX_PERCENT = 5;
 using uint128_t = vectorized::UInt128;
 using UInt128Hash = vectorized::UInt128Hash;
 
-// default 1 : 17 : 2
-enum FileCacheType {
+enum class FileCacheType {
     INDEX,
     NORMAL,
     DISPOSABLE,
@@ -74,7 +73,7 @@ struct FileCacheKey {
 };
 
 struct FileCacheSettings {
-    size_t total_size {0};
+    size_t capacity {0};
     size_t disposable_queue_size {0};
     size_t disposable_queue_elements {0};
     size_t index_queue_size {0};
@@ -85,10 +84,10 @@ struct FileCacheSettings {
     size_t max_query_cache_size {0};
 };
 
-FileCacheSettings calc_settings(size_t total_size, size_t max_query_cache_size,
-                                size_t normal_percent = DEFAULT_NORMAL_PERCENT,
-                                size_t disposable_percent = DEFAULT_DISPOSABLE_PERCENT,
-                                size_t index_percent = DEFAULT_INDEX_PERCENT);
+FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cache_size,
+                                          size_t normal_percent = DEFAULT_NORMAL_PERCENT,
+                                          size_t disposable_percent = DEFAULT_DISPOSABLE_PERCENT,
+                                          size_t index_percent = DEFAULT_INDEX_PERCENT);
 
 struct CacheContext {
     CacheContext(const IOContext* io_context) {

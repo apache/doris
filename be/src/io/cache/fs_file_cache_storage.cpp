@@ -23,9 +23,9 @@
 
 #include "common/logging.h"
 #include "common/sync_point.h"
-#include "io/cache/block_file_cache_manager.h"
+#include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
-#include "io/cache/file_cache_utils.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
@@ -34,6 +34,16 @@
 #include "vec/common/hex.h"
 
 namespace doris::io {
+
+struct BatchLoadArgs {
+    UInt128Wrapper hash;
+    CacheContext ctx;
+    uint64_t offset;
+    size_t size;
+    std::string key_path;
+    std::string offset_path;
+    bool is_tmp;
+};
 
 FDCache* FDCache::instance() {
     return ExecEnv::GetInstance()->file_cache_open_fd_cache();
@@ -88,7 +98,7 @@ size_t FDCache::file_reader_cache_size() {
     return _file_reader_list.size();
 }
 
-Status FSFileCacheStorage::init(BlockFileCacheManager* _mgr) {
+Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
     _cache_base_path = _mgr->_cache_base_path;
     RETURN_IF_ERROR(rebuild_data_structure());
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
@@ -194,7 +204,7 @@ Status FSFileCacheStorage::change_key_meta(const FileCacheKey& key, const KeyMet
 std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, size_t offset,
                                                         FileCacheType type, bool is_tmp) {
     return Path(dir) / (std::to_string(offset) +
-                        (is_tmp ? "_tmp" : BlockFileCacheManager::cache_type_to_string(type)));
+                        (is_tmp ? "_tmp" : BlockFileCache::cache_type_to_string(type)));
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& value,
@@ -208,7 +218,10 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& va
             return Path(_cache_base_path) / (str + "_" + std::to_string(expiration_time));
         }
     } catch (std::filesystem::filesystem_error& e) {
-        LOG(WARNING) << "fail to get_path_in_local_cache=" << e.what();
+        LOG_WARNING("fail to get_path_in_local_cache")
+                .tag("err", e.what())
+                .tag("key", value.to_string())
+                .tag("expiration_time", expiration_time);
         return "";
     }
 }
@@ -323,44 +336,41 @@ std::string FSFileCacheStorage::get_version_path() const {
     return Path(_cache_base_path) / "version";
 }
 
-void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCacheManager* _mgr) const {
+void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const {
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
     auto add_cell_batch_func = [&]() {
         std::lock_guard cache_lock(_mgr->_mutex);
-        std::for_each(batch_load_buffer.begin(), batch_load_buffer.end(),
-                      [&](const BatchLoadArgs& args) {
-                          // in async load mode, a cell may be added twice.
-                          if (!_mgr->_files.contains(args.hash) ||
-                              !_mgr->_files[args.hash].contains(args.offset)) {
-                              // if the file is tmp, it means it is the old file and it should be removed
-                              if (args.is_tmp) {
-                                  std::error_code ec;
-                                  std::filesystem::remove(args.offset_path, ec);
-                                  if (ec) {
-                                      LOG(WARNING) << fmt::format("cannot remove {}: {}",
-                                                                  args.offset_path, ec.message());
-                                  }
-                              } else {
-                                  _mgr->add_cell(args.hash, args.ctx, args.offset, args.size,
-                                                 FileBlock::State::DOWNLOADED, cache_lock);
-                              }
-                          }
-                      });
+        auto f = [&](const BatchLoadArgs& args) {
+            // in async load mode, a cell may be added twice.
+            if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
+                return;
+            }
+            // if the file is tmp, it means it is the old file and it should be removed
+            if (!args.is_tmp) {
+                _mgr->add_cell(args.hash, args.ctx, args.offset, args.size,
+                               FileBlock::State::DOWNLOADED, cache_lock);
+                return;
+            }
+            std::error_code ec;
+            std::filesystem::remove(args.offset_path, ec);
+            if (ec) {
+                LOG(WARNING) << fmt::format("cannot remove {}: {}", args.offset_path, ec.message());
+            }
+        };
+        std::for_each(batch_load_buffer.begin(), batch_load_buffer.end(), f);
         batch_load_buffer.clear();
     };
 
     auto scan_file_cache = [&](std::filesystem::directory_iterator& key_it) {
-        TEST_SYNC_POINT_CALLBACK("BlockFileCacheManager::TmpFile1");
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
         for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
             auto key_with_suffix = key_it->path().filename().native();
             auto delim_pos = key_with_suffix.find('_');
             DCHECK(delim_pos != std::string::npos);
-            std::string key_str;
-            std::string expiration_time_str;
-            key_str = key_with_suffix.substr(0, delim_pos);
-            expiration_time_str = key_with_suffix.substr(delim_pos + 1);
+            std::string key_str = key_with_suffix.substr(0, delim_pos);
+            std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
             auto hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
             std::error_code ec;
             std::filesystem::directory_iterator offset_it(key_it->path(), ec);
@@ -391,7 +401,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCacheManager* _mgr
                         if (suffix == "tmp") [[unlikely]] {
                             is_tmp = true;
                         } else {
-                            cache_type = BlockFileCacheManager::string_to_cache_type(suffix);
+                            cache_type = BlockFileCache::string_to_cache_type(suffix);
                         }
                     }
                 } catch (...) {
@@ -402,8 +412,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCacheManager* _mgr
                     LOG(WARNING) << "parse offset err, path=" << offset_it->path().native();
                     continue;
                 }
-                TEST_SYNC_POINT_CALLBACK("BlockFileCacheManager::REMOVE_FILE_2",
-                                         &offset_with_suffix);
+                TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_2", &offset_with_suffix);
                 size_t size = offset_it->file_size(ec);
                 if (ec) {
                     LOG(WARNING) << "failed to file_size: file_name=" << offset_with_suffix
@@ -473,11 +482,10 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCacheManager* _mgr
     if (!batch_load_buffer.empty()) {
         add_cell_batch_func();
     }
-    TEST_SYNC_POINT_CALLBACK("BlockFileCacheManager::TmpFile2");
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile2");
 }
 
-void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCacheManager* mgr,
-                                                       const FileCacheKey& key,
+void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, const FileCacheKey& key,
                                                        std::lock_guard<std::mutex>& cache_lock) {
     // async load, can't find key, need to check exist.
     auto key_path = get_path_in_local_cache(key.hash, key.meta.expiration_time);
@@ -517,7 +525,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCacheManager* mg
                 if (suffix == "tmp") [[unlikely]] {
                     is_tmp = true;
                 } else {
-                    cache_type = BlockFileCacheManager::string_to_cache_type(suffix);
+                    cache_type = BlockFileCache::string_to_cache_type(suffix);
                 }
             }
         } catch (...) {
@@ -529,7 +537,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCacheManager* mg
             continue;
         }
 
-        TEST_SYNC_POINT_CALLBACK("BlockFileCacheManager::REMOVE_FILE_1", &offset_with_suffix);
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_1", &offset_with_suffix);
         std::error_code ec;
         size_t size = check_it->file_size(ec);
         if (ec) {

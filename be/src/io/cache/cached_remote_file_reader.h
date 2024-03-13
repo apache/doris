@@ -25,8 +25,8 @@
 #include <utility>
 
 #include "common/status.h"
-#include "io/cache/block_file_cache_manager.h"
-#include "io/cache/file_cache_utils.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
@@ -65,7 +65,7 @@ private:
     bool _is_doris_table;
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
-    BlockFileCacheManagerPtr _cache;
+    BlockFileCache* _cache;
 
     struct ReadStatistics {
         bool hit_cache = true;

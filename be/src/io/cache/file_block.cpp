@@ -25,12 +25,12 @@
 #include <thread>
 
 #include "common/status.h"
-#include "io/cache/block_file_cache_manager.h"
+#include "io/cache/block_file_cache.h"
 
 namespace doris {
 namespace io {
 
-FileBlock::FileBlock(const FileCacheKey& key, size_t size, BlockFileCacheManager* mgr,
+FileBlock::FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr,
                      State download_state)
         : _block_range(key.offset, key.offset + size - 1),
           _download_state(download_state),
@@ -255,7 +255,7 @@ FileBlocksHolder::~FileBlocksHolder() {
     for (auto file_block_it = file_blocks.begin(); file_block_it != file_blocks.end();) {
         auto current_file_block_it = file_block_it;
         auto& file_block = *current_file_block_it;
-        BlockFileCacheManager* _mgr = file_block->_mgr;
+        BlockFileCache* _mgr = file_block->_mgr;
         {
             std::lock_guard cache_lock(_mgr->_mutex);
             std::lock_guard block_lock(file_block->_mutex);

@@ -28,7 +28,7 @@
 #include <utility>
 
 #include "common/config.h"
-#include "io/cache/file_cache_utils.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 
@@ -63,7 +63,9 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     bool exists = false;
     RETURN_IF_ERROR(fs->exists(cache_base_path, &exists));
     if (!exists) {
-        RETURN_IF_ERROR(fs->create_directory(cache_base_path));
+        auto st = fs->create_directory(cache_base_path);
+        LOG(INFO) << "path " << cache_base_path << " does not exist, create " << st.msg();
+        RETURN_IF_ERROR(st);
     } else if (config::clear_file_cache) {
         RETURN_IF_ERROR(fs->delete_directory(cache_base_path));
         RETURN_IF_ERROR(fs->create_directory(cache_base_path));
@@ -75,25 +77,26 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
         return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
     }
     size_t disk_total_size = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize);
-    if (disk_total_size < file_cache_settings.total_size) {
-        file_cache_settings =
-                calc_settings(disk_total_size * 0.9, file_cache_settings.max_query_cache_size);
+    if (disk_total_size < file_cache_settings.capacity) {
+        file_cache_settings = get_file_cache_settings(disk_total_size * 0.9,
+                                                      file_cache_settings.max_query_cache_size);
     }
-    auto cache = std::make_unique<BlockFileCacheManager>(cache_base_path, file_cache_settings);
+    auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
     RETURN_IF_ERROR(cache->initialize());
     _path_to_cache[cache_base_path] = cache.get();
     _caches.push_back(std::move(cache));
     LOG(INFO) << "[FileCache] path: " << cache_base_path
-              << " total_size: " << file_cache_settings.total_size;
-    _total_cache_size += file_cache_settings.total_size;
+              << " total_size: " << file_cache_settings.capacity
+              << " disk_total_size: " << disk_total_size;
+    _capacity += file_cache_settings.capacity;
     return Status::OK();
 }
 
-BlockFileCacheManagerPtr FileCacheFactory::get_by_path(const UInt128Wrapper& key) {
+BlockFileCache* FileCacheFactory::get_by_path(const UInt128Wrapper& key) {
     return _caches[KeyHash()(key) % _caches.size()].get();
 }
 
-BlockFileCacheManagerPtr FileCacheFactory::get_by_path(const std::string& cache_base_path) {
+BlockFileCache* FileCacheFactory::get_by_path(const std::string& cache_base_path) {
     auto iter = _path_to_cache.find(cache_base_path);
     if (iter == _path_to_cache.end()) {
         return nullptr;
@@ -102,9 +105,9 @@ BlockFileCacheManagerPtr FileCacheFactory::get_by_path(const std::string& cache_
     }
 }
 
-std::vector<BlockFileCacheManager::QueryFileCacheContextHolderPtr>
+std::vector<BlockFileCache::QueryFileCacheContextHolderPtr>
 FileCacheFactory::get_query_context_holders(const TUniqueId& query_id) {
-    std::vector<BlockFileCacheManager::QueryFileCacheContextHolderPtr> holders;
+    std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> holders;
     for (const auto& cache : _caches) {
         holders.push_back(cache->get_query_context_holder(query_id));
     }

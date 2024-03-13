@@ -18,21 +18,21 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileCache_fwd.h
 // and modified by Doris
 
-#include "io/cache/file_cache_utils.h"
+#include "io/cache/file_cache_common.h"
 
 #include "common/config.h"
 #include "vec/common/hex.h"
 
 namespace doris::io {
 
-FileCacheSettings calc_settings(size_t total_size, size_t max_query_cache_size,
-                                size_t normal_percent, size_t disposable_percent,
-                                size_t index_percent) {
+FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cache_size,
+                                          size_t normal_percent, size_t disposable_percent,
+                                          size_t index_percent) {
     io::FileCacheSettings settings;
-    settings.total_size = total_size;
+    settings.capacity = capacity;
     settings.max_file_block_size = config::file_cache_each_block_size;
     settings.max_query_cache_size = max_query_cache_size;
-    size_t per_size = settings.total_size / 100;
+    size_t per_size = settings.capacity / 100;
     settings.disposable_queue_size = per_size * disposable_percent;
     settings.disposable_queue_elements =
             std::max(settings.disposable_queue_size / settings.max_file_block_size,
@@ -44,7 +44,7 @@ FileCacheSettings calc_settings(size_t total_size, size_t max_query_cache_size,
                      REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
 
     settings.query_queue_size =
-            settings.total_size - settings.disposable_queue_size - settings.index_queue_size;
+            settings.capacity - settings.disposable_queue_size - settings.index_queue_size;
     settings.query_queue_elements =
             std::max(settings.query_queue_size / settings.max_file_block_size,
                      REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);

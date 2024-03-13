@@ -45,10 +45,10 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "io/cache/block_file_cache_manager.h"
 #include "io/cache/file_block.h"
-#include "io/cache/file_cache_utils.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
@@ -97,7 +97,7 @@ S3FileWriter::S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs,
 
     Aws::Http::SetCompliantRfc3986Encoding(true);
     if (config::enable_file_cache && _write_file_cache) {
-        _cache_hash = BlockFileCacheManager::hash(_path.filename().native());
+        _cache_hash = BlockFileCache::hash(_path.filename().native());
         _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
     }
 

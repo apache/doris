@@ -20,8 +20,8 @@
 #include <memory>
 #include <shared_mutex>
 
+#include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
-#include "io/cache/file_cache_utils.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -59,14 +59,13 @@ public:
 
     FSFileCacheStorage() = default;
     ~FSFileCacheStorage() override;
-    [[nodiscard]] Status init(BlockFileCacheManager* _mgr) override;
-    [[nodiscard]] Status append(const FileCacheKey& key, const Slice& value) override;
-    [[nodiscard]] Status finalize(const FileCacheKey& key) override;
-    [[nodiscard]] Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
-    [[nodiscard]] Status remove(const FileCacheKey& key) override;
-    [[nodiscard]] Status change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) override;
-    // use when lazy load cache
-    void load_blocks_directly_unlocked(BlockFileCacheManager* _mgr, const FileCacheKey& key,
+    Status init(BlockFileCache* _mgr) override;
+    Status append(const FileCacheKey& key, const Slice& value) override;
+    Status finalize(const FileCacheKey& key) override;
+    Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
+    Status remove(const FileCacheKey& key) override;
+    Status change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) override;
+    void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
 
 private:
@@ -77,15 +76,15 @@ private:
     [[nodiscard]] std::string get_path_in_local_cache(const UInt128Wrapper&,
                                                       uint64_t expiration_time) const;
 
-    [[nodiscard]] Status rebuild_data_structure() const;
+    Status rebuild_data_structure() const;
 
-    [[nodiscard]] Status read_file_cache_version(std::string* buffer) const;
+    Status read_file_cache_version(std::string* buffer) const;
 
-    [[nodiscard]] Status write_file_cache_version() const;
+    Status write_file_cache_version() const;
 
     [[nodiscard]] std::string get_version_path() const;
 
-    void load_cache_info_into_memory(BlockFileCacheManager* _mgr) const;
+    void load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;
@@ -93,16 +92,6 @@ private:
     // TODO(Lchangliang): use a more efficient data structure
     std::mutex _mtx;
     std::unordered_map<UInt128Wrapper, FileWriterPtr, KeyHash> _key_to_writer;
-
-    struct BatchLoadArgs {
-        UInt128Wrapper hash;
-        CacheContext ctx;
-        uint64_t offset;
-        size_t size;
-        std::string key_path;
-        std::string offset_path;
-        bool is_tmp;
-    };
 };
 
 } // namespace doris::io

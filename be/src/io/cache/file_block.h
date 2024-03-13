@@ -29,18 +29,18 @@
 #include <utility>
 
 #include "common/status.h"
-#include "io/cache/file_cache_utils.h"
+#include "io/cache/file_cache_common.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace io {
 
 struct FileBlocksHolder;
-class BlockFileCacheManager;
+class BlockFileCache;
 
 class FileBlock {
     friend struct FileBlocksHolder;
-    friend class BlockFileCacheManager;
+    friend class BlockFileCache;
 
 public:
     enum class State {
@@ -60,8 +60,7 @@ public:
         SKIP_CACHE,
     };
 
-    FileBlock(const FileCacheKey& key, size_t size, BlockFileCacheManager* mgr,
-              State download_state);
+    FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr, State download_state);
 
     ~FileBlock() = default;
 
@@ -144,7 +143,7 @@ private:
 
     uint64_t _downloader_id {0};
 
-    BlockFileCacheManager* _mgr;
+    BlockFileCache* _mgr;
 
     /// global locking order rule:
     /// 1. cache lock

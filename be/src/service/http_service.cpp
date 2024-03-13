@@ -268,8 +268,6 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_binlog/_download",
                                       download_binlog_action);
 
-
-
     ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
     _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
                                       clear_file_cache_action);

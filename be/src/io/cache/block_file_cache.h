@@ -23,8 +23,8 @@
 #include <optional>
 
 #include "io/cache/file_block.h"
+#include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
-#include "io/cache/file_cache_utils.h"
 
 namespace doris::io {
 
@@ -36,7 +36,9 @@ concept IsXLock = requires {
 
 class FSFileCacheStorage;
 
-class BlockFileCacheManager {
+// The BlockFileCache is responsible for the management of the blocks
+// The current strategies are lru and ttl.
+class BlockFileCache {
     friend class FSFileCacheStorage;
     friend class FileBlock;
     friend struct FileBlocksHolder;
@@ -44,12 +46,12 @@ class BlockFileCacheManager {
 public:
     static std::string cache_type_to_string(FileCacheType type);
     static FileCacheType string_to_cache_type(const std::string& str);
+    // hash the file_name to uint128
     static UInt128Wrapper hash(const std::string& path);
 
-    BlockFileCacheManager(const std::string& cache_base_path,
-                          const FileCacheSettings& cache_settings);
+    BlockFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
 
-    ~BlockFileCacheManager() {
+    ~BlockFileCache() {
         {
             std::lock_guard lock(_close_mtx);
             _close = true;
@@ -62,11 +64,12 @@ public:
 
     /// Restore cache from local filesystem.
     Status initialize();
-    Status initialize_unlocked(std::lock_guard<std::mutex>& cache_lock);
 
     /// Cache capacity in bytes.
-    [[nodiscard]] size_t capacity() const { return _total_size; }
+    [[nodiscard]] size_t capacity() const { return _capacity; }
 
+    // try to release all releasable block
+    // it maybe hang the io/system
     size_t try_release();
 
     [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
@@ -96,29 +99,33 @@ public:
 
     [[nodiscard]] size_t get_file_blocks_num(FileCacheType type) const;
 
+    // change the block cache type
     void change_cache_type(const UInt128Wrapper& hash, size_t offset, FileCacheType new_type,
                            std::lock_guard<std::mutex>& cache_lock);
 
-    void remove_if_cached(const UInt128Wrapper&);
-    void modify_expiration_time(const UInt128Wrapper&, int64_t new_expiration_time);
+    // remove all blocks that belong to the key
+    void remove_if_cached(const UInt128Wrapper& key);
 
+    // modify the expiration time about the key
+    void modify_expiration_time(const UInt128Wrapper& key, uint64_t new_expiration_time);
+
+    // Shrink the block size. old_size is always larged than new_size.
     void reset_range(const UInt128Wrapper&, size_t offset, size_t old_size, size_t new_size,
                      std::lock_guard<std::mutex>& cache_lock);
 
-    [[nodiscard]] std::vector<std::tuple<size_t, size_t, FileCacheType, int64_t>>
+    // get the hotest blocks message by key
+    // The tuple is composed of <offset, size, cache_type, expiration_time>
+    [[nodiscard]] std::vector<std::tuple<size_t, size_t, FileCacheType, uint64_t>>
     get_hot_blocks_meta(const UInt128Wrapper& hash) const;
 
     [[nodiscard]] bool get_lazy_open_success() const { return _lazy_open_done; }
 
-    BlockFileCacheManager& operator=(const BlockFileCacheManager&) = delete;
-    BlockFileCacheManager(const BlockFileCacheManager&) = delete;
+    BlockFileCache& operator=(const BlockFileCache&) = delete;
+    BlockFileCache(const BlockFileCache&) = delete;
 
+    // try to reserve the new space for the new block if the cache is full
     bool try_reserve(const UInt128Wrapper& hash, const CacheContext& context, size_t offset,
                      size_t size, std::lock_guard<std::mutex>& cache_lock);
-
-    template <class T, class U>
-        requires IsXLock<T> && IsXLock<U>
-    void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock);
 
     class LRUQueue {
     public:
@@ -150,7 +157,7 @@ public:
 
         template <class T>
             requires IsXLock<T>
-        size_t get_total_cache_size(T& /* cache_lock */) const {
+        size_t get_capacity(T& /* cache_lock */) const {
             return cache_size;
         }
 
@@ -216,7 +223,7 @@ public:
         size_t get_max_cache_size() const { return lru_queue.get_max_size(); }
 
         size_t get_cache_size(std::lock_guard<std::mutex>& cache_lock) const {
-            return lru_queue.get_total_cache_size(cache_lock);
+            return lru_queue.get_capacity(cache_lock);
         }
 
         LRUQueue& queue() { return lru_queue; }
@@ -236,7 +243,7 @@ public:
     /// Save a query context information, and adopt different cache policies
     /// for different queries through the context cache layer.
     struct QueryFileCacheContextHolder {
-        QueryFileCacheContextHolder(const TUniqueId& query_id, BlockFileCacheManager* mgr,
+        QueryFileCacheContextHolder(const TUniqueId& query_id, BlockFileCache* mgr,
                                     QueryFileCacheContextPtr context)
                 : query_id(query_id), mgr(mgr), context(context) {}
 
@@ -253,7 +260,7 @@ public:
         }
 
         const TUniqueId& query_id;
-        BlockFileCacheManager* mgr = nullptr;
+        BlockFileCache* mgr = nullptr;
         QueryFileCacheContextPtr context;
     };
     using QueryFileCacheContextHolderPtr = std::unique_ptr<QueryFileCacheContextHolder>;
@@ -290,8 +297,12 @@ private:
         FileBlockCell(const FileBlockCell&) = delete;
     };
 
-    BlockFileCacheManager::LRUQueue& get_queue(FileCacheType type);
-    const BlockFileCacheManager::LRUQueue& get_queue(FileCacheType type) const;
+    BlockFileCache::LRUQueue& get_queue(FileCacheType type);
+    const BlockFileCache::LRUQueue& get_queue(FileCacheType type) const;
+
+    template <class T, class U>
+        requires IsXLock<T> && IsXLock<U>
+    void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock);
 
     FileBlocks get_impl(const UInt128Wrapper& hash, const CacheContext& context,
                         const FileBlock::Range& range, std::lock_guard<std::mutex>& cache_lock);
@@ -303,6 +314,8 @@ private:
     FileBlockCell* add_cell(const UInt128Wrapper& hash, const CacheContext& context, size_t offset,
                             size_t size, FileBlock::State state,
                             std::lock_guard<std::mutex>& cache_lock);
+
+    Status initialize_unlocked(std::lock_guard<std::mutex>& cache_lock);
 
     void use_cell(const FileBlockCell& cell, FileBlocks* result, bool not_need_move,
                   std::lock_guard<std::mutex>& cache_lock);
@@ -356,7 +369,7 @@ private:
 
     // info
     std::string _cache_base_path;
-    size_t _total_size = 0;
+    size_t _capacity = 0;
     size_t _max_file_block_size = 0;
     size_t _max_query_cache_size = 0;
 
@@ -403,7 +416,5 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
 };
-
-using BlockFileCacheManagerPtr = BlockFileCacheManager*;
 
 } // namespace doris::io

@@ -41,14 +41,11 @@ namespace doris {
 namespace io {
 struct IOContext;
 
-bvar::Adder<uint64_t> local_file_open_reading("doris_be_local_file_open_reading");
-bvar::Adder<uint64_t> local_file_reader_total("doris_be_local_file_reader_total");
-
 LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
                                  std::shared_ptr<LocalFileSystem> fs)
         : _fd(fd), _path(std::move(path)), _file_size(file_size), _fs(std::move(fs)) {
-    local_file_open_reading << 1;
-    local_file_reader_total << 1;
+    DorisMetrics::instance()->local_file_open_reading->increment(1);
+    DorisMetrics::instance()->local_file_reader_total->increment(1);
 }
 
 LocalFileReader::~LocalFileReader() {
@@ -58,7 +55,7 @@ LocalFileReader::~LocalFileReader() {
 Status LocalFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-        local_file_open_reading << -1;
+        DorisMetrics::instance()->local_file_open_reading->increment(-1);
         DCHECK(bthread_self() == 0);
         if (-1 == ::close(_fd)) {
             std::string err = errno_to_str();
