@@ -72,7 +72,9 @@ public:
 
         LRUCachePolicy* cache() const { return _cache; }
         template <typename T>
-        void* data() const { return (void*)((ObjValue<T>*)_cache->value(_handle))->value; }
+        void* data() const {
+            return (void*)((ObjValue<T>*)_cache->value(_handle))->value;
+        }
 
     private:
         LRUCachePolicy* _cache = nullptr;
