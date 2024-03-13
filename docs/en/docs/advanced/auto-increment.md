@@ -106,8 +106,7 @@ To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to
   UNIQUE KEY(`id`)
   DISTRIBUTED BY HASH(`id`) BUCKETS 10
   PROPERTIES (
-  "replication_allocation" = "tag.location.default: 3",
-  "enable_unique_key_merge_on_write" = "true"
+  "replication_allocation" = "tag.location.default: 3"
   );
   ```
 
@@ -121,8 +120,7 @@ To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to
   UNIQUE KEY(`text`)
   DISTRIBUTED BY HASH(`text`) BUCKETS 10
   PROPERTIES (
-  "replication_allocation" = "tag.location.default: 3",
-  "enable_unique_key_merge_on_write" = "true"
+  "replication_allocation" = "tag.location.default: 3"
   );
   ```
 
@@ -148,8 +146,7 @@ CREATE TABLE `demo`.`tbl` (
 UNIQUE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 10
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 3",
-"enable_unique_key_merge_on_write" = "true"
+"replication_allocation" = "tag.location.default: 3"
 );
 ```
 
@@ -175,12 +172,12 @@ Similarly, using stream load to import the file test.csv without specifying the 
 
 test.csv:
 ```
-Tom, 40
-John, 50
+Tom,40
+John,50
 ```
 
 ```
-curl --location-trusted -u user:passwd -H "columns:name,value" -H "column_separator:," -T ./test1.csv http://{host}:{port}/api/{db}/tbl/_stream_load
+curl --location-trusted -u user:passwd -H "columns:name,value" -H "column_separator:," -T ./test.csv http://{host}:{port}/api/{db}/tbl/_stream_load
 ```
 
 ```sql
@@ -385,7 +382,7 @@ PROPERTIES (
 Import the value of `user_id` from existing data into the dictionary table, establishing the mapping of `user_id` to integer values:
 
 ```sql
-insert into dit_tbl(user_id)
+insert into dictionary_tbl(user_id)
 select user_id from dwd_dup_tbl group by user_id;
 ```
 
@@ -393,7 +390,7 @@ Or import only the value of `user_id` in incrementa data into the dictionary tab
 
 
 ```sql
-insert into dit_tbl(user_id)
+insert into dictionary_tbl(user_id)
 select dwd_dup_tbl.user_id from dwd_dup_tbl left join dictionary_tbl
 on dwd_dup_tbl.user_id = dictionary_tbl.user_id where dwd_dup_tbl.visit_time > '2023-12-10' and dictionary_tbl.user_id is NULL;
 ```
@@ -411,7 +408,7 @@ CREATE TABLE `demo`.`dws_agg_tbl` (
     `pv` BIGINT SUM NOT NULL 
 ) ENGINE=OLAP
 AGGREGATE KEY(`dim1`,`dim3`,`dim5`)
-DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
+DISTRIBUTED BY HASH(`dim1`) BUCKETS 32
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 3"
 );
@@ -422,13 +419,14 @@ Store the result of the data aggregation operations into the aggregation result 
 ```sql
 insert into dws_tbl
 select dwd_dup_tbl.dim1, dwd_dup_tbl.dim3, dwd_dup_tbl.dim5, BITMAP_UNION(TO_BITMAP(dictionary_tbl.aid)), COUNT(1)
-from dwd_dup_tbl INNER JOIN dictionary_tbl on dwd_dup_tbl.user_id = dictionary_tbl.user_id;
+from dwd_dup_tbl INNER JOIN dictionary_tbl on dwd_dup_tbl.user_id = dictionary_tbl.user_id
+group by dwd_dup_tbl.dim1, dwd_dup_tbl.dim3, dwd_dup_tbl.dim5;
 ```
 
 Perform UV and PV queries using the following statement:
 
 ```sql
-select dim1, dim3, dim5, user_id_bitmap as uv, pv from dws_agg_tbl;
+select dim1, dim3, dim5, bitmap_count(user_id_bitmap) as uv, pv from dws_agg_tbl;
 ```
 
 ### Efficient Pagination
@@ -437,7 +435,7 @@ When displaying data on a page, pagination is often necessary. Traditional pagin
 
 ```sql
 CREATE TABLE `demo`.`records_tbl` (
-    `key` int(11) NOT NULL COMMENT "",
+    `user_id` int(11) NOT NULL COMMENT "",
     `name` varchar(26) NOT NULL COMMENT "",
     `address` varchar(41) NOT NULL COMMENT "",
     `city` varchar(11) NOT NULL COMMENT "",
@@ -445,8 +443,8 @@ CREATE TABLE `demo`.`records_tbl` (
     `region` varchar(13) NOT NULL COMMENT "",
     `phone` varchar(16) NOT NULL COMMENT "",
     `mktsegment` varchar(11) NOT NULL COMMENT ""
-) DUPLICATE KEY (`key`, `name`)
-DISTRIBUTED BY HASH(`key`) BUCKETS 10
+) DUPLICATE KEY (`user_id`, `name`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 10
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 3"
 );
@@ -455,13 +453,13 @@ PROPERTIES (
 Assuming 100 records are displayed per page in pagination. To fetch the first page's data, the following SQL query can be used:
 
 ```sql
-select * from records_tbl order by `key`, `name` limit 100;
+select * from records_tbl order by `user_id`, `name` limit 100;
 ```
 
 Fetching the data for the second page can be accomplished by:
 
 ```sql
-select * from records_tbl order by `key`, `name` limit 100, offset 100;
+select * from records_tbl order by `user_id`, `name` limit 100, offset 100;
 ```
 
 However, when performing deep pagination queries (with large offsets), even if the actual required data rows are few, this method still reads all data into memory for full sorting before subsequent processing, which is quite inefficient. Using an auto-incrementa column assigns a unique value to each row, allowing the use of where `unique_value` > x limit y to filter a significant amount of data beforehand, making pagination more efficient.
@@ -470,7 +468,7 @@ Continuing with the aforementioned business table, an auto-increment column is a
 
 ```sql
 CREATE TABLE `demo`.`records_tbl2` (
-    `key` int(11) NOT NULL COMMENT "",
+    `user_id` int(11) NOT NULL COMMENT "",
     `name` varchar(26) NOT NULL COMMENT "",
     `address` varchar(41) NOT NULL COMMENT "",
     `city` varchar(11) NOT NULL COMMENT "",
@@ -482,7 +480,7 @@ CREATE TABLE `demo`.`records_tbl2` (
 ) DUPLICATE KEY (`key`, `name`)
 DISTRIBUTED BY HASH(`key`) BUCKETS 10
 PROPERTIES (
-    "replication_num" = "3"
+"replication_allocation" = "tag.location.default: 3"
 );
 ```
 
@@ -501,7 +499,7 @@ select * from records_tbl2 where unique_value > 99 order by unique_value limit 1
 If directly querying contents from a later page and it's inconvenient to directly obtain the maximum value of `unique_value` from the preceding page's data (for instance, directly obtaining contents from the 101st page), the following query can be used:
 
 ```sql
-select key, name, address, city, nation, region, phone, mktsegment
+select user_id, name, address, city, nation, region, phone, mktsegment
 from records_tbl2, (select unique_value as max_value from records_tbl2 order by unique_value limit 1 offset 9999) as previous_data
 where records_tbl2.unique_value > previous_data.max_value
 order by records_tbl2.unique_value limit 100;
