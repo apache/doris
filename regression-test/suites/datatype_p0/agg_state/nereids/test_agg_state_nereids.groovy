@@ -55,7 +55,8 @@ suite("test_agg_state_nereids") {
             properties("replication_num" = "1");
         """
 
-    sql 'set enable_fallback_to_original_planner=true'
+    sql "explain insert into a_table select 1,max_by_state(1,3);"
+
     sql "insert into a_table select 1,max_by_state(1,3);"
     sql "insert into a_table select 1,max_by_state(2,2);"
     sql "insert into a_table select 1,max_by_state(3,1);"
