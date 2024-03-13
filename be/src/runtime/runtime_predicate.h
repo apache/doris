@@ -47,12 +47,12 @@ public:
     Status init(PrimitiveType type, bool nulls_first, bool is_asc, const std::string& col_name);
 
     bool inited() const {
-        std::unique_lock<std::shared_mutex> wlock(_rwlock);
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
         return _inited;
     }
 
     bool need_update() const {
-        std::unique_lock<std::shared_mutex> wlock(_rwlock);
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
         return _inited && _tablet_schema;
     }
 
