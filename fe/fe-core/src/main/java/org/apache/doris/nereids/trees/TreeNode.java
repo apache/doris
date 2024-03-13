@@ -144,9 +144,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         boolean changed = false;
         for (NODE_TYPE child : children()) {
             NODE_TYPE newChild = child.rewriteUp(rewriteFunction);
-            if (child != newChild) {
-                changed = true;
-            }
+            changed |= child != newChild;
             newChildren.add(newChild);
         }
 

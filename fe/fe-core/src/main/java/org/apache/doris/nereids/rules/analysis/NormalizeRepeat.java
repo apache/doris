@@ -39,11 +39,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
@@ -174,9 +173,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .flatMap(function -> function.getArguments().stream())
                 .collect(ImmutableSet.toImmutableSet());
 
-        List<AggregateFunction> aggregateFunctions = Lists.newArrayList();
-        repeat.getOutputExpressions().forEach(
-                o -> o.accept(PlanUtils.CollectNonWindowedAggFuncs.INSTANCE, aggregateFunctions));
+        List<AggregateFunction> aggregateFunctions = CollectNonWindowedAggFuncs.collect(repeat.getOutputExpressions());
 
         ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
                 .flatMap(function -> function.getArguments().stream().map(arg -> {
@@ -271,9 +268,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
             @NotNull LogicalAggregate<Plan> aggregate) {
         LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
 
-        List<AggregateFunction> aggregateFunctions = Lists.newArrayList();
-        aggregate.getOutputExpressions().forEach(
-                o -> o.accept(PlanUtils.CollectNonWindowedAggFuncs.INSTANCE, aggregateFunctions));
+        List<AggregateFunction> aggregateFunctions =
+                CollectNonWindowedAggFuncs.collect(aggregate.getOutputExpressions());
         Set<Slot> aggUsedSlots = aggregateFunctions.stream()
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
                 .collect(ImmutableSet.toImmutableSet());
