@@ -322,8 +322,8 @@ if [[ "${MACHINE_OS}" == "Darwin" ]]; then
         final_java_opt="${final_java_opt} ${max_fd_limit}"
     fi
 
-    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
-        JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
+    if [[ -n "${JAVA_OPTS_FOR_JDK_17}" ]] && ! echo "${JAVA_OPTS_FOR_JDK_17}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
+        export JAVA_OPTS="${JAVA_OPTS_FOR_JDK_17} ${max_fd_limit}"
     fi
 fi
 
