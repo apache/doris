@@ -396,7 +396,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem,
 }
 
 int64_t MemTrackerLimiter::tg_free_top_memory_query(
-        int64_t min_free_mem, Type type, std::vector<TgTrackerLimiterGroup>& tracker_groups,
+        int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
         const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
         RuntimeProfile* profile, GCType gctype) {
     return free_top_memory_query(min_free_mem, type, tracker_groups, cancel_msg, profile, gctype);
@@ -530,7 +530,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem,
 }
 
 int64_t MemTrackerLimiter::tg_free_top_overcommit_query(
-        int64_t min_free_mem, Type type, std::vector<TgTrackerLimiterGroup>& tracker_groups,
+        int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
         const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
         RuntimeProfile* profile, GCType gctype) {
     return free_top_overcommit_query(min_free_mem, type, tracker_groups, cancel_msg, profile,

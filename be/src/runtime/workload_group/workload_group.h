@@ -51,7 +51,7 @@ class TaskScheduler;
 
 class WorkloadGroup;
 struct WorkloadGroupInfo;
-struct TgTrackerLimiterGroup {
+struct WgTrackerLimiterGroup {
     std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
     std::mutex group_lock;
 };
@@ -144,7 +144,7 @@ private:
     int64_t _memory_limit; // bytes
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
-    std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
+    std::vector<WgTrackerLimiterGroup> _mem_tracker_limiter_pool;
     std::atomic<int> _cpu_hard_limit;
     std::atomic<int> _scan_thread_num;
     std::atomic<int> _max_remote_scan_thread_num;

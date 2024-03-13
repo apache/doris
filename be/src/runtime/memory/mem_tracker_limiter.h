@@ -45,7 +45,7 @@ class RuntimeProfile;
 
 constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
 
-struct TgTrackerLimiterGroup;
+struct WgTrackerLimiterGroup;
 class WorkloadGroup;
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
@@ -193,7 +193,7 @@ public:
             RuntimeProfile* profile, GCType gctype);
 
     static int64_t tg_free_top_memory_query(
-            int64_t min_free_mem, Type type, std::vector<TgTrackerLimiterGroup>& tracker_groups,
+            int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype);
 
@@ -216,7 +216,7 @@ public:
             RuntimeProfile* profile, GCType gctype);
 
     static int64_t tg_free_top_overcommit_query(
-            int64_t min_free_mem, Type type, std::vector<TgTrackerLimiterGroup>& tracker_groups,
+            int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype);
 
