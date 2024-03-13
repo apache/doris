@@ -81,6 +81,7 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
+import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
@@ -341,7 +342,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
 
             topic("Eliminate GroupBy",
-                    topDown(new EliminateGroupBy())
+                    topDown(new EliminateGroupBy(),
+                            new MergeAggregate())
             ),
 
             topic("Eager aggregation",
