@@ -73,15 +73,17 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 logicalApply(any(), logicalFilter(logicalAggregate(logicalFilter())))
                         .when(LogicalApply::isCorrelated)
                         .then(UnCorrelatedApplyAggregateFilter::pullUpCorrelatedFilter)
-                        .toRule(RuleType.UN_CORRELATED_APPLY_AGGREGATE_FILTER));
+                        .toRule(RuleType.UN_CORRELATED_APPLY_FILTER_AGGREGATE_FILTER));
     }
 
     private static LogicalApply<?, ?> pullUpCorrelatedFilter(LogicalApply<?, ?> apply) {
         boolean isRightChildAgg = apply.right() instanceof LogicalAggregate;
+        // locate agg node
         LogicalAggregate<LogicalFilter<Plan>> agg =
                 isRightChildAgg ? (LogicalAggregate<LogicalFilter<Plan>>) (apply.right())
                         : (LogicalAggregate<LogicalFilter<Plan>>) (apply.right().child(0));
         LogicalFilter<Plan> filter = agg.child();
+        // split filter conjuncts to correlated and unCorrelated ones
         Map<Boolean, List<Expression>> split =
                 Utils.splitCorrelatedConjuncts(filter.getConjuncts(), apply.getCorrelationSlot());
         List<Expression> correlatedPredicate = split.get(true);
@@ -92,6 +94,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             return apply;
         }
 
+        // pull up correlated filter into apply node
         List<NamedExpression> newAggOutput = new ArrayList<>(agg.getOutputExpressions());
         List<Expression> newGroupby =
                 Utils.getCorrelatedSlots(correlatedPredicate, apply.getCorrelationSlot());

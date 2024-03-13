@@ -71,19 +71,23 @@ public class PullUpCorrelatedFilterUnderApplyAggregateProject implements Rewrite
                 logicalApply(any(), logicalFilter((logicalAggregate(
                         logicalProject(logicalFilter()))))).when(LogicalApply::isCorrelated).then(
                                 PullUpCorrelatedFilterUnderApplyAggregateProject::pullUpCorrelatedFilter)
-                                .toRule(RuleType.PULL_UP_CORRELATED_FILTER_UNDER_APPLY_AGGREGATE_PROJECT));
+                                .toRule(RuleType.PULL_UP_CORRELATED_FILTER_UNDER_APPLY_FILTER_AGGREGATE_PROJECT));
     }
 
     private static LogicalApply<?, ?> pullUpCorrelatedFilter(LogicalApply<?, ?> apply) {
         boolean isRightChildAgg = apply.right() instanceof LogicalAggregate;
+        // locate agg node
         LogicalAggregate<LogicalProject<LogicalFilter<Plan>>> agg = isRightChildAgg
                 ? (LogicalAggregate<LogicalProject<LogicalFilter<Plan>>>) (apply.right())
                 : (LogicalAggregate<LogicalProject<LogicalFilter<Plan>>>) (apply.right().child(0));
 
+        // pull up filter under the project
         LogicalProject<LogicalFilter<Plan>> project = agg.child();
         LogicalFilter<Plan> filter = project.child();
         List<NamedExpression> newProjects = Lists.newArrayList();
         newProjects.addAll(project.getProjects());
+
+        // filter may use all slots from its child, so add all the slots to newProjects
         filter.child().getOutput().forEach(slot -> {
             if (!newProjects.contains(slot)) {
                 newProjects.add(slot);
