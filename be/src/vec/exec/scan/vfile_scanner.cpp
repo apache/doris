@@ -932,6 +932,7 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
 
+        COUNTER_UPDATE(_file_counter, 1);
         if (init_status.is<END_OF_FILE>()) {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
@@ -944,7 +945,6 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
-        COUNTER_UPDATE(_file_counter, 1);
 
         _name_to_col_type.clear();
         _missing_cols.clear();
