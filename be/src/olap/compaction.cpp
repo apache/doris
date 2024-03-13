@@ -27,6 +27,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <numeric>
 #include <ostream>
 #include <set>
@@ -36,6 +37,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
@@ -469,6 +471,46 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             for (int i = 0; i < dest_segment_num; ++i) {
                 auto prefix = dest_rowset_id.to_string() + "_" + std::to_string(i);
                 dest_index_files[i] = prefix;
+            }
+
+            // Only write info files when debug index compaction is enabled.
+            // The files are used to debug index compaction and works with index_tool.
+            if (config::debug_inverted_index_compaction) {
+                auto write_json_to_file = [&](const nlohmann::json& json_obj,
+                                              const std::string& file_name) {
+                    io::FileWriterPtr file_writer;
+                    std::string file_path =
+                            fmt::format("{}/{}.json", config::sys_log_dir, file_name);
+                    RETURN_IF_ERROR(
+                            io::global_local_filesystem()->create_file(file_path, &file_writer));
+                    RETURN_IF_ERROR(file_writer->append(json_obj.dump()));
+                    RETURN_IF_ERROR(file_writer->append("\n"));
+                    return file_writer->close();
+                };
+
+                // Convert trans_vec to JSON and print it
+                nlohmann::json trans_vec_json = trans_vec;
+                auto output_version = _output_version.to_string().substr(
+                        1, _output_version.to_string().size() - 2);
+                RETURN_IF_ERROR(write_json_to_file(
+                        trans_vec_json,
+                        fmt::format("trans_vec_{}_{}", _tablet->tablet_id(), output_version)));
+
+                nlohmann::json src_index_files_json = src_index_files;
+                RETURN_IF_ERROR(write_json_to_file(
+                        src_index_files_json,
+                        fmt::format("src_idx_dirs_{}_{}", _tablet->tablet_id(), output_version)));
+
+                nlohmann::json dest_index_files_json = dest_index_files;
+                RETURN_IF_ERROR(write_json_to_file(
+                        dest_index_files_json,
+                        fmt::format("dest_idx_dirs_{}_{}", _tablet->tablet_id(), output_version)));
+
+                nlohmann::json dest_segment_num_rows_json = dest_segment_num_rows;
+                RETURN_IF_ERROR(
+                        write_json_to_file(dest_segment_num_rows_json,
+                                           fmt::format("dest_seg_num_rows_{}_{}",
+                                                       _tablet->tablet_id(), output_version)));
             }
 
             // create index_writer to compaction indexes
