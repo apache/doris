@@ -252,7 +252,7 @@ public abstract class JdbcClient {
                     remoteTablesNames.add(rs.getString("TABLE_NAME"));
                 }
             } catch (SQLException e) {
-                throw new JdbcClientException("failed to get all tables for remote database %s", e, remoteDbName);
+                throw new JdbcClientException("failed to get all tables for remote database: `%s`", e, remoteDbName);
             }
         });
         return filterTableNames(remoteDbName, remoteTablesNames);
@@ -313,8 +313,8 @@ public abstract class JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for table %.%s: %s",
-                    e, localDbName, localTableName, Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }
@@ -415,8 +415,8 @@ public abstract class JdbcClient {
         return jdbcLowerCaseMetaMatching.setDatabaseNameMapping(filteredDatabaseNames);
     }
 
-    protected List<String> filterTableNames(String remoteDbName, List<String> localTableNames) {
-        return jdbcLowerCaseMetaMatching.setTableNameMapping(remoteDbName, localTableNames);
+    protected List<String> filterTableNames(String remoteDbName, List<String> remoteTableNames) {
+        return jdbcLowerCaseMetaMatching.setTableNameMapping(remoteDbName, remoteTableNames);
     }
 
     protected List<Column> filterColumnName(String remoteDbName, String remoteTableName, List<Column> remoteColumns) {
