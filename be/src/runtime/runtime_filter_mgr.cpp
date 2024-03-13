@@ -40,6 +40,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
+#include "util/ref_count_closure.h"
 
 namespace doris {
 
@@ -141,6 +142,7 @@ Status RuntimeFilterMgr::register_local_merge_producer_filter(
             iter->second.filters.emplace_back(merge_filter);
         }
         iter->second.merge_time++;
+        iter->second.merge_size_times++;
         iter->second.filters.emplace_back(*producer_filter);
     }
     return Status::OK();
@@ -151,7 +153,8 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _local_merge_producer_map.find(filter_id);
     if (iter == _local_merge_producer_map.end()) {
-        return Status::InvalidArgument("unknown filter: {}, role: CONSUMER.", filter_id);
+        return Status::InvalidArgument("unknown filter: {}, role: LOCAL_MERGE_PRODUCER.",
+                                       filter_id);
     }
     *local_merge_filters = &iter->second;
     DCHECK(!iter->second.filters.empty());
@@ -241,7 +244,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     auto filter_id = runtime_filter_desc->filter_id;
     RETURN_IF_ERROR(cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options,
                                                     -1, false));
-    _filter_map.emplace(filter_id, CntlValwithLock {cnt_val, std::make_unique<std::mutex>()});
+    _filter_map.emplace(filter_id, cnt_val);
     return Status::OK();
 }
 
@@ -262,7 +265,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     RETURN_IF_ERROR(cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options));
 
     std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
-    _filter_map.emplace(filter_id, CntlValwithLock {cnt_val, std::make_unique<std::mutex>()});
+    _filter_map.emplace(filter_id, cnt_val);
     return Status::OK();
 }
 
@@ -311,6 +314,67 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
     return Status::OK();
 }
 
+Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSizeRequest* request) {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    std::shared_ptr<RuntimeFilterCntlVal> cnt_val;
+
+    auto filter_id = request->filter_id();
+    std::map<int, CntlValwithLock>::iterator iter;
+    {
+        std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+        iter = _filter_map.find(filter_id);
+        if (iter == _filter_map.end()) {
+            return Status::InvalidArgument("unknown filter id {}",
+                                           std::to_string(request->filter_id()));
+        }
+    }
+    cnt_val = iter->second.cnt_val;
+    std::unique_lock<std::mutex> l(*iter->second.mutex);
+    cnt_val->global_size += request->filter_size();
+    cnt_val->source_addrs.push_back(request->source_addr());
+
+    if (cnt_val->source_addrs.size() == cnt_val->producer_size) {
+        for (auto addr : cnt_val->source_addrs) {
+            std::shared_ptr<PBackendService_Stub> stub(
+                    ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
+            AsyncRPCContext<PSyncFilterSizeRequest, PSyncFilterSizeResponse> ctx;
+            auto* pquery_id = ctx.request.mutable_query_id();
+            pquery_id->set_hi(_state->query_id.hi());
+            pquery_id->set_lo(_state->query_id.lo());
+
+            ctx.request.set_filter_id(filter_id);
+            ctx.request.set_filter_size(cnt_val->global_size);
+
+            stub->sync_filter_size(&ctx.cntl, &ctx.request, &ctx.response, brpc::DoNothing());
+            brpc::Join(ctx.cntl.call_id());
+            if (auto status = Status::create(ctx.response.status()); !status) {
+                return status;
+            }
+            if (ctx.cntl.Failed()) {
+                ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(ctx.cntl.remote_side());
+                return Status::InternalError(ctx.cntl.ErrorText());
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
+    auto* filter = try_get_product_filter(request->filter_id());
+    if (filter) {
+        filter->set_global_size(request->filter_size());
+        return Status::OK();
+    }
+
+    LocalMergeFilters* local_merge_filters = nullptr;
+    RETURN_IF_ERROR(get_local_merge_producer_filters(request->filter_id(), &local_merge_filters));
+    // first filter size merged filter
+    for (size_t i = 1; i < local_merge_filters->filters.size(); i++) {
+        local_merge_filters->filters[i]->set_global_size(request->filter_size());
+    }
+    return Status::OK();
+}
+
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
                                                  butil::IOBufAsZeroCopyInputStream* attach_data,
@@ -331,9 +395,9 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                                            std::to_string(request->filter_id()));
         }
     }
-    cnt_val = iter->second.first;
+    cnt_val = iter->second.cnt_val;
     {
-        std::lock_guard<std::mutex> l(*iter->second.second);
+        std::lock_guard<std::mutex> l(*iter->second.mutex);
         // Skip the other broadcast join runtime filter
         if (cnt_val->arrive_id.size() == 1 && cnt_val->runtime_filter_desc.is_broadcast_join) {
             return Status::OK();
@@ -372,7 +436,13 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             void* data = nullptr;
             int len = 0;
             bool has_attachment = false;
-            RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
+            if (!cnt_val->filter->get_ignored()) {
+                RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
+            } else {
+                apply_request.set_ignored(true);
+                apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
+            }
+
             if (data != nullptr && len > 0) {
                 request_attachment.append(data, len);
                 has_attachment = true;
@@ -392,7 +462,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
                 }
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
-
                 // set fragment-id
                 for (size_t fid = 0; fid < targets[cur].target_fragment_instance_ids.size();
                      fid++) {
@@ -417,6 +486,9 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             }
             for (auto& rpc_context : rpc_contexts) {
                 brpc::Join(rpc_context->cid);
+                if (auto status = Status::create(rpc_context->response.status()); !status) {
+                    return status;
+                }
                 if (rpc_context->cntl.Failed()) {
                     LOG(WARNING) << "runtimefilter rpc err:" << rpc_context->cntl.ErrorText();
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
@@ -437,7 +509,13 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             void* data = nullptr;
             int len = 0;
             bool has_attachment = false;
-            RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
+            if (!cnt_val->filter->get_ignored()) {
+                RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
+            } else {
+                apply_request.set_ignored(true);
+                apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
+            }
+
             if (data != nullptr && len > 0) {
                 request_attachment.append(data, len);
                 has_attachment = true;
@@ -457,7 +535,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
                 }
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
-
                 // set fragment_instance_id
                 auto request_fragment_instance_id =
                         rpc_contexts[cur]->request.mutable_fragment_instance_id();

@@ -108,7 +108,9 @@ public:
 
     Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
 
-    Status init_with_cardinality(const size_t build_bf_cardinality, int id = 0) {
+    bool get_build_bf_cardinality() const { return _build_bf_exactly; }
+
+    Status init_with_cardinality(const size_t build_bf_cardinality) {
         if (_build_bf_exactly) {
             // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
             constexpr double fpp = 0.05;
@@ -195,10 +197,7 @@ public:
         *len = _bloom_filter->size();
     }
 
-    bool contain_null() const {
-        DCHECK(_bloom_filter);
-        return _bloom_filter->contain_null();
-    }
+    bool contain_null() const { return _bloom_filter->contain_null(); }
 
     void set_contain_null_and_null_aware() { _bloom_filter->set_contain_null_and_null_aware(); }
 
