@@ -749,13 +749,20 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
         }
         bool need_to_save = false;
         if (tablet_meta_info.__isset.partition_id) {
-            // for fix partition_id = 0, in set_partition_id if be_pid != fe_pid && be_pid != 0, will fatal, so just can change be pid == 0
-            LOG(WARNING) << "change be partition id from : "
-                         << tablet->tablet_meta()->partition_id()
+            // for fix partition_id = 0
+            LOG(WARNING) << "change be tablet id: " << tablet->tablet_meta()->tablet_id()
+                         << "partition id from : " << tablet->tablet_meta()->partition_id()
                          << " to : " << tablet_meta_info.partition_id;
-            auto st = tablet->tablet_meta()->set_partition_id(tablet_meta_info.partition_id);
-            CHECK(st.ok()) << "change partition_id : " << tablet_meta_info.partition_id << " : "
-                           << st;
+            auto succ = engine.tablet_manager()->update_tablet_partition_id(
+                    tablet_meta_info.partition_id, tablet->tablet_meta()->tablet_id());
+            if (!succ) {
+                std::string err_msg = fmt::format(
+                        "change be tablet id : {} partition_id : {} failed",
+                        tablet->tablet_meta()->tablet_id(), tablet_meta_info.partition_id);
+                LOG(WARNING) << err_msg;
+                status = Status::InvalidArgument(err_msg);
+                continue;
+            }
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.storage_policy_id) {
