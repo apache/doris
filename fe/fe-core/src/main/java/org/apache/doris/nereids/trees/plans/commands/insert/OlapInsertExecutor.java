@@ -127,10 +127,12 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     false,
                     isStrictMode,
                     timeout);
+            // complete and set commands both modify thrift struct
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
             if (!olapInsertCtx.isAllowAutoPartition()) {
                 olapTableSink.setAutoPartition(false);
             }
+            olapTableSink.setAutoDetectOverwite(olapInsertCtx.isAutoDetectOverwrite());
             // update
 
             // set schema and partition info for tablet id shuffle exchange

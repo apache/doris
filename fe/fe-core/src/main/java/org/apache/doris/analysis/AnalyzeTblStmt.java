@@ -259,7 +259,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         if (partitionNames == null) {
             return false;
         }
-        return partitionNames.isAllPartitions();
+        return partitionNames.isAutoReplace();
     }
 
     public long getPartitionCount() {

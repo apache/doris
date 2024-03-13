@@ -47,6 +47,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -312,6 +313,10 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
             }
             _partition_function[i] = _part_func_ctx[i]->root();
         }
+    }
+
+    if (t_param.__isset.enable_auto_detect_overwrite && t_param.enable_auto_detect_overwrite) {
+        _is_auto_detect_overwrite = true;
     }
 }
 
@@ -598,6 +603,70 @@ Status VOlapTablePartitionParam::add_partitions(
             }
         }
         _partitions.emplace_back(part);
+        // after _creating_partiton_keys
+        if (_is_in_partition) {
+            for (auto& in_key : part->in_keys) {
+                _partitions_map->emplace(std::tuple {in_key.first, in_key.second, false}, part);
+            }
+        } else {
+            _partitions_map->emplace(std::tuple {part->end_key.first, part->end_key.second, false},
+                                     part);
+        }
+    }
+
+    return Status::OK();
+}
+
+Status VOlapTablePartitionParam::replace_partitions(
+        const std::vector<VOlapTablePartition*>& origin_partitions,
+        const std::vector<TOlapTablePartition>& new_partitions) {
+    // replace partitions
+    std::set<int64_t> origin_ids;
+    for (const auto* part : origin_partitions) {
+        origin_ids.insert(part->id);
+    }
+    for (auto it = _partitions.begin(); it != _partitions.end(); it++) {
+        if (origin_ids.contains((*it)->id)) {
+            it = _partitions.erase(it);
+        }
+    }
+    //TODO: erase old value from map
+
+    for (const auto& t_part : new_partitions) {
+        auto* part = _obj_pool.add(new VOlapTablePartition(&_partition_block));
+        part->id = t_part.id;
+        part->is_mutable = t_part.is_mutable;
+
+        part->num_buckets = t_part.num_buckets;
+        auto num_indexes = _schema->indexes().size();
+        if (t_part.indexes.size() != num_indexes) {
+            return Status::InternalError(
+                    "number of partition's index is not equal with schema's"
+                    ", num_part_indexes={}, num_schema_indexes={}",
+                    t_part.indexes.size(), num_indexes);
+        }
+        part->indexes = t_part.indexes;
+        std::sort(part->indexes.begin(), part->indexes.end(),
+                  [](const OlapTableIndexTablets& lhs, const OlapTableIndexTablets& rhs) {
+                      return lhs.index_id < rhs.index_id;
+                  });
+        // check index
+        for (int j = 0; j < num_indexes; ++j) {
+            if (part->indexes[j].index_id != _schema->indexes()[j]->index_id) {
+                std::stringstream ss;
+                ss << "partition's index is not equal with schema's"
+                   << ", part_index=" << part->indexes[j].index_id
+                   << ", schema_index=" << _schema->indexes()[j]->index_id;
+                return Status::InternalError(
+                        "partition's index is not equal with schema's"
+                        ", part_index={}, schema_index={}",
+                        part->indexes[j].index_id, _schema->indexes()[j]->index_id);
+            }
+        }
+
+        // replace partitions
+        _partitions.emplace_back(part);
+
         // after _creating_partiton_keys
         if (_is_in_partition) {
             for (auto& in_key : part->in_keys) {

@@ -246,9 +246,14 @@ public:
     bool is_projection_partition() const { return _is_auto_partition; }
     bool is_auto_partition() const { return _is_auto_partition; }
 
+    bool is_auto_detect_overwrite() const { return _is_auto_detect_overwrite; }
+
     std::vector<uint16_t> get_partition_keys() const { return _partition_slot_locs; }
 
     Status add_partitions(const std::vector<TOlapTablePartition>& partitions);
+    // no need to del/reinsert partition keys, but change the link.
+    Status replace_partitions(const std::vector<VOlapTablePartition*>& origin_partitions,
+                              const std::vector<TOlapTablePartition>& new_partitions);
 
     vectorized::VExprContextSPtrs get_part_func_ctx() { return _part_func_ctx; }
     vectorized::VExprSPtrs get_partition_function() { return _partition_function; }
@@ -293,11 +298,12 @@ private:
     // only works when using list partition, the resource is owned by _partitions
     VOlapTablePartition* _default_partition = nullptr;
 
-    // for auto partition, now only support 1 column. TODO: use vector to save them when we support multi column auto-partition.
     bool _is_auto_partition = false;
     vectorized::VExprContextSPtrs _part_func_ctx = {nullptr};
     vectorized::VExprSPtrs _partition_function = {nullptr};
     TPartitionType::type _part_type; // support list or range
+    // "insert overwrite partition(*)", detect which partitions by BE
+    bool _is_auto_detect_overwrite = false;
 };
 
 // indicate where's the tablet and all its replications (node-wise)
@@ -360,13 +366,13 @@ class DorisNodesInfo {
 public:
     DorisNodesInfo() = default;
     DorisNodesInfo(const TPaloNodesInfo& t_nodes) {
-        for (auto& node : t_nodes.nodes) {
+        for (const auto& node : t_nodes.nodes) {
             _nodes.emplace(node.id, node);
         }
     }
     void setNodes(const TPaloNodesInfo& t_nodes) {
         _nodes.clear();
-        for (auto& node : t_nodes.nodes) {
+        for (const auto& node : t_nodes.nodes) {
             _nodes.emplace(node.id, node);
         }
     }
@@ -380,7 +386,7 @@ public:
 
     void add_nodes(const std::vector<TNodeInfo>& t_nodes) {
         for (const auto& node : t_nodes) {
-            auto node_info = find_node(node.id);
+            const auto* node_info = find_node(node.id);
             if (node_info == nullptr) {
                 _nodes.emplace(node.id, node);
             }

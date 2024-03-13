@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;

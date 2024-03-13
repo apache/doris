@@ -21,6 +21,8 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 
 #include "common/logging.h"
@@ -104,6 +106,54 @@ Status VRowDistribution::automatic_create_partition() {
         // add new created partitions
         RETURN_IF_ERROR(_vpartition->add_partitions(result.partitions));
         RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
+    }
+
+    return status;
+}
+
+static TCreatePartitionResult cast_as_create_result(TReplacePartitionResult& arg) {
+    TCreatePartitionResult result;
+    result.status = arg.status;
+    result.nodes = std::move(arg.nodes);
+    result.partitions = std::move(arg.partitions);
+    result.tablets = std::move(arg.tablets);
+    return result;
+}
+
+// use _partitions and replace them
+Status VRowDistribution::_replace_overwriting_partition() {
+    SCOPED_TIMER(_add_partition_request_timer);
+    TReplacePartitionRequest request;
+    TReplacePartitionResult result;
+    request.__set_txn_id(_txn_id);
+    request.__set_db_id(_vpartition->db_id());
+    request.__set_table_id(_vpartition->table_id());
+
+    std::vector<int64_t> partition_ids(_partitions.size());
+    std::transform(_partitions.begin(), _partitions.end(), partition_ids.begin(),
+                   [](VOlapTablePartition* partition) { return partition->id; });
+    request.__set_partition_ids(partition_ids);
+
+    string be_endpoint = BackendOptions::get_be_endpoint();
+    request.__set_be_endpoint(be_endpoint);
+
+    LOG(WARNING) << "auto detect replace partition request: " << request;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    int time_out = _state->execution_timeout() * 1000;
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->replacePartition(result, request);
+            },
+            time_out));
+
+    Status status(Status::create(result.status));
+    LOG(WARNING) << "auto detect replace partition result: " << result;
+    if (result.status.status_code == TStatusCode::OK) {
+        RETURN_IF_ERROR(_vpartition->replace_partitions(_partitions, result.partitions));
+        // reuse the function as the args' structure are same. it add nodes/locations and incremental_open
+        auto result_as_create = cast_as_create_result(result);
+        RETURN_IF_ERROR(_create_partition_callback(_caller, &result_as_create));
     }
 
     return status;
@@ -284,6 +334,27 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
     return Status::OK();
 }
 
+Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
+        vectorized::Block* block, bool has_filtered_rows,
+        std::vector<RowPartTabletIds>& row_part_tablet_ids) {
+    auto num_rows = block->rows();
+
+    bool stop_processing = false;
+    RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
+                                                 _tablet_indexes, stop_processing, _skip));
+    if (has_filtered_rows) {
+        for (int i = 0; i < num_rows; i++) {
+            _skip[i] = _skip[i] || _block_convertor->filter_map()[i];
+        }
+    }
+    RETURN_IF_ERROR(_filter_block(block, row_part_tablet_ids));
+
+    DCHECK(!_partitions.empty()); // otherwise it will be error return
+    RETURN_IF_ERROR(_replace_overwriting_partition());
+
+    return Status::OK();
+}
+
 void VRowDistribution::_reset_row_part_tablet_ids(
         std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t rows) {
     row_part_tablet_ids.resize(_schema->indexes().size());
@@ -345,7 +416,12 @@ Status VRowDistribution::generate_rows_distribution(
         _vpartition->set_transformed_slots(partition_cols_idx);
     }
 
-    if (_vpartition->is_auto_partition() && !_deal_batched) {
+    if (_vpartition->is_auto_detect_overwrite()) {
+        // when overwrite, no auto create partition allowed.
+        LOG(WARNING) << "is_auto_detect_overwriting!!!";
+        RETURN_IF_ERROR(_generate_rows_distribution_for_auto_overwrite(
+                block.get(), has_filtered_rows, row_part_tablet_ids));
+    } else if (_vpartition->is_auto_partition() && !_deal_batched) {
         RETURN_IF_ERROR(_generate_rows_distribution_for_auto_partition(
                 block.get(), partition_cols_idx, has_filtered_rows, row_part_tablet_ids,
                 rows_stat_val));

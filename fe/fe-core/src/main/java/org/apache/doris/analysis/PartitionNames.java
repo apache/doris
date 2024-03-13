@@ -48,7 +48,7 @@ public class PartitionNames implements ParseNode, Writable {
     // true if these partitions are temp partitions
     @SerializedName(value = "isTemp")
     private final boolean isTemp;
-    private final boolean allPartitions;
+    private final boolean autoReplace;
     private final long count;
     // Default partition count to collect statistic for external table.
     private static final long DEFAULT_PARTITION_COUNT = 100;
@@ -56,28 +56,28 @@ public class PartitionNames implements ParseNode, Writable {
     public PartitionNames(boolean isTemp, List<String> partitionNames) {
         this.partitionNames = partitionNames;
         this.isTemp = isTemp;
-        this.allPartitions = false;
+        this.autoReplace = false;
         this.count = 0;
     }
 
     public PartitionNames(PartitionNames other) {
         this.partitionNames = Lists.newArrayList(other.partitionNames);
         this.isTemp = other.isTemp;
-        this.allPartitions = other.allPartitions;
+        this.autoReplace = other.autoReplace;
         this.count = 0;
     }
 
-    public PartitionNames(boolean allPartitions) {
+    public PartitionNames(boolean autoReplace) {
         this.partitionNames = null;
         this.isTemp = false;
-        this.allPartitions = allPartitions;
+        this.autoReplace = autoReplace;
         this.count = 0;
     }
 
     public PartitionNames(long partitionCount) {
         this.partitionNames = null;
         this.isTemp = false;
-        this.allPartitions = false;
+        this.autoReplace = false;
         this.count = partitionCount;
     }
 
@@ -89,8 +89,8 @@ public class PartitionNames implements ParseNode, Writable {
         return isTemp;
     }
 
-    public boolean isAllPartitions() {
-        return allPartitions;
+    public boolean isAutoReplace() {
+        return autoReplace;
     }
 
     public long getCount() {
@@ -99,10 +99,10 @@ public class PartitionNames implements ParseNode, Writable {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (allPartitions && count > 0) {
+        if (autoReplace && count > 0) {
             throw new AnalysisException("All partition and partition count couldn't be set at the same time.");
         }
-        if (allPartitions || count > 0) {
+        if (autoReplace || count > 0) {
             return;
         }
         if (partitionNames == null || partitionNames.isEmpty()) {

@@ -2794,7 +2794,10 @@ public class StmtExecutor {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-            if (iotStmt.getPartitionNames().size() == 0) {
+            if (iotStmt.isAutoReplace()) {
+                // insert overwrite table auto detect which partitions need to replace
+                handleAutoOverwritePartition(iotStmt);
+            } else if (iotStmt.getPartitionNames().size() == 0) {
                 // insert overwrite table
                 handleOverwriteTable(iotStmt);
             } else {
@@ -2941,6 +2944,28 @@ public class StmtExecutor {
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             handleIotPartitionRollback(targetTableName, tempPartitionName);
         }
+    }
+
+    /*
+     * we use a anti-AutoPartition-like function to find partitions to replace.
+     */
+    private void handleAutoOverwritePartition(InsertOverwriteTableStmt iotStmt) {
+        // register query in replaceManager
+
+        //
+        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
+        try {
+            parsedStmt = new NativeInsertStmt(targetTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true).withAutoReplaceEnabled();
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotRollback(targetTableName);
+            return;
+        }
+
     }
 
     private void handleIotRollback(TableName table) {

@@ -527,17 +527,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<String> labelName = ctx.labelName == null ? Optional.empty() : Optional.of(ctx.labelName.getText());
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         // TODO visit partitionSpecCtx
-        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
         LogicalPlan plan = visitQuery(ctx.query());
-        LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSink(
-                tableName.build(),
-                colNames,
-                ImmutableList.of(),
-                partitionSpec.first,
-                partitionSpec.second,
-                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
-                DMLCommandType.INSERT,
-                plan);
+        // partitionSpec may be NULL. means auto detect partition. only available when
+        // IOT
+        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+        UnboundTableSink<?> sink;
+        if (partitionSpec.second == null) { // auto detect partition
+            if (!isOverwrite) {
+                throw new ParseException("Only support wildcard in overwrite partition", ctx);
+            }
+            sink = UnboundTableSinkCreator.createUnboundTableSink(
+                    tableName.build(),
+                    colNames,
+                    ImmutableList.of(),
+                    true,
+                    ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                    DMLCommandType.INSERT,
+                    plan);
+        } else { // normal partition
+            sink = UnboundTableSinkCreator.createUnboundTableSink(
+                    tableName.build(),
+                    colNames,
+                    ImmutableList.of(),
+                    partitionSpec.first,
+                    partitionSpec.second,
+                    ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                    DMLCommandType.INSERT,
+                    plan);
+        }
         LogicalPlan command;
         if (isOverwrite) {
             command = new InsertOverwriteTableCommand(sink, labelName);
@@ -567,7 +584,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean temporaryPartition = false;
         if (ctx != null) {
             temporaryPartition = ctx.TEMPORARY() != null;
-            if (ctx.partition != null) {
+            if (ctx.ASTERISK() != null) {
+                partitions = null;
+            } else if (ctx.partition != null) {
                 partitions = ImmutableList.of(ctx.partition.getText());
             } else {
                 partitions = visitIdentifierList(ctx.partitions);
@@ -849,6 +868,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitDelete(DeleteContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+        // TODO: now dont support delete auto detect partition.
+        if (partitionSpec == null) {
+            throw new ParseException("Now don't support auto detect partitions in deleting", ctx);
+        }
         LogicalPlan query = withTableAlias(LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), tableName,
                         partitionSpec.second, partitionSpec.first)), ctx.tableAlias());

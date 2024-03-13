@@ -71,4 +71,21 @@ public class UnboundTableSinkCreator {
         }
         throw new RuntimeException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
+
+    /**
+     * create unbound sink for DML plan with auto detect overwrite partition enable
+     */
+    public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
+            List<String> colNames, List<String> hints,
+            boolean isPartialUpdate, DMLCommandType dmlCommandType, LogicalPlan plan) {
+        String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
+        CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (curCatalog instanceof InternalCatalog) {
+            return new UnboundTableSink<>(nameParts, colNames, hints, false,
+                    isPartialUpdate, dmlCommandType, Optional.empty(),
+                    Optional.empty(), plan);
+        }
+        throw new RuntimeException(
+                "Auto overwrite data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
+    }
 }

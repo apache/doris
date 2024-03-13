@@ -153,6 +153,11 @@ private:
             vectorized::Block* block, bool has_filtered_rows,
             std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
+    Status _generate_rows_distribution_for_auto_overwrite(
+            vectorized::Block* block, bool has_filtered_rows,
+            std::vector<RowPartTabletIds>& row_part_tablet_ids);
+    Status _replace_overwriting_partition();
+
     void _reset_row_part_tablet_ids(std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                     int64_t rows);
 
@@ -177,11 +182,12 @@ private:
     OlapTableLocationParam* _location = nullptr;
     // int64_t _number_output_rows = 0;
     const VExprContextSPtrs* _vec_output_expr_ctxs = nullptr;
+    // generally it's writer's on_partitions_created
     CreatePartitionCallback _create_partition_callback = nullptr;
     void* _caller = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema;
 
-    // reuse for find_tablet.
+    // reuse for find_tablet. save partitions found by find_tablets
     std::vector<VOlapTablePartition*> _partitions;
     std::vector<bool> _skip;
     std::vector<uint32_t> _tablet_indexes;
