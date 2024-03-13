@@ -104,7 +104,7 @@ WITH BROKER broker_name
 
   - `FORMAT AS`
 
-    指定文件类型，支持 CSV、PARQUET 和 ORC 格式。默认为 CSV。
+    指定文件类型，支持 CSV、json、 csv_with_names(支持csv文件行首过滤)、csv_with_names_and_types(支持csv文件前两行过滤)、PARQUET 和 ORC 格式。默认为 CSV。
 
   - `COMPRESS_TYPE AS`
     指定文件压缩类型, 支持GZ/BZ2/LZ4FRAME。

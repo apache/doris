@@ -104,7 +104,7 @@ WITH BROKER broker_name
 
   - `FORMAT AS`
 
-    Specifies the file type, CSV, PARQUET and ORC formats are supported. Default is CSV.
+    Specifies the file type, CSV,JSON,csv_with_names(support csv file line header filter),csv_with_names_and_types(support csv file first two lines filter), PARQUET and ORC formats are supported. Default is CSV.
 
   - `COMPRESS_TYPE AS`
     Specifies the file compress type, GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP
