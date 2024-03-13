@@ -45,6 +45,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
@@ -68,6 +69,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -972,6 +974,30 @@ public class StatisticsUtil {
         return table instanceof OlapTable
             && columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
             || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
+        int waitRowCountReportedTime = 90;
+        if (!(table instanceof OlapTable) || method.equals(AnalysisInfo.AnalysisMethod.FULL)) {
+            return false;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        for (int i = 0; i < waitRowCountReportedTime; i++) {
+            if (olapTable.getRowCount() > 0) {
+                return false;
+            }
+            // If visible version is 2, table is probably not empty. So we wait row count to be reported.
+            // If visible version is not 2 and getRowCount return 0, we assume it is an empty table.
+            if (olapTable.getVisibleVersion() != TableAttributes.TABLE_INIT_VERSION + 1) {
+                return true;
+            }
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                LOG.info("Sleep interrupted.", e);
+            }
+        }
+        return true;
     }
 
 }
