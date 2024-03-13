@@ -126,7 +126,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
     public TrinoConnectorJniScanner(int batchSize, Map<String, String> params) {
         catalogNameString = params.get("catalog_name");
         super.batchSize = batchSize;
-        super.fields = params.get("trino_connector_column_names").split(",");
+        super.fields = params.get("required_fields").split(",");
         super.predicates = new ScanPredicate[0];
 
         connectorSplitString = params.get("trino_connector_split");

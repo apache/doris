@@ -324,7 +324,7 @@ struct TTrinoConnectorFileDesc {
     5: optional string trino_connector_table_handle
     6: optional string trino_connector_column_handles
     7: optional string trino_connector_column_metadata
-    8: optional string trino_connector_column_names
+    8: optional string trino_connector_column_names // not used
     9: optional string trino_connector_split
     10: optional string trino_connector_predicate
     11: optional string trino_connector_trascation_handle
