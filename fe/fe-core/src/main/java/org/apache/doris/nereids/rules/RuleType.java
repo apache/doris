@@ -196,6 +196,7 @@ public enum RuleType {
     MERGE_LIMITS(RuleTypeClass.REWRITE),
     MERGE_GENERATES(RuleTypeClass.REWRITE),
     // Eliminate plan
+    MERGE_AGGREGATE(RuleTypeClass.REWRITE),
     ELIMINATE_AGGREGATE(RuleTypeClass.REWRITE),
     ELIMINATE_LIMIT(RuleTypeClass.REWRITE),
     ELIMINATE_LIMIT_ON_ONE_ROW_RELATION(RuleTypeClass.REWRITE),

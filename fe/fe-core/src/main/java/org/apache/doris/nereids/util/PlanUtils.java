@@ -100,6 +100,12 @@ public class PlanUtils {
         return ExpressionUtils.replaceNamedExpressions(parentProjects, replaceMap);
     }
 
+    public static List<Expression> replaceExpressionByProjections(List<NamedExpression> childProjects,
+            List<Expression> targetExpression) {
+        Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(childProjects);
+        return ExpressionUtils.replace(targetExpression, replaceMap);
+    }
+
     public static Plan skipProjectFilterLimit(Plan plan) {
         if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).isAllSlots()
                 || plan instanceof LogicalFilter || plan instanceof LogicalLimit) {
