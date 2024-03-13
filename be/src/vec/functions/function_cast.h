@@ -1560,6 +1560,11 @@ struct ConvertThroughParsing {
                 parsed = try_parse_impl<ToDataType, void*, FromDataType>(
                         vec_to[i], read_buffer, context->state()->timezone_obj());
             }
+            bool parse_success = parsed && is_all_read(read_buffer);
+            if (string_size > 0 && !parse_success) {
+                std::string_view raw{reinterpret_cast<const char *>(&(*chars)[current_offset]), string_size};
+                return Status::RuntimeError("failed to parse '{}' as {}", raw, col_to->get_name());
+            }
             (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
             current_offset = next_offset;
         }
