@@ -629,4 +629,21 @@ public class TableProperty implements Writable {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
         }
     }
+
+    // Return null if storage vault has not been set
+    public String getStorageVaultId() {
+        return properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID);
+    }
+
+    public void setStorageVaultId(String storageVaultId) {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, storageVaultId);
+    }
+
+    public String getStorageVauldName() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
+    }
+
+    public void setStorageVaultName(String storageVaultName) {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
+    }
 }

@@ -458,6 +458,15 @@ public class SchemaTable extends Table {
                                     .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
+            .put("active_queries", new SchemaTable(SystemIdGenerator.getNextId(), "active_queries", TableType.SCHEMA,
+                    builder().column("QUERY_ID", ScalarType.createVarchar(256))
+                            .column("START_TIME", ScalarType.createVarchar(256))
+                            .column("QUERY_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("DATABASE", ScalarType.createVarchar(256))
+                            .column("FRONTEND_INSTANCE", ScalarType.createVarchar(256))
+                            .column("SQL", ScalarType.createStringType())
+                            .build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

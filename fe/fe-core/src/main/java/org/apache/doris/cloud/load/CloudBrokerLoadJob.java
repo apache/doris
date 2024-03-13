@@ -118,4 +118,13 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         }
         return task;
     }
+
+    @Override
+    protected void executeFinish() {
+        super.executeFinish();
+        // When replaying a load job, the state of the job can be obtained through replaying transaction
+        // status information in local mode. However, in cloud mode, there is no edit log of transaction
+        // in fe. So pint an edit log to save the status information of the job here.
+        logFinalOperation();
+    }
 }

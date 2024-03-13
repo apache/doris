@@ -34,7 +34,7 @@ Starting from version 2.1, Doris can support multiple SQL dialects, such as Pres
 
 ## Deploy service
 
-1. Download latest [Doris SQL Convertor](https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/transform-doris-tool/transform-doris-tool-1.0.0-bin-x86).
+1. Download latest [Doris SQL Convertor(1.0.1)](https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/transform-doris-tool/doris-sql-convertor-1.0.1-bin-x86)
 2. On any FE node, start the service through the following command:
 
 	`nohup ./doris-sql-convertor-1.0.1-bin-x86 run --host=0.0.0.0 --port=5001 &`

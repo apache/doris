@@ -279,7 +279,8 @@ suite("test_unique_table_auto_inc") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_partial_update_value "select * from ${table7} order by id;"
+    qt_partial_update_value1 "select name, value from ${table7} order by value;"
+    qt_partial_update_value2 "select id, count(*) from ${table7} group by id having count(*) > 1;"
 
     streamLoad {
         table "${table7}"

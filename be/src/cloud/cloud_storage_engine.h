@@ -88,7 +88,7 @@ public:
     Status get_compaction_status_json(std::string* result);
 
 private:
-    void _refresh_s3_info_thread_callback();
+    void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
     void _sync_tablets_thread_callback();
     void _compaction_tasks_producer_callback();

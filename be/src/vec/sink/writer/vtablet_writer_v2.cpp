@@ -560,7 +560,7 @@ Status VTabletWriterV2::close(Status exec_status) {
                                      << print_id(_load_id);
                         return Status::TimedOut("load timed out before close waiting");
                     }
-                    RETURN_IF_ERROR(stream->close_wait(remain_ms));
+                    RETURN_IF_ERROR(stream->close_wait(_state, remain_ms));
                 }
             }
         }

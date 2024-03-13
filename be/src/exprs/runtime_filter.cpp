@@ -32,6 +32,7 @@
 #include <mutex>
 #include <ostream>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -993,7 +994,7 @@ Status IRuntimeFilter::publish(bool publish_local) {
     } else if (_has_local_target) {
         RETURN_IF_ERROR(send_to_local(_wrapper));
     } else if (!publish_local) {
-        if (_is_broadcast_join || _state->be_exec_version < 3) {
+        if (_is_broadcast_join || _state->be_exec_version < USE_NEW_SERDE) {
             RETURN_IF_ERROR(send_to_remote(this));
         } else {
             RETURN_IF_ERROR(do_local_merge());

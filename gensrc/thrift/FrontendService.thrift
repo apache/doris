@@ -918,7 +918,8 @@ struct TInitExternalCtlMetaResult {
 
 enum TSchemaTableName {
   // BACKENDS = 0,
-  METADATA_TABLE = 1,
+  METADATA_TABLE = 1, // tvf
+  SCHEMA_TABLE = 2, // db information_schema's table
 }
 
 struct TMetadataTableRequestParams {
@@ -1461,6 +1462,8 @@ service FrontendService {
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
 
     TMySqlLoadAcquireTokenResult acquireToken()
+
+    bool checkToken(1: string token)
 
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 

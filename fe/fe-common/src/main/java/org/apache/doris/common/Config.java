@@ -1754,7 +1754,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 3;
+    public static int max_be_exec_version = 4;
 
     /**
      * Min data version of backends serialize block.
@@ -2585,6 +2585,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int get_tablet_stat_batch_size = 1000;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_light_index_change = true;
+
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
@@ -2599,6 +2602,9 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
+
+    @ConfField
+    public static int cloud_txn_tablet_batch_size = 50;
 
     //==========================================================================
     //                      end of cloud config

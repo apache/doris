@@ -21,6 +21,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "olap/storage_policy.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -62,13 +63,20 @@ Status CloudRowsetBuilder::init() {
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
     // New loaded data is always written to latest shared storage
-    context.fs = _engine.latest_fs();
+    // TODO(AlexYue): use the passed resource id to retrive the corresponding
+    // fs to pass to the RowsetWriterContext
+    if (_req.storage_vault_id.empty()) {
+        context.fs = _engine.latest_fs();
+    } else {
+        // TODO(ByteYue): What if the corresponding fs does not exists temporarily?
+        context.fs = get_filesystem(_req.storage_vault_id);
+    }
     context.rowset_dir = _tablet->tablet_path();
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
 
-    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), true));
+    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta()));
 
     _is_init = true;
     return Status::OK();

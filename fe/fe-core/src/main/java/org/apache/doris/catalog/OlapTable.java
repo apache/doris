@@ -241,6 +241,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 String.valueOf(isBeingSynced));
     }
 
+    public void setStorageVault(String storageVaultName) {
+        if (storageVaultName == null && storageVaultName.isEmpty()) {
+            return;
+        }
+        getOrCreatTableProperty().setStorageVaultName(storageVaultName);
+    }
+
     public boolean isBeingSynced() {
         return getOrCreatTableProperty().isBeingSynced();
     }
