@@ -56,6 +56,8 @@ PROPERTIES ("key" = "value", ...)
 | `meta_names_mapping`      | No              |               | When the JDBC external data source has the same name but different case, e.g. DORIS and doris, Doris reports an error when querying the catalog due to ambiguity. In this case, the `meta_names_mapping` parameter needs to be specified to resolve the conflict. |
 | `include_database_list`   | No              |               | When `only_specified_database = true`，only synchronize the specified databases. Separate with `,`. Database name is case sensitive. |
 | `exclude_database_list`   | No              |               | When `only_specified_database = true`，do not synchronize the specified databases. Separate with `,`. Database name is case sensitive. |
+| `test_connection`         | No              | "true"        | Whether to test the connection when creating the catalog. If set to `true`, the connection will be tested when creating the catalog and will refuse to create the catalog if the connection fails. If set to `false`, the connection will not be tested. |
+
 
 ### Driver path
 

@@ -642,6 +642,16 @@ message PFetchTableSchemaResult {
   repeated PTypeDesc column_types = 4;
 }
 
+message PJdbcTestConnectionRequest {
+    optional bytes jdbc_table = 1;
+    optional int32 jdbc_table_type = 2;
+    optional string query_str = 3;
+}
+
+message PJdbcTestConnectionResult {
+    optional PStatus status = 1;
+}
+
 message PRowLocation {
     optional int64 tablet_id = 1;
     optional string rowset_id = 2;
@@ -879,5 +889,6 @@ service PBackendService {
     rpc get_wal_queue_size(PGetWalQueueSizeRequest) returns(PGetWalQueueSizeResponse);
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
+    rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
 };
 

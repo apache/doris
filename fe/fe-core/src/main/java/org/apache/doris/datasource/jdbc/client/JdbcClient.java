@@ -453,4 +453,22 @@ public abstract class JdbcClient {
         }
         return ScalarType.createStringType();
     }
+
+    public void testConnection() {
+        String testQuery = getTestQuery();
+        try (Connection conn = getConnection();
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(testQuery)) {
+            if (!rs.next()) {
+                throw new JdbcClientException(
+                        "Failed to test connection in FE: query executed but returned no results.");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to test connection in FE: " + e.getMessage(), e);
+        }
+    }
+
+    public String getTestQuery() {
+        return "select 1";
+    }
 }
