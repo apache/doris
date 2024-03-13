@@ -192,6 +192,7 @@ bca	2022-11-02	2022-11-02	8012	vivo
 2	2
 
 -- !information_schema --
+active_queries
 backend_active_tasks
 character_sets
 collations

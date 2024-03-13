@@ -18,8 +18,11 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -64,6 +67,8 @@ import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import org.apache.iceberg.Snapshot;
@@ -83,6 +88,25 @@ import java.util.concurrent.TimeUnit;
 
 public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
+
+    private static final ImmutableList<Column> ACTIVE_QUERIES_SCHEMA = ImmutableList.of(
+            new Column("QUERY_ID", ScalarType.createStringType()),
+            new Column("START_TIME", ScalarType.createStringType()),
+            new Column("QUERY_TIME_MS", PrimitiveType.BIGINT),
+            new Column("WORKLOAD_GROUP_ID", PrimitiveType.BIGINT),
+            new Column("DATABASE", ScalarType.createStringType()),
+            new Column("FRONTEND_INSTANCE", ScalarType.createStringType()),
+            new Column("SQL", ScalarType.createStringType()));
+
+    private static final ImmutableMap<String, Integer> ACTIVE_QUERIES_COLUMN_TO_INDEX;
+
+    static {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        for (int i = 0; i < ACTIVE_QUERIES_SCHEMA.size(); i++) {
+            builder.put(ACTIVE_QUERIES_SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        ACTIVE_QUERIES_COLUMN_TO_INDEX = builder.build();
+    }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
         if (!request.isSetMetadaTableParams() || !request.getMetadaTableParams().isSetMetadataType()) {
@@ -118,9 +142,6 @@ public class MetadataGenerator {
             case TASKS:
                 result = taskMetadataResult(params);
                 break;
-            case QUERIES:
-                result = queriesMetadataResult(params, request);
-                break;
             case WORKLOAD_SCHED_POLICY:
                 result = workloadSchedPolicyMetadataResult(params);
                 break;
@@ -129,6 +150,29 @@ public class MetadataGenerator {
         }
         if (result.getStatus().getStatusCode() == TStatusCode.OK) {
             filterColumns(result, params.getColumnsName(), params.getMetadataType(), params);
+        }
+        return result;
+    }
+
+    public static TFetchSchemaTableDataResult getSchemaTableData(TFetchSchemaTableDataRequest request)
+            throws TException {
+        if (!request.isSetMetadaTableParams() || !request.getMetadaTableParams().isSetMetadataType()) {
+            return errorResult("Metadata table params is not set. ");
+        }
+        TFetchSchemaTableDataResult result;
+        TMetadataTableRequestParams params = request.getMetadaTableParams();
+        ImmutableMap<String, Integer> columnIndex;
+        // todo(wb) move workload group/workload scheduler policy here
+        switch (request.getMetadaTableParams().getMetadataType()) {
+            case QUERIES:
+                result = queriesMetadataResult(params, request);
+                columnIndex = ACTIVE_QUERIES_COLUMN_TO_INDEX;
+                break;
+            default:
+                return errorResult("schema table params is not set.");
+        }
+        if (result.getStatus().getStatusCode() == TStatusCode.OK) {
+            filterColumns(result, params.getColumnsName(), columnIndex);
         }
         return result;
     }
@@ -585,6 +629,27 @@ public class MetadataGenerator {
                     filterRow.addToColumnValue(row.getColumnValue().get(index));
                 }
             } catch (AnalysisException e) {
+                throw new TException(e);
+            }
+            filterColumnsRows.add(filterRow);
+        }
+        result.setDataBatch(filterColumnsRows);
+    }
+
+    private static void filterColumns(TFetchSchemaTableDataResult result,
+            List<String> columnNames,
+            ImmutableMap<String, Integer> columnIndex) throws TException {
+        List<TRow> fullColumnsRow = result.getDataBatch();
+        List<TRow> filterColumnsRows = Lists.newArrayList();
+        for (TRow row : fullColumnsRow) {
+            TRow filterRow = new TRow();
+            try {
+                for (String columnName : columnNames) {
+                    Integer index = columnIndex.get(columnName.toLowerCase());
+                    filterRow.addToColumnValue(row.getColumnValue().get(index));
+                }
+            } catch (Throwable e) {
+                LOG.info("error happens when filter columns.", e);
                 throw new TException(e);
             }
             filterColumnsRows.add(filterRow);
