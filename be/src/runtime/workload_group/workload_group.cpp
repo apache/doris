@@ -202,7 +202,7 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile)
 }
 
 Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_info,
-                                           WorkloadGroupInfo* task_group_info) {
+                                           WorkloadGroupInfo* workload_group_info) {
     // 1 id
     int tg_id = 0;
     if (workload_group_info.__isset.id) {
@@ -210,14 +210,14 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_gr
     } else {
         return Status::InternalError<false>("workload group id is required");
     }
-    task_group_info->id = tg_id;
+    workload_group_info->id = tg_id;
 
     // 2 name
     std::string name = "INVALID_NAME";
     if (workload_group_info.__isset.name) {
         name = workload_group_info.name;
     }
-    task_group_info->name = name;
+    workload_group_info->name = name;
 
     // 3 version
     int version = 0;
@@ -226,21 +226,21 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_gr
     } else {
         return Status::InternalError<false>("workload group version is required");
     }
-    task_group_info->version = version;
+    workload_group_info->version = version;
 
     // 4 cpu_share
     uint64_t cpu_share = CPU_SHARE_DEFAULT_VALUE;
     if (workload_group_info.__isset.cpu_share) {
         cpu_share = workload_group_info.cpu_share;
     }
-    task_group_info->cpu_share = cpu_share;
+    workload_group_info->cpu_share = cpu_share;
 
     // 5 cpu hard limit
     int cpu_hard_limit = CPU_HARD_LIMIT_DEFAULT_VALUE;
     if (workload_group_info.__isset.cpu_hard_limit) {
         cpu_hard_limit = workload_group_info.cpu_hard_limit;
     }
-    task_group_info->cpu_hard_limit = cpu_hard_limit;
+    workload_group_info->cpu_hard_limit = cpu_hard_limit;
 
     // 6 mem_limit
     std::string mem_limit_str = MEMORY_LIMIT_DEFAULT_VALUE;
@@ -250,41 +250,41 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_gr
     bool is_percent = true;
     int64_t mem_limit =
             ParseUtil::parse_mem_spec(mem_limit_str, -1, MemInfo::mem_limit(), &is_percent);
-    task_group_info->memory_limit = mem_limit;
+    workload_group_info->memory_limit = mem_limit;
 
     // 7 mem overcommit
     bool enable_memory_overcommit = ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE;
     if (workload_group_info.__isset.enable_memory_overcommit) {
         enable_memory_overcommit = workload_group_info.enable_memory_overcommit;
     }
-    task_group_info->enable_memory_overcommit = enable_memory_overcommit;
+    workload_group_info->enable_memory_overcommit = enable_memory_overcommit;
 
     // 8 cpu soft limit or hard limit
     bool enable_cpu_hard_limit = false;
     if (workload_group_info.__isset.enable_cpu_hard_limit) {
         enable_cpu_hard_limit = workload_group_info.enable_cpu_hard_limit;
     }
-    task_group_info->enable_cpu_hard_limit = enable_cpu_hard_limit;
+    workload_group_info->enable_cpu_hard_limit = enable_cpu_hard_limit;
 
     // 9 scan thread num
-    task_group_info->scan_thread_num = config::doris_scanner_thread_pool_thread_num;
+    workload_group_info->scan_thread_num = config::doris_scanner_thread_pool_thread_num;
     if (workload_group_info.__isset.scan_thread_num && workload_group_info.scan_thread_num > 0) {
-        task_group_info->scan_thread_num = workload_group_info.scan_thread_num;
+        workload_group_info->scan_thread_num = workload_group_info.scan_thread_num;
     }
 
     // 10 max remote scan thread num
-    task_group_info->max_remote_scan_thread_num = config::doris_scanner_thread_pool_thread_num;
+    workload_group_info->max_remote_scan_thread_num = config::doris_scanner_thread_pool_thread_num;
     if (workload_group_info.__isset.max_remote_scan_thread_num &&
         workload_group_info.max_remote_scan_thread_num > 0) {
-        task_group_info->max_remote_scan_thread_num =
+        workload_group_info->max_remote_scan_thread_num =
                 workload_group_info.max_remote_scan_thread_num;
     }
 
     // 11 min remote scan thread num
-    task_group_info->min_remote_scan_thread_num = config::doris_scanner_thread_pool_thread_num;
+    workload_group_info->min_remote_scan_thread_num = config::doris_scanner_thread_pool_thread_num;
     if (workload_group_info.__isset.min_remote_scan_thread_num &&
         workload_group_info.min_remote_scan_thread_num > 0) {
-        task_group_info->min_remote_scan_thread_num =
+        workload_group_info->min_remote_scan_thread_num =
                 workload_group_info.min_remote_scan_thread_num;
     }
 

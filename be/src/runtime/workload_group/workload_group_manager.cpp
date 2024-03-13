@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "task_group_manager.h"
-
 #include <memory>
 #include <mutex>
 
 #include "pipeline/task_scheduler.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
+#include "task_group_manager.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -30,24 +29,24 @@
 namespace doris {
 
 WorkloadGroupPtr WorkloadGroupMgr::get_or_create_task_group(
-        const WorkloadGroupInfo& task_group_info) {
+        const WorkloadGroupInfo& workload_group_info) {
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-        if (LIKELY(_task_groups.count(task_group_info.id))) {
-            auto task_group = _task_groups[task_group_info.id];
-            task_group->check_and_update(task_group_info);
+        if (LIKELY(_task_groups.count(workload_group_info.id))) {
+            auto task_group = _task_groups[workload_group_info.id];
+            task_group->check_and_update(workload_group_info);
             return task_group;
         }
     }
 
-    auto new_task_group = std::make_shared<WorkloadGroup>(task_group_info);
+    auto new_task_group = std::make_shared<WorkloadGroup>(workload_group_info);
     std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
-    if (_task_groups.count(task_group_info.id)) {
-        auto task_group = _task_groups[task_group_info.id];
-        task_group->check_and_update(task_group_info);
+    if (_task_groups.count(workload_group_info.id)) {
+        auto task_group = _task_groups[workload_group_info.id];
+        task_group->check_and_update(workload_group_info);
         return task_group;
     }
-    _task_groups[task_group_info.id] = new_task_group;
+    _task_groups[workload_group_info.id] = new_task_group;
     return new_task_group;
 }
 

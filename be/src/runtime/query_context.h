@@ -32,11 +32,11 @@
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
-#include "task_group/task_group.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 #include "vec/runtime/shared_scanner_controller.h"
+#include "workload_group/workload_group.h"
 
 namespace doris {
 

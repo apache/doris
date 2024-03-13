@@ -183,7 +183,7 @@ struct WorkloadGroupInfo {
     int cgroup_cpu_hard_limit = 0;
 
     static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
-                                   WorkloadGroupInfo* task_group_info);
+                                   WorkloadGroupInfo* workload_group_info);
 };
 
 } // namespace doris

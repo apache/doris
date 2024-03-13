@@ -23,7 +23,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_query_statistics_mgr.h"
-#include "runtime/task_group/task_group_manager.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
 
 namespace doris {

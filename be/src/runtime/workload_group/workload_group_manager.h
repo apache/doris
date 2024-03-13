@@ -37,7 +37,7 @@ public:
     WorkloadGroupMgr() = default;
     ~WorkloadGroupMgr() = default;
 
-    WorkloadGroupPtr get_or_create_task_group(const WorkloadGroupInfo& task_group_info);
+    WorkloadGroupPtr get_or_create_task_group(const WorkloadGroupInfo& workload_group_info);
 
     void get_related_workload_groups(const std::function<bool(const WorkloadGroupPtr& ptr)>& pred,
                                      std::vector<WorkloadGroupPtr>* task_groups);
