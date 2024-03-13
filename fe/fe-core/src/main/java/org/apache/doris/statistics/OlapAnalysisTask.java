@@ -65,7 +65,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     public void doExecute() throws Exception {
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if ((info.emptyJob && info.analysisMethod.equals(AnalysisInfo.AnalysisMethod.SAMPLE))
+        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod)
                 || partitionNames == null || partitionNames.isEmpty()) {
             if (partitionNames == null) {
                 LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
