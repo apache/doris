@@ -639,15 +639,15 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
-            WorkloadGroupPtr task_group_ptr =
+            WorkloadGroupPtr workload_group_ptr =
                     _exec_env->workload_group_mgr()->get_task_group_by_id(tg_id);
-            if (task_group_ptr != nullptr) {
-                RETURN_IF_ERROR(query_ctx->set_workload_group(task_group_ptr));
+            if (workload_group_ptr != nullptr) {
+                RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << ", use task group: " << task_group_ptr->debug_string()
+                          << ", use task group: " << workload_group_ptr->debug_string()
                           << ", is pipeline: " << ((int)is_pipeline)
                           << ", enable cgroup soft limit: "
                           << ((int)config::enable_cgroup_cpu_soft_limit);

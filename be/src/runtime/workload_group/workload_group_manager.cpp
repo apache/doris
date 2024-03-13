@@ -77,13 +77,13 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
         for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
             uint64_t tg_id = iter->first;
-            auto task_group_ptr = iter->second;
+            auto workload_group_ptr = iter->second;
             if (used_wg_id.find(tg_id) == used_wg_id.end()) {
-                task_group_ptr->shutdown();
+                workload_group_ptr->shutdown();
                 // only when no query running in task group, its resource can be released in BE
-                if (task_group_ptr->query_num() == 0) {
+                if (workload_group_ptr->query_num() == 0) {
                     LOG(INFO) << "There is no query in wg " << tg_id << ", delete it.";
-                    deleted_task_groups.push_back(task_group_ptr);
+                    deleted_task_groups.push_back(workload_group_ptr);
                 }
             }
         }
