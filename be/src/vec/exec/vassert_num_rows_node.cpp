@@ -49,6 +49,10 @@ VAssertNumRowsNode::VAssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode,
     } else {
         _assertion = TAssertion::LE; // just compatible for the previous code
     }
+
+    _should_convert_output_to_nullable =
+            tnode.assert_num_rows_node.__isset.should_convert_output_to_nullable &&
+            tnode.assert_num_rows_node.should_convert_output_to_nullable;
 }
 
 Status VAssertNumRowsNode::open(RuntimeState* state) {
@@ -93,21 +97,25 @@ Status VAssertNumRowsNode::pull(doris::RuntimeState* state, vectorized::Block* b
      * If the `_num_rows_returned` is 0 and `_desired_num_rows` is 1,
      * here need to insert one row of null.
      */
-    if (state->is_nereids()) {
+    if (_should_convert_output_to_nullable) {
         if (block->rows() > 0) {
-            auto& data = block->get_by_position(0);
-            data.type = vectorized::make_nullable(data.type);
-            data.column = vectorized::make_nullable(data.column);
+            for (size_t i = 0; i != block->columns(); ++i) {
+                auto& data = block->get_by_position(i);
+                data.type = vectorized::make_nullable(data.type);
+                data.column = vectorized::make_nullable(data.column);
+            }
         } else if (!has_more_rows && _assertion == TAssertion::EQ && _num_rows_returned == 0 &&
                    _desired_num_rows == 1) {
             auto new_block = vectorized::VectorizedUtils::create_columns_with_type_and_name(
                     _output_row_descriptor ? *_output_row_descriptor : _row_descriptor);
             block->swap(new_block);
-            auto& column = block->get_by_position(0).column;
-            auto& type = block->get_by_position(0).type;
-            type = vectorized::make_nullable(type);
-            column = type->create_column();
-            column->assume_mutable()->insert_default();
+            for (size_t i = 0; i != block->columns(); ++i) {
+                auto& column = block->get_by_position(i).column;
+                auto& type = block->get_by_position(i).type;
+                type = vectorized::make_nullable(type);
+                column = type->create_column();
+                column->assume_mutable()->insert_default();
+            }
             assert_res = true;
         }
     }
