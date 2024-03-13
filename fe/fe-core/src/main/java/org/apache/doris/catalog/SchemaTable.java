@@ -467,6 +467,20 @@ public class SchemaTable extends Table {
                             .column("FRONTEND_INSTANCE", ScalarType.createVarchar(256))
                             .column("SQL", ScalarType.createStringType())
                             .build()))
+            .put("workload_groups", new SchemaTable(SystemIdGenerator.getNextId(), "workload_groups", TableType.SCHEMA,
+                    builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("NAME", ScalarType.createVarchar(256))
+                            .column("CPU_SHARE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("MEMORY_LIMIT", ScalarType.createVarchar(256))
+                            .column("ENABLE_MEMORY_OVERCOMMIT", ScalarType.createVarchar(256))
+                            .column("MAX_CONCURRENCY", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("MAX_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("QUEUE_TIMEOUT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("CPU_HARD_LIMIT", ScalarType.createStringType())
+                            .column("SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("MAX_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                            .build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

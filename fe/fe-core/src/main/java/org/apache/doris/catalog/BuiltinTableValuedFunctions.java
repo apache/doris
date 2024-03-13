@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
-import org.apache.doris.nereids.trees.expressions.functions.table.WorkloadGroups;
 
 import com.google.common.collect.ImmutableList;
 
@@ -56,8 +55,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(S3.class, "s3"),
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Jobs.class, "jobs"),
-            tableValued(Tasks.class, "tasks"),
-            tableValued(WorkloadGroups.class, "workload_groups")
+            tableValued(Tasks.class, "tasks")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();
