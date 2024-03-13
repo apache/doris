@@ -70,10 +70,10 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                     List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
 
                     // split OtherJoinConjuncts.
-                    Map<Boolean, List<Expression>> splitOtherConjunts = splitConjuncts(topJoin.getOtherJoinConjuncts(),
+                    Map<Boolean, List<Expression>> splitOtherConjuncts = splitConjuncts(topJoin.getOtherJoinConjuncts(),
                             bottomJoin, bottomJoin.getOtherJoinConjuncts());
-                    List<Expression> newTopOtherConjuncts = splitOtherConjunts.get(true);
-                    List<Expression> newBottomOtherConjuncts = splitOtherConjunts.get(false);
+                    List<Expression> newTopOtherConjuncts = splitOtherConjuncts.get(true);
+                    List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
 
                     if (newBottomHashConjuncts.isEmpty() && newBottomOtherConjuncts.isEmpty()) {
                         return null;
