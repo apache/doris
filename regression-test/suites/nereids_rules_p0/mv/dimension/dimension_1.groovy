@@ -135,6 +135,19 @@ suite("partition_mv_rewrite_dimension_1") {
         """
     }
 
+    def create_mv_all = { mv_name, mv_sql ->
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
+        sql """DROP TABLE IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
+        DISTRIBUTED BY RANDOM BUCKETS 2 
+        PROPERTIES ('replication_num' = '1') 
+        AS  
+        ${mv_sql}
+        """
+    }
+
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -155,9 +168,9 @@ suite("partition_mv_rewrite_dimension_1") {
     // join direction
     def mv_name_1 = "mv_join_1"
     def join_direction_mv_1 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem_1
+        left join orders_1
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         """
 
@@ -166,15 +179,15 @@ suite("partition_mv_rewrite_dimension_1") {
     waitingMTMVTaskFinished(job_name_1)
 
     def join_direction_sql_1 = """
-        select l_shipdate 
-        from lineitem_1 
-        left join orders_1 
+        select l_shipdate
+        from lineitem_1
+        left join orders_1
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         """
     def join_direction_sql_2 = """
-        select l_shipdate 
-        from  orders_1 
-        left join lineitem_1 
+        select l_shipdate
+        from  orders_1
+        left join lineitem_1
         on orders_1.o_orderkey = lineitem_1.l_orderkey
         """
     explain {
@@ -191,9 +204,9 @@ suite("partition_mv_rewrite_dimension_1") {
 
     def mv_name_2 = "mv_join_2"
     def join_direction_mv_2 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        inner join orders_1 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem_1
+        inner join orders_1
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         """
 
@@ -202,15 +215,15 @@ suite("partition_mv_rewrite_dimension_1") {
     waitingMTMVTaskFinished(job_name_2)
 
     def join_direction_sql_3 = """
-        select l_shipdate 
-        from lineitem_1 
-        inner join orders_1 
+        select l_shipdate
+        from lineitem_1
+        inner join orders_1
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         """
     def join_direction_sql_4 = """
-        select l_shipdate 
-        from  orders_1 
-        inner join lineitem_1 
+        select l_shipdate
+        from  orders_1
+        inner join lineitem_1
         on orders_1.o_orderkey = lineitem_1.l_orderkey
         """
     explain {
@@ -227,50 +240,50 @@ suite("partition_mv_rewrite_dimension_1") {
 
     // join filter position
     def join_filter_stmt_1 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
-        from lineitem_1  
-        left join orders_1 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem_1
+        left join orders_1
         on lineitem_1.l_orderkey = orders_1.o_orderkey"""
     def join_filter_stmt_2 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey   
-        from (select * from lineitem_1 where l_shipdate = '2023-10-17' ) t1 
-        left join orders_1 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from (select * from lineitem_1 where l_shipdate = '2023-10-17' ) t1
+        left join orders_1
         on t1.l_orderkey = orders_1.o_orderkey"""
     def join_filter_stmt_3 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem_1 
-        left join (select * from orders_1 where o_orderdate = '2023-10-17' ) t2 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem_1
+        left join (select * from orders_1 where o_orderdate = '2023-10-17' ) t2
         on lineitem_1.l_orderkey = t2.o_orderkey"""
     def join_filter_stmt_4 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem_1
+        left join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-17' and o_orderdate = '2023-10-17'"""
     def join_filter_stmt_5 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem_1
+        left join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-17'"""
     def join_filter_stmt_6 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem_1
+        left join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey
         where  o_orderdate = '2023-10-17'"""
     def join_filter_stmt_7 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem_1
+        left join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey
         where  orders_1.o_orderkey=1"""
 
     def mv_list = [
             join_filter_stmt_1, join_filter_stmt_2, join_filter_stmt_3, join_filter_stmt_4,
             join_filter_stmt_5, join_filter_stmt_6, join_filter_stmt_7]
 
-    for (int i = 0; i < mv_list.size(); i++) {
+    for (int i =0; i < mv_list.size(); i++) {
         logger.info("i:" + i)
         def join_filter_mv = """join_filter_mv_${i}"""
         create_mv_lineitem(join_filter_mv, mv_list[i])
@@ -403,39 +416,49 @@ suite("partition_mv_rewrite_dimension_1") {
         from lineitem_1 
         inner join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey"""
-
-    // Todo: right/cross/full/semi/anti join
-    // Currently, only left join and inner join are supported.
-//    def join_type_stmt_3 = """
-//        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-//        from lineitem_1
-//        right join orders_1
-//        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
+    def join_type_stmt_3 = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem_1
+        right join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
 //    def join_type_stmt_4 = """
 //        select l_shipdate, o_orderdate, l_partkey, l_suppkey
 //        from lineitem_1
 //        cross join orders_1"""
-//    def join_type_stmt_5 = """
-//        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-//        from lineitem_1
-//        full join orders_1
-//        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
-//    def join_type_stmt_6 = """
-//        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-//        from lineitem_1
-//        semi join orders_1
-//        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
-//    def join_type_stmt_7 = """
-//        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-//        from lineitem_1
-//        anti join orders_1
-//        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
-    def join_type_stmt_list = [join_type_stmt_1, join_type_stmt_2]
+    def join_type_stmt_5 = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem_1
+        full join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
+    def join_type_stmt_6 = """
+        select l_shipdate, l_partkey, l_suppkey, l_linenumber 
+        from lineitem_1
+        left semi join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
+    def join_type_stmt_7 = """
+        select o_orderdate, o_orderkey, o_custkey, o_orderstatus 
+        from lineitem_1
+        right semi join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
+    def join_type_stmt_8 = """
+        select l_shipdate, l_partkey, l_suppkey, l_linenumber 
+        from lineitem_1
+        left anti join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
+    def join_type_stmt_9 = """
+        select o_orderdate, o_orderkey, o_custkey, o_orderstatus
+        from lineitem_1
+        right anti join orders_1
+        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
+    def join_type_stmt_list = [join_type_stmt_1, join_type_stmt_2, join_type_stmt_3, join_type_stmt_5,
+                               join_type_stmt_6, join_type_stmt_7, join_type_stmt_8, join_type_stmt_9]
     for (int i = 0; i < join_type_stmt_list.size(); i++) {
         logger.info("i:" + i)
         String join_type_mv = """join_type_mv_${i}"""
-        if (i == 2) {
+        if (i == 2 || i == 5 || i == 7) {
             create_mv_orders(join_type_mv, join_type_stmt_list[i])
+        } else if (i == 3) {
+            create_mv_all(join_type_mv, join_type_stmt_list[i])
         } else {
             create_mv_lineitem(join_type_mv, join_type_stmt_list[i])
         }
@@ -465,30 +488,30 @@ suite("partition_mv_rewrite_dimension_1") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${agg_mv_name_1};"""
     sql """DROP TABLE IF EXISTS ${agg_mv_name_1}"""
     sql """
-        CREATE MATERIALIZED VIEW ${agg_mv_name_1} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS 
+        CREATE MATERIALIZED VIEW ${agg_mv_name_1}
+        BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS
         select
-            sum(o_totalprice) as sum_total, 
-            max(o_totalprice) as max_total, 
-            min(o_totalprice) as min_total, 
-            count(*) as count_all, 
-            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
             from orders_1
         """
     def agg_job_name_1 = getJobName(db, agg_mv_name_1)
     waitingMTMVTaskFinished(agg_job_name_1)
 
-    def agg_sql_1 = """select 
-        count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, 
-        count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, 
-        sum(o_totalprice), 
-        max(o_totalprice), 
-        min(o_totalprice), 
-        count(*) 
+    def agg_sql_1 = """select
+        count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1,
+        count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2,
+        sum(o_totalprice),
+        max(o_totalprice),
+        min(o_totalprice),
+        count(*)
         from orders_1
         """
     explain {
@@ -501,23 +524,23 @@ suite("partition_mv_rewrite_dimension_1") {
     // agg + with group by + without agg function
     def agg_mv_name_2 = "agg_mv_name_2"
     def agg_mv_stmt_2 = """
-        select o_orderdate, o_shippriority, o_comment 
-            from orders_1 
-            group by 
-            o_orderdate, 
-            o_shippriority, 
-            o_comment  
+        select o_orderdate, o_shippriority, o_comment
+            from orders_1
+            group by
+            o_orderdate,
+            o_shippriority,
+            o_comment
         """
     create_mv_orders(agg_mv_name_2, agg_mv_stmt_2)
     def agg_job_name_2 = getJobName(db, agg_mv_name_2)
     waitingMTMVTaskFinished(agg_job_name_2)
     sql """analyze table ${agg_mv_name_2} with sync;"""
 
-    def agg_sql_2 = """select o_shippriority, o_comment 
-            from orders_1 
-            group by 
-            o_shippriority, 
-            o_comment 
+    def agg_sql_2 = """select o_shippriority, o_comment
+            from orders_1
+            group by
+            o_shippriority,
+            o_comment
         """
     def agg_sql_explain_2 = sql """explain ${agg_sql_2};"""
     def mv_index_1 = agg_sql_explain_2.toString().indexOf("MaterializedViewRewriteFail:")
@@ -528,35 +551,35 @@ suite("partition_mv_rewrite_dimension_1") {
     // agg + with group by + with agg function
     def agg_mv_name_3 = "agg_mv_name_3"
     def agg_mv_stmt_3 = """
-        select o_orderdate, o_shippriority, o_comment, 
-            sum(o_totalprice) as sum_total, 
-            max(o_totalprice) as max_total, 
-            min(o_totalprice) as min_total, 
-            count(*) as count_all, 
-            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-            from orders_1 
-            group by 
-            o_orderdate, 
-            o_shippriority, 
-            o_comment 
+        select o_orderdate, o_shippriority, o_comment,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
+            from orders_1
+            group by
+            o_orderdate,
+            o_shippriority,
+            o_comment
         """
     create_mv_orders(agg_mv_name_3, agg_mv_stmt_3)
     def agg_job_name_3 = getJobName(db, agg_mv_name_3)
     waitingMTMVTaskFinished(agg_job_name_3)
     sql """analyze table ${agg_mv_name_3} with sync;"""
 
-    def agg_sql_3 = """select o_shippriority, o_comment, 
+    def agg_sql_3 = """select o_shippriority, o_comment,
             count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1,
-            count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, 
-            sum(o_totalprice), 
-            max(o_totalprice), 
-            min(o_totalprice), 
-            count(*) 
-            from orders_1 
-            group by 
-            o_shippriority, 
-            o_comment 
+            count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*)
+            from orders_1
+            group by
+            o_shippriority,
+            o_comment
         """
     def agg_sql_explain_3 = sql """explain ${agg_sql_3};"""
     def mv_index_2 = agg_sql_explain_3.toString().indexOf("MaterializedViewRewriteFail:")
@@ -686,4 +709,5 @@ suite("partition_mv_rewrite_dimension_1") {
 //        contains "${rewriting_mv_name_1}(${rewriting_mv_name_1})"
 //    }
 //    sql """DROP MATERIALIZED VIEW IF EXISTS ${rewriting_mv_name_1};"""
+
 }
