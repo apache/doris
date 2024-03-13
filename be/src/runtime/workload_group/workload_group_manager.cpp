@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "workload_group_manager.h"
+
 #include <memory>
 #include <mutex>
 
 #include "pipeline/task_scheduler.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
-#include "task_group_manager.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "vec/exec/scan/scanner_scheduler.h"
