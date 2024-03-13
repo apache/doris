@@ -42,7 +42,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         }
         current_wg_ids.insert(workload_group_info.id);
 
-        // 2 update task group
+        // 2 update workload group
         auto tg =
                 _exec_env->workload_group_mgr()->get_or_create_workload_group(workload_group_info);
 
@@ -53,7 +53,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         // 4 create and update task scheduler
         tg->upsert_task_scheduler(&workload_group_info, _exec_env);
 
-        LOG(INFO) << "update task group finish, tg info=" << tg->debug_string()
+        LOG(INFO) << "update workload group finish, tg info=" << tg->debug_string()
                   << ", enable_cpu_hard_limit="
                   << (_exec_env->workload_group_mgr()->enable_cpu_hard_limit() ? "true" : "false")
                   << ", cgroup cpu_shares=" << workload_group_info.cgroup_cpu_shares

@@ -80,7 +80,7 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
             auto workload_group_ptr = iter->second;
             if (used_wg_id.find(tg_id) == used_wg_id.end()) {
                 workload_group_ptr->shutdown();
-                // only when no query running in task group, its resource can be released in BE
+                // only when no query running in workload group, its resource can be released in BE
                 if (workload_group_ptr->query_num() == 0) {
                     LOG(INFO) << "There is no query in wg " << tg_id << ", delete it.";
                     deleted_task_groups.push_back(workload_group_ptr);
@@ -119,7 +119,7 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
             if (ret.ok()) {
                 _is_init_succ = true;
             } else {
-                LOG(INFO) << "init task group mgr cpu ctl failed, " << ret.to_string();
+                LOG(INFO) << "init workload group mgr cpu ctl failed, " << ret.to_string();
             }
         }
         if (_is_init_succ) {
@@ -130,7 +130,7 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
         }
     }
     int64_t time_cost_ms = MonotonicMillis() - begin_time;
-    LOG(INFO) << "finish clear unused task group, time cost: " << time_cost_ms
+    LOG(INFO) << "finish clear unused workload group, time cost: " << time_cost_ms
               << "ms, deleted group size:" << deleted_task_groups.size();
 }
 

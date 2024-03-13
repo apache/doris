@@ -223,7 +223,7 @@ ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
 
 Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     _workload_group = tg;
-    // Should add query first, then the task group will not be deleted.
+    // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     RETURN_IF_ERROR(_workload_group->add_query(_query_id));
     _workload_group->add_mem_tracker_limiter(query_mem_tracker);

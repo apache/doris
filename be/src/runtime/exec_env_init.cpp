@@ -308,7 +308,7 @@ Status ExecEnv::init_pipeline_task_scheduler() {
         executors_size = CpuInfo::num_cores();
     }
 
-    // TODO pipeline task group combie two blocked schedulers.
+    // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     _without_group_block_scheduler =
             std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGSchePool");

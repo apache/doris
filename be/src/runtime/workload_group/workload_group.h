@@ -100,7 +100,7 @@ public:
     Status add_query(TUniqueId query_id) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         if (_is_shutdown) {
-            // If the task group is set shutdown, then should not run any more,
+            // If the workload group is set shutdown, then should not run any more,
             // because the scheduler pool and other pointer may be released.
             return Status::InternalError(
                     "Failed add query to workload group, the workload group is shutdown. host: {}",
@@ -150,7 +150,7 @@ private:
     std::atomic<int> _max_remote_scan_thread_num;
     std::atomic<int> _min_remote_scan_thread_num;
 
-    // means task group is mark dropped
+    // means workload group is mark dropped
     // new query can not submit
     // waiting running query to be cancelled or finish
     bool _is_shutdown = false;

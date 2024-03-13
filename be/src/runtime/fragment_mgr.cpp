@@ -647,7 +647,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                                                                                  tg_id);
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << ", use task group: " << workload_group_ptr->debug_string()
+                          << ", use workload group: " << workload_group_ptr->debug_string()
                           << ", is pipeline: " << ((int)is_pipeline)
                           << ", enable cgroup soft limit: "
                           << ((int)config::enable_cgroup_cpu_soft_limit);
@@ -657,7 +657,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             }
         }
         // There is some logic in query ctx's dctor, we could not check if exists and delete the
-        // temp query ctx now. For example, the query id maybe removed from task group's queryset.
+        // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
         _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
         LOG(INFO) << "Register query/load memory tracker, query/load id: "
                   << print_id(query_ctx->query_id())
