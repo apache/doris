@@ -28,8 +28,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
-
 import java.util.Set;
 
 /**
@@ -61,7 +59,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                     Set<ExprId> conjunctsIds = topSemiJoin.getConditionExprId();
                     ContainsType containsType = containsChildren(conjunctsIds, a.getOutputExprIdSet(),
                             b.getOutputExprIdSet());
-                    if (containsType == ContainsType.ALL) {
+                    if (containsType == ContainsType.ALL || containsType == ContainsType.NONE) {
                         return null;
                     }
 
@@ -110,7 +108,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
     }
 
     enum ContainsType {
-        LEFT, RIGHT, ALL
+        LEFT, RIGHT, ALL, NONE
     }
 
     /**
@@ -119,13 +117,14 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
     public static ContainsType containsChildren(Set<ExprId> conjunctsExprIdSet, Set<ExprId> left, Set<ExprId> right) {
         boolean containsLeft = Utils.isIntersecting(conjunctsExprIdSet, left);
         boolean containsRight = Utils.isIntersecting(conjunctsExprIdSet, right);
-        Preconditions.checkState(containsLeft || containsRight, "join output must contain child");
         if (containsLeft && containsRight) {
             return ContainsType.ALL;
         } else if (containsLeft) {
             return ContainsType.LEFT;
-        } else {
+        } else if (containsRight) {
             return ContainsType.RIGHT;
+        } else {
+            return ContainsType.NONE;
         }
     }
 }

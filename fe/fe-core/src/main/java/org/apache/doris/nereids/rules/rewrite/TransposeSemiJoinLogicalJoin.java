@@ -54,7 +54,7 @@ public class TransposeSemiJoinLogicalJoin extends OneRewriteRuleFactory {
                     Set<ExprId> conjunctsIds = topSemiJoin.getConditionExprId();
                     ContainsType containsType = TransposeSemiJoinLogicalJoinProject.containsChildren(conjunctsIds,
                             a.getOutputExprIdSet(), b.getOutputExprIdSet());
-                    if (containsType == ContainsType.ALL) {
+                    if (containsType == ContainsType.ALL || containsType == ContainsType.NONE) {
                         return null;
                     }
                     if (containsType == ContainsType.LEFT) {
