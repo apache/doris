@@ -105,7 +105,7 @@ jobs:
             popd
 
             export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
-            DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang ENABLE_PCH=OFF OUTPUT_BE_BINARY=0 ./build.sh --be --cloud
+            DO_NOT_CHECK_JAVA_ENV=ON DORIS_TOOLCHAIN=clang ENABLE_PCH=OFF OUTPUT_BE_BINARY=0 ./build.sh --be --cloud
           fi
 
           echo "should_check=${{ steps.filter.outputs.cpp_changes }}" >>${GITHUB_OUTPUT}
