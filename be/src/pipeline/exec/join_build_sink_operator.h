@@ -44,6 +44,7 @@ protected:
     RuntimeProfile::Counter* _build_rows_counter = nullptr;
     RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
     RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
     std::vector<IRuntimeFilter*> _runtime_filters;
 };
 

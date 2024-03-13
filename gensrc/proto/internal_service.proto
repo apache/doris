@@ -524,6 +524,27 @@ enum PFilterType {
     MAX_FILTER = 6;
 };
 
+message PSendFilterSizeRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required PNetworkAddress source_addr = 3;
+    required uint64 filter_size = 4;
+};
+
+message PSendFilterSizeResponse {
+    required PStatus status = 1;
+};
+
+message PSyncFilterSizeRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required uint64 filter_size = 3;
+};
+
+message PSyncFilterSizeResponse {
+    required PStatus status = 1;
+};
+
 message PMergeFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
@@ -914,6 +935,8 @@ service PBackendService {
     rpc commit(PCommitRequest) returns (PCommitResult);
     rpc rollback(PRollbackRequest) returns (PRollbackResult);
     rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
+    rpc send_filter_size(PSendFilterSizeRequest) returns (PSendFilterSizeResponse);
+    rpc sync_filter_size(PSyncFilterSizeRequest) returns (PSyncFilterSizeResponse);
     rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
     rpc apply_filterv2(PPublishFilterRequestV2) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);

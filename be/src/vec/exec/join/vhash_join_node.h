@@ -73,15 +73,27 @@ struct ProcessHashTableProbe;
 class HashJoinNode;
 
 template <typename Parent>
+Status send_runtime_filter_size(RuntimeState* state, Block* block, Parent* parent,
+                                bool is_global = false) {
+    if (parent->runtime_filters().empty()) {
+        return Status::OK();
+    }
+    SCOPED_TIMER(parent->_runtime_filter_init_timer);
+    RETURN_IF_ERROR(parent->_runtime_filter_slots->send_filter_size(state, block->rows(), false));
+    return Status::OK();
+}
+
+template <typename Parent>
 Status process_runtime_filter_build(RuntimeState* state, Block* block, Parent* parent,
                                     bool is_global = false) {
     if (parent->runtime_filters().empty()) {
         return Status::OK();
     }
-    parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-            parent->_build_expr_ctxs, parent->runtime_filters(), is_global);
-
-    RETURN_IF_ERROR(parent->_runtime_filter_slots->init(state, block->rows()));
+    {
+        SCOPED_TIMER(parent->_runtime_filter_init_timer);
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->ignore_filters(state, block->rows()));
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->init_filters(state, block->rows()));
+    }
 
     if (!parent->_runtime_filter_slots->empty() && block->rows() > 1) {
         SCOPED_TIMER(parent->_runtime_filter_compute_timer);
@@ -398,6 +410,10 @@ private:
     template <typename Parent>
     friend Status process_runtime_filter_build(RuntimeState* state, vectorized::Block* block,
                                                Parent* parent, bool is_global);
+
+    template <typename Parent>
+    friend Status send_runtime_filter_size(RuntimeState* state, vectorized::Block* block,
+                                           Parent* parent, bool is_global);
 
     std::atomic_bool _probe_open_finish = false;
     std::vector<int> _build_col_ids;

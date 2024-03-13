@@ -35,6 +35,7 @@ void SharedHashTableController::set_builder_and_consumers(TUniqueId builder, int
     DCHECK(_builder_fragment_ids.find(node_id) == _builder_fragment_ids.cend());
     _builder_fragment_ids.insert({node_id, builder});
     _dependencies.insert({node_id, {}});
+    _finish_dependencies.insert({node_id, {}});
 }
 
 bool SharedHashTableController::should_build_hash_table(const TUniqueId& fragment_instance_id,
@@ -57,7 +58,7 @@ bool SharedHashTableController::should_build_hash_table(const TUniqueId& fragmen
 
 SharedHashTableContextPtr SharedHashTableController::get_context(int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
-    if (!_shared_contexts.count(my_node_id)) {
+    if (!_shared_contexts.contains(my_node_id)) {
         _shared_contexts.insert({my_node_id, std::make_shared<SharedHashTableContext>()});
     }
     return _shared_contexts[my_node_id];
@@ -85,6 +86,14 @@ void SharedHashTableController::signal(int my_node_id) {
         _shared_contexts.erase(it);
     }
     for (auto& dep : _dependencies[my_node_id]) {
+        dep->set_ready();
+    }
+    _cv.notify_all();
+}
+
+void SharedHashTableController::signal_finish(int my_node_id) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    for (auto& dep : _finish_dependencies[my_node_id]) {
         dep->set_ready();
     }
     _cv.notify_all();
