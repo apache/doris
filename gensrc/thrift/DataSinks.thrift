@@ -338,6 +338,7 @@ struct THiveTableSink {
     7: optional THiveCompressionType compression_type
     8: optional THiveLocationParams location
     9: optional map<string, string> hadoop_config
+    10: optional bool overwrite
 }
 
 enum TUpdateMode {

@@ -21,10 +21,11 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -44,6 +45,7 @@ import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -83,7 +85,7 @@ public class HiveTableSink extends DataSink {
         return DataPartition.RANDOM;
     }
 
-    public void init(List<Column> insertCols) throws AnalysisException {
+    public void bindDataSink(List<Column> insertCols, Optional<InsertCommandContext> insertCtx) {
         THiveTableSink tSink = new THiveTableSink();
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
@@ -138,6 +140,11 @@ public class HiveTableSink extends DataSink {
         tSink.setLocation(locationParams);
 
         tSink.setHadoopConfig(targetTable.getHadoopProperties());
+
+        if (insertCtx.isPresent()) {
+            HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
+            tSink.setOverwrite(context.isOverwrite());
+        }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
     }
@@ -189,7 +196,8 @@ public class HiveTableSink extends DataSink {
             hivePartition.setValues(partition.getValues());
             THiveLocationParams locationParams = new THiveLocationParams();
             String location = sd.getLocation();
-            locationParams.setWritePath(createTempPath(location));
+            // pass the same of write path and target path to partition
+            locationParams.setWritePath(location);
             locationParams.setTargetPath(location);
             locationParams.setFileType(LocationPath.getTFileTypeForBE(location));
             hivePartition.setLocation(locationParams);

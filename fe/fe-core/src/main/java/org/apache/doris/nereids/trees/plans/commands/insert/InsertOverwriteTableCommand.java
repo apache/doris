@@ -27,6 +27,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -157,9 +159,11 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      */
     private void insertInto(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames)
             throws Exception {
+        UnboundLogicalSink<?> copySink;
+        InsertCommandContext insertCtx;
         if (logicalQuery instanceof UnboundTableSink) {
             UnboundTableSink<?> sink = (UnboundTableSink<?>) logicalQuery;
-            UnboundTableSink<?> copySink = (UnboundTableSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
+            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
                     sink.getNameParts(),
                     sink.getColNames(),
                     sink.getHints(),
@@ -169,18 +173,31 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
             // for overwrite situation, we disable auto create partition.
-            OlapInsertCommandContext insertCtx = new OlapInsertCommandContext();
-            insertCtx.setAllowAutoPartition(false);
-            InsertIntoTableCommand insertCommand =
-                    new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
-            insertCommand.run(ctx, executor);
-            if (ctx.getState().getStateType() == MysqlStateType.ERR) {
-                String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
-                LOG.warn("InsertInto state error:{}", errMsg);
-                throw new UserException(errMsg);
-            }
+            insertCtx = new OlapInsertCommandContext();
+            ((OlapInsertCommandContext) insertCtx).setAllowAutoPartition(false);
+        } else if (logicalQuery instanceof UnboundHiveTableSink) {
+            UnboundHiveTableSink<?> sink = (UnboundHiveTableSink<?>) logicalQuery;
+            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
+                    sink.getNameParts(),
+                    sink.getColNames(),
+                    sink.getHints(),
+                    false,
+                    sink.getPartitions(),
+                    false,
+                    sink.getDMLCommandType(),
+                    (LogicalPlan) (sink.child(0)));
+            insertCtx = new HiveInsertCommandContext();
+            ((HiveInsertCommandContext) insertCtx).setOverwrite(false);
         } else {
             throw new RuntimeException("Current catalog has not supported insert overwrite yet.");
+        }
+        InsertIntoTableCommand insertCommand =
+                new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
+        insertCommand.run(ctx, executor);
+        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+            String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
+            LOG.warn("InsertInto state error:{}", errMsg);
+            throw new UserException(errMsg);
         }
     }
 
