@@ -151,7 +151,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
 
 Status SegmentFlusher::close() {
     std::lock_guard<SpinLock> l(_lock);
-    for (auto& file_writer : _file_writers) {
+    for (auto& [segment_id, file_writer] : _file_writers) {
         Status status = file_writer->close();
         if (!status.ok()) {
             LOG(WARNING) << "failed to close file writer, path=" << file_writer->path()
@@ -205,7 +205,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
             _context->max_rows_per_segment, writer_options, _context->mow_context));
     {
         std::lock_guard<SpinLock> l(_lock);
-        _file_writers.push_back(std::move(file_writer));
+        _file_writers.emplace(segment_id, std::move(file_writer));
     }
     auto s = writer->init();
     if (!s.ok()) {
@@ -236,7 +236,7 @@ Status SegmentFlusher::_create_segment_writer(
             _context->max_rows_per_segment, writer_options, _context->mow_context));
     {
         std::lock_guard<SpinLock> l(_lock);
-        _file_writers.push_back(std::move(file_writer));
+        _file_writers.emplace(segment_id, std::move(file_writer));
     }
     auto s = writer->init();
     if (!s.ok()) {
@@ -339,6 +339,13 @@ Status SegmentFlusher::create_writer(std::unique_ptr<SegmentFlusher::Writer>& wr
     DCHECK(segment_writer != nullptr);
     writer.reset(new SegmentFlusher::Writer(this, segment_writer));
     return Status::OK();
+}
+
+io::FileWriter* SegmentFlusher::get_file_writer(int32_t segment_id) {
+    if (!_file_writers.contains(segment_id)) {
+        return nullptr;
+    }
+    return _file_writers[segment_id].get();
 }
 
 SegmentFlusher::Writer::Writer(SegmentFlusher* flusher,
