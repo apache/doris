@@ -111,8 +111,8 @@ class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
-    /// @TEMPORARY: for be_exec_version=3
-    constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 3;
+    /// @TEMPORARY: for be_exec_version=4
+    constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 4;
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
