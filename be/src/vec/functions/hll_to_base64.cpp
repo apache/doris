@@ -69,11 +69,11 @@ struct HllToBase64 {
                 ser_buff.resize(cur_ser_size);
             }
             hll_val.serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
-            int outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
-                                       chars_data + encoded_offset);
+            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
+                                        chars_data + encoded_offset);
             DCHECK(outlen > 0);
 
-            encoded_offset += (int)(4.0 * ceil((double)cur_ser_size / 3.0));
+            encoded_offset += outlen;
             offsets[i] = encoded_offset;
         }
         return Status::OK();
