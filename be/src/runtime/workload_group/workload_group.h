@@ -78,6 +78,31 @@ public:
 
     int64_t memory_used();
 
+    int spill_threshold_low_water_mark() const {
+        return _spill_low_watermark.load(std::memory_order_relaxed);
+    }
+    int spill_threashold_high_water_mark() const {
+        return _spill_high_watermark.load(std::memory_order_relaxed);
+    }
+
+    void set_weighted_memory_used(int64_t wg_total_mem_used, double ratio);
+
+    std::unordered_set<std::shared_ptr<MemTrackerLimiter>> get_all_mem_trackers();
+
+    int64_t get_weighted_memory_used() {
+        return _weighted_mem_used.load(std::memory_order_relaxed);
+    }
+
+    void check_mem_used(bool& is_low_wartermark, bool& is_high_wartermark) {
+        auto weighted_mem_used = _weighted_mem_used.load(std::memory_order_relaxed);
+        is_low_wartermark =
+                (weighted_mem_used > ((double)_memory_limit *
+                                      _spill_low_watermark.load(std::memory_order_relaxed) / 100));
+        is_high_wartermark =
+                (weighted_mem_used > ((double)_memory_limit *
+                                      _spill_high_watermark.load(std::memory_order_relaxed) / 100));
+    }
+
     std::string debug_string() const;
 
     void check_and_update(const WorkloadGroupInfo& tg_info);
@@ -137,7 +162,8 @@ private:
     const uint64_t _id;
     std::string _name;
     int64_t _version;
-    int64_t _memory_limit; // bytes
+    int64_t _memory_limit;                      // bytes
+    std::atomic_int64_t _weighted_mem_used = 0; // bytes
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
     std::vector<TrackerLimiterGroup> _mem_tracker_limiter_pool;

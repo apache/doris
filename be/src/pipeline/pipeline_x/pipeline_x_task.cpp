@@ -269,32 +269,10 @@ Status PipelineXTask::execute(bool* eos) {
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
-        auto sys_mem_available = doris::MemInfo::sys_mem_available();
-        auto sys_mem_warning_water_mark = doris::MemInfo::sys_mem_available_warning_water_mark();
-        auto query_mem = query_context()->query_mem_tracker->consumption();
         auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
-        if (sink_revocable_mem_size > 0) {
-            VLOG_ROW << "sys mem available: "
-                     << PrettyPrinter::print(sys_mem_available, TUnit::BYTES)
-                     << ",\nsys_mem_available_warning_water_mark: "
-                     << PrettyPrinter::print(sys_mem_warning_water_mark, TUnit::BYTES)
-                     << ",\nquery mem limit: "
-                     << PrettyPrinter::print(_state->query_mem_limit(), TUnit::BYTES)
-                     << ",\nquery mem: " << PrettyPrinter::print(query_mem, TUnit::BYTES)
-                     << ",\nmin revocable mem: "
-                     << PrettyPrinter::print(_state->min_revocable_mem(), TUnit::BYTES)
-                     << ",\nrevocable mem: "
-                     << PrettyPrinter::print(
-                                static_cast<uint64_t>(_sink->revocable_mem_size(_state)),
-                                TUnit::BYTES);
-        }
-        if (sys_mem_available < sys_mem_warning_water_mark * config::spill_mem_warning_water_mark_multiplier /*&&
-            (double)query_mem >= (double)_state->query_mem_limit() * 0.8*/) {
-            if (_state->min_revocable_mem() > 0 &&
-                sink_revocable_mem_size >= _state->min_revocable_mem()) {
-                RETURN_IF_ERROR(_sink->revoke_memory(_state));
-                continue;
-            }
+        if (should_revoke_memory(_state, sink_revocable_mem_size)) {
+            RETURN_IF_ERROR(_sink->revoke_memory(_state));
+            continue;
         }
 
         // Pull block from operator chain
@@ -327,6 +305,46 @@ Status PipelineXTask::execute(bool* eos) {
     return status;
 }
 
+bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes) {
+    auto* query_ctx = state->get_query_ctx();
+    bool need_revoke = query_ctx->query_mem_tracker->need_revoke();
+    if (!need_revoke) {
+        return false;
+    }
+
+    const auto min_revocable_mem_bytes = state->min_revocable_mem();
+
+    auto tg = query_ctx->workload_group();
+    bool is_tg_mem_low_water_mark = false;
+    bool is_tg_mem_high_water_mark = false;
+    if (tg) {
+        tg->check_mem_used(is_tg_mem_low_water_mark, is_tg_mem_high_water_mark);
+    }
+    if (is_tg_mem_high_water_mark) {
+        if (revocable_mem_bytes > 1024 * 1024) {
+            LOG_EVERY_N(INFO, 5) << "revoke memory, hight water mark";
+            return true;
+        }
+        return false;
+    }
+
+    int64_t query_weighted_limit = 0;
+    int64_t query_weighted_consumption = 0;
+    query_ctx->query_mem_tracker->get_weighted_mem_info(query_weighted_limit,
+                                                        query_weighted_consumption);
+    auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
+    DCHECK(big_memory_operator_num >= 0);
+    int64_t mem_limit_of_op;
+    if (0 == big_memory_operator_num) {
+        mem_limit_of_op = (double)query_weighted_limit * 0.8;
+    } else {
+        mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
+    }
+    LOG_EVERY_N(INFO, 5) << "revoke memory, low water mark, revocable_mem_bytes: "
+                         << revocable_mem_bytes << ", mem_limit_of_op: " << mem_limit_of_op
+                         << ", min_revocable_mem_bytes: " << min_revocable_mem_bytes;
+    return (revocable_mem_bytes > mem_limit_of_op || revocable_mem_bytes > min_revocable_mem_bytes);
+}
 void PipelineXTask::finalize() {
     PipelineTask::finalize();
     std::unique_lock<std::mutex> lc(_release_lock);
@@ -423,5 +441,4 @@ void PipelineXTask::wake_up() {
     // call by dependency
     static_cast<void>(get_task_queue()->push_back(this));
 }
-
 } // namespace doris::pipeline
