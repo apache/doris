@@ -112,8 +112,8 @@ public class AnalysisManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
     private static final int COLUMN_QUEUE_SIZE = 1000;
-    public final Queue<HighPriorityColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
-    public final Queue<HighPriorityColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
+    public final Queue<QueryColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
+    public final Queue<QueryColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Map<TableName, Set<String>> highPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<String>> midPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<String>> lowPriorityJobs = new LinkedHashMap<>();
@@ -307,55 +307,10 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    /**
-     * Gets the partitions for which statistics are to be collected. First verify that
-     * there are partitions that have been deleted but have historical statistics(invalid statistics),
-     * if there are these partitions, we need to delete them to avoid errors in summary table level statistics.
-     * Then get the partitions for which statistics need to be collected based on collection mode (incremental/full).
-     * <p>
-     * note:
-     * If there is no invalid statistics, it does not need to collect/update
-     * statistics if the following conditions are met:
-     * - in full collection mode, the partitioned table does not have partitions
-     * - in incremental collection mode, partition statistics already exist
-     * <p>
-     * TODO Supports incremental collection of statistics from materialized views
-     */
-    private Map<String, Set<String>> validateAndGetPartitions(TableIf table, Set<String> columnNames,
-            Set<String> partitionNames, AnalysisType analysisType) throws DdlException {
-
-        Map<String, Set<String>> columnToPartitions = columnNames.stream()
-                .collect(Collectors.toMap(
-                        columnName -> columnName,
-                        columnName -> new HashSet<>(partitionNames == null ? Collections.emptySet() : partitionNames)
-                ));
-
-        if (analysisType == AnalysisType.HISTOGRAM) {
-            // Collecting histograms does not need to support incremental collection,
-            // and will automatically cover historical statistics
-            return columnToPartitions;
-        }
-
-        if (table instanceof HMSExternalTable) {
-            // TODO Currently, we do not support INCREMENTAL collection for external table.
-            // One reason is external table partition id couldn't convert to a Long value.
-            // Will solve this problem later.
-            return columnToPartitions;
-        }
-
-        if (analysisType == AnalysisType.FUNDAMENTALS) {
-            Map<String, Set<String>> result = table.findReAnalyzeNeededPartitions();
-            result.keySet().retainAll(columnNames);
-            return result;
-        }
-
-        return columnToPartitions;
-    }
-
     // Make sure colName of job has all the column as this AnalyzeStmt specified, no matter whether it will be analyzed
     // or not.
     @VisibleForTesting
-    public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
+    public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) {
         AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
         long jobId = Env.getCurrentEnv().getNextId();
         TableIf table = stmt.getTable();
@@ -413,9 +368,10 @@ public class AnalysisManager implements Writable {
 
         long periodTimeInMs = stmt.getPeriodTimeInMs();
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
-
-        Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
-                partitionNames, analysisType);
+        Map<String, Set<String>> colToPartitions = new HashMap<>();
+        Set<String> dummyPartition = new HashSet<>();
+        dummyPartition.add("dummy partition");
+        columnNames.stream().forEach(c -> colToPartitions.put(c, dummyPartition));
         infoBuilder.setColToPartitions(colToPartitions);
         infoBuilder.setTaskIds(Lists.newArrayList());
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
@@ -770,6 +726,7 @@ public class AnalysisManager implements Writable {
         }
         tableStats.updatedTime = 0;
         tableStats.userInjected = false;
+        tableStats.rowCount = table.getRowCount();
     }
 
     public void invalidateRemoteStats(long catalogId, long dbId, long tableId,
@@ -1196,16 +1153,14 @@ public class AnalysisManager implements Writable {
 
 
     public void updateColumnUsedInPredicate(Set<Slot> slotReferences) {
-        LOG.info("Add slots to high priority queues.");
         updateColumn(slotReferences, highPriorityColumns);
     }
 
     public void updateQueriedColumn(Collection<Slot> slotReferences) {
-        LOG.info("Add slots to mid priority queues.");
         updateColumn(slotReferences, midPriorityColumns);
     }
 
-    protected void updateColumn(Collection<Slot> slotReferences, Queue<HighPriorityColumn> queue) {
+    protected void updateColumn(Collection<Slot> slotReferences, Queue<QueryColumn> queue) {
         for (Slot s : slotReferences) {
             if (!(s instanceof SlotReference)) {
                 return;
@@ -1219,10 +1174,12 @@ public class AnalysisManager implements Writable {
                 if (database != null) {
                     CatalogIf catalog = database.getCatalog();
                     if (catalog != null) {
-                        queue.offer(new HighPriorityColumn(catalog.getId(), database.getId(),
+                        queue.offer(new QueryColumn(catalog.getId(), database.getId(),
                                 table.getId(), optionalColumn.get().getName()));
-                        LOG.info("Offer column " + table.getName() + "(" + table.getId() + ")."
-                                + optionalColumn.get().getName());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Offer column " + table.getName() + "(" + table.getId() + ")."
+                                    + optionalColumn.get().getName());
+                        }
                     }
                 }
             }
@@ -1231,14 +1188,15 @@ public class AnalysisManager implements Writable {
 
     public void mergeFollowerQueryColumns(Collection<TQueryColumn> highColumns,
             Collection<TQueryColumn> midColumns) {
+        LOG.info("Received {} high columns and {} mid columns", highColumns.size(), midColumns.size());
         for (TQueryColumn c : highColumns) {
-            if (!highPriorityColumns.offer(new HighPriorityColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
+            if (!highPriorityColumns.offer(new QueryColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
                     Long.parseLong(c.tblId), c.colName))) {
                 break;
             }
         }
         for (TQueryColumn c : midColumns) {
-            if (!midPriorityColumns.offer(new HighPriorityColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
+            if (!midPriorityColumns.offer(new QueryColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
                     Long.parseLong(c.tblId), c.colName))) {
                 break;
             }

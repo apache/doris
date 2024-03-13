@@ -74,14 +74,14 @@ public class FollowerColumnSender extends MasterDaemon {
                 = analysisManager.highPriorityColumns
                 .stream()
                 .filter(c -> StatisticsUtil.needAnalyzeColumn(c))
-                .map(HighPriorityColumn::toThrift)
+                .map(QueryColumn::toThrift)
                 .collect(Collectors.toSet());
         Set<TQueryColumn> midPriorityColumns
                 = analysisManager.midPriorityColumns
                 .stream()
                 .filter(c -> StatisticsUtil.needAnalyzeColumn(c))
                 .filter(c -> !highPriorityColumns.contains(c))
-                .map(HighPriorityColumn::toThrift)
+                .map(QueryColumn::toThrift)
                 .collect(Collectors.toSet());
         analysisManager.highPriorityColumns.clear();
         analysisManager.midPriorityColumns.clear();
