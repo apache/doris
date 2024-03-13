@@ -28,6 +28,7 @@
 
 #include "olap/lru_cache.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/slice.h"
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
@@ -37,20 +38,23 @@ namespace doris {
 class PageCacheHandle;
 
 template <typename TAllocator>
-class PageBase : private TAllocator {
+class PageBase : private TAllocator, public LRUCacheValueBase {
 public:
-    PageBase() : _data(nullptr), _size(0), _capacity(0) {}
+    PageBase() = default;
 
-    PageBase(size_t b) : _size(b), _capacity(b) {
+    PageBase(size_t b, const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
+            : LRUCacheValueBase(mem_tracker), _size(b), _capacity(b) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
         _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
     }
 
     PageBase(const PageBase&) = delete;
     PageBase& operator=(const PageBase&) = delete;
 
-    ~PageBase() {
+    ~PageBase() override {
         if (_data != nullptr) {
             DCHECK(_capacity != 0 && _size != 0);
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
             TAllocator::free(_data, _capacity);
         }
     }
@@ -67,7 +71,7 @@ public:
 private:
     char* _data = nullptr;
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
-    size_t _size;
+    size_t _size = 0;
     size_t _capacity = 0;
 };
 
@@ -157,6 +161,10 @@ public:
     void insert(const CacheKey& key, DataPage* data, PageCacheHandle* handle,
                 segment_v2::PageTypePB page_type, bool in_memory = false);
 
+    std::shared_ptr<MemTrackerLimiter> mem_tracker(segment_v2::PageTypePB page_type) {
+        return _get_page_cache(page_type)->mem_tracker();
+    }
+
 private:
     StoragePageCache();
 
@@ -168,16 +176,16 @@ private:
     // delete bitmap in unique key with mow
     std::unique_ptr<PKIndexPageCache> _pk_index_page_cache;
 
-    Cache* _get_page_cache(segment_v2::PageTypePB page_type) {
+    LRUCachePolicy* _get_page_cache(segment_v2::PageTypePB page_type) {
         switch (page_type) {
         case segment_v2::DATA_PAGE: {
-            return _data_page_cache->cache();
+            return _data_page_cache.get();
         }
         case segment_v2::INDEX_PAGE: {
-            return _index_page_cache->cache();
+            return _index_page_cache.get();
         }
         case segment_v2::PRIMARY_KEY_INDEX_PAGE: {
-            return _pk_index_page_cache->cache();
+            return _pk_index_page_cache.get();
         }
         default:
             LOG(FATAL) << "get error type page cache";
@@ -192,8 +200,9 @@ private:
 // class will release the cache entry when it is destroyed.
 class PageCacheHandle {
 public:
-    PageCacheHandle() {}
-    PageCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
+    PageCacheHandle() = default;
+    PageCacheHandle(LRUCachePolicy* cache, Cache::Handle* handle)
+            : _cache(cache), _handle(handle) {}
     ~PageCacheHandle() {
         if (_handle != nullptr) {
             _cache->release(_handle);
@@ -212,14 +221,14 @@ public:
         return *this;
     }
 
-    Cache* cache() const { return _cache; }
+    LRUCachePolicy* cache() const { return _cache; }
     Slice data() const {
-        DataPage* cache_value = (DataPage*)_cache->value(_handle);
-        return Slice(cache_value->data(), cache_value->size());
+        auto* cache_value = (DataPage*)_cache->value(_handle);
+        return {cache_value->data(), cache_value->size()};
     }
 
 private:
-    Cache* _cache = nullptr;
+    LRUCachePolicy* _cache = nullptr;
     Cache::Handle* _handle = nullptr;
 
     // Don't allow copy and assign

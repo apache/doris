@@ -18,6 +18,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_policy.h"
@@ -29,24 +30,34 @@ namespace doris {
 // Hold the list of all caches, for prune when memory not enough or timing.
 class CacheManager {
 public:
-    static CacheManager* create_global_instance() {
-        CacheManager* res = new CacheManager();
-        return res;
-    }
+    static CacheManager* create_global_instance() { return new CacheManager(); }
     static CacheManager* instance() { return ExecEnv::GetInstance()->get_cache_manager(); }
 
-    std::list<CachePolicy*>::iterator register_cache(CachePolicy* cache) {
+    void register_cache(CachePolicy* cache) {
         std::lock_guard<std::mutex> l(_caches_lock);
-        return _caches.insert(_caches.end(), cache);
+        auto it = _caches.find(cache->type());
+        if (it != _caches.end()) {
+#ifdef BE_TEST
+            _caches.erase(it);
+#else
+            LOG(FATAL) << "Repeat register cache " << CachePolicy::type_string(cache->type());
+#endif // BE_TEST
+        }
+        _caches.insert({cache->type(), cache});
     }
 
-    void unregister_cache(std::list<CachePolicy*>::iterator it) {
+    void unregister_cache(CachePolicy::CacheType type) {
+#ifdef BE_TEST
+        return;
+#endif // BE_TEST
         std::lock_guard<std::mutex> l(_caches_lock);
+        auto it = _caches.find(type);
         if (it != _caches.end()) {
             _caches.erase(it);
-            it = _caches.end();
         }
     }
+
+    CachePolicy* get_cache(CachePolicy::CacheType type) { return _caches[type]; }
 
     int64_t for_each_cache_prune_stale_wrap(std::function<void(CachePolicy* cache_policy)> func,
                                             RuntimeProfile* profile = nullptr);
@@ -73,7 +84,7 @@ public:
 
 private:
     std::mutex _caches_lock;
-    std::list<CachePolicy*> _caches;
+    std::unordered_map<CachePolicy::CacheType, CachePolicy*> _caches;
     int64_t _last_prune_stale_timestamp = 0;
     int64_t _last_prune_all_timestamp = 0;
 };

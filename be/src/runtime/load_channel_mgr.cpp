@@ -114,8 +114,6 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-static void dummy_deleter(const CacheKey& key, void* value) {}
-
 Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                                          const UniqueId& load_id,
                                          const PTabletWriterAddBlockRequest& request) {
@@ -123,10 +121,10 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
     std::lock_guard<std::mutex> l(_lock);
     auto it = _load_channels.find(load_id);
     if (it == _load_channels.end()) {
-        auto handle = _last_success_channels->cache()->lookup(load_id.to_string());
+        auto* handle = _last_success_channels->lookup(load_id.to_string());
         // success only when eos be true
         if (handle != nullptr) {
-            _last_success_channels->cache()->release(handle);
+            _last_success_channels->release(handle);
             if (request.has_eos() && request.eos()) {
                 is_eof = true;
                 return Status::OK();
@@ -182,9 +180,8 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
         if (_load_channels.find(load_id) != _load_channels.end()) {
             _load_channels.erase(load_id);
         }
-        auto handle = _last_success_channels->cache()->insert(load_id.to_string(), nullptr, 1,
-                                                              dummy_deleter);
-        _last_success_channels->cache()->release(handle);
+        auto* handle = _last_success_channels->insert(load_id.to_string(), nullptr, 1, 1);
+        _last_success_channels->release(handle);
     }
     VLOG_CRITICAL << "removed load channel " << load_id;
 }
