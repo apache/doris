@@ -536,7 +536,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         local_state.init_result_columns();
         size_t current_block_rows =
                 local_state._shared_state->input_blocks[local_state._output_block_index].rows();
-        RETURN_IF_ERROR(local_state._executor.get_next(current_block_rows));
+        static_cast<void>(local_state._executor.get_next(current_block_rows));
         if (local_state._window_end_position == current_block_rows) {
             break;
         }
