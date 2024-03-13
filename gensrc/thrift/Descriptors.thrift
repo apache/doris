@@ -207,6 +207,7 @@ struct TOlapTablePartitionParam {
     10: optional Partitions.TPartitionType partition_type
     // insert overwrite partition(*)
     11: optional bool enable_auto_detect_overwrite
+    12: optional i64 overwrite_group_id
 }
 
 struct TOlapTableIndex {

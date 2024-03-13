@@ -1285,7 +1285,7 @@ struct TCreatePartitionResult {
 
 // these two for auto detect replacing partition
 struct TReplacePartitionRequest {
-    1: optional i64 txn_id
+    1: optional i64 overwrite_group_id
     2: optional i64 db_id
     3: optional i64 table_id
     4: optional list<i64> partition_ids // partition to replace.

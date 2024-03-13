@@ -119,7 +119,7 @@ using OlapTableIndexTablets = TOlapTableIndexTablets;
 
 using BlockRow = std::pair<vectorized::Block*, int32_t>;
 using BlockRowWithIndicator =
-        std::tuple<vectorized::Block*, int32_t, bool>; // [block, column, is_transformed]
+        std::tuple<vectorized::Block*, int32_t, bool>; // [block, row, is_transformed]
 
 struct VOlapTablePartition {
     int64_t id = 0;
@@ -247,12 +247,13 @@ public:
     bool is_auto_partition() const { return _is_auto_partition; }
 
     bool is_auto_detect_overwrite() const { return _is_auto_detect_overwrite; }
+    int64_t get_overwrite_group_id() const { return _overwrite_group_id; }
 
     std::vector<uint16_t> get_partition_keys() const { return _partition_slot_locs; }
 
     Status add_partitions(const std::vector<TOlapTablePartition>& partitions);
-    // no need to del/reinsert partition keys, but change the link.
-    Status replace_partitions(const std::vector<VOlapTablePartition*>& origin_partitions,
+    // no need to del/reinsert partition keys, but change the link. reset the _partitions items
+    Status replace_partitions(std::vector<int64_t>& old_partition_ids,
                               const std::vector<TOlapTablePartition>& new_partitions);
 
     vectorized::VExprContextSPtrs get_part_func_ctx() { return _part_func_ctx; }
@@ -304,6 +305,7 @@ private:
     TPartitionType::type _part_type; // support list or range
     // "insert overwrite partition(*)", detect which partitions by BE
     bool _is_auto_detect_overwrite = false;
+    int64_t _overwrite_group_id = 0;
 };
 
 // indicate where's the tablet and all its replications (node-wise)

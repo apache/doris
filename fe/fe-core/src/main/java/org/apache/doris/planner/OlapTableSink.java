@@ -194,6 +194,10 @@ public class OlapTableSink extends DataSink {
         tDataSink.getOlapTableSink().getPartition().setEnableAutoDetectOverwrite(var);
     }
 
+    public void setOverwriteGroupId(long var) {
+        tDataSink.getOlapTableSink().getPartition().setOverwriteGroupId(var);
+    }
+
     // must called after tupleDescriptor is computed
     public void complete(Analyzer analyzer) throws UserException {
         for (Long partitionId : partitionIds) {

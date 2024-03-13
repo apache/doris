@@ -113,7 +113,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         OlapTableSink olapTableSink = (OlapTableSink) sink;
         PhysicalOlapTableSink physicalOlapTableSink = (PhysicalOlapTableSink) physicalSink;
         OlapInsertCommandContext olapInsertCtx = (OlapInsertCommandContext) insertCtx.orElse(
-                new OlapInsertCommandContext());
+                new OlapInsertCommandContext(true));
 
         boolean isStrictMode = ctx.getSessionVariable().getEnableInsertStrict()
                 && physicalOlapTableSink.isPartialUpdate()
@@ -132,7 +132,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             if (!olapInsertCtx.isAllowAutoPartition()) {
                 olapTableSink.setAutoPartition(false);
             }
-            olapTableSink.setAutoDetectOverwite(olapInsertCtx.isAutoDetectOverwrite());
+            if (olapInsertCtx.isAutoDetectOverwrite()) {
+                olapTableSink.setAutoDetectOverwite(true);
+                olapTableSink.setOverwriteGroupId(olapInsertCtx.getOverwriteGroupId());
+            }
             // update
 
             // set schema and partition info for tablet id shuffle exchange

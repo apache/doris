@@ -72,6 +72,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -201,9 +202,9 @@ import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
-import org.apache.doris.thrift.TReplicaInfo;
 import org.apache.doris.thrift.TReplacePartitionRequest;
 import org.apache.doris.thrift.TReplacePartitionResult;
+import org.apache.doris.thrift.TReplicaInfo;
 import org.apache.doris.thrift.TReportCommitTxnResultRequest;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
@@ -270,7 +271,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 // Frontend service used to serve all request for this frontend through
 // thrift protocol
@@ -3560,7 +3563,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.info("Receive create partition request: {}", request);
         long dbId = request.getDbId();
         long tableId = request.getTableId();
-        List<Long> partitionIds = request.partition_ids;
+        List<Long> partitionIds = request.getPartitionIds();
+        long taskGroupId = request.getOverwriteGroupId();
         TReplacePartitionResult result = new TReplacePartitionResult();
         TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
         if (!Env.getCurrentEnv().isMaster()) {
@@ -3596,28 +3600,66 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         OlapTable olapTable = (OlapTable) table;
-        List<String> partitionNames = olapTable.getPartitionNamesByIds(partitionIds);
-        List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
+        InsertOverwriteManager overwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
+        ReentrantLock taskLock = overwriteManager.getLock(taskGroupId);
+        List<String> allReqPartNames; // all request partitions
         try {
-            InsertOverwriteUtil.addTempPartitions(olapTable, partitionNames, tempPartitionNames);
-            InsertOverwriteUtil.replacePartition(olapTable, partitionNames, tempPartitionNames);
+            taskLock.lock();
+            // we dont lock the table. other thread in this txn will be controled by taskLock.
+            // in this txn if we have already replaced. dont do it again, but acquire the recorded new partition directly.
+            // if not by this txn, just let it fail naturally is ok.
+            List<Long> replacedPartIds = overwriteManager.tryReplacePartitionIds(taskGroupId, partitionIds);
+            // here if replacedPartIds still have null. this will throw exception.
+            allReqPartNames = olapTable.getPartitionNamesByIds(replacedPartIds);
+
+            List<Long> pendingPartitionIds = IntStream.range(0, partitionIds.size())
+                    .filter(i -> partitionIds.get(i) == replacedPartIds.get(i)) // equal means not replaced
+                    .mapToObj(partitionIds::get)
+                    .collect(Collectors.toList());
+            // from here we ONLY deal the pending partitions. not include the dealed(by others).
+
+            // below two must have same order inner.
+            List<String> pendingPartitionNames = olapTable.getPartitionNamesByIds(pendingPartitionIds);
+            List<String> tempPartitionNames = InsertOverwriteUtil
+                    .generateTempPartitionNames(pendingPartitionNames);
+
+            long taskId = overwriteManager.registerTask(dbId, tableId, tempPartitionNames);
+            overwriteManager.registerTaskInGroup(taskGroupId, taskId);
+            InsertOverwriteUtil.addTempPartitions(olapTable, pendingPartitionNames, tempPartitionNames);
+            InsertOverwriteUtil.replacePartition(olapTable, pendingPartitionNames, tempPartitionNames);
+            // now temp partitions are bumped up and use new names. we get their ids and record them.
+            List<Long> newPartitionIds = new ArrayList<Long>();
+            for (String newPartName : pendingPartitionNames) {
+                newPartitionIds.add(olapTable.getPartition(newPartName).getId());
+            }
+            overwriteManager.recordPartitionPairs(taskGroupId, pendingPartitionIds, newPartitionIds);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("partitoin replacement: ");
+                for (int i = 0; i < pendingPartitionIds.size(); i++) {
+                    LOG.debug("[" + pendingPartitionIds.get(i) + ", " + newPartitionIds.get(i) + "], ");
+                }
+            }
         } catch (DdlException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
             LOG.warn("send create partition error status: {}", result);
             return result;
+        } finally {
+            taskLock.unlock();
         }
 
-        // build partition & tablets
+        // build partition & tablets. now all partitions in allReqPartNames are replaced an recorded.
+        // so they won't be changed again. if other transaction changing it. just let it fail.
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         List<TTabletLocation> tablets = Lists.newArrayList();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        for (String partitionName : partitionNames) {
+        for (String partitionName : allReqPartNames) {
             Partition partition = table.getPartition(partitionName);
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
-            int partColNum = partitionInfo.getPartitionColumns().size();
+
             // set partition keys
+            int partColNum = partitionInfo.getPartitionColumns().size();
             OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
