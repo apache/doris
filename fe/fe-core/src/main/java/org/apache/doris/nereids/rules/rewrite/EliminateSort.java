@@ -59,9 +59,9 @@ public class EliminateSort extends DefaultPlanRewriter<Boolean> implements Custo
     @Override
     public Plan visitLogicalSort(LogicalSort<? extends Plan> sort, Boolean eliminateSort) {
         if (eliminateSort) {
-            return visit(sort.child(), eliminateSort);
+            return visit(sort.child(), true);
         }
-        return visit(sort, eliminateSort);
+        return visit(sort, true);
     }
 
     @Override
@@ -74,7 +74,7 @@ public class EliminateSort extends DefaultPlanRewriter<Boolean> implements Custo
     public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, Boolean eliminateSort) {
         if (logicalSink instanceof LogicalTableSink) {
             // eliminate sort
-            return visit(logicalSink, eliminateSort);
+            return visit(logicalSink, true);
         }
         return skipEliminateSort(logicalSink, eliminateSort);
     }
