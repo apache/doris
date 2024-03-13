@@ -990,7 +990,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void updateMultiTableRunningTransactionTableIds(Long dbId, Long transactionId, List<Long> tableIds)
             throws UserException {
-        throw new UserException(NOT_SUPPORTED_MSG);
+        //throw new UserException(NOT_SUPPORTED_MSG);
     }
 
     @Override

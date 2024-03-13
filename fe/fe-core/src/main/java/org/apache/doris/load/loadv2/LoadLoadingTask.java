@@ -130,6 +130,7 @@ public class LoadLoadingTask extends LoadTask {
     protected void executeTask() throws Exception {
         LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
+
         retryTime--;
         beginTime = System.currentTimeMillis();
         if (!((BrokerLoadJob) callback).updateState(JobState.LOADING)) {
