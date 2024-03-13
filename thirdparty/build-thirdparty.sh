@@ -38,9 +38,9 @@ export TP_DIR="${curdir}"
 
 # include custom environment variables
 if [[ -f "${DORIS_HOME}/env.sh" ]]; then
-    export BUILD_THIRDPARTY_WIP=1
+    export DO_NOT_CHECK_JAVA_ENV=1
     . "${DORIS_HOME}/env.sh"
-    export BUILD_THIRDPARTY_WIP=
+    export DO_NOT_CHECK_JAVA_ENV=
 fi
 
 # Check args
