@@ -49,7 +49,7 @@ void PipelineTracerContext::record(ScheduleRecord record) {
 void PipelineTracerContext::end_query(TUniqueId query_id, uint64_t task_group) {
     {
         std::unique_lock<std::mutex> l(_tg_lock);
-        _id_to_taskgroup[query_id] = task_group;
+        _id_to_workload_group[query_id] = task_group;
     }
     if (_dump_type == RecordType::PerQuery) {
         _dump(query_id);
@@ -113,7 +113,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
             uint64_t v = 0;
             {
                 std::unique_lock<std::mutex> l(_tg_lock);
-                v = _id_to_taskgroup[query_id];
+                v = _id_to_workload_group[query_id];
             }
             auto tmp_str = record.to_string(v);
             auto text = Slice {tmp_str};
@@ -140,7 +140,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
                 uint64_t v = 0;
                 {
                     std::unique_lock<std::mutex> l(_tg_lock);
-                    v = _id_to_taskgroup[query_id];
+                    v = _id_to_workload_group[query_id];
                 }
                 auto tmp_str = record.to_string(v);
                 auto text = Slice {tmp_str};
@@ -156,7 +156,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
     _datas.erase(query_id);
     {
         std::unique_lock<std::mutex> l(_tg_lock);
-        _id_to_taskgroup.erase(query_id);
+        _id_to_workload_group.erase(query_id);
     }
 }
 } // namespace doris::pipeline

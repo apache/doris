@@ -72,7 +72,7 @@ private:
     std::mutex _data_lock; // lock for map, not map items.
     phmap::flat_hash_map<TUniqueId, OneQueryTraces> _datas;
     std::mutex _tg_lock; //TODO: use an lockfree DS
-    phmap::flat_hash_map<TUniqueId, uint64_t> _id_to_taskgroup;
+    phmap::flat_hash_map<TUniqueId, uint64_t> _id_to_workload_group;
 
     RecordType _dump_type = RecordType::None;
     std::filesystem::path _dir = config::pipeline_tracing_log_dir;

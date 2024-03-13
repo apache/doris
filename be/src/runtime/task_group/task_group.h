@@ -49,18 +49,16 @@ class PipelineTask;
 class TaskScheduler;
 } // namespace pipeline
 
-namespace taskgroup {
-
-class TaskGroup;
-struct TaskGroupInfo;
+class WorkloadGroup;
+struct WorkloadGroupInfo;
 struct TgTrackerLimiterGroup {
     std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
     std::mutex group_lock;
 };
 
-class TaskGroup : public std::enable_shared_from_this<TaskGroup> {
+class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
 public:
-    explicit TaskGroup(const TaskGroupInfo& tg_info);
+    explicit WorkloadGroup(const WorkloadGroupInfo& tg_info);
 
     int64_t version() const { return _version; }
 
@@ -86,7 +84,7 @@ public:
 
     std::string debug_string() const;
 
-    void check_and_update(const TaskGroupInfo& tg_info);
+    void check_and_update(const WorkloadGroupInfo& tg_info);
 
     void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
@@ -129,7 +127,7 @@ public:
 
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
 
-    void upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
+    void upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env);
 
     void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                              vectorized::SimplifiedScanScheduler** scan_sched,
@@ -166,9 +164,9 @@ private:
     std::unique_ptr<ThreadPool> _non_pipe_thread_pool = nullptr;
 };
 
-using TaskGroupPtr = std::shared_ptr<TaskGroup>;
+using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
-struct TaskGroupInfo {
+struct WorkloadGroupInfo {
     uint64_t id;
     std::string name;
     uint64_t cpu_share;
@@ -185,8 +183,7 @@ struct TaskGroupInfo {
     int cgroup_cpu_hard_limit = 0;
 
     static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
-                                   taskgroup::TaskGroupInfo* task_group_info);
+                                   WorkloadGroupInfo* task_group_info);
 };
 
-} // namespace taskgroup
 } // namespace doris

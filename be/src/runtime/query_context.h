@@ -163,7 +163,7 @@ public:
         }
     }
 
-    Status set_task_group(taskgroup::TaskGroupPtr& tg);
+    Status set_task_group(WorkloadGroupPtr& tg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -292,7 +292,7 @@ private:
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
-    taskgroup::TaskGroupPtr _task_group = nullptr;
+    WorkloadGroupPtr _task_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 

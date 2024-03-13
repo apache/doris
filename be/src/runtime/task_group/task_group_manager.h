@@ -32,21 +32,19 @@ class TaskScheduler;
 class MultiCoreTaskQueue;
 } // namespace pipeline
 
-namespace taskgroup {
-
-class TaskGroupManager {
+class WorkloadGroupMgr {
 public:
-    TaskGroupManager() = default;
-    ~TaskGroupManager() = default;
+    WorkloadGroupMgr() = default;
+    ~WorkloadGroupMgr() = default;
 
-    TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
+    WorkloadGroupPtr get_or_create_task_group(const WorkloadGroupInfo& task_group_info);
 
-    void get_related_taskgroups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
-                                std::vector<TaskGroupPtr>* task_groups);
+    void get_related_workload_groups(const std::function<bool(const WorkloadGroupPtr& ptr)>& pred,
+                                     std::vector<WorkloadGroupPtr>* task_groups);
 
     void delete_task_group_by_ids(std::set<uint64_t> id_set);
 
-    TaskGroupPtr get_task_group_by_id(uint64_t tg_id);
+    WorkloadGroupPtr get_task_group_by_id(uint64_t tg_id);
 
     void stop();
 
@@ -58,12 +56,11 @@ public:
 
 private:
     std::shared_mutex _group_mutex;
-    std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
+    std::unordered_map<uint64_t, WorkloadGroupPtr> _task_groups;
 
     std::shared_mutex _init_cg_ctl_lock;
     std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;
     bool _is_init_succ = false;
 };
 
-} // namespace taskgroup
 } // namespace doris

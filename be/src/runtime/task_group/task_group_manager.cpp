@@ -27,9 +27,10 @@
 #include "util/time.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 
-namespace doris::taskgroup {
+namespace doris {
 
-TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& task_group_info) {
+WorkloadGroupPtr WorkloadGroupMgr::get_or_create_task_group(
+        const WorkloadGroupInfo& task_group_info) {
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
         if (LIKELY(_task_groups.count(task_group_info.id))) {
@@ -39,7 +40,7 @@ TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& tas
         }
     }
 
-    auto new_task_group = std::make_shared<TaskGroup>(task_group_info);
+    auto new_task_group = std::make_shared<WorkloadGroup>(task_group_info);
     std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
     if (_task_groups.count(task_group_info.id)) {
         auto task_group = _task_groups[task_group_info.id];
@@ -50,9 +51,9 @@ TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& tas
     return new_task_group;
 }
 
-void TaskGroupManager::get_related_taskgroups(
-        const std::function<bool(const TaskGroupPtr& ptr)>& pred,
-        std::vector<TaskGroupPtr>* task_groups) {
+void WorkloadGroupMgr::get_related_workload_groups(
+        const std::function<bool(const WorkloadGroupPtr& ptr)>& pred,
+        std::vector<WorkloadGroupPtr>* task_groups) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     for (const auto& [id, task_group] : _task_groups) {
         if (pred(task_group)) {
@@ -61,7 +62,7 @@ void TaskGroupManager::get_related_taskgroups(
     }
 }
 
-TaskGroupPtr TaskGroupManager::get_task_group_by_id(uint64_t tg_id) {
+WorkloadGroupPtr WorkloadGroupMgr::get_task_group_by_id(uint64_t tg_id) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     if (_task_groups.find(tg_id) != _task_groups.end()) {
         return _task_groups.at(tg_id);
@@ -69,10 +70,10 @@ TaskGroupPtr TaskGroupManager::get_task_group_by_id(uint64_t tg_id) {
     return nullptr;
 }
 
-void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
+void WorkloadGroupMgr::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
     int64_t begin_time = MonotonicMillis();
     // 1 get delete group without running queries
-    std::vector<TaskGroupPtr> deleted_task_groups;
+    std::vector<WorkloadGroupPtr> deleted_task_groups;
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
         for (auto iter = _task_groups.begin(); iter != _task_groups.end(); iter++) {
@@ -134,10 +135,10 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
               << "ms, deleted group size:" << deleted_task_groups.size();
 }
 
-void TaskGroupManager::stop() {
+void WorkloadGroupMgr::stop() {
     for (auto iter = _task_groups.begin(); iter != _task_groups.end(); iter++) {
         iter->second->try_stop_schedulers();
     }
 }
 
-} // namespace doris::taskgroup
+} // namespace doris

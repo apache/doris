@@ -241,12 +241,12 @@ bool MemInfo::process_full_gc() {
 int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
     MonotonicStopWatch watch;
     watch.start();
-    std::vector<taskgroup::TaskGroupPtr> task_groups;
+    std::vector<WorkloadGroupPtr> task_groups;
     std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
     int64_t total_free_memory = 0;
 
-    ExecEnv::GetInstance()->task_group_manager()->get_related_taskgroups(
-            [](const taskgroup::TaskGroupPtr& task_group) {
+    ExecEnv::GetInstance()->workload_group_mgr()->get_related_workload_groups(
+            [](const WorkloadGroupPtr& task_group) {
                 return task_group->is_mem_limit_valid() && !task_group->enable_memory_overcommit();
             },
             &task_groups);
@@ -254,7 +254,7 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
         return 0;
     }
 
-    std::vector<taskgroup::TaskGroupPtr> task_groups_overcommit;
+    std::vector<WorkloadGroupPtr> task_groups_overcommit;
     for (const auto& task_group : task_groups) {
         if (task_group->memory_used() > task_group->memory_limit()) {
             task_groups_overcommit.push_back(task_group);
@@ -295,9 +295,9 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
                                                RuntimeProfile* profile) {
     MonotonicStopWatch watch;
     watch.start();
-    std::vector<taskgroup::TaskGroupPtr> task_groups;
-    ExecEnv::GetInstance()->task_group_manager()->get_related_taskgroups(
-            [](const taskgroup::TaskGroupPtr& task_group) {
+    std::vector<WorkloadGroupPtr> task_groups;
+    ExecEnv::GetInstance()->workload_group_mgr()->get_related_workload_groups(
+            [](const WorkloadGroupPtr& task_group) {
                 return task_group->is_mem_limit_valid() && task_group->enable_memory_overcommit();
             },
             &task_groups);

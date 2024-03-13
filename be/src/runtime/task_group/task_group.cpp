@@ -38,7 +38,6 @@
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
-namespace taskgroup {
 
 const static uint64_t CPU_SHARE_DEFAULT_VALUE = 1024;
 const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
@@ -46,7 +45,7 @@ const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 const static uint64_t CPU_SOFT_LIMIT_DEFAULT_VALUE = 1024;
 
-TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
+WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
         : _id(tg_info.id),
           _name(tg_info.name),
           _version(tg_info.version),
@@ -59,7 +58,7 @@ TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
           _max_remote_scan_thread_num(tg_info.max_remote_scan_thread_num),
           _min_remote_scan_thread_num(tg_info.min_remote_scan_thread_num) {}
 
-std::string TaskGroup::debug_string() const {
+std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     return fmt::format(
             "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
@@ -70,7 +69,7 @@ std::string TaskGroup::debug_string() const {
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num);
 }
 
-void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
+void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
     if (UNLIKELY(tg_info.id != _id)) {
         return;
     }
@@ -98,7 +97,7 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
     }
 }
 
-int64_t TaskGroup::memory_used() {
+int64_t WorkloadGroup::memory_used() {
     int64_t used_memory = 0;
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
@@ -109,19 +108,19 @@ int64_t TaskGroup::memory_used() {
     return used_memory;
 }
 
-void TaskGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
     _mem_tracker_limiter_pool[group_num].trackers.insert(mem_tracker_ptr);
 }
 
-void TaskGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+void WorkloadGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
     _mem_tracker_limiter_pool[group_num].trackers.erase(mem_tracker_ptr);
 }
 
-int64_t TaskGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
+int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
     if (need_free_mem <= 0) {
         return 0;
     }
@@ -202,8 +201,8 @@ int64_t TaskGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
     return freed_mem;
 }
 
-Status TaskGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_info,
-                                       taskgroup::TaskGroupInfo* task_group_info) {
+Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_info,
+                                           WorkloadGroupInfo* task_group_info) {
     // 1 id
     int tg_id = 0;
     if (workload_group_info.__isset.id) {
@@ -292,7 +291,7 @@ Status TaskGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_
     return Status::OK();
 }
 
-void TaskGroup::upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env) {
+void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env) {
     uint64_t tg_id = tg_info->id;
     std::string tg_name = tg_info->name;
     int cpu_hard_limit = tg_info->cpu_hard_limit;
@@ -407,10 +406,10 @@ void TaskGroup::upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv
     }
 }
 
-void TaskGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
-                                    vectorized::SimplifiedScanScheduler** scan_sched,
-                                    ThreadPool** non_pipe_thread_pool,
-                                    vectorized::SimplifiedScanScheduler** remote_scan_sched) {
+void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
+                                        vectorized::SimplifiedScanScheduler** scan_sched,
+                                        ThreadPool** non_pipe_thread_pool,
+                                        vectorized::SimplifiedScanScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     *exec_sched = _task_sched.get();
     *scan_sched = _scan_task_sched.get();
@@ -418,7 +417,7 @@ void TaskGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
     *non_pipe_thread_pool = _non_pipe_thread_pool.get();
 }
 
-void TaskGroup::try_stop_schedulers() {
+void WorkloadGroup::try_stop_schedulers() {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     if (_task_sched) {
         _task_sched->stop();
@@ -435,5 +434,4 @@ void TaskGroup::try_stop_schedulers() {
     }
 }
 
-} // namespace taskgroup
 } // namespace doris
