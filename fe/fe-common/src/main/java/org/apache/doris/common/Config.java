@@ -2585,6 +2585,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int get_tablet_stat_batch_size = 1000;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_light_index_change = true;
+
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
