@@ -1130,7 +1130,31 @@ public class ShowExecutor {
                     continue;
                 }
                 final String columnName = col.getName();
-                final String columnType = col.getOriginType().toString().toLowerCase(Locale.ROOT);
+                String columnType;
+                if (col.getOriginType().isDatetimeV2()) {
+                    StringBuilder typeStr = new StringBuilder("DATETIME");
+                    if (((ScalarType) col.getOriginType()).getScalarScale() > 0) {
+                        typeStr.append("(").append(((ScalarType) col.getOriginType()).getScalarScale())
+                                .append(")");
+                    }
+                    columnType = typeStr.toString().toLowerCase(Locale.ROOT);
+                } else if (col.getOriginType().isDateV2()) {
+                    columnType = "date";
+                } else if (col.getOriginType().isDecimalV3()) {
+                    StringBuilder typeStr = new StringBuilder("DECIMAL");
+                    ScalarType sType = (ScalarType) col.getOriginType();
+                    int scale = sType.getScalarScale();
+                    int precision = sType.getScalarPrecision();
+                    // not default
+                    if (scale > 0 && precision != 9) {
+                        typeStr.append("(").append(precision).append(", ").append(scale)
+                                .append(")");
+                    }
+                    columnType = typeStr.toString().toLowerCase(Locale.ROOT);
+                } else {
+                    columnType = col.getOriginType().toString().toLowerCase(Locale.ROOT);
+                }
+
                 final String isAllowNull = col.isAllowNull() ? "YES" : "NO";
                 final String isKey = col.isKey() ? "YES" : "NO";
                 final String defaultValue = col.getDefaultValue();
