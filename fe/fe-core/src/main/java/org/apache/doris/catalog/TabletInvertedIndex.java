@@ -167,6 +167,13 @@ public class TabletInvertedIndex {
                                     tabletMetaInfo.setIsInMemory(!backendTabletInfo.isIsInMemory());
                                 }
                             }
+                            if (backendTabletInfo.getPartitionId() != tabletMeta.getPartitionId()) {
+                                LOG.warn("be report tablet partition id not eq fe, in be {} but in fe {}",
+                                        backendTabletInfo, tabletMeta);
+                                // Need to update partition id in BE
+                                tabletMetaInfo = new TTabletMetaInfo();
+                                tabletMetaInfo.setPartitionId(tabletMeta.getPartitionId());
+                            }
                             // 1. (intersection)
                             if (needSync(replica, backendTabletInfo)) {
                                 // need sync

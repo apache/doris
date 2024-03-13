@@ -748,6 +748,16 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             continue;
         }
         bool need_to_save = false;
+        if (tablet_meta_info.__isset.partition_id) {
+            // for fix partition_id = 0, in set_partition_id if be_pid != fe_pid && be_pid != 0, will fatal, so just can change be pid == 0
+            LOG(WARNING) << "change be partition id from : "
+                         << tablet->tablet_meta()->partition_id()
+                         << " to : " << tablet_meta_info.partition_id;
+            auto st = tablet->tablet_meta()->set_partition_id(tablet_meta_info.partition_id);
+            CHECK(st.ok()) << "change partition_id : " << tablet_meta_info.partition_id << " : "
+                           << st;
+            need_to_save = true;
+        }
         if (tablet_meta_info.__isset.storage_policy_id) {
             tablet->tablet_meta()->set_storage_policy_id(tablet_meta_info.storage_policy_id);
             need_to_save = true;
