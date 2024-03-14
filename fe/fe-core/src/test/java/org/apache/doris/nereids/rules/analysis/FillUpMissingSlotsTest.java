@@ -381,7 +381,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                                                         )
                                                                 ))
                                                 ).when(FieldChecker.check("outputExpressions",
-                                                Lists.newArrayList(pk, pk1, sumA1, countA1, sumA1A2, v1))))
+                                                Lists.newArrayList(pk, sumA1, countA1, sumA1A2, v1))))
                                 ).when(FieldChecker.check("conjuncts",
                                         ImmutableSet.of(
                                                 new GreaterThan(pk.toSlot(), Literal.of((byte) 0)),
@@ -569,7 +569,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(logicalProject(logicalSort(logicalProject(logicalAggregate(logicalProject(
                         logicalFilter(logicalJoin(logicalOlapScan(), logicalOlapScan())))).when(
-                                FieldChecker.check("outputExpressions", Lists.newArrayList(pk, pk1,
+                                FieldChecker.check("outputExpressions", Lists.newArrayList(pk,
                                         sumA1, countA1, sumA1A2, v1))))).when(FieldChecker.check(
                                                 "orderKeys",
                                                 ImmutableList.of(new OrderKey(pk, true, true),
