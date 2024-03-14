@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lakesoul;
 
+import com.dmetasoul.lakesoul.meta.DBUtil;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -36,13 +37,23 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
 
     private static final Logger LOG = LogManager.getLogger(LakeSoulExternalCatalog.class);
 
-    private DBManager dbManager = new DBManager();
+    private DBManager dbManager ;
 
     public LakeSoulExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-            String comment) {
+                                   String comment) {
         super(catalogId, name, InitCatalogLog.Type.LAKESOUL, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
+        if(props.containsKey(DBUtil.urlKey)){
+            System.setProperty(DBUtil.urlKey, props.get(DBUtil.urlKey));
+        }
+        if(props.containsKey(DBUtil.usernameKey)){
+            System.setProperty(DBUtil.usernameKey, props.get(DBUtil.usernameKey));
+        }
+        if(props.containsKey(DBUtil.passwordKey)){
+            System.setProperty(DBUtil.passwordKey, props.get(DBUtil.passwordKey));
+        }
+        dbManager = new DBManager();
     }
 
     @Override
