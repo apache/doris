@@ -109,6 +109,7 @@ public class ColumnDef {
         public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "[]" means empty array
         public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
+
         public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision) {
             if (precision > ScalarType.MAX_DATETIMEV2_SCALE || precision < 0) {
                 throw new IllegalArgumentException("column's default value current_timestamp"
