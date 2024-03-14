@@ -262,6 +262,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case ICEBERG_EXTERNAL_TABLE:
             case PAIMON_EXTERNAL_TABLE:
             case MAX_COMPUTE_EXTERNAL_TABLE:
+            case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table, tableQualifier,
                     unboundRelation.getTableSample());
             case SCHEMA:
