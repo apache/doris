@@ -14,18 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// and modified by Doris
 
-#include "vec/functions/function_struct_in.h"
-
-#include "vec/functions/simple_function_factory.h"
-
-namespace doris::vectorized {
-
-void register_function_struct_in(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionStructIn<false>>();
-    factory.register_function<FunctionStructIn<true>>();
+suite("date_function_rewrite") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+    sql "drop table if exists test_date_func"
+    sql """
+        create table test_date_func(a int, test_time int(11)) distributed by hash (a) buckets 5
+        properties("replication_num"="1");
+        """
+    sql "insert into test_date_func values(1,1690128000);\n"
+    qt_test """
+    select if (date(date_add(FROM_UNIXTIME(t1.test_time, '%Y-%m-%d'),2)) > '2023-07-25',1,0) from test_date_func t1;
+    """
 }
-
-} // namespace doris::vectorized

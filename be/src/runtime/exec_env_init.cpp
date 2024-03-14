@@ -99,6 +99,7 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_stub_pool.h"
+#include "vec/spill/spill_stream_manager.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -137,11 +138,13 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
 }
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
+                     const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
-    return env->_init(store_paths, broken_paths);
+    return env->_init(store_paths, spill_store_paths, broken_paths);
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
+                      const std::vector<StorePath>& spill_store_paths,
                       const std::set<std::string>& broken_paths) {
     //Only init once before be destroyed
     if (ready()) {
@@ -203,6 +206,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
+
     init_file_cache_factory();
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
@@ -228,6 +232,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _load_stream_stub_pool = std::make_unique<LoadStreamStubPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
+    _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -246,7 +251,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return status;
     }
 
-    static_cast<void>(_init_mem_env());
+    RETURN_IF_ERROR(_init_mem_env());
 
     RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
@@ -276,6 +281,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     _workload_sched_mgr = new WorkloadSchedPolicyMgr();
     _workload_sched_mgr->start(this);
+
+    RETURN_IF_ERROR(_spill_stream_mgr->init());
 
     _s_ready = true;
 
@@ -477,6 +484,7 @@ Status ExecEnv::_init_mem_env() {
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     RETURN_IF_ERROR(_block_spill_mgr->init());
+
     return Status::OK();
 }
 
@@ -545,6 +553,7 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_stub_pool.reset();
     SAFE_STOP(_storage_engine);
+    SAFE_STOP(_spill_stream_mgr);
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
@@ -560,6 +569,7 @@ void ExecEnv::destroy() {
     // _experimental_mem_tracker.reset();
     // _orphan_mem_tracker.reset();
 
+    SAFE_DELETE(_spill_stream_mgr);
     SAFE_DELETE(_block_spill_mgr);
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);

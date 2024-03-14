@@ -399,3 +399,25 @@ if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
     cd -
 fi
 echo "Finished patching ${BRPC_SOURCE}"
+
+# patch ali sdk
+if [[ "${ALI_SDK_SOURCE}" = "aliyun-openapi-cpp-sdk-1.36.1586" ]]; then
+    cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/ali-sdk-1.36.1586.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${ALI_SDK_SOURCE}"
+
+# patch base64
+if [[ "${BASE64_SOURCE}" = "base64-0.5.2" ]]; then
+    cd "${TP_SOURCE_DIR}/${BASE64_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/base64-0.5.2.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${BASE64_SOURCE}"

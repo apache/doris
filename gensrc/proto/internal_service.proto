@@ -514,6 +514,7 @@ message PMergeFilterRequest {
     optional bool is_pipeline = 8;
     optional bool opt_remote_rf = 9;
     optional PColumnType column_type = 10;
+    optional bool contain_null = 11;
 };
 
 message PMergeFilterResponse {
@@ -532,6 +533,7 @@ message PPublishFilterRequest {
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
     optional PColumnType column_type = 10;
+    optional bool contain_null = 11;
 };
 
 message PPublishFilterRequestV2 {
@@ -544,6 +546,7 @@ message PPublishFilterRequestV2 {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
+    optional bool contain_null = 10;
 };
 
 message PPublishFilterResponse {

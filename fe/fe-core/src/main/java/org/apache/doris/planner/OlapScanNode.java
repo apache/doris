@@ -174,8 +174,11 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
+    // useTopnOpt is equivalent to !topnFilterSortNodes.isEmpty().
+    // keep this flag for compatibility.
     private boolean useTopnOpt = false;
-
+    // support multi topn filter
+    private final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
 
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
@@ -1304,7 +1307,10 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
         if (useTopnOpt) {
-            output.append(prefix).append("TOPN OPT\n");
+            String topnFilterSources = String.join(",",
+                    topnFilterSortNodes.stream()
+                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
 
         if (!conjuncts.isEmpty()) {
@@ -1478,6 +1484,13 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
         msg.olap_scan_node.setUseTopnOpt(useTopnOpt);
+        List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
+                .stream()
+                .map(sortNode -> sortNode.getId().asInt())
+                .collect(Collectors.toList());
+        if (!topnFilterSourceNodeIds.isEmpty()) {
+            msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
+        }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
@@ -1749,5 +1762,13 @@ public class OlapScanNode extends ScanNode {
     @Override
     public int getScanRangeNum() {
         return getScanTabletIds().size();
+    }
+
+    public void addTopnFilterSortNode(SortNode sortNode) {
+        topnFilterSortNodes.add(sortNode);
+    }
+
+    public List<SortNode> getTopnFilterSortNodes() {
+        return topnFilterSortNodes;
     }
 }

@@ -1733,6 +1733,66 @@ build_streamvbyte() {
     "${BUILD_SYSTEM}" install
 }
 
+# jsoncpp
+build_jsoncpp() {
+    check_if_source_exist "${JSONCPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JSONCPP_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# libuuid
+build_libuuid() {
+    check_if_source_exist "${LIBUUID_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${LIBUUID_SOURCE}"
+    CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+    make -j "${PARALLEL}"
+    make install
+}
+
+# ali_sdk
+build_ali_sdk() {
+    build_jsoncpp
+    build_libuuid
+    check_if_source_exist "${ALI_SDK_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
+        LDFLAGS="-L${TP_LIB_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_PRODUCT=core -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DTP_INSTALL_DIR="${TP_INSTALL_DIR}" ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# base64
+build_base64() {
+    check_if_source_exist "${BASE64_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${BASE64_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    MACHINE_TYPE="$(uname -m)"
+    if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        CFLAGS="--target=aarch64-linux-gnu -march=armv8-a+crc" NEON64_CFLAGS=" "
+    else
+        AVX2_CFLAGS=-mavx2 SSSE3_CFLAGS=-mssse3 SSE41_CFLAGS=-msse4.1 SSE42_CFLAGS=-msse4.2 AVX_CFLAGS=-mavx
+    fi
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         libunixodbc
@@ -1798,6 +1858,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         avx2neon
         libdeflate
         streamvbyte
+        ali_sdk
+        base64
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

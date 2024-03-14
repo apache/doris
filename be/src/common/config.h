@@ -1250,6 +1250,14 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
+DECLARE_String(spill_storage_root_path);
+DECLARE_mInt64(spill_storage_limit);
+DECLARE_mInt32(spill_gc_interval_ms);
+DECLARE_Int32(spill_io_thread_pool_per_disk_thread_num);
+DECLARE_Int32(spill_io_thread_pool_queue_size);
+DECLARE_Int32(spill_async_task_thread_pool_thread_num);
+DECLARE_Int32(spill_async_task_thread_pool_queue_size);
+DECLARE_mInt32(spill_mem_warning_water_mark_multiplier);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 

@@ -757,8 +757,8 @@ void NewOlapScanNode::add_filter_info(int id, const PredicateFilterInfo& update_
     filter_name += std::to_string(id);
     std::string info_str;
     info_str += "type = " + type_to_string(static_cast<PredicateType>(info.type)) + ", ";
-    info_str += "input = " + std::to_string(info.input_row) + ", ";
-    info_str += "filtered = " + std::to_string(info.filtered_row);
+    info_str += "predicate input = " + std::to_string(info.input_row) + ", ";
+    info_str += "predicate filtered = " + std::to_string(info.filtered_row);
     info_str = "[" + info_str + "]";
 
     // add info
