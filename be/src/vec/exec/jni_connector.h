@@ -163,6 +163,9 @@ public:
                     char_ptr += s->size;
                 }
             } else {
+                // FIXME: it can not handle decimal type correctly.
+                // but this logic is deprecated and not used.
+                // so may be deleted or fixed later.
                 for (const CppType* v : values) {
                     int type_len = sizeof(CppType);
                     *reinterpret_cast<int*>(char_ptr) = type_len;

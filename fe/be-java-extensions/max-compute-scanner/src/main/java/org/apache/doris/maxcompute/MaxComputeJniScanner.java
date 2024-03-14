@@ -133,9 +133,8 @@ public class MaxComputeJniScanner extends JniScanner {
     }
 
     @Override
-    protected void initTableInfo(ColumnType[] requiredTypes, String[] requiredFields, ScanPredicate[] predicates,
-                                 int batchSize) {
-        super.initTableInfo(requiredTypes, requiredFields, predicates, batchSize);
+    protected void initTableInfo(ColumnType[] requiredTypes, String[] requiredFields, int batchSize) {
+        super.initTableInfo(requiredTypes, requiredFields, batchSize);
         readColumns = new ArrayList<>();
         readColumnsToId = new HashMap<>();
         for (int i = 0; i < fields.length; i++) {
