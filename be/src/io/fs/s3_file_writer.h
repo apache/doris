@@ -86,8 +86,7 @@ private:
     bthread::CountdownEvent _countdown_event {0};
 
     std::atomic_bool _failed = false;
-    Status _st = Status::OK();
-    size_t _bytes_written = 0;
+    Status _st;
 
     std::shared_ptr<S3FileBuffer> _pending_buf = nullptr;
 };

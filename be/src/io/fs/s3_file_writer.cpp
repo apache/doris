@@ -96,9 +96,9 @@ S3FileWriter::~S3FileWriter() {
         // if we don't abort multi part upload, the uploaded part in object
         // store will not automatically reclaim itself, it would cost more money
         abort();
-        _bytes_written = 0;
+        _bytes_appended = 0;
     }
-    s3_bytes_written_total << _bytes_written;
+    s3_bytes_written_total << _bytes_appended;
     CHECK(_closed) << ", closed: " << _closed;
     // in case there are task which might run after this object is destroyed
     // for example, if the whole task failed and some task are still pending
@@ -196,8 +196,10 @@ Status S3FileWriter::close() {
             // it might be one file less than 5MB, we do upload here
             _pending_buf->set_upload_remote_callback(
                     [this, buf = _pending_buf]() { _put_object(*buf); });
-        } else if (_create_empty_file) {
-            // if there is no pending buffer, we need to create an empty file
+        }
+
+        if (_bytes_appended == 0 && _create_empty_file) {
+            // No data written, but need to create an empty file
             _pending_buf = S3FileBufferPool::GetInstance()->allocate();
             // if there is no upload id, we need to create a new one
             _pending_buf->set_upload_remote_callback(
@@ -323,7 +325,6 @@ void S3FileWriter::_upload_one_part(int64_t part_num, S3FileBuffer& buf) {
 
     std::unique_lock<std::mutex> lck {_completed_lock};
     _completed_parts.emplace_back(std::move(completed_part));
-    _bytes_written += buf.get_size();
 }
 
 Status S3FileWriter::_complete() {
@@ -405,7 +406,6 @@ void S3FileWriter::_put_object(S3FileBuffer& buf) {
         buf._on_failed(_st);
         return;
     }
-    _bytes_written += buf.get_size();
     s3_file_created_total << 1;
 }
 
