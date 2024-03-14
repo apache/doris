@@ -151,7 +151,7 @@ public class HiveTableSink extends DataSink {
 
     private String createTempPath(String location) {
         String user = ConnectContext.get().getUserIdentity().getUser();
-        return location + "/tmp/doris-" + user + "/" + UUID.randomUUID().toString().replace("-", "");
+        return location + "/.doris_staging/" + user + "/" + UUID.randomUUID().toString().replace("-", "");
     }
 
     private void setCompressType(THiveTableSink tSink, TFileFormatType formatType) {
