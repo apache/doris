@@ -44,6 +44,7 @@
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "exec/schema_scanner/schema_workload_groups_scanner.h"
 #include "olap/hll.h"
 #include "runtime/define_primitive_type.h"
 #include "util/string_util.h"
@@ -155,6 +156,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendActiveTasksScanner::create_unique();
     case TSchemaTableType::SCH_ACTIVE_QUERIES:
         return SchemaActiveQueriesScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUPS:
+        return SchemaWorkloadGroupsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
