@@ -99,8 +99,8 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(fragment_exec_params.query_id,
-                                                   RuntimeFilterParamsContext::create(this));
+    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
+            fragment_exec_params.query_id, RuntimeFilterParamsContext::create(this));
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
