@@ -219,23 +219,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(plan, requireAllOutputOfChildren);
     }
 
-    private static Optional<List<NamedExpression>> fillUpGroupByToOutput(Aggregate prunedOutputAgg) {
-        List<Expression> groupBy = prunedOutputAgg.getGroupByExpressions();
-        List<NamedExpression> output = prunedOutputAgg.getOutputExpressions();
-
-        if (output.containsAll(groupBy)) {
-            return Optional.empty();
-        }
-
-        List<NamedExpression> aggFunctions = Lists.newArrayList(output);
-        aggFunctions.removeAll(groupBy);
-
-        return Optional.of(ImmutableList.<NamedExpression>builder()
-                .addAll((List) groupBy)
-                .addAll(aggFunctions)
-                .build());
-    }
-
     private static Aggregate fillUpGroupByAndOutput(Aggregate prunedOutputAgg) {
         List<Expression> groupBy = prunedOutputAgg.getGroupByExpressions();
         List<NamedExpression> output = prunedOutputAgg.getOutputExpressions();
