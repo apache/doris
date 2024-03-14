@@ -193,8 +193,8 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
         }
     } else if (_expr_ctxs.empty()) {
         DCHECK(!_intermediate_block || (_intermediate_block && _intermediate_block->rows() == 0));
-        output_block->swap(*_child_block);
-        release_block_memory(*_child_block);
+        output_block->swap(_child_block);
+        release_block_memory(_child_block);
     }
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     *eos = _child_eos && _child_block.rows() == 0;
