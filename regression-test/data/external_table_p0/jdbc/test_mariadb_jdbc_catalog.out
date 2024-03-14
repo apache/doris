@@ -52,6 +52,7 @@ tables
 triggers
 user_privileges
 views
+workload_groups
 
 -- !auto_default_t --
 0

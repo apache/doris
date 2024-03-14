@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_active_queries_scanner.h"
+#include "exec/schema_scanner/schema_workload_groups_scanner.h"
 
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -26,41 +26,44 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
-std::vector<SchemaScanner::ColumnDesc> SchemaActiveQueriesScanner::_s_tbls_columns = {
-        //   name,       type,          size
-        {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"QUERY_TIME_MS", TYPE_BIGINT, sizeof(int64_t), true},
-        {"WORKLOAD_GROUP_ID", TYPE_BIGINT, sizeof(int64_t), true},
-        {"DATABASE", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"FRONTEND_INSTANCE", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"SQL", TYPE_STRING, sizeof(StringRef), true}};
+std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_columns = {
+        {"ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"CPU_SHARE", TYPE_BIGINT, sizeof(int64_t), true},
+        {"MEMORY_LIMIT", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"ENABLE_MEMORY_OVERCOMMIT", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"MAX_CONCURRENCY", TYPE_BIGINT, sizeof(int64_t), true},
+        {"MAX_QUEUE_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
+        {"QUEUE_TIMEOUT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CPU_HARD_LIMIT", TYPE_STRING, sizeof(StringRef), true},
+        {"SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
+        {"MAX_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
+        {"MIN_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true}};
 
-SchemaActiveQueriesScanner::SchemaActiveQueriesScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_ACTIVE_QUERIES) {}
+SchemaWorkloadGroupsScanner::SchemaWorkloadGroupsScanner()
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_WORKLOAD_GROUPS) {}
 
-SchemaActiveQueriesScanner::~SchemaActiveQueriesScanner() {}
+SchemaWorkloadGroupsScanner::~SchemaWorkloadGroupsScanner() {}
 
-Status SchemaActiveQueriesScanner::start(RuntimeState* state) {
+Status SchemaWorkloadGroupsScanner::start(RuntimeState* state) {
     _block_rows_limit = state->batch_size();
     _rpc_timeout = state->execution_timeout() * 1000;
     return Status::OK();
 }
 
-Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
+Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
 
-    TSchemaTableRequestParams schema_table_params;
+    TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
-        schema_table_params.__isset.columns_name = true;
-        schema_table_params.columns_name.emplace_back(_s_tbls_columns[i].name);
+        schema_table_request_params.__isset.columns_name = true;
+        schema_table_request_params.columns_name.emplace_back(_s_tbls_columns[i].name);
     }
-    schema_table_params.replay_to_other_fe = true;
-    schema_table_params.__isset.replay_to_other_fe = true;
+    schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
 
     TFetchSchemaTableDataRequest request;
-    request.__set_schema_table_name(TSchemaTableName::ACTIVE_QUERIES);
-    request.__set_schema_table_params(schema_table_params);
+    request.__set_schema_table_name(TSchemaTableName::WORKLOAD_GROUPS);
+    request.__set_schema_table_params(schema_table_request_params);
 
     TFetchSchemaTableDataResult result;
 
@@ -73,25 +76,26 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
 
     Status status(Status::create(result.status));
     if (!status.ok()) {
-        LOG(WARNING) << "fetch active queries from FE failed, errmsg=" << status;
+        LOG(WARNING) << "fetch workload groups from FE failed, errmsg=" << status;
         return status;
     }
     std::vector<TRow> result_data = result.data_batch;
 
-    _active_query_block = vectorized::Block::create_unique();
+    _workload_groups_block = vectorized::Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
         TypeDescriptor descriptor(_s_tbls_columns[i].type);
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
-        _active_query_block->insert(vectorized::ColumnWithTypeAndName(
+        _workload_groups_block->insert(vectorized::ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }
 
-    _active_query_block->reserve(_block_rows_limit);
+    _workload_groups_block->reserve(_block_rows_limit);
 
     if (result_data.size() > 0) {
         int col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
-            return Status::InternalError<false>("active queries schema is not match for FE and BE");
+            return Status::InternalError<false>(
+                    "workload groups schema is not match for FE and BE");
         }
     }
 
@@ -120,18 +124,18 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
 
-        insert_string_value(0, row.column_value[0].stringVal, _active_query_block.get());
-        insert_string_value(1, row.column_value[1].stringVal, _active_query_block.get());
-        insert_int_value(2, row.column_value[2].longVal, _active_query_block.get());
-        insert_int_value(3, row.column_value[3].longVal, _active_query_block.get());
-        insert_string_value(4, row.column_value[4].stringVal, _active_query_block.get());
-        insert_string_value(5, row.column_value[5].stringVal, _active_query_block.get());
-        insert_string_value(6, row.column_value[6].stringVal, _active_query_block.get());
+        for (int j = 0; j < _s_tbls_columns.size(); j++) {
+            if (_s_tbls_columns[j].type == TYPE_BIGINT) {
+                insert_int_value(j, row.column_value[j].longVal, _workload_groups_block.get());
+            } else {
+                insert_string_value(j, row.column_value[j].stringVal, _workload_groups_block.get());
+            }
+        }
     }
     return Status::OK();
 }
 
-Status SchemaActiveQueriesScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaWorkloadGroupsScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -140,9 +144,9 @@ Status SchemaActiveQueriesScanner::get_next_block(vectorized::Block* block, bool
         return Status::InternalError("input pointer is nullptr.");
     }
 
-    if (_active_query_block == nullptr) {
-        RETURN_IF_ERROR(_get_active_queries_block_from_fe());
-        _total_rows = _active_query_block->rows();
+    if (_workload_groups_block == nullptr) {
+        RETURN_IF_ERROR(_get_workload_groups_block_from_fe());
+        _total_rows = _workload_groups_block->rows();
     }
 
     if (_row_idx == _total_rows) {
@@ -152,7 +156,7 @@ Status SchemaActiveQueriesScanner::get_next_block(vectorized::Block* block, bool
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
-    mblock.add_rows(_active_query_block.get(), _row_idx, current_batch_rows);
+    mblock.add_rows(_workload_groups_block.get(), _row_idx, current_batch_rows);
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;
