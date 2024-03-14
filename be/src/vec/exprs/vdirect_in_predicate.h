@@ -26,8 +26,11 @@ class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
 
 public:
-    VDirectInPredicate(const TExprNode& node)
-            : VExpr(node), _filter(nullptr), _expr_name("direct_in_predicate") {}
+    VDirectInPredicate(const TExprNode& node, bool null_aware = false)
+            : VExpr(node),
+              _filter(nullptr),
+              _expr_name("direct_in_predicate"),
+              _null_aware(null_aware) {}
     ~VDirectInPredicate() override = default;
 
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
@@ -93,7 +96,7 @@ public:
 
 private:
     std::shared_ptr<HybridSetBase> _filter;
-    bool _null_aware = false;
     std::string _expr_name;
+    bool _null_aware;
 };
 } // namespace doris::vectorized
