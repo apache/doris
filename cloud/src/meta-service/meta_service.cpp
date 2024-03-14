@@ -21,6 +21,7 @@
 #include <brpc/closure_guard.h>
 #include <brpc/controller.h>
 #include <bthread/bthread.h>
+#include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <google/protobuf/util/json_util.h>
@@ -497,6 +498,37 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         return;
     }
     RPC_RATE_LIMIT(create_tablets)
+    if (request->has_storage_vault_name()) {
+        InstanceInfoPB instance;
+        std::unique_ptr<Transaction> txn0;
+        TxnErrorCode err = txn_kv_->create_txn(&txn0);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to create txn");
+            return;
+        }
+
+        std::shared_ptr<Transaction> txn(txn0.release());
+        auto [c0, m0] = resource_mgr_->get_instance(txn, instance_id, &instance);
+        if (c0 != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get instance, info={}", m0);
+        }
+
+        auto vault_name =
+                std::find_if(instance.storage_vault_names().begin(),
+                             instance.storage_vault_names().end(), [&](const auto& name) {
+                                 return name == request->storage_vault_name();
+                             });
+        if (vault_name != instance.storage_vault_names().end()) {
+            auto idx = vault_name - instance.storage_vault_names().begin();
+            response->set_storage_vault_id(instance.resource_ids().at(idx));
+        } else {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get vault id, vault name={}", *vault_name);
+            return;
+        }
+    }
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
     for (auto& tablet_meta : request->tablet_metas()) {
@@ -977,8 +1009,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         std::string schema_key;
         if (rowset_meta.has_variant_type_in_schema()) {
             // encodes schema in a seperate kv, since variant schema is volatile
-            schema_key = meta_rowset_schema_key({instance_id,
-                    rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
+            schema_key = meta_rowset_schema_key(
+                    {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
         } else {
             schema_key = meta_schema_key(
                     {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
@@ -1214,9 +1246,9 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
     return versions;
 }
 
-static bool try_fetch_and_parse_schema(
-            Transaction* txn, RowsetMetaCloudPB& rowset_meta,
-            const std::string& key, MetaServiceCode& code, std::string& msg) {
+static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rowset_meta,
+                                       const std::string& key, MetaServiceCode& code,
+                                       std::string& msg) {
     ValueBuf val_buf;
     TxnErrorCode err = cloud::get(txn, key, &val_buf);
     if (err != TxnErrorCode::TXN_OK) {
@@ -1339,7 +1371,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         if (rowset_meta.has_variant_type_in_schema()) {
             // get rowset schema kv
-            auto key = meta_rowset_schema_key({instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
+            auto key = meta_rowset_schema_key(
+                    {instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
             if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
@@ -1357,7 +1390,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
-            version_to_schema.emplace(rowset_meta.schema_version(), rowset_meta.mutable_tablet_schema());
+            version_to_schema.emplace(rowset_meta.schema_version(),
+                                      rowset_meta.mutable_tablet_schema());
         }
     }
 }
