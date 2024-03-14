@@ -26,6 +26,7 @@
 #include <ctime> // time
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <utility>
 
@@ -96,12 +97,103 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
 
 } // namespace
 
+SegmentFileCollection::~SegmentFileCollection() = default;
+
+Status SegmentFileCollection::add(int seg_id, io::FileWriterPtr&& writer) {
+    std::lock_guard lock(_lock);
+    if (_closed) [[unlikely]] {
+        DCHECK(false) << writer->path();
+        return Status::InternalError("add to closed SegmentFileCollection");
+    }
+
+    _file_writers.emplace(seg_id, std::move(writer));
+    return Status::OK();
+}
+
+io::FileWriter* SegmentFileCollection::get(int seg_id) const {
+    std::lock_guard lock(_lock);
+    if (auto it = _file_writers.find(seg_id); it != _file_writers.end()) {
+        return it->second.get();
+    } else {
+        return nullptr;
+    }
+}
+
+Status SegmentFileCollection::close() {
+    {
+        std::lock_guard lock(_lock);
+        if (_closed) [[unlikely]] {
+            DCHECK(false);
+            return Status::InternalError("double close SegmentFileCollection");
+        }
+        _closed = true;
+    }
+
+    for (auto&& [_, writer] : _file_writers) {
+        RETURN_IF_ERROR(writer->close());
+    }
+
+    return Status::OK();
+}
+
+Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id_offset) {
+    std::lock_guard lock(_lock);
+    if (!_closed) [[unlikely]] {
+        DCHECK(false);
+        return ResultError(Status::InternalError("get segments file size without closed"));
+    }
+
+    Status st;
+    std::vector<size_t> seg_file_size(_file_writers.size(), 0);
+    bool succ = std::all_of(_file_writers.begin(), _file_writers.end(), [&](auto&& it) {
+        auto&& [seg_id, writer] = it;
+
+        int idx = seg_id - seg_id_offset;
+        if (idx >= seg_file_size.size()) [[unlikely]] {
+            auto err_msg = fmt::format(
+                    "invalid seg_id={} num_file_writers={} seg_id_offset={} path={}", seg_id,
+                    seg_file_size.size(), seg_id_offset, writer->path().native());
+            DCHECK(false) << err_msg;
+            st = Status::InternalError(err_msg);
+            return false;
+        }
+
+        auto& fsize = seg_file_size[idx];
+        if (fsize != 0) {
+            // File size should not been set
+            auto err_msg =
+                    fmt::format("duplicate seg_id={} path={}", seg_id, writer->path().native());
+            DCHECK(false) << err_msg;
+            st = Status::InternalError(err_msg);
+            return false;
+        }
+
+        fsize = writer->bytes_appended();
+        if (fsize <= 0) {
+            auto err_msg =
+                    fmt::format("invalid segment fsize={} path={}", fsize, writer->path().native());
+            DCHECK(false) << err_msg;
+            st = Status::InternalError(err_msg);
+            return false;
+        }
+
+        return true;
+    });
+
+    if (succ) {
+        return seg_file_size;
+    }
+
+    return ResultError(st);
+}
+
 BaseBetaRowsetWriter::BaseBetaRowsetWriter()
         : _num_segment(0),
           _segment_start_id(0),
           _num_rows_written(0),
           _total_data_size(0),
-          _total_index_size(0) {}
+          _total_index_size(0),
+          _segment_creator(_context, _seg_files) {}
 
 BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
         : _engine(engine), _segcompaction_worker(std::make_shared<SegcompactionWorker>(this)) {}
@@ -158,7 +250,6 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
-    RETURN_IF_ERROR(_segment_creator.init(_context));
     return Status::OK();
 }
 
@@ -533,12 +624,7 @@ RowsetSharedPtr BaseBetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& sp
 }
 
 Status BaseBetaRowsetWriter::_close_file_writers() {
-    // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
-    for (auto& file_writer : _file_writers) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                file_writer->close(),
-                fmt::format("failed to close file writer, path={}", file_writer->path().string()));
-    }
+    // Flush and close segment files
     RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
     return Status::OK();
@@ -667,6 +753,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));
+
     return Status::OK();
 }
 
@@ -805,7 +892,7 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
     }
     if (_context.mow_context != nullptr) {
         // ensure that the segment file writing is complete
-        auto* file_writer = _segment_creator.get_file_writer(segment_id);
+        auto* file_writer = _seg_files.get(segment_id);
         if (file_writer) {
             RETURN_IF_ERROR(file_writer->close());
         }
