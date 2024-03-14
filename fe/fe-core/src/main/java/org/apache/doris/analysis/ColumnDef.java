@@ -93,6 +93,7 @@ public class ColumnDef {
             this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
         }
 
+        public static String CURRENT_DATE = "CURRENT_DATE";
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
@@ -108,7 +109,6 @@ public class ColumnDef {
         public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "[]" means empty array
         public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
-
         public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision) {
             if (precision > ScalarType.MAX_DATETIMEV2_SCALE || precision < 0) {
                 throw new IllegalArgumentException("column's default value current_timestamp"
@@ -466,7 +466,15 @@ public class ColumnDef {
                 break;
             case DATE:
             case DATEV2:
-                new DateLiteral(defaultValue, scalarType);
+                if (defaultValueExprDef == null) {
+                    new DateLiteral(defaultValue, scalarType);
+                } else {
+                    if (defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.CURRENT_DATE)) {
+                        break;
+                    } else {
+                        throw new AnalysisException("date literal [" + defaultValue + "] is invalid");
+                    }
+                }
                 break;
             case DATETIME:
             case DATETIMEV2:
@@ -519,6 +527,16 @@ public class ColumnDef {
                 default:
                     throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
                             + "cannot use current_timestamp as the default value");
+            }
+        } else if (null != defaultValueExprDef
+                && defaultValueExprDef.getExprName().equals(DefaultValue.CURRENT_DATE.toLowerCase())) {
+            switch (primitiveType) {
+                case DATE:
+                case DATEV2:
+                    break;
+                default:
+                    throw new AnalysisException("Types other than DATE and DATEV2 "
+                            + "cannot use current_date as the default value");
             }
         }
     }
