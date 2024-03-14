@@ -19,7 +19,6 @@ package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ScanPredicate;
 
 import com.aliyun.odps.Column;
 import com.aliyun.odps.OdpsType;
@@ -99,15 +98,7 @@ public class MaxComputeJniScanner extends JniScanner {
         for (int i = 0; i < types.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
         }
-        ScanPredicate[] predicates = new ScanPredicate[0];
-        if (params.containsKey("push_down_predicates")) {
-            long predicatesAddress = Long.parseLong(params.get("push_down_predicates"));
-            if (predicatesAddress != 0) {
-                predicates = ScanPredicate.parseScanPredicates(predicatesAddress, columnTypes);
-                LOG.info("MaxComputeJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
-            }
-        }
-        initTableInfo(columnTypes, requiredFields, predicates, batchSize);
+        initTableInfo(columnTypes, requiredFields, batchSize);
     }
 
     public void refreshTableScan() {
