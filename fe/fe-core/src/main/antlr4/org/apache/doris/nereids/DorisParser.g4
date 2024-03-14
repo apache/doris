@@ -477,8 +477,12 @@ identifierSeq
     : ident+=errorCapturingIdentifier (COMMA ident+=errorCapturingIdentifier)*
     ;
 
+optScanParams
+    : ATSIGN funcName=identifier LEFT_PAREN (properties=propertyItemList)? RIGHT_PAREN
+    ;
+
 relationPrimary
-    : multipartIdentifier materializedViewName? specifiedPartition?
+    : multipartIdentifier optScanParams? materializedViewName? specifiedPartition?
        tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN

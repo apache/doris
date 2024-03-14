@@ -839,6 +839,7 @@ nonterminal String opt_job_starts;
 nonterminal String opt_job_ends;
 nonterminal String job_at_time;
 nonterminal ColocateGroupName colocate_group_name;
+nonterminal TableScanParams opt_scan_params_ref;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -5762,6 +5763,17 @@ colocate_group_name ::=
     :}
     ;
 
+opt_scan_params_ref ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | AT ident:func_name LPAREN opt_key_value_map_in_paren:properties RPAREN
+    {:
+        RESULT = new TableScanParams(func_name, properties);
+    :}
+    ;
+
 encryptkey_name ::=
     ident:name
     {:
@@ -5882,9 +5894,9 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_table_snapshot:tableSnapshot opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
+    table_name:name  opt_scan_params_ref:scanParams opt_table_snapshot:tableSnapshot opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
     {:
-        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints, tableSnapshot);
+        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints, tableSnapshot, scanParams);
     :}
     ;
 
