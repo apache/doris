@@ -683,6 +683,10 @@ public class DateLiteral extends LiteralExpr {
         return this.type.isDate() || this.type.isDateV2();
     }
 
+    public boolean isDateTimeType() {
+        return this.type.isDatetime() || this.type.isDatetimeV2();
+    }
+
     @Override
     public String getStringValue() {
         char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
