@@ -17,20 +17,22 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -58,11 +60,26 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 return ctx.root.child();
                             }
                             LogicalRelation relation = (LogicalRelation) child;
-                            Optional<Expression> filter = checkPolicy.getFilter(relation, ctx.connectContext);
-                            if (!filter.isPresent()) {
+                            Set<Expression> combineFilter = new HashSet<>();
+
+                            // replace incremental params as AND expression
+                            if (relation instanceof LogicalFileScan) {
+                                LogicalFileScan fileScan = (LogicalFileScan) relation;
+                                if (fileScan.getTable() instanceof HMSExternalTable) {
+                                    HMSExternalTable hmsTable = (HMSExternalTable) fileScan.getTable();
+                                    combineFilter.addAll(hmsTable.generateIncrementalExpression(
+                                            fileScan.getLogicalProperties().getOutput()));
+                                }
+                            }
+
+                            // row policy
+                            checkPolicy.getFilter(relation, ctx.connectContext)
+                                    .ifPresent(expression -> combineFilter.addAll(
+                                            ExpressionUtils.extractConjunctionToSet(expression)));
+
+                            if (combineFilter.isEmpty()) {
                                 return ctx.root.child();
                             }
-                            Set<Expression> combineFilter = ExpressionUtils.extractConjunctionToSet(filter.get());
                             if (upperFilter != null) {
                                 combineFilter.addAll(upperFilter.getConjuncts());
                             }
