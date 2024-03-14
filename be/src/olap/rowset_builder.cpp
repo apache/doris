@@ -167,6 +167,11 @@ Status RowsetBuilder::check_tablet_version_count() {
 
 Status RowsetBuilder::prepare_txn() {
     std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::try_to_lock);
+    // if try_lock failed, retry 3 times with 10ms interval
+    for (int retry_cnt = 0; !base_migration_lock.owns_lock() && retry_cnt < 3; retry_cnt++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        base_migration_lock = std::shared_lock(tablet()->get_migration_lock(), std::try_to_lock);
+    }
     if (!base_migration_lock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED>("try migration lock failed");
     }
