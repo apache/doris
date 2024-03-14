@@ -148,6 +148,9 @@ private:
                     if (config::meta_service_connection_pooled) {
                         num_proxies = config::meta_service_connection_pool_size;
                     }
+                    if (config::meta_service_endpoint.find(',') != std::string::npos) {
+                        is_meta_service_endpoint_list = true;
+                    }
                     proxies = std::make_unique<MetaServiceProxy[]>(num_proxies);
                 });
 
@@ -164,19 +167,28 @@ private:
     static Status init_channel(brpc::Channel* channel) {
         static std::atomic<size_t> index = 1;
 
-        std::string ip;
-        uint16_t port;
-        Status s = get_meta_service_ip_and_port(&ip, &port);
-        if (!s.ok()) {
-            LOG(WARNING) << "fail to get meta service ip and port: " << s;
-            return s;
+        const char* load_balancer_name = nullptr;
+        std::string endpoint;
+        if (is_meta_service_endpoint_list) {
+            endpoint = fmt::format("list://{}", config::meta_service_endpoint);
+            load_balancer_name = "random";
+        } else {
+            std::string ip;
+            uint16_t port;
+            Status s = get_meta_service_ip_and_port(&ip, &port);
+            if (!s.ok()) {
+                LOG(WARNING) << "fail to get meta service ip and port: " << s;
+                return s;
+            }
+
+            endpoint = get_host_port(ip, port);
         }
 
-        size_t next_id = index.fetch_add(1, std::memory_order_relaxed);
         brpc::ChannelOptions options;
-        options.connection_group = fmt::format("ms_{}", next_id);
-        if (channel->Init(ip.c_str(), port, &options) != 0) {
-            return Status::InternalError("fail to init brpc channel, ip: {}, port: {}", ip, port);
+        options.connection_group =
+                fmt::format("ms_{}", index.fetch_add(1, std::memory_order_relaxed));
+        if (channel->Init(endpoint.c_str(), load_balancer_name, &options) != 0) {
+            return Status::InvalidArgument("failed to init brpc channel, endpoint: {}", endpoint);
         }
         return Status::OK();
     }
@@ -196,7 +208,8 @@ private:
 
     bool is_idle_timeout(long now) {
         auto idle_timeout_ms = config::meta_service_idle_connection_timeout_ms;
-        return idle_timeout_ms > 0 &&
+        // idle timeout only works without list endpoint.
+        return !is_meta_service_endpoint_list && idle_timeout_ms > 0 &&
                _last_access_at_ms.load(std::memory_order_relaxed) + idle_timeout_ms < now;
     }
 
@@ -223,7 +236,9 @@ private:
                                                    google::protobuf::Service::STUB_OWNS_CHANNEL);
 
         long deadline = now;
-        if (config::meta_service_connection_age_base_minutes > 0) {
+        // connection age only works without list endpoint.
+        if (!is_meta_service_endpoint_list &&
+            config::meta_service_connection_age_base_minutes > 0) {
             std::default_random_engine rng(static_cast<uint32_t>(now));
             std::uniform_int_distribution<> uni(
                     config::meta_service_connection_age_base_minutes,
@@ -241,11 +256,15 @@ private:
         return Status::OK();
     }
 
+    static std::atomic_bool is_meta_service_endpoint_list;
+
     std::shared_mutex _mutex;
     std::atomic<long> _last_access_at_ms {0};
     long _deadline_ms {0};
     std::shared_ptr<MetaService_Stub> _stub;
 };
+
+std::atomic_bool MetaServiceProxy::is_meta_service_endpoint_list = false;
 
 template <typename T, typename... Ts>
 struct is_any : std::disjunction<std::is_same<T, Ts>...> {};
