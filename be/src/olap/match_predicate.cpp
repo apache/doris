@@ -126,7 +126,7 @@ bool MatchPredicate::_skip_evaluate(InvertedIndexIterator* iterator) const {
     if ((_match_type == MatchType::MATCH_PHRASE || _match_type == MatchType::MATCH_PHRASE_PREFIX) &&
         iterator->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
         get_parser_phrase_support_string_from_properties(iterator->get_index_properties()) ==
-                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
+                INVERTED_INDEX_PARSER_FALSE) {
         return true;
     }
     return false;
