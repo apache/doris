@@ -137,11 +137,11 @@ backup_session_variables() {
         echo "set global ${k}='${v}';" >>"${backup_session_variables_file}"
     done < <(grep -v '^ *#' <"${TPCDS_OPT_CONF}")
 }
+backup_session_variables
 clean_up() {
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"source ${backup_session_variables_file};"
     rm -f "${backup_session_variables_file}"
 }
-backup_session_variables
 
 echo '============================================'
 echo "Optimize session variables"
