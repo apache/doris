@@ -401,6 +401,7 @@ terminal String
     KW_FULL,
     KW_FUNCTION,
     KW_FUNCTIONS,
+    KW_GENERIC,
     KW_GLOBAL,
     KW_GRANT,
     KW_GRANTS,
@@ -3132,6 +3133,10 @@ opt_agg_type ::=
     {:
     RESULT = AggregateType.QUANTILE_UNION;
     :}
+    | KW_GENERIC
+    {:
+    RESULT = AggregateType.GENERIC;
+    :}
     ;
 
 opt_partition ::=
@@ -3731,29 +3736,9 @@ column_definition ::=
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName KW_AGG_STATE IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
-    {:
-        for (TypeDef def : list) {
-            def.analyze(null);
-        }
-        ColumnDef columnDef = new ColumnDef(columnName, new TypeDef(Expr.createAggStateType(fnName,
-            list.stream().map(TypeDef::getType).collect(Collectors.toList()), 
-            list.stream().map(TypeDef::getNullable).collect(Collectors.toList()))), false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
-        RESULT = columnDef;
-    :}
     | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, autoIncInitValue, defaultValue, comment);
-        RESULT = columnDef;
-    :}
-    | ident:columnName KW_AGG_STATE opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
-    {:
-        for (TypeDef def : list) {
-            def.analyze(null);
-        }
-        ColumnDef columnDef = new ColumnDef(columnName, new TypeDef(Expr.createAggStateType(aggType.name().toLowerCase(),
-            list.stream().map(TypeDef::getType).collect(Collectors.toList()), 
-            list.stream().map(TypeDef::getNullable).collect(Collectors.toList()))), isKey, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
         RESULT = columnDef;
     :}
     ;
@@ -6553,6 +6538,12 @@ type ::=
   {: ScalarType type = ScalarType.createHllType();
      RESULT = type;
   :}
+  | KW_AGG_STATE LESSTHAN IDENT:fnName LPAREN type_def_nullable_list:list RPAREN GREATERTHAN
+  {:
+    RESULT = Expr.createAggStateType(fnName,
+            list.stream().map(TypeDef::getType).collect(Collectors.toList()),
+            list.stream().map(TypeDef::getNullable).collect(Collectors.toList()));
+  :}
   | KW_ALL
   {: RESULT = Type.ALL; :}
   ;
@@ -7781,6 +7772,8 @@ keyword ::=
     | KW_EXTERNAL:id
     {: RESULT = id; :}
     | KW_GLOBAL:id
+    {: RESULT = id; :}
+    | KW_GENERIC:id
     {: RESULT = id; :}
     | KW_GRAPH:id
     {: RESULT = id; :}

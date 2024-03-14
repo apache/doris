@@ -128,9 +128,6 @@ public class Column implements Writable, GsonPostProcessable {
     @SerializedName(value = "uniqueId")
     private int uniqueId;
 
-    @SerializedName(value = "genericAggregationName")
-    private String genericAggregationName;
-
     @SerializedName(value = "clusterKeyId")
     private int clusterKeyId = -1;
 
@@ -244,8 +241,8 @@ public class Column implements Writable, GsonPostProcessable {
                 c.setIsAllowNull(aggState.getSubTypeNullables().get(i));
                 addChildrenColumn(c);
             }
-            this.genericAggregationName = aggState.getFunctionName();
-            this.aggregationType = AggregateType.GENERIC_AGGREGATION;
+            this.isAllowNull = false;
+            this.aggregationType = AggregateType.GENERIC;
         }
     }
 
@@ -449,11 +446,7 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public String getAggregationString() {
-        if (getAggregationType() == AggregateType.GENERIC_AGGREGATION) {
-            return getGenericAggregationString();
-        } else {
-            return getAggregationType().name();
-        }
+        return getAggregationType().name();
     }
 
     public boolean isAggregated() {
@@ -764,22 +757,6 @@ public class Column implements Writable, GsonPostProcessable {
         return toSql(isUniqueTable, false);
     }
 
-    public String getGenericAggregationString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(genericAggregationName).append("(");
-        for (int i = 0; i < children.size(); i++) {
-            if (i != 0) {
-                sb.append(", ");
-            }
-            sb.append(children.get(i).getType().toSql());
-            if (children.get(i).isAllowNull()) {
-                sb.append(" NULL");
-            }
-        }
-        sb.append(")");
-        return sb.toString();
-    }
-
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
@@ -791,11 +768,9 @@ public class Column implements Writable, GsonPostProcessable {
         } else {
             sb.append(typeStr);
         }
-        if (aggregationType == AggregateType.GENERIC_AGGREGATION) {
-            sb.append(" ").append(getGenericAggregationString());
-        } else if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
+        if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {
-            sb.append(" ").append(aggregationType.name());
+            sb.append(" ").append(aggregationType.toSql());
         }
         if (isAllowNull) {
             sb.append(" NULL");
