@@ -450,11 +450,11 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(6)))); // max queue size
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // queue timeout
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(8)));             // cpu hard limit
-            trow.addToColumnValue(new TCell().setIntVal(Integer.parseInt(rGroupsInfo.get(9)))); // scan thread num
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // scan thread num
             // max remote scan thread num
-            trow.addToColumnValue(new TCell().setIntVal(Integer.parseInt(rGroupsInfo.get(10))));
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(10))));
             // min remote scan thread num
-            trow.addToColumnValue(new TCell().setIntVal(Integer.parseInt(rGroupsInfo.get(11))));
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(11))));
             dataBatch.add(trow);
         }
 
