@@ -23,6 +23,7 @@ import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.load.EtlJobType;
@@ -42,6 +43,7 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -130,19 +132,19 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_REQUEST_PER_SECOND;
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
+    private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "metric-timer-pool", true);
     private static MetricCalculator metricCalculator = new MetricCalculator();
 
-    // init() should only be called after catalog is contructed.
+    // init() should only be called after catalog is constructed.
     public static synchronized void init() {
         if (isInit) {
             return;
         }
 
         // load jobs
-        LoadManager loadManger = Env.getCurrentEnv().getLoadManager();
         for (EtlJobType jobType : EtlJobType.values()) {
             if (jobType == EtlJobType.UNKNOWN) {
                 continue;
@@ -154,7 +156,7 @@ public final class MetricRepo {
                         if (!Env.getCurrentEnv().isMaster()) {
                             return 0L;
                         }
-                        return loadManger.getLoadJobNum(state, jobType);
+                        return MetricRepo.getLoadJobNum(jobType, state);
                     }
                 };
                 gauge.addLabel(new MetricLabel("job", "load")).addLabel(new MetricLabel("type", jobType.name()))
@@ -175,7 +177,7 @@ public final class MetricRepo {
                     Set<RoutineLoadJob.JobState> states = Sets.newHashSet();
                     states.add(jobState);
                     List<RoutineLoadJob> jobs = routineLoadManager.getRoutineLoadJobByState(states);
-                    return Long.valueOf(jobs.size());
+                    return (long) jobs.size();
                 }
             };
             gauge.addLabel(new MetricLabel("job", "load")).addLabel(new MetricLabel("type", "ROUTINE_LOAD"))
@@ -508,7 +510,7 @@ public final class MetricRepo {
 
     private static void initSystemMetrics() {
         // TCP retransSegs
-        GaugeMetric<Long> tcpRetransSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+        GaugeMetric<Long> tcpRetransSegs = new GaugeMetric<Long>(
                 "snmp", MetricUnit.NOUNIT, "All TCP packets retransmitted") {
             @Override
             public Long getValue() {
@@ -519,7 +521,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addSystemMetrics(tcpRetransSegs);
 
         // TCP inErrs
-        GaugeMetric<Long> tpcInErrs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+        GaugeMetric<Long> tpcInErrs = new GaugeMetric<Long>(
                 "snmp", MetricUnit.NOUNIT, "The number of all problematic TCP packets received") {
             @Override
             public Long getValue() {
@@ -530,7 +532,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addSystemMetrics(tpcInErrs);
 
         // TCP inSegs
-        GaugeMetric<Long> tpcInSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+        GaugeMetric<Long> tpcInSegs = new GaugeMetric<Long>(
                 "snmp", MetricUnit.NOUNIT, "The number of all TCP packets received") {
             @Override
             public Long getValue() {
@@ -541,7 +543,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addSystemMetrics(tpcInSegs);
 
         // TCP outSegs
-        GaugeMetric<Long> tpcOutSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+        GaugeMetric<Long> tpcOutSegs = new GaugeMetric<Long>(
                 "snmp", MetricUnit.NOUNIT, "The number of all TCP packets send with RST") {
             @Override
             public Long getValue() {
@@ -552,7 +554,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addSystemMetrics(tpcOutSegs);
 
         // Memory Total
-        GaugeMetric<Long> memTotal = (GaugeMetric<Long>) new GaugeMetric<Long>(
+        GaugeMetric<Long> memTotal = new GaugeMetric<Long>(
                 "meminfo", MetricUnit.BYTES, "Total usable memory") {
             @Override
             public Long getValue() {
@@ -563,7 +565,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addSystemMetrics(memTotal);
 
         // Memory Free
-        GaugeMetric<Long> memFree = (GaugeMetric<Long>) new GaugeMetric<Long>(
+        GaugeMetric<Long> memFree = new GaugeMetric<Long>(
                 "meminfo", MetricUnit.BYTES, "The amount of physical memory not used by the system") {
             @Override
             public Long getValue() {
@@ -574,7 +576,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addSystemMetrics(memFree);
 
         // Memory Total
-        GaugeMetric<Long> memAvailable = (GaugeMetric<Long>) new GaugeMetric<Long>("meminfo", MetricUnit.BYTES,
+        GaugeMetric<Long> memAvailable = new GaugeMetric<Long>("meminfo", MetricUnit.BYTES,
                 "An estimate of how much memory is available for starting new applications, without swapping") {
             @Override
             public Long getValue() {
@@ -585,7 +587,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addSystemMetrics(memAvailable);
 
         // Buffers
-        GaugeMetric<Long> buffers = (GaugeMetric<Long>) new GaugeMetric<Long>("meminfo", MetricUnit.BYTES,
+        GaugeMetric<Long> buffers = new GaugeMetric<Long>("meminfo", MetricUnit.BYTES,
                 "Memory in buffer cache, so relatively temporary storage for raw disk blocks") {
             @Override
             public Long getValue() {
@@ -596,7 +598,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addSystemMetrics(buffers);
 
         // Cached
-        GaugeMetric<Long> cached = (GaugeMetric<Long>) new GaugeMetric<Long>(
+        GaugeMetric<Long> cached = new GaugeMetric<Long>(
                 "meminfo", MetricUnit.BYTES, "Memory in the pagecache (Diskcache and Shared Memory)") {
             @Override
             public Long getValue() {
@@ -664,6 +666,9 @@ public final class MetricRepo {
         // update the metrics first
         updateMetrics();
 
+        // update load job metrics
+        updateLoadJobMetrics();
+
         // jvm
         JvmService jvmService = new JvmService();
         JvmStats jvmStats = jvmService.stats();
@@ -700,5 +705,14 @@ public final class MetricRepo {
 
     public static synchronized List<Metric> getMetricsByName(String name) {
         return DORIS_METRIC_REGISTER.getMetricsByName(name);
+    }
+
+    private static void updateLoadJobMetrics() {
+        LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
+        MetricRepo.loadJobNum = loadManager.getLoadJobNum();
+    }
+
+    private static long getLoadJobNum(EtlJobType jobType, JobState jobState) {
+        return MetricRepo.loadJobNum.getOrDefault(Pair.of(jobType, jobState), 0L);
     }
 }
