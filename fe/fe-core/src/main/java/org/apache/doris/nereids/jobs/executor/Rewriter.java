@@ -328,7 +328,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
             ),
 
-            // this rule should invoke after topic "Join pull up"
+            // this rule should be invoked after topic "Join pull up"
             topic("eliminate group by keys according to fd items",
                     topDown(new EliminateGroupByKey())
             ),

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -207,16 +205,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     private Plan pruneAggregate(Aggregate agg, PruneContext context) {
         // first try to prune group by and aggregate functions
         Aggregate prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
-        Set<Integer> enableNereidsRules = ConnectContext.get().getSessionVariable().getEnableNereidsRules();
-        Aggregate fillUpAggr;
 
-        if (!enableNereidsRules.contains(RuleType.ELIMINATE_GROUP_BY_KEY.type())) {
-            fillUpAggr = fillUpGroupByToOutput(prunedOutputAgg)
-                    .map(fullOutput -> prunedOutputAgg.withAggOutput(fullOutput))
-                    .orElse(prunedOutputAgg);
-        } else {
-            fillUpAggr = fillUpGroupByAndOutput(prunedOutputAgg);
-        }
+        Aggregate fillUpAggr = fillUpGroupByAndOutput(prunedOutputAgg);
 
         return pruneChildren(fillUpAggr);
     }
