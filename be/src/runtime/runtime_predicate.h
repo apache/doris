@@ -59,12 +59,12 @@ public:
     void set_tablet_schema(TabletSchemaSPtr tablet_schema) {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         // when sort node and scan node are not in the same backend, predicate will not be initialized
-        if (_tablet_schema || !_inited) {
+        if (_tablet_schema || !_inited || tablet_schema->have_column(_col_name)) {
             return;
         }
         _tablet_schema = tablet_schema;
         _predicate = SharedPredicate::create_shared(
-                tablet_schema->field_index(_tablet_schema->column(_col_name).unique_id()));
+                _tablet_schema->field_index(_tablet_schema->column(_col_name).unique_id()));
     }
 
     std::shared_ptr<ColumnPredicate> get_predicate() {
