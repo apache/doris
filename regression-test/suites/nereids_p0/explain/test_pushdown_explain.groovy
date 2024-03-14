@@ -191,6 +191,92 @@ suite("test_pushdown_explain") {
     qt_select_17 "select min(val) from table_unique;"
     qt_select_18 "select max(val) from table_unique;"
 
+    sql "DROP TABLE IF EXISTS table_unique11"
+    sql """ 
+        CREATE TABLE `table_unique11` (
+            `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+            `username` VARCHAR(50) NOT NULL COMMENT '\"用户昵称\"',
+            `val` VARCHAR(50) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`user_id`, `username`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "disable_auto_compaction" = "true",
+        "enable_unique_key_merge_on_write" = "false"
+        );
+    """
+    sql """ 
+        insert into table_unique11 values(1,"asd","cc"),(2,"qwe","vvx"),(3,"ffsd","mnm"),(4,"qdf","ll"),(5,"cvfv","vff");
+    """
+
+    sql "set enable_pushdown_minmax_on_unique = false;"
+    explain {
+        sql("select min(user_id) from table_unique11;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select max(user_id) from table_unique11;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select min(username) from table_unique11;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select max(username) from table_unique11;")
+        contains "pushAggOp=NONE"
+    }
+
+
+    // set seession variables
+    sql "set enable_pushdown_minmax_on_unique = true;"
+    explain {
+        sql("select min(user_id) from table_unique11;")
+        contains "pushAggOp=MINMAX"
+    }
+    explain {
+        sql("select max(user_id) from table_unique11;")
+        contains "pushAggOp=MINMAX"
+    }
+    explain {
+        sql("select min(username) from table_unique11;")
+        contains "pushAggOp=MINMAX"
+    }
+    explain {
+        sql("select max(username) from table_unique11;")
+        contains "pushAggOp=MINMAX"
+    }
+    qt_select_mor_0 "select * from table_unique11 order by user_id;"
+    qt_select_mor_1 "select min(user_id) from table_unique11;"
+    qt_select_mor_2 "select max(user_id) from table_unique11;"
+    qt_select_mor_3 "select min(username) from table_unique11;"
+    qt_select_mor_4 "select max(username) from table_unique11;"
+    qt_select_mor_5 "select min(val) from table_unique11;"
+    qt_select_mor_6 "select max(val) from table_unique11;"
+    sql """
+        update table_unique11 set val = "zzz" where user_id = 1;
+    """
+    qt_select_mor_00 "select * from table_unique11 order by user_id;"
+    qt_select_mor_7 "select min(user_id) from table_unique11;"
+    qt_select_mor_8 "select max(user_id) from table_unique11;"
+    qt_select_mor_9 "select min(username) from table_unique11;"
+    qt_select_mor_10 "select max(username) from table_unique11;"
+    qt_select_mor_11 "select min(val) from table_unique11;"
+    qt_select_mor_12 "select max(val) from table_unique11;"
+
+    sql """
+        delete from table_unique11 where user_id = 2;
+    """
+    qt_select_mor_000 "select * from table_unique11 order by user_id;"
+    qt_select_mor_13 "select min(user_id) from table_unique11;"
+    qt_select_mor_14 "select max(user_id) from table_unique11;"
+    qt_select_mor_15 "select min(username) from table_unique11;"
+    qt_select_mor_16 "select max(username) from table_unique11;"
+    qt_select_mor_17 "select min(val) from table_unique11;"
+    qt_select_mor_18 "select max(val) from table_unique11;"
+
 
     sql "DROP TABLE IF EXISTS table_agg"
     sql """ 
