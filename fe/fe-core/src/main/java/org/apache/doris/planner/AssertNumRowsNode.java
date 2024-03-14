@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.AssertNumRowsElement;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -46,25 +47,31 @@ public class AssertNumRowsNode extends PlanNode {
     private boolean shouldConvertOutputToNullable = false;
 
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement) {
-        this(id, input, assertNumRowsElement, false);
+        this(id, input, assertNumRowsElement, false, null);
     }
 
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement,
-                             boolean convertToNullable) {
+                             boolean convertToNullable, TupleDescriptor tupleDescriptor) {
         super(id, "ASSERT NUMBER OF ROWS", StatisticalType.ASSERT_NUM_ROWS_NODE);
         this.desiredNumOfRows = assertNumRowsElement.getDesiredNumOfRows();
         this.subqueryString = assertNumRowsElement.getSubqueryString();
         this.assertion = assertNumRowsElement.getAssertion();
         this.children.add(input);
-        if (input.getOutputTupleDesc() != null) {
-            this.tupleIds.add(input.getOutputTupleDesc().getId());
+        if (tupleDescriptor != null) {
+            this.tupleIds.add(tupleDescriptor.getId());
         } else {
-            this.tupleIds.addAll(input.getTupleIds());
+            if (input.getOutputTupleDesc() != null) {
+                this.tupleIds.add(input.getOutputTupleDesc().getId());
+            } else {
+                this.tupleIds.addAll(input.getTupleIds());
+            }
         }
+
         this.tblRefIds.addAll(input.getTblRefIds());
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.shouldConvertOutputToNullable = convertToNullable;
     }
+
 
     @Override
     public void init(Analyzer analyzer) throws UserException {

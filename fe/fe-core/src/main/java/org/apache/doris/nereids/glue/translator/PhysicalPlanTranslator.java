@@ -1030,24 +1030,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment currentFragment = assertNumRows.child().accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(assertNumRows.child());
+
+        // we need convert all columns to nullable in AssertNumRows node
+        // create a tuple for AssertNumRowsNode
+        TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         // create assertNode
         AssertNumRowsNode assertNumRowsNode = new AssertNumRowsNode(context.nextPlanNodeId(),
                 currentFragment.getPlanRoot(),
-                ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()), true);
+                ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()), true, tupleDescriptor);
         assertNumRowsNode.setChildrenDistributeExprLists(distributeExprLists);
         assertNumRowsNode.setNereidsId(assertNumRows.getId());
-
-        // we need convert all columns to nullable in AssertNumRows node
-        // create project exprs same as child's output
-        List<Expr> projectionExprs = assertNumRows.child().getOutput()
-                .stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toList());
-        assertNumRowsNode.setProjectList(projectionExprs);
-
-        // create a output tuple
-        TupleDescriptor outputTupleDescriptor = context.generateTupleDesc();
-        List<SlotDescriptor> outputSlotDescriptor = Lists.newArrayList();
 
         // collect all child output slots
         List<TupleDescriptor> childTuples = context.getTupleDesc(currentFragment.getPlanRoot());
@@ -1061,15 +1053,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         assertNumRows.child().getOutput().stream()
                 .map(SlotReference.class::cast)
                 .forEach(s -> childOutputMap.put(s.getExprId(), s));
+        List<SlotDescriptor> slotDescriptors = Lists.newArrayList();
         for (SlotDescriptor slot : childSlotDescriptors) {
             SlotReference sf = childOutputMap.get(context.findExprId(slot.getId()));
-            SlotDescriptor sd = context.createSlotDesc(outputTupleDescriptor, sf, slot.getParent().getTable());
-            outputSlotDescriptor.add(sd);
+            SlotDescriptor sd = context.createSlotDesc(tupleDescriptor, sf, slot.getParent().getTable());
+            slotDescriptors.add(sd);
         }
 
         // set all output slot nullable
-        outputSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
-        assertNumRowsNode.setOutputTupleDesc(outputTupleDescriptor);
+        slotDescriptors.forEach(sd -> sd.setIsNullable(true));
 
         addPlanRoot(currentFragment, assertNumRowsNode, assertNumRows);
         return currentFragment;
