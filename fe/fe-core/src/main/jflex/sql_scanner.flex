@@ -251,6 +251,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("function", new Integer(SqlParserSymbols.KW_FUNCTION));
         keywordMap.put("functions", new Integer(SqlParserSymbols.KW_FUNCTIONS));
         keywordMap.put("type_cast", new Integer(SqlParserSymbols.KW_TYPECAST));
+        keywordMap.put("generic", new Integer(SqlParserSymbols.KW_GENERIC));
         keywordMap.put("global", new Integer(SqlParserSymbols.KW_GLOBAL));
         keywordMap.put("grant", new Integer(SqlParserSymbols.KW_GRANT));
         keywordMap.put("grants", new Integer(SqlParserSymbols.KW_GRANTS));

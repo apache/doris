@@ -32,7 +32,6 @@ comment_to_pipeline=(
     ['p0']='Doris_DorisRegression_P0Regression'
     ['p1']='Doris_DorisRegression_P1Regression'
     ['external']='Doris_External_Regression'
-    ['pipelinex_p0']='Doris_DorisRegression_P0RegressionPipelineX'
     ['arm']='Doris_ArmPipeline_P0Regression'
     ['performance']='Doris_DorisPerformance_Performance'
     ['cloud_p0']='Doris_DorisRegression_CloudP0'
@@ -53,7 +52,6 @@ conment_to_context=(
     ['p0']='P0 Regression (Doris Regression)'
     ['p1']='P1 Regression (Doris Regression)'
     ['external']='External Regression (Doris External Regression)'
-    ['pipelinex_p0']='P0 Regression PipelineX (Doris Regression)'
     ['arm']='P0 Regression (ARM pipeline)'
     ['performance']='performance (Doris Performance)'
     ['cloud_p0']='cloud_p0 (Doris Cloud Regression)'
@@ -276,11 +274,10 @@ trigger_or_skip_build() {
     else
         skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
         if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
-            # skip compile 的时候，也把 p0 p1 external pipelinex_p0 都 skip 了
+            # skip compile 的时候，也把 p0 p1 external 都 skip 了
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "pipelinex_p0"
         fi
     fi
 }

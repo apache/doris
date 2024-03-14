@@ -59,7 +59,6 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
                 .when(join -> join.right().isAllSlots())
                 .whenNot(join -> join.hasDistributeHint()
                         || join.left().hasDistributeHint() || join.right().child().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin() || join.right().child().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left();
                     LogicalJoin<GroupPlan, GroupPlan> rightJoin = topJoin.right().child();

@@ -26,6 +26,7 @@
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
+#include <cstdlib>
 #include <iomanip>
 #include <memory>
 #include <ostream>
@@ -36,6 +37,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
@@ -1050,13 +1052,16 @@ public:
 
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
+        std::vector<bool> is_const_args(argument_size);
 
         for (int i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
+            const auto& [col, is_const] =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+
+            const auto* col_str = assert_cast<const ColumnString*>(col.get());
             offsets_list[i] = &col_str->get_offsets();
             chars_list[i] = &col_str->get_chars();
+            is_const_args[i] = is_const;
         }
 
         auto res = ColumnString::create();
@@ -1068,14 +1073,14 @@ public:
         size_t res_reserve_size = 0;
         // we could ignore null string column
         // but it's not necessary to ignore it
-        for (size_t i = 0; i < offsets_list.size(); ++i) {
-            for (size_t j = 0; j < input_rows_count; ++j) {
-                size_t append = (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
-                // check whether the concat output might overflow(unlikely)
-                if (UNLIKELY(UINT_MAX - append < res_reserve_size)) {
-                    return Status::BufferAllocFailed("concat output is too large to allocate");
+        for (size_t i = 0; i < argument_size; ++i) {
+            if (is_const_args[i]) {
+                res_reserve_size +=
+                        ((*offsets_list[i])[0] - (*offsets_list[i])[-1]) * input_rows_count;
+            } else {
+                for (size_t j = 0; j < input_rows_count; ++j) {
+                    res_reserve_size += (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
                 }
-                res_reserve_size += append;
             }
         }
         if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
@@ -1086,15 +1091,16 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             int current_length = 0;
-            for (size_t j = 0; j < offsets_list.size(); ++j) {
+            for (size_t j = 0; j < argument_size; ++j) {
                 const auto& current_offsets = *offsets_list[j];
                 const auto& current_chars = *chars_list[j];
 
-                int size = current_offsets[i] - current_offsets[i - 1];
+                auto idx = index_check_const(i, is_const_args[j]);
+                auto size = current_offsets[idx] - current_offsets[idx - 1];
                 if (size > 0) {
                     memcpy_small_allow_read_write_overflow15(
                             &res_data[res_offset[i - 1]] + current_length,
-                            &current_chars[current_offsets[i - 1]], size);
+                            &current_chars[current_offsets[idx - 1]], size);
                     current_length += size;
                 }
             }
@@ -2941,10 +2947,15 @@ template <typename Impl>
 class FunctionMoneyFormat : public IFunction {
 public:
     static constexpr auto name = "money_format";
-    static FunctionPtr create() { return std::make_shared<FunctionMoneyFormat<Impl>>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMoneyFormat>(); }
     String get_name() const override { return name; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments.size() != 1) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Function {} requires exactly 1 argument", name);
+        }
+
         return std::make_shared<DataTypeString>();
     }
     DataTypes get_variadic_argument_types_impl() const override {
@@ -3017,9 +3028,11 @@ struct MoneyFormatDoubleImpl {
     static void execute(FunctionContext* context, ColumnString* result_column,
                         const ColumnPtr col_ptr, size_t input_rows_count) {
         const auto* data_column = assert_cast<const ColumnVector<Float64>*>(col_ptr.get());
+        // when scale is above 38, we will go here
         for (size_t i = 0; i < input_rows_count; i++) {
+            // truncate to 2 decimal places, keep same with mysql
             double value =
-                    MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
+                    MathFunctions::my_double_round(data_column->get_element(i), 2, false, true);
             StringRef str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
             result_column->insert_data(str.data, str.size);
         }
@@ -3076,8 +3089,8 @@ struct MoneyFormatDecimalImpl {
         } else if (auto* decimal32_column =
                            check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
-            const auto multiplier =
-                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            // scale is up to 9, so exp10_i32 is enough
+            const auto multiplier = common::exp10_i32(std::abs(static_cast<int>(scale - 2)));
             for (size_t i = 0; i < input_rows_count; i++) {
                 Decimal32 frac_part = decimal32_column->get_fractional_part(i);
                 if (scale > 2) {
@@ -3095,8 +3108,8 @@ struct MoneyFormatDecimalImpl {
         } else if (auto* decimal64_column =
                            check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
-            const auto multiplier =
-                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            // 9 < scale <= 18
+            const auto multiplier = common::exp10_i64(std::abs(static_cast<int>(scale - 2)));
             for (size_t i = 0; i < input_rows_count; i++) {
                 Decimal64 frac_part = decimal64_column->get_fractional_part(i);
                 if (scale > 2) {
@@ -3114,8 +3127,8 @@ struct MoneyFormatDecimalImpl {
         } else if (auto* decimal128_column =
                            check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
-            const auto multiplier =
-                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            // 18 < scale <= 38
+            const auto multiplier = common::exp10_i128(std::abs(static_cast<int>(scale - 2)));
             for (size_t i = 0; i < input_rows_count; i++) {
                 Decimal128V3 frac_part = decimal128_column->get_fractional_part(i);
                 if (scale > 2) {
@@ -3130,6 +3143,9 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
+        } else {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Not supported input argument type {}", col_ptr->get_name());
         }
         // TODO: decimal256
         /* else if (auto* decimal256_column =
@@ -3635,7 +3651,7 @@ public:
 // +---------------------------------------------------------------------------------------------+
 // | char(0xe5, 0xa4, 0x9a, 0xe7, 0x9d, 0xbf, 0xe4, 0xb8, 0x9d, 68, 111, 114, 105, 115 using utf8) |
 // +---------------------------------------------------------------------------------------------+
-// | 多睿丝Doris                                                                                 |
+// | 多睿丝 Doris                                                                                 |
 // +---------------------------------------------------------------------------------------------+
 // mysql> select char(68, 111, 114, 0, 105, null, 115 using utf8);
 // +--------------------------------------------------+

@@ -41,7 +41,7 @@ import java.util.Optional;
 /**
  * logical hive table sink for insert command
  */
-public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
+public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
     // bound data sink
     private final HMSExternalDatabase database;

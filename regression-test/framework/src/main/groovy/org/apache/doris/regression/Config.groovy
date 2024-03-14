@@ -51,7 +51,14 @@ class Config {
     public String feHttpUser
     public String feHttpPassword
 
+    public String feCloudHttpAddress
+    public String feCloudHttpUser
+    public String feCloudHttpPassword
+
+    public String instanceId
+    public String cloudUniqueId
     public String metaServiceHttpAddress
+    public String recycleServiceHttpAddress
 
     public String suitePath
     public String dataPath
@@ -92,21 +99,91 @@ class Config {
     public TNetworkAddress feTargetThriftNetworkAddress
     public TNetworkAddress syncerNetworkAddress
     public InetSocketAddress feHttpInetSocketAddress
+    public InetSocketAddress feCloudHttpInetSocketAddress
     public InetSocketAddress metaServiceHttpInetSocketAddress
+    public InetSocketAddress recycleServiceHttpInetSocketAddress
     public Integer parallel
     public Integer suiteParallel
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
+    public boolean isSmokeTest
+    public String multiClusterBes
+    public String metaServiceToken
+    public String multiClusterInstance
+    public String upgradeNewBeIp
+    public String upgradeNewBeHbPort
+    public String upgradeNewBeHttpPort
+    public String upgradeNewBeUniqueId
+
+    public String stageIamEndpoint
+    public String stageIamRegion
+    public String stageIamBucket
+    public String stageIamPolicy
+    public String stageIamRole
+    public String stageIamArn
+    public String stageIamAk
+    public String stageIamSk
+    public String stageIamUserId
+
+    public String clusterDir
+    public String kafkaBrokerList
+    public String cloudVersion
 
     Config() {}
 
-    Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
-           String feSourceThriftAddress, String feTargetThriftAddress, String feSyncerUser, String feSyncerPassword,
-           String syncerPassword, String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
-           String suitePath, String dataPath, String realDataPath, String cacheDataPath, Boolean enableCacheData,
-           String testGroups, String excludeGroups, String testSuites, String excludeSuites,
-           String testDirectories, String excludeDirectories, String pluginPath, String sslCertificatePath) {
+    Config(
+            String defaultDb, 
+            String jdbcUrl, 
+            String jdbcUser,
+            String jdbcPassword,
+            String feSourceThriftAddress,
+            String feTargetThriftAddress,
+            String feSyncerUser,
+            String feSyncerPassword,
+            String syncerPassword,
+            String feHttpAddress,
+            String feHttpUser,
+            String feHttpPassword, 
+            String feCloudHttpAddress,
+            String feCloudHttpUser,
+            String feCloudHttpPassword,
+            String instanceId,
+            String cloudUniqueId,
+            String metaServiceHttpAddress,
+            String recycleServiceHttpAddress,
+            String suitePath,
+            String dataPath,
+            String realDataPath,
+            String cacheDataPath,
+            Boolean enableCacheData,
+            String testGroups,
+            String excludeGroups,
+            String testSuites, 
+            String excludeSuites,
+            String testDirectories,
+            String excludeDirectories, 
+            String pluginPath,
+            String sslCertificatePath,
+            String multiClusterBes,
+            String metaServiceToken,
+            String multiClusterInstance,
+            String upgradeNewBeIp, 
+            String upgradeNewBeHbPort,
+            String upgradeNewBeHttpPort,
+            String upgradeNewBeUniqueId,
+            String stageIamEndpoint,
+            String stageIamRegion,
+            String stageIamBucket,
+            String stageIamPolicy,
+            String stageIamRole,
+            String stageIamArn,
+            String stageIamAk,
+            String stageIamSk,
+            String stageIamUserId,
+            String clusterDir, 
+            String kafkaBrokerList, 
+            String cloudVersion) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -119,7 +196,13 @@ class Config {
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
+        this.feCloudHttpAddress = feCloudHttpAddress
+        this.feCloudHttpUser = feCloudHttpUser
+        this.feCloudHttpPassword = feCloudHttpPassword
+        this.instanceId = instanceId
+        this.cloudUniqueId = cloudUniqueId
         this.metaServiceHttpAddress = metaServiceHttpAddress
+        this.recycleServiceHttpAddress = recycleServiceHttpAddress
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.realDataPath = realDataPath
@@ -133,6 +216,25 @@ class Config {
         this.excludeDirectories = excludeDirectories
         this.pluginPath = pluginPath
         this.sslCertificatePath = sslCertificatePath
+        this.multiClusterBes = multiClusterBes
+        this.metaServiceToken = metaServiceToken
+        this.multiClusterInstance = multiClusterInstance
+        this.upgradeNewBeIp = upgradeNewBeIp
+        this.upgradeNewBeHbPort = upgradeNewBeHbPort
+        this.upgradeNewBeHttpPort = upgradeNewBeHttpPort
+        this.upgradeNewBeUniqueId = upgradeNewBeUniqueId
+        this.stageIamEndpoint = stageIamEndpoint
+        this.stageIamRegion = stageIamRegion
+        this.stageIamBucket = stageIamBucket
+        this.stageIamPolicy = stageIamPolicy
+        this.stageIamRole = stageIamRole
+        this.stageIamArn = stageIamArn
+        this.stageIamAk = stageIamAk
+        this.stageIamSk = stageIamSk
+        this.stageIamUserId = stageIamUserId
+        this.clusterDir = clusterDir
+        this.kafkaBrokerList = kafkaBrokerList
+        this.cloudVersion = cloudVersion
     }
 
     static Config fromCommandLine(CommandLine cmd) {
@@ -237,6 +339,22 @@ class Config {
             throw new IllegalStateException("Can not parse stream load address: ${config.feHttpAddress}", t)
         }
 
+        config.feCloudHttpAddress = cmd.getOptionValue(feCloudHttpAddressOpt, config.feCloudHttpAddress)
+        try {
+            Inet4Address host = Inet4Address.getByName(config.feCloudHttpAddress.split(":")[0]) as Inet4Address
+            int port = Integer.valueOf(config.feCloudHttpAddress.split(":")[1])
+            config.feCloudHttpInetSocketAddress = new InetSocketAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse fe cloud http address: ${config.feCloudHttpAddress}", t)
+        }
+        log.info("feCloudHttpAddress : $config.feCloudHttpAddress, socketAddr : $config.feCloudHttpInetSocketAddress")
+
+        config.instanceId = cmd.getOptionValue(instanceIdOpt, config.instanceId)
+        log.info("instanceId : ${config.instanceId}")
+
+        config.cloudUniqueId = cmd.getOptionValue(cloudUniqueIdOpt, config.cloudUniqueId)
+        log.info("cloudUniqueId : ${config.cloudUniqueId}")
+
         config.metaServiceHttpAddress = cmd.getOptionValue(metaServiceHttpAddressOpt, config.metaServiceHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.metaServiceHttpAddress.split(":")[0]) as Inet4Address
@@ -247,6 +365,61 @@ class Config {
         }
         log.info("msAddr : $config.metaServiceHttpAddress, socketAddr : $config.metaServiceHttpInetSocketAddress")
 
+                config.multiClusterBes = cmd.getOptionValue(multiClusterBesOpt, config.multiClusterBes)
+        log.info("multiClusterBes is ${config.multiClusterBes}".toString())
+
+        config.metaServiceToken = cmd.getOptionValue(metaServiceTokenOpt, config.metaServiceToken)
+        log.info("metaServiceToken is ${config.metaServiceToken}".toString())
+
+        config.multiClusterInstance = cmd.getOptionValue(multiClusterInstanceOpt, config.multiClusterInstance)
+        log.info("multiClusterInstance is ${config.multiClusterInstance}".toString())
+
+        config.upgradeNewBeIp = cmd.getOptionValue(upgradeNewBeIpOpt, config.upgradeNewBeIp)
+        log.info("upgradeNewBeIp is ${config.upgradeNewBeIp}".toString())
+
+        config.upgradeNewBeHbPort = cmd.getOptionValue(upgradeNewBeHbPortOpt, config.upgradeNewBeHbPort)
+        log.info("upgradeNewBeHbPort is ${config.upgradeNewBeHbPort}".toString())
+
+        config.upgradeNewBeHttpPort = cmd.getOptionValue(upgradeNewBeHttpPortOpt, config.upgradeNewBeHttpPort)
+        log.info("upgradeNewBeHttpPort is ${config.upgradeNewBeHttpPort}".toString())
+
+        config.upgradeNewBeUniqueId = cmd.getOptionValue(upgradeNewBeUniqueIdOpt, config.upgradeNewBeUniqueId)
+        log.info("upgradeNewBeUniqueId is ${config.upgradeNewBeUniqueId}".toString())
+
+        config.stageIamEndpoint = cmd.getOptionValue(stageIamEndpointOpt, config.stageIamEndpoint)
+        log.info("stageIamEndpoint is ${config.stageIamEndpoint}".toString())
+        config.stageIamRegion = cmd.getOptionValue(stageIamRegionOpt, config.stageIamRegion)
+        log.info("stageIamRegion is ${config.stageIamRegion}".toString())
+        config.stageIamBucket = cmd.getOptionValue(stageIamBucketOpt, config.stageIamBucket)
+        log.info("stageIamBucket is ${config.stageIamBucket}".toString())
+        config.stageIamPolicy = cmd.getOptionValue(stageIamPolicyOpt, config.stageIamPolicy)
+        log.info("stageIamPolicy is ${config.stageIamPolicy}".toString())
+        config.stageIamRole = cmd.getOptionValue(stageIamRoleOpt, config.stageIamRole)
+        log.info("stageIamRole is ${config.stageIamRole}".toString())
+        config.stageIamArn = cmd.getOptionValue(stageIamArnOpt, config.stageIamArn)
+        log.info("stageIamArn is ${config.stageIamArn}".toString())
+        config.stageIamAk = cmd.getOptionValue(stageIamAkOpt, config.stageIamAk)
+        log.info("stageIamAk is ${config.stageIamAk}".toString())
+        config.stageIamSk = cmd.getOptionValue(stageIamSkOpt, config.stageIamSk)
+        log.info("stageIamSk is ${config.stageIamSk}".toString())
+        config.stageIamUserId = cmd.getOptionValue(stageIamUserIdOpt, config.stageIamUserId)
+        log.info("stageIamUserId is ${config.stageIamUserId}".toString())
+        config.cloudVersion = cmd.getOptionValue(cloudVersionOpt, config.cloudVersion)
+        log.info("cloudVersion is ${config.cloudVersion}".toString())
+
+        config.kafkaBrokerList = cmd.getOptionValue(kafkaBrokerListOpt, config.kafkaBrokerList)
+
+        config.recycleServiceHttpAddress = cmd.getOptionValue(recycleServiceHttpAddressOpt, config.recycleServiceHttpAddress)
+        try {
+            Inet4Address host = Inet4Address.getByName(config.recycleServiceHttpAddress.split(":")[0]) as Inet4Address
+            int port = Integer.valueOf(config.recycleServiceHttpAddress.split(":")[1])
+            config.recycleServiceHttpInetSocketAddress = new InetSocketAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse recycle service address: ${config.recycleServiceHttpAddress}", t)
+        }
+        log.info("recycleAddr : $config.recycleServiceHttpAddress, socketAddr : $config.recycleServiceHttpInetSocketAddress")
+
+
         config.defaultDb = cmd.getOptionValue(defaultDbOpt, config.defaultDb)
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
@@ -255,6 +428,8 @@ class Config {
         config.feSyncerPassword = cmd.getOptionValue(feSyncerPasswordOpt, config.feSyncerPassword)
         config.feHttpUser = cmd.getOptionValue(feHttpUserOpt, config.feHttpUser)
         config.feHttpPassword = cmd.getOptionValue(feHttpPasswordOpt, config.feHttpPassword)
+        config.feCloudHttpUser = cmd.getOptionValue(feHttpUserOpt, config.feCloudHttpUser)
+        config.feCloudHttpPassword = cmd.getOptionValue(feHttpPasswordOpt, config.feCloudHttpPassword)
         config.generateOutputFile = cmd.hasOption(genOutOpt)
         config.forceGenerateOutputFile = cmd.hasOption(forceGenOutOpt)
         config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "10"))
@@ -265,6 +440,7 @@ class Config {
         config.stopWhenFail = cmd.hasOption(stopWhenFailOpt)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
         config.dryRun = cmd.hasOption(dryRunOpt)
+        config.isSmokeTest = cmd.hasOption(isSmokeTestOpt)
 
         log.info("randomOrder is ${config.randomOrder}".toString())
         log.info("stopWhenFail is ${config.stopWhenFail}".toString())
@@ -294,7 +470,13 @@ class Config {
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
+            configToString(obj.feCloudHttpAddress),
+            configToString(obj.feCloudHttpUser),
+            configToString(obj.feCloudHttpPassword),
+            configToString(obj.instanceId),
+            configToString(obj.cloudUniqueId),
             configToString(obj.metaServiceHttpAddress),
+            configToString(obj.recycleServiceHttpAddress),
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
@@ -307,7 +489,26 @@ class Config {
             configToString(obj.testDirectories),
             configToString(obj.excludeDirectories),
             configToString(obj.pluginPath),
-            configToString(obj.sslCertificatePath)
+            configToString(obj.sslCertificatePath),
+            configToString(obj.multiClusterBes),
+            configToString(obj.metaServiceToken),
+            configToString(obj.multiClusterInstance),
+            configToString(obj.upgradeNewBeIp),
+            configToString(obj.upgradeNewBeHbPort),
+            configToString(obj.upgradeNewBeHttpPort),
+            configToString(obj.upgradeNewBeUniqueId),
+            configToString(obj.stageIamEndpoint),
+            configToString(obj.stageIamRegion),
+            configToString(obj.stageIamBucket),
+            configToString(obj.stageIamPolicy),
+            configToString(obj.stageIamRole),
+            configToString(obj.stageIamArn),
+            configToString(obj.stageIamAk),
+            configToString(obj.stageIamSk),
+            configToString(obj.stageIamUserId),
+            configToString(obj.clusterDir),
+            configToString(obj.kafkaBrokerList),
+            configToString(obj.cloudVersion)
         )
 
         config.image = configToString(obj.image)
@@ -325,7 +526,53 @@ class Config {
                 config.otherConfigs.put(key, kv.getValue())
             }
         }
+
+        // check smoke config
+        if (obj.isSmokeTest) {
+            config.isSmokeTest = true
+            String env = config.otherConfigs.getOrDefault("smokeEnv", "UNKNOWN")
+            log.info("Start to check $env config")
+            def c = config.otherConfigs
+            c.put("feCloudHttpAddress", obj.feCloudHttpAddress)
+            checkCloudSmokeEnv(c)
+        }
+
         return config
+    }
+
+    static String getProvider(String endpoint) {
+        def providers = ["cos", "oss", "s3", "obs", "bos"]
+        for (final def provider in providers) {
+            if (endpoint.containsIgnoreCase(provider)) {
+                return provider
+            }
+        }
+        return ""
+    }
+
+    static void checkCloudSmokeEnv(Properties properties) {
+        // external stage obj info
+        String s3Endpoint = properties.getOrDefault("s3Endpoint", "")
+        String feCloudHttpAddress = properties.getOrDefault("feCloudHttpAddress", "")
+        String s3Region = properties.getOrDefault("s3Region", "")
+        String s3BucketName = properties.getOrDefault("s3BucketName", "")
+        String s3AK = properties.getOrDefault("ak", "")
+        String s3SK = properties.getOrDefault("sk", "")
+
+        def items = [
+                fecloudHttpAddrConf:feCloudHttpAddress,
+                s3RegionConf:s3Region,
+                s3EndpointConf:s3Endpoint,
+                s3BucketConf:s3BucketName,
+                s3AKConf:s3AK,
+                s3SKConf:s3SK,
+                s3ProviderConf:getProvider(s3Endpoint)
+        ]
+        for (final def item in items) {
+            if (item.value == null || item.value.isEmpty()) {
+                throw new IllegalStateException("cloud smoke conf err, plz check " + item.key)
+            }
+        }
     }
 
     static void fillDefaultConfig(Config config) {
@@ -365,9 +612,24 @@ class Config {
             log.info("Set feHttpAddress to '${config.feHttpAddress}' because not specify.".toString())
         }
 
+        if (config.instanceId == null) {
+            config.instanceId = "instance_xxx"
+            log.info("Set instanceId to '${config.instanceId}' because not specify.".toString())
+        }
+
+        if (config.cloudUniqueId == null) {
+            config.cloudUniqueId = "cloud_unique_id_xxx"
+            log.info("Set cloudUniqueId to '${config.cloudUniqueId}' because not specify.".toString())
+        }
+
         if (config.metaServiceHttpAddress == null) {
             config.metaServiceHttpAddress = "127.0.0.1:5000"
             log.info("Set metaServiceHttpAddress to '${config.metaServiceHttpAddress}' because not specify.".toString())
+        }
+
+        if (config.recycleServiceHttpAddress == null) {
+            config.recycleServiceHttpAddress = "127.0.0.1:5001"
+            log.info("Set recycleServiceHttpAddress to '${config.recycleServiceHttpAddress}' because not specify.".toString())
         }
 
         if (config.feSyncerUser == null) {
@@ -393,6 +655,22 @@ class Config {
         if (config.feHttpPassword == null) {
             config.feHttpPassword = ""
             log.info("Set feHttpPassword to empty because not specify.".toString())
+        }
+
+
+        if (config.feCloudHttpAddress == null) {
+            config.feCloudHttpAddress = "127.0.0.1:8876"
+            log.info("Set feCloudHttpAddress to '${config.feCloudHttpAddress}' because not specify.".toString())
+        }
+
+        if (config.feCloudHttpUser == null) {
+            config.feCloudHttpUser = "root"
+            log.info("Set feCloudHttpUser to '${config.feCloudHttpUser}' because not specify.".toString())
+        }
+
+        if (config.feCloudHttpPassword == null) {
+            config.feCloudHttpPassword = ""
+            log.info("Set feCloudHttpPassword to empty because not specify.".toString())
         }
 
         if (config.suitePath == null) {
@@ -446,7 +724,11 @@ class Config {
         }
 
         if (config.testGroups == null) {
-            config.testGroups = "default"
+            if (config.isSmokeTest){
+                config.testGroups = "smoke"
+            } else {
+                config.testGroups = "default"
+            }
             log.info("Set testGroups to '${config.testGroups}' because not specify.".toString())
         }
 

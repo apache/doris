@@ -1487,10 +1487,10 @@ void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
 }
 
 int CreateTabletIdxCache::get_index(const std::string& key) {
-    auto lru_handle = cache()->lookup(key);
+    auto* lru_handle = lookup(key);
     if (lru_handle) {
-        Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
-        auto value = (CacheValue*)cache()->value(lru_handle);
+        Defer release([cache = this, lru_handle] { cache->release(lru_handle); });
+        auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
         VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
         return value->idx;
     }
@@ -1499,14 +1499,10 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
 
 void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
     assert(next_idx >= 0);
-    CacheValue* value = new CacheValue;
+    auto* value = new CacheValue;
     value->idx = next_idx;
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        CacheValue* cache_value = (CacheValue*)value;
-        delete cache_value;
-    };
-    auto lru_handle = cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
-    cache()->release(lru_handle);
+    auto* lru_handle = insert(key, value, 1, sizeof(int), CachePriority::NORMAL);
+    release(lru_handle);
 }
 
 } // namespace doris

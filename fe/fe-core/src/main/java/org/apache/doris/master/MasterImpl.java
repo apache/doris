@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
@@ -468,8 +469,12 @@ public class MasterImpl {
         }
         Replica replica = tablet.getReplicaByBackendId(backendId);
         if (replica == null) {
-            LOG.warn("could not find replica with backend {} in tablet {} in rollup index {} ",
-                    backendId, tabletId, indexId);
+            String reps = "";
+            for (Replica r : tablet.getReplicas()) {
+                reps += r.toString();
+            }
+            LOG.warn("could not find replica with backend {} in tablet {} in rollup index, is cloud: {}, replicas: {}",
+                    backendId, tabletId, indexId, tablet instanceof CloudTablet, reps);
         }
         return replica;
     }

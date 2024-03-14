@@ -51,7 +51,7 @@ public:
               _invalid(false) {}
 
     ~HdfsFileSystemHandle() {
-        DCHECK(_ref_cnt == 0);
+        DCHECK(_ref_cnt == 0) << _ref_cnt;
         if (hdfs_fs != nullptr) {
             // DO NOT call hdfsDisconnect(), or we will meet "Filesystem closed"
             // even if we create a new one

@@ -95,7 +95,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
         if (it != read_columns.cbegin()) {
             read_columns_string += ", ";
         }
-        read_columns_string += tablet_schema->columns().at(*it).name();
+        read_columns_string += tablet_schema->columns().at(*it)->name();
         if (i >= col_per_line) {
             read_columns_string += "\n";
             i = 0;
@@ -419,6 +419,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
 Status NewOlapScanner::_init_variant_columns() {
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    if (tablet_schema->num_variant_columns() == 0) {
+        return Status::OK();
+    }
     // Parent column has path info to distinction from each other
     for (auto slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
@@ -433,12 +436,12 @@ Status NewOlapScanner::_init_variant_columns() {
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths(), slot->col_unique_id());
-            if (tablet_schema->field_index(subcol.path_info()) < 0) {
+            if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
         }
-        schema_util::inherit_tablet_index(tablet_schema);
     }
+    schema_util::inherit_tablet_index(tablet_schema);
     return Status::OK();
 }
 

@@ -294,51 +294,52 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (literalExpr instanceof org.apache.doris.analysis.NullLiteral) {
             return new NullLiteral(dataType);
         }
-        String stringValue = literalExpr.getStringValue();
-        if (dataType.isBooleanType()) {
-            return ((BoolLiteral) literalExpr).getValue() ? BooleanLiteral.TRUE : BooleanLiteral.FALSE;
-        } else if (dataType.isTinyIntType()) {
-            return new TinyIntLiteral(Byte.parseByte(stringValue));
-        } else if (dataType.isSmallIntType()) {
-            return new SmallIntLiteral(Short.parseShort(stringValue));
-        } else if (dataType.isIntegerType()) {
-            return new IntegerLiteral(Integer.parseInt(stringValue));
-        } else if (dataType.isBigIntType()) {
-            return new BigIntLiteral(Long.parseLong(stringValue));
-        } else if (dataType.isLargeIntType()) {
-            return new LargeIntLiteral(new BigInteger(stringValue));
-        } else if (dataType.isStringType()) {
-            return new StringLiteral(stringValue);
-        } else if (dataType.isCharType()) {
-            return new CharLiteral(stringValue, ((CharType) dataType).getLen());
-        } else if (dataType.isVarcharType()) {
-            return new VarcharLiteral(stringValue, ((VarcharType) dataType).getLen());
-        } else if (dataType.isFloatType()) {
-            return new FloatLiteral(Float.parseFloat(stringValue));
-        } else if (dataType.isDoubleType()) {
-            return new DoubleLiteral(Double.parseDouble(stringValue));
-        } else if (dataType.isDecimalV2Type()) {
-            return new DecimalLiteral((DecimalV2Type) dataType, new BigDecimal(stringValue));
-        } else if (dataType.isDecimalV3Type()) {
-            return new DecimalV3Literal((DecimalV3Type) dataType, new BigDecimal(stringValue));
-        } else if (dataType.isDateType()) {
-            return new DateLiteral(stringValue);
-        } else if (dataType.isDateV2Type()) {
-            return new DateV2Literal(stringValue);
-        } else if (dataType.isDateTimeType()) {
-            return new DateTimeLiteral(stringValue);
-        } else if (dataType.isDateTimeV2Type()) {
-            return new DateTimeV2Literal(stringValue);
-        } else if (dataType.isJsonType()) {
-            return new JsonLiteral(stringValue);
-        } else if (dataType.isIPv4Type()) {
-            return new IPv4Literal(stringValue);
-        } else if (dataType.isIPv6Type()) {
-            return new IPv6Literal(stringValue);
-        } else {
-            throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
-                    + " of legacy literal to nereids literal");
+        // fast path
+        switch (type.getPrimitiveType()) {
+            case DATEV2: {
+                org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                return new DateV2Literal(dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay());
+            }
+            case DATE: {
+                org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                return new DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay());
+            }
+            case BOOLEAN: {
+                return ((BoolLiteral) literalExpr).getValue() ? BooleanLiteral.TRUE : BooleanLiteral.FALSE;
+            }
+            default: {
+            }
         }
+        // slow path
+        String stringValue = literalExpr.getStringValue();
+        switch (type.getPrimitiveType()) {
+            case TINYINT: return new TinyIntLiteral(Byte.parseByte(stringValue));
+            case SMALLINT: return new SmallIntLiteral(Short.parseShort(stringValue));
+            case INT: return new IntegerLiteral(Integer.parseInt(stringValue));
+            case BIGINT: return new BigIntLiteral(Long.parseLong(stringValue));
+            case LARGEINT: return new LargeIntLiteral(new BigInteger(stringValue));
+            case STRING: return new StringLiteral(stringValue);
+            case CHAR: return new CharLiteral(stringValue, ((CharType) dataType).getLen());
+            case VARCHAR: return new VarcharLiteral(stringValue, ((VarcharType) dataType).getLen());
+            case FLOAT: return new FloatLiteral(Float.parseFloat(stringValue));
+            case DOUBLE: return new DoubleLiteral(Double.parseDouble(stringValue));
+            case DECIMALV2: return new DecimalLiteral((DecimalV2Type) dataType, new BigDecimal(stringValue));
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+            case DECIMAL256: {
+                return new DecimalV3Literal((DecimalV3Type) dataType, new BigDecimal(stringValue));
+            }
+            case DATETIME: return new DateTimeLiteral(stringValue);
+            case DATETIMEV2: return new DateTimeV2Literal(stringValue);
+            case JSONB: return new JsonLiteral(stringValue);
+            case IPV4: return new IPv4Literal(stringValue);
+            case IPV6: return new IPv6Literal(stringValue);
+            default: {
+            }
+        }
+        throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
+                + " of legacy literal to nereids literal");
     }
 
     @Override

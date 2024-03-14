@@ -45,6 +45,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -132,6 +133,9 @@ public class OlapTableSink extends DataSink {
         tSink.setBaseSchemaVersion(dstTable.getBaseSchemaVersion());
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
+        tSink.setWriteFileCache(ConnectContext.get() != null
+                ? !ConnectContext.get().getSessionVariable().isDisableFileCache()
+                : false);
         this.isStrictMode = isStrictMode;
         this.txnId = txnId;
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
@@ -140,6 +144,10 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
+        String storageVaultId = dstTable.getTableProperty().getStorageVaultId();
+        if (storageVaultId != null && !storageVaultId.isEmpty()) {
+            tSink.setStorageVaultId(storageVaultId);
+        }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
 
@@ -513,7 +521,7 @@ public class OlapTableSink extends DataSink {
                                 + " < quorum replica num " + loadRequiredReplicaNum
                                 + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]";
                         errMsg += " or you may not have permission to access the current cluster";
-                        if (ConnectContext.get() != null) {
+                        if (ConnectContext.get() != null && Config.isCloudMode()) {
                             errMsg += " clusterName=" + ConnectContext.get().getCloudCluster();
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);

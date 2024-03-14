@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
@@ -67,7 +68,7 @@ public class InsertStreamTxnExecutor {
         // StreamLoadTask's id == request's load_id
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(
-                txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
+                (Database) txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         // Will using load id as query id in fragment
         if (Config.enable_pipeline_load) {
             TPipelineFragmentParams tRequest = planner.planForPipeline(streamLoadTask.getId());

@@ -48,14 +48,15 @@ suite("test_agg_state_nereids") {
     sql """
             create table a_table(
                 k1 int null,
-                k2 agg_state max_by(int not null,int)
+                k2 agg_state<max_by(int not null, int)> generic
             )
             aggregate key (k1)
             distributed BY hash(k1) buckets 3
             properties("replication_num" = "1");
         """
 
-    sql 'set enable_fallback_to_original_planner=true'
+    sql "explain insert into a_table select 1,max_by_state(1,3);"
+
     sql "insert into a_table select 1,max_by_state(1,3);"
     sql "insert into a_table select 1,max_by_state(2,2);"
     sql "insert into a_table select 1,max_by_state(3,1);"

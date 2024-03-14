@@ -332,12 +332,12 @@ public class ColumnDef {
             }
 
             // check if aggregate type is valid
-            if (aggregateType != AggregateType.GENERIC_AGGREGATION
+            if (aggregateType != AggregateType.GENERIC
                     && !aggregateType.checkCompatibility(type.getPrimitiveType())) {
                 throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
                         toString(), type.toSql()));
             }
-            if (aggregateType == AggregateType.GENERIC_AGGREGATION) {
+            if (aggregateType == AggregateType.GENERIC) {
                 if (!SessionVariable.enableAggState()) {
                     throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
                 }

@@ -141,7 +141,7 @@ DataDir::~DataDir() {
     delete _meta;
 }
 
-Status DataDir::init() {
+Status DataDir::init(bool init_meta) {
     bool exists = false;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(_path, &exists));
     if (!exists) {
@@ -153,7 +153,9 @@ Status DataDir::init() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity_and_create_shards(),
                                    "_init_capacity_and_create_shards failed");
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_meta(), "_init_meta failed");
+    if (init_meta) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(_init_meta(), "_init_meta failed");
+    }
 
     _is_used = true;
     return Status::OK();
@@ -492,8 +494,8 @@ Status DataDir::load() {
     }
     if (rowset_partition_id_eq_0_num > config::ignore_invalid_partition_id_rowset_num) {
         LOG(FATAL) << fmt::format(
-                "roswet partition id eq 0 bigger than config {}, be exit, plz check be.INFO",
-                config::ignore_invalid_partition_id_rowset_num);
+                "roswet partition id eq 0 is {} bigger than config {}, be exit, plz check be.INFO",
+                rowset_partition_id_eq_0_num, config::ignore_invalid_partition_id_rowset_num);
         exit(-1);
     }
 

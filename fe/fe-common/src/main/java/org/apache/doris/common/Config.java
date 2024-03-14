@@ -1754,7 +1754,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 3;
+    public static int max_be_exec_version = 4;
 
     /**
      * Min data version of backends serialize block.
@@ -2256,8 +2256,14 @@ public class Config extends ConfigBase {
     @ConfField
     public static final int period_analyze_simultaneously_running_task_num = 1;
 
+    @ConfField(mutable = false)
+    public static boolean allow_analyze_statistics_info_polluting_file_cache = true;
+
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
+
+    @ConfField(mutable = true)
+    public static boolean force_sample_analyze = false; // avoid full analyze for performance reason
 
     @ConfField(mutable = true, description = {
             "Export任务允许的最大分区数量",
@@ -2516,6 +2522,10 @@ public class Config extends ConfigBase {
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
 
+    @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
+            "Specify the default plugins loading path for the trino-connector catalog"})
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -2575,6 +2585,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int cloud_cold_read_percent = 10; // 10%
 
+    @ConfField(mutable = true)
+    public static int get_tablet_stat_batch_size = 1000;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_light_index_change = true;
+
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
@@ -2589,6 +2605,9 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
+
+    @ConfField
+    public static int cloud_txn_tablet_batch_size = 50;
 
     //==========================================================================
     //                      end of cloud config
