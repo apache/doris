@@ -84,11 +84,7 @@ Status JdbcConnector::close(Status /*unused*/) {
         RETURN_IF_ERROR(abort_trans());
     }
     JNIEnv* env = nullptr;
-    Status status = JniUtil::GetJNIEnv(&env);
-    if (!status.ok() || env == nullptr) {
-        LOG(WARNING) << "errors while get jni env " << status;
-        return status;
-    }
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->DeleteGlobalRef(_executor_factory_clazz);
     env->DeleteGlobalRef(_executor_clazz);
     DELETE_BASIC_JAVA_CLAZZ_REF(object)
