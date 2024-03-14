@@ -249,12 +249,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
                 return new LogicalSubQueryAlias<>(tableQualifier, logicalView);
             case HMS_EXTERNAL_TABLE:
-                if (Config.enable_query_hive_views && ((HMSExternalTable) table).isView()) {
-                    String hiveCatalog = ((HMSExternalTable) table).getCatalog().getName();
-                    String ddlSql = ((HMSExternalTable) table).getViewText();
+                HMSExternalTable hmsTable = (HMSExternalTable) table;
+                if (Config.enable_query_hive_views && hmsTable.isView()) {
+                    String hiveCatalog = hmsTable.getCatalog().getName();
+                    String ddlSql = hmsTable.getViewText();
                     Plan hiveViewPlan = parseAndAnalyzeHiveView(hiveCatalog, ddlSql, cascadesContext);
                     return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                 }
+                hmsTable.setScanParams(unboundRelation.getScanParams());
                 return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table, tableQualifier,
                     unboundRelation.getTableSample());
             case ICEBERG_EXTERNAL_TABLE:
