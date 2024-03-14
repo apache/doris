@@ -193,6 +193,10 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
             release_block_memory(*_child_block);
             _repeat_id_idx = 0;
         }
+    } else if (_expr_ctxs.empty()) {
+        DCHECK(!_intermediate_block || (_intermediate_block && _intermediate_block->rows() == 0));
+        output_block->swap(*_child_block);
+        release_block_memory(*_child_block);
     }
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     *eos = _child_eos && _child_block->rows() == 0;
@@ -205,7 +209,6 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
     SCOPED_TIMER(_exec_timer);
     _child_eos = eos;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
-    DCHECK(!_expr_ctxs.empty());
 
     if (input_block->rows() > 0) {
         _intermediate_block = Block::create_unique();
