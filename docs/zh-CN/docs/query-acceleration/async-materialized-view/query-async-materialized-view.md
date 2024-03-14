@@ -466,7 +466,7 @@ INNER 和 LEFT OUTER JOIN 其他类型的 JOIN 操作逐步支持。
 - 基于 External Table 的物化视图不保证查询结果强一致。
 - 不支持使用非确定性函数来构建物化视图，包括 rand、now、current_time、current_date、random、uuid等。
 - 不支持窗口函数的透明改写。
-- 物化视图 SQL 定义中有 LIMIT，不支持透明改写；查询可以使用 LIMIT。
+- 查询和物化视图中有 LIMIT，暂时不支持透明改写。
 - 物化视图的定义暂时不能使用视图和物化视图。
 - 当查询或者物化视图没有数据时，不支持透明改写。
 - 目前 WHERE 条件补偿，支持物化视图没有 WHERE，查询有 WHERE情况的条件补偿；或者物化视图有 WHERE 且查询的 WHERE 条件是物化视图的超集。

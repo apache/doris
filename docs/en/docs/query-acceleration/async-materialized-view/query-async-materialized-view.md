@@ -518,8 +518,8 @@ including rand, now, current_time, current_date, random, uuid, etc.
 
 - Transparent rewriting does not support window functions.
 
-- The materialized view SQL definition contains LIMIT and does not support transparent rewriting; queries can use LIMIT.
-
+- There is LIMIT in queries and materialized views, and transparent rewriting is not supported for the time being.
+ 
 - Currently, materialized view definitions cannot utilize views or other materialized views.
 
 - When the query or materialized view has no data, transparent rewriting is not supported.
