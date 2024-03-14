@@ -328,7 +328,7 @@ static int add_hdfs_storage_valut(InstanceInfoPB& instance, Transaction* txn,
     hdfs_param.set_id(vault_id);
     std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
-    LOG_INFO("try to put storage vault_id={}, vault_name={}, err={}", vault_id, hdfs_param.name());
+    LOG_INFO("try to put storage vault_id={}, vault_name={}", vault_id, hdfs_param.name());
     instance.mutable_resource_ids()->Add(std::move(vault_id));
     *instance.mutable_storage_vault_names()->Add() = hdfs_param.name();
     return 0;
