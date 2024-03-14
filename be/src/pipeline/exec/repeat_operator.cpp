@@ -183,8 +183,6 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
     auto& _intermediate_block = local_state._intermediate_block;
     auto& _expr_ctxs = local_state._expr_ctxs;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
-    DCHECK(!_expr_ctxs.empty());
-
     if (input_block->rows() > 0) {
         _intermediate_block = vectorized::Block::create_unique();
 
@@ -229,6 +227,10 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
             _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
             _repeat_id_idx = 0;
         }
+    } else if (local_state._expr_ctxs.empty()) {
+        DCHECK(!_intermediate_block || (_intermediate_block && _intermediate_block->rows() == 0));
+        output_block->swap(_child_block);
+        _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
     }
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
                                                            output_block->columns()));
