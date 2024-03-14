@@ -83,6 +83,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     private final boolean generated;
     private final boolean hasPushed;
 
+    private boolean isRewritten = false;
+
     /**
      * Desc: Constructor for LogicalAggregate.
      */
@@ -187,6 +189,14 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public boolean hasPushed() {
         return hasPushed;
+    }
+
+    public void setRewritten(boolean rewritten) {
+        isRewritten = rewritten;
+    }
+
+    public boolean isRewritten() {
+        return isRewritten;
     }
 
     @Override
