@@ -460,11 +460,14 @@ public class SchemaTable extends Table {
                                     .build()))
             .put("active_queries", new SchemaTable(SystemIdGenerator.getNextId(), "active_queries", TableType.SCHEMA,
                     builder().column("QUERY_ID", ScalarType.createVarchar(256))
-                            .column("START_TIME", ScalarType.createVarchar(256))
+                            .column("QUERY_START_TIME", ScalarType.createVarchar(256))
                             .column("QUERY_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("DATABASE", ScalarType.createVarchar(256))
                             .column("FRONTEND_INSTANCE", ScalarType.createVarchar(256))
+                            .column("QUEUE_START_TIME", ScalarType.createVarchar(256))
+                            .column("QUEUE_END_TIME", ScalarType.createVarchar(256))
+                            .column("QUERY_STATUS", ScalarType.createVarchar(256))
                             .column("SQL", ScalarType.createStringType())
                             .build()))
             .put("workload_groups", new SchemaTable(SystemIdGenerator.getNextId(), "workload_groups", TableType.SCHEMA,

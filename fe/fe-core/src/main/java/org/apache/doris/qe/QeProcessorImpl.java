@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -265,7 +266,6 @@ public final class QeProcessorImpl implements QeProcessor {
         private final ConnectContext connectContext;
         private final Coordinator coord;
         private final String sql;
-        private final long startExecTime;
 
         // from Export, Pull load, Insert
         public QueryInfo(Coordinator coord) {
@@ -277,7 +277,6 @@ public final class QeProcessorImpl implements QeProcessor {
             this.connectContext = connectContext;
             this.coord = coord;
             this.sql = sql;
-            this.startExecTime = System.currentTimeMillis();
         }
 
         public ConnectContext getConnectContext() {
@@ -293,7 +292,31 @@ public final class QeProcessorImpl implements QeProcessor {
         }
 
         public long getStartExecTime() {
-            return startExecTime;
+            if (coord.getQueueToken() != null) {
+                return coord.getQueueToken().getQueueEndTime();
+            }
+            return -1;
+        }
+
+        public long getQueueStartTime() {
+            if (coord.getQueueToken() != null) {
+                return coord.getQueueToken().getQueueStartTime();
+            }
+            return -1;
+        }
+
+        public long getQueueEndTime() {
+            if (coord.getQueueToken() != null) {
+                return coord.getQueueToken().getQueueEndTime();
+            }
+            return -1;
+        }
+
+        public TokenState getQueueStatus() {
+            if (coord.getQueueToken() != null) {
+                return coord.getQueueToken().getTokenState();
+            }
+            return null;
         }
     }
 

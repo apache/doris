@@ -3906,6 +3906,10 @@ public class Coordinator implements CoordInterface {
         }
     }
 
+    public QueueToken getQueueToken() {
+        return queueToken;
+    }
+
     // fragment instance exec param, it is used to assemble
     // the per-instance TPlanFragmentExecParams, as a member of
     // FragmentExecParams
