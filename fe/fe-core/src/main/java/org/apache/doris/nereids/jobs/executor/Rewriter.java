@@ -120,7 +120,6 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
-import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
@@ -217,7 +216,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
             // resulting in inconsistent output results and results in apply
             topDown(
-                    new SimplifyAggGroupBy(),
                     new NormalizeAggregate(),
                     new CountLiteralRewrite(),
                     new NormalizeSort()
