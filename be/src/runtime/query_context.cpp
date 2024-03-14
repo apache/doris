@@ -23,7 +23,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_query_statistics_mgr.h"
-#include "runtime/task_group/task_group_manager.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
 
 namespace doris {
@@ -102,10 +102,10 @@ QueryContext::~QueryContext() {
                 MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
     }
     uint64_t group_id = 0;
-    if (_task_group) {
-        group_id = _task_group->id(); // before remove
-        _task_group->remove_mem_tracker_limiter(query_mem_tracker);
-        _task_group->remove_query(_query_id);
+    if (_workload_group) {
+        group_id = _workload_group->id(); // before remove
+        _workload_group->remove_mem_tracker_limiter(query_mem_tracker);
+        _workload_group->remove_query(_query_id);
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
@@ -205,7 +205,7 @@ void QueryContext::register_cpu_statistics() {
 }
 
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
-    if (_task_group) {
+    if (_workload_group) {
         if (_task_scheduler) {
             return _task_scheduler;
         }
@@ -214,21 +214,21 @@ doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
 }
 
 ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
-    if (_task_group) {
+    if (_workload_group) {
         return _non_pipe_thread_pool;
     } else {
         return nullptr;
     }
 }
 
-Status QueryContext::set_task_group(taskgroup::TaskGroupPtr& tg) {
-    _task_group = tg;
-    // Should add query first, then the task group will not be deleted.
-    // see task_group_manager::delete_task_group_by_ids
-    RETURN_IF_ERROR(_task_group->add_query(_query_id));
-    _task_group->add_mem_tracker_limiter(query_mem_tracker);
-    _task_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
-                                     &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
+Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
+    _workload_group = tg;
+    // Should add query first, then the workload group will not be deleted.
+    // see task_group_manager::delete_workload_group_by_ids
+    RETURN_IF_ERROR(_workload_group->add_query(_query_id));
+    _workload_group->add_mem_tracker_limiter(query_mem_tracker);
+    _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
+                                         &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
     return Status::OK();
 }
 
