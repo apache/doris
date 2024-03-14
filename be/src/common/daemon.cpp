@@ -50,7 +50,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_query_statistics_mgr.h"
-#include "runtime/task_group/task_group_manager.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"

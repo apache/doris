@@ -75,9 +75,9 @@
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/user_function_cache.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_sched_policy_mgr.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
@@ -210,7 +210,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_file_cache_factory();
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
-    _task_group_manager = new taskgroup::TaskGroupManager();
+    _workload_group_manager = new WorkloadGroupMgr();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -295,7 +295,7 @@ Status ExecEnv::init_pipeline_task_scheduler() {
         executors_size = CpuInfo::num_cores();
     }
 
-    // TODO pipeline task group combie two blocked schedulers.
+    // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     _without_group_block_scheduler =
             std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGSchePool");
@@ -541,7 +541,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_without_group_task_scheduler);
     // stop pipline step 2, cgroup execution
     SAFE_SHUTDOWN(_global_block_scheduler.get());
-    SAFE_STOP(_task_group_manager);
+    SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
@@ -606,7 +606,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_result_cache);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
-    SAFE_DELETE(_task_group_manager);
+    SAFE_DELETE(_workload_group_manager);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
