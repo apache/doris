@@ -477,8 +477,12 @@ identifierSeq
     : ident+=errorCapturingIdentifier (COMMA ident+=errorCapturingIdentifier)*
     ;
 
+optScanParams
+    : ATSIGN funcName=identifier LEFT_PAREN (properties=propertyItemList)? RIGHT_PAREN
+    ;
+
 relationPrimary
-    : multipartIdentifier materializedViewName? specifiedPartition?
+    : multipartIdentifier optScanParams? materializedViewName? specifiedPartition?
        tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
@@ -530,7 +534,10 @@ columnDefs
     
 columnDef
     : colName=identifier type=dataType
-        KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)? (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
+        KEY?
+        (aggType=aggTypeDef)?
+        ((NOT)? NULL)?
+        (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
         (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL
             | CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
@@ -587,7 +594,7 @@ rollupDef
     ;
 
 aggTypeDef
-    : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION | QUANTILE_UNION
+    : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION | QUANTILE_UNION | GENERIC
     ;
 
 tabletList
@@ -846,10 +853,17 @@ unitIdentifier
     : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
+dataTypeWithNullable
+    : dataType ((NOT)? NULL)?
+    ;
+
 dataType
     : complex=ARRAY LT dataType GT                                  #complexDataType
     | complex=MAP LT dataType COMMA dataType GT                     #complexDataType
     | complex=STRUCT LT complexColTypeList GT                       #complexDataType
+    | AGG_STATE LT functionNameIdentifier
+        LEFT_PAREN dataTypes+=dataTypeWithNullable
+        (COMMA dataTypes+=dataTypeWithNullable)* RIGHT_PAREN GT     #aggStateDataType
     | primitiveColType (LEFT_PAREN (INTEGER_VALUE | ASTERISK)
       (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                          #primitiveDataType
     ;
@@ -1061,6 +1075,7 @@ nonReserved
     | FREE
     | FRONTENDS
     | FUNCTION
+    | GENERIC
     | GLOBAL
     | GRAPH
     | GROUPING

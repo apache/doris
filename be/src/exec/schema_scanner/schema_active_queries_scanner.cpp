@@ -50,20 +50,17 @@ Status SchemaActiveQueriesScanner::start(RuntimeState* state) {
 Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
 
-    TQueriesMetadataParams tqueries_meta_params;
-    tqueries_meta_params.__set_relay_to_other_fe(true);
-
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::QUERIES);
-    metadata_table_params.__set_queries_metadata_params(tqueries_meta_params);
+    TSchemaTableRequestParams schema_table_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
-        metadata_table_params.__isset.columns_name = true;
-        metadata_table_params.columns_name.emplace_back(_s_tbls_columns[i].name);
+        schema_table_params.__isset.columns_name = true;
+        schema_table_params.columns_name.emplace_back(_s_tbls_columns[i].name);
     }
+    schema_table_params.replay_to_other_fe = true;
+    schema_table_params.__isset.replay_to_other_fe = true;
 
     TFetchSchemaTableDataRequest request;
-    request.__set_schema_table_name(TSchemaTableName::SCHEMA_TABLE);
-    request.__set_metada_table_params(metadata_table_params);
+    request.__set_schema_table_name(TSchemaTableName::ACTIVE_QUERIES);
+    request.__set_schema_table_params(schema_table_params);
 
     TFetchSchemaTableDataResult result;
 

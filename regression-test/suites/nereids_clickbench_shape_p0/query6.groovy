@@ -20,9 +20,10 @@
 suite("query6") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    def ds = """SELECT COUNT(DISTINCT SearchPhrase) FROM hits"""
-    qt_ds_shape_6 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT COUNT(DISTINCT SearchPhrase) FROM hits"""
+    qt_ckbench_shape_6 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

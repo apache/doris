@@ -208,6 +208,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
 import org.apache.doris.thrift.TShowVariableRequest;
@@ -2296,15 +2297,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
-        switch (request.getSchemaTableName()) {
-            case METADATA_TABLE:
-                return MetadataGenerator.getMetadataTable(request);
-            case SCHEMA_TABLE:
-                return MetadataGenerator.getSchemaTableData(request);
-            default:
-                break;
+        if (!request.isSetSchemaTableName()) {
+            return MetadataGenerator.errorResult("Fetch schema table name is not set");
         }
-        return MetadataGenerator.errorResult("Fetch schema table name is not set");
+        // tvf queries
+        if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
+            return MetadataGenerator.getMetadataTable(request);
+        } else {
+            // database information_schema's tables
+            return MetadataGenerator.getSchemaTableData(request);
+        }
     }
 
     private TNetworkAddress getClientAddr() {

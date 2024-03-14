@@ -49,18 +49,16 @@ class PipelineTask;
 class TaskScheduler;
 } // namespace pipeline
 
-namespace taskgroup {
-
-class TaskGroup;
-struct TaskGroupInfo;
-struct TgTrackerLimiterGroup {
+class WorkloadGroup;
+struct WorkloadGroupInfo;
+struct WgTrackerLimiterGroup {
     std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
     std::mutex group_lock;
 };
 
-class TaskGroup : public std::enable_shared_from_this<TaskGroup> {
+class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
 public:
-    explicit TaskGroup(const TaskGroupInfo& tg_info);
+    explicit WorkloadGroup(const WorkloadGroupInfo& tg_info);
 
     int64_t version() const { return _version; }
 
@@ -86,7 +84,7 @@ public:
 
     std::string debug_string() const;
 
-    void check_and_update(const TaskGroupInfo& tg_info);
+    void check_and_update(const WorkloadGroupInfo& tg_info);
 
     void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
@@ -102,7 +100,7 @@ public:
     Status add_query(TUniqueId query_id) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         if (_is_shutdown) {
-            // If the task group is set shutdown, then should not run any more,
+            // If the workload group is set shutdown, then should not run any more,
             // because the scheduler pool and other pointer may be released.
             return Status::InternalError(
                     "Failed add query to workload group, the workload group is shutdown. host: {}",
@@ -129,7 +127,7 @@ public:
 
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
 
-    void upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
+    void upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env);
 
     void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                              vectorized::SimplifiedScanScheduler** scan_sched,
@@ -146,13 +144,13 @@ private:
     int64_t _memory_limit; // bytes
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
-    std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
+    std::vector<WgTrackerLimiterGroup> _mem_tracker_limiter_pool;
     std::atomic<int> _cpu_hard_limit;
     std::atomic<int> _scan_thread_num;
     std::atomic<int> _max_remote_scan_thread_num;
     std::atomic<int> _min_remote_scan_thread_num;
 
-    // means task group is mark dropped
+    // means workload group is mark dropped
     // new query can not submit
     // waiting running query to be cancelled or finish
     bool _is_shutdown = false;
@@ -166,9 +164,9 @@ private:
     std::unique_ptr<ThreadPool> _non_pipe_thread_pool = nullptr;
 };
 
-using TaskGroupPtr = std::shared_ptr<TaskGroup>;
+using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
-struct TaskGroupInfo {
+struct WorkloadGroupInfo {
     uint64_t id;
     std::string name;
     uint64_t cpu_share;
@@ -184,9 +182,8 @@ struct TaskGroupInfo {
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;
 
-    static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
-                                   taskgroup::TaskGroupInfo* task_group_info);
+    static Status parse_topic_info(const TWorkloadGroupInfo& tworkload_group_info,
+                                   WorkloadGroupInfo* workload_group_info);
 };
 
-} // namespace taskgroup
 } // namespace doris

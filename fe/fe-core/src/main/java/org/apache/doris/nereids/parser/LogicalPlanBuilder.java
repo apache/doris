@@ -21,8 +21,10 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ScalarType;
@@ -42,6 +44,7 @@ import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddConstraintContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
+import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
@@ -75,6 +78,7 @@ import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
+import org.apache.doris.nereids.DorisParser.DataTypeWithNullableContext;
 import org.apache.doris.nereids.DorisParser.DateCeilContext;
 import org.apache.doris.nereids.DorisParser.DateFloorContext;
 import org.apache.doris.nereids.DorisParser.Date_addContext;
@@ -422,6 +426,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
@@ -1306,11 +1311,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             relationHints = ImmutableList.of();
         }
 
+        TableScanParams scanParams = null;
+        if (ctx.optScanParams() != null) {
+            Map<String, String> map = visitPropertyItemList(ctx.optScanParams().properties);
+            scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map);
+        }
+
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                        Optional.ofNullable(tableSample), indexName));
+                        Optional.ofNullable(tableSample), indexName, scanParams));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -2523,7 +2534,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String colName = ctx.colName.getText();
         DataType colType = ctx.type instanceof PrimitiveDataTypeContext
                 ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
-                : visitComplexDataType(((ComplexDataTypeContext) ctx.type));
+                : ctx.type instanceof ComplexDataTypeContext
+                        ? visitComplexDataType((ComplexDataTypeContext) ctx.type)
+                        : visitAggStateDataType((AggStateDataTypeContext) ctx.type);
         colType = colType.conversion();
         boolean isKey = ctx.KEY() != null;
         boolean isNotNull = ctx.NOT() != null;
@@ -3254,6 +3267,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return ExplainLevel.MEMO_PLAN;
         }
         return ExplainLevel.ALL_PLAN;
+    }
+
+    @Override
+    public Pair<DataType, Boolean> visitDataTypeWithNullable(DataTypeWithNullableContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> Pair.of(typedVisit(ctx.dataType()), ctx.NOT() == null));
+    }
+
+    @Override
+    public DataType visitAggStateDataType(AggStateDataTypeContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Pair<DataType, Boolean>> dataTypeWithNullables = ctx.dataTypes.stream()
+                    .map(this::visitDataTypeWithNullable)
+                    .collect(Collectors.toList());
+            List<DataType> dataTypes = dataTypeWithNullables.stream()
+                    .map(dt -> dt.first)
+                    .collect(ImmutableList.toImmutableList());
+            List<Boolean> nullables = dataTypeWithNullables.stream()
+                    .map(dt -> dt.second)
+                    .collect(ImmutableList.toImmutableList());
+            String functionName = ctx.functionNameIdentifier().getText();
+            if (!BuiltinAggregateFunctions.INSTANCE.aggFuncNames.contains(functionName)) {
+                // TODO use function binder to check function exists
+                throw new ParseException("Can not found function '" + functionName + "'", ctx);
+            }
+            return new AggStateType(functionName, dataTypes, nullables);
+        });
     }
 
     @Override
