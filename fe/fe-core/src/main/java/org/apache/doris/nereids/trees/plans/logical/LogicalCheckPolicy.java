@@ -22,7 +22,6 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
-import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -152,19 +150,18 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         List<Expression> orList = new ArrayList<>();
         List<Expression> andList = new ArrayList<>();
         for (RowFilterPolicy policy : policies) {
-            String sql = policy.getFilterExpr();
-            NereidsParser nereidsParser = new NereidsParser();
-            CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
-            Optional<Expression> wherePredicate = command.getWherePredicate();
-            if (!wherePredicate.isPresent()) {
-                throw new AnalysisException("Invalid row policy [" + policy.getPolicyIdent() + "], " + sql);
+            Expression wherePredicate = null;
+            try {
+                wherePredicate = policy.getFilterExpression();
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
             }
             switch (policy.getFilterType()) {
                 case PERMISSIVE:
-                    orList.add(wherePredicate.get());
+                    orList.add(wherePredicate);
                     break;
                 case RESTRICTIVE:
-                    andList.add(wherePredicate.get());
+                    andList.add(wherePredicate);
                     break;
                 default:
                     throw new IllegalStateException("Invalid operator");

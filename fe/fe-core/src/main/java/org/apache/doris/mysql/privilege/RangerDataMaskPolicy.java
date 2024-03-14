@@ -48,76 +48,56 @@ public class RangerDataMaskPolicy implements DataMaskPolicy {
         return userIdentity;
     }
 
-    public void setUserIdentity(UserIdentity userIdentity) {
-        this.userIdentity = userIdentity;
-    }
-
     public String getCtl() {
         return ctl;
-    }
-
-    public void setCtl(String ctl) {
-        this.ctl = ctl;
     }
 
     public String getDb() {
         return db;
     }
 
-    public void setDb(String db) {
-        this.db = db;
-    }
-
     public String getTbl() {
         return tbl;
-    }
-
-    public void setTbl(String tbl) {
-        this.tbl = tbl;
     }
 
     public String getCol() {
         return col;
     }
 
-    public void setCol(String col) {
-        this.col = col;
-    }
-
     public long getPolicyId() {
         return policyId;
-    }
-
-    public void setPolicyId(long policyId) {
-        this.policyId = policyId;
     }
 
     public long getPolicyVersion() {
         return policyVersion;
     }
 
-    public void setPolicyVersion(long policyVersion) {
-        this.policyVersion = policyVersion;
-    }
-
     public String getMaskType() {
         return maskType;
     }
 
-    public void setMaskType(String maskType) {
-        this.maskType = maskType;
-    }
-
+    @Override
     public String getMaskTypeDef() {
         return maskTypeDef;
-    }
-
-    public void setMaskTypeDef(String maskTypeDef) {
-        this.maskTypeDef = maskTypeDef;
     }
 
     @Override
     public String getPolicyIdent() {
         return getPolicyId() + ":" + getPolicyVersion();
+    }
+
+    @Override
+    public String toString() {
+        return "RangerDataMaskPolicy{"
+                + "userIdentity=" + userIdentity
+                + ", ctl='" + ctl + '\''
+                + ", db='" + db + '\''
+                + ", tbl='" + tbl + '\''
+                + ", col='" + col + '\''
+                + ", policyId=" + policyId
+                + ", policyVersion=" + policyVersion
+                + ", maskType='" + maskType + '\''
+                + ", maskTypeDef='" + maskTypeDef + '\''
+                + '}';
     }
 }

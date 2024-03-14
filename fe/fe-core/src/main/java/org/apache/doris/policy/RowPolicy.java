@@ -30,6 +30,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
@@ -43,6 +46,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Save policy for filtering data.
@@ -189,8 +193,15 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
     }
 
     @Override
-    public String getFilterExpr() {
-        return getOriginStmt();
+    public Expression getFilterExpression() throws AnalysisException {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = getOriginStmt();
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        Optional<Expression> wherePredicate = command.getWherePredicate();
+        if (!wherePredicate.isPresent()) {
+            throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + sql);
+        }
+        return wherePredicate.get();
     }
 
     @Override

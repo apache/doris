@@ -17,6 +17,8 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.policy.FilterType;
 
 public interface RowFilterPolicy {
@@ -24,7 +26,7 @@ public interface RowFilterPolicy {
         return FilterType.RESTRICTIVE;
     }
 
-    String getFilterExpr();
+    Expression getFilterExpression() throws AnalysisException;
 
     String getPolicyIdent();
 }

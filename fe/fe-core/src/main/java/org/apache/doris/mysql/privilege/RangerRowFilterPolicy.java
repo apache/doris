@@ -18,6 +18,8 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 public class RangerRowFilterPolicy implements RowFilterPolicy {
     private UserIdentity userIdentity;
@@ -43,61 +45,51 @@ public class RangerRowFilterPolicy implements RowFilterPolicy {
         return userIdentity;
     }
 
-    public void setUserIdentity(UserIdentity userIdentity) {
-        this.userIdentity = userIdentity;
-    }
-
     public String getCtl() {
         return ctl;
-    }
-
-    public void setCtl(String ctl) {
-        this.ctl = ctl;
     }
 
     public String getDb() {
         return db;
     }
 
-    public void setDb(String db) {
-        this.db = db;
-    }
-
     public String getTbl() {
         return tbl;
-    }
-
-    public void setTbl(String tbl) {
-        this.tbl = tbl;
     }
 
     public long getPolicyId() {
         return policyId;
     }
 
-    public void setPolicyId(long policyId) {
-        this.policyId = policyId;
-    }
-
     public long getPolicyVersion() {
         return policyVersion;
     }
 
-    public void setPolicyVersion(long policyVersion) {
-        this.policyVersion = policyVersion;
-    }
-
-    @Override
     public String getFilterExpr() {
         return filterExpr;
     }
 
-    public void setFilterExpr(String filterExpr) {
-        this.filterExpr = filterExpr;
+    @Override
+    public Expression getFilterExpression() {
+        NereidsParser nereidsParser = new NereidsParser();
+        return nereidsParser.parseExpression(filterExpr);
     }
 
     @Override
     public String getPolicyIdent() {
         return getPolicyId() + ":" + getPolicyVersion();
+    }
+
+    @Override
+    public String toString() {
+        return "RangerRowFilterPolicy{"
+                + "userIdentity=" + userIdentity
+                + ", ctl='" + ctl + '\''
+                + ", db='" + db + '\''
+                + ", tbl='" + tbl + '\''
+                + ", policyId=" + policyId
+                + ", policyVersion=" + policyVersion
+                + ", filterExpr='" + filterExpr + '\''
+                + '}';
     }
 }
