@@ -137,13 +137,4 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         commonParams.put("lastAnalyzeTimeInMs", String.valueOf(System.currentTimeMillis()));
         return commonParams;
     }
-
-    @Override
-    protected void afterExecution() {
-        // Table level task doesn't need to sync any value to sync stats, it stores the value in metadata.
-        if (isTableLevelTask) {
-            return;
-        }
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
-    }
 }

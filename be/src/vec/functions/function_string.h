@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +26,7 @@
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
+#include <cstdlib>
 #include <memory>
 #include <ostream>
 #include <tuple>
@@ -35,6 +35,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
@@ -53,6 +54,7 @@
 #include "vec/common/memcpy_small.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -121,6 +123,14 @@ struct StringOP {
         chars.insert(string_value.data(), string_value.data() + string_value.size());
         offsets[index] = chars.size();
     }
+
+    static void push_value_string_reserved_and_allow_overflow(const std::string_view& string_value,
+                                                              int index, ColumnString::Chars& chars,
+                                                              ColumnString::Offsets& offsets) {
+        chars.insert_assume_reserved_and_allow_overflow(string_value.data(),
+                                                        string_value.data() + string_value.size());
+        offsets[index] = chars.size();
+    }
 };
 
 struct SubstringUtil {
@@ -148,30 +158,37 @@ struct SubstringUtil {
             check_set_nullable(argument_columns[i], null_map, col_const[i]);
         }
 
-        auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
-        auto specific_start_column =
+        const auto* specific_str_column =
+                assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* specific_start_column =
                 assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get());
-        auto specific_len_column =
+        const auto* specific_len_column =
                 assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
-        if (col_const[1] && col_const[2]) {
-            vectors<true>(specific_str_column->get_chars(), specific_str_column->get_offsets(),
-                          specific_start_column->get_data(), specific_len_column->get_data(),
-                          null_map->get_data(), res->get_chars(), res->get_offsets());
-        } else {
-            vectors<false>(specific_str_column->get_chars(), specific_str_column->get_offsets(),
-                           specific_start_column->get_data(), specific_len_column->get_data(),
-                           null_map->get_data(), res->get_chars(), res->get_offsets());
+
+        auto vectors = vectors_utf8<false>;
+        bool is_ascii = simd::VStringFunctions::is_ascii(
+                {specific_str_column->get_chars().data(), specific_str_column->get_chars().size()});
+        if (col_const[1] && col_const[2] && is_ascii) {
+            vectors = vectors_ascii<true>;
+        } else if (col_const[1] && col_const[2]) {
+            vectors = vectors_utf8<true>;
+        } else if (is_ascii) {
+            vectors = vectors_ascii<false>;
         }
+        vectors(specific_str_column->get_chars(), specific_str_column->get_offsets(),
+                specific_start_column->get_data(), specific_len_column->get_data(),
+                null_map->get_data(), res->get_chars(), res->get_offsets());
+
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
     }
 
 private:
-    template <bool Const>
-    static void vectors(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
-                        const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                        NullMap& null_map, ColumnString::Chars& res_chars,
-                        ColumnString::Offsets& res_offsets) {
+    template <bool is_const>
+    static void vectors_utf8(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
+                             const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+                             NullMap& null_map, ColumnString::Chars& res_chars,
+                             ColumnString::Offsets& res_offsets) {
         size_t size = offsets.size();
         res_offsets.resize(size);
         res_chars.reserve(chars.size());
@@ -180,119 +197,105 @@ private:
         PMR::monotonic_buffer_resource pool {buf.data(), buf.size()};
         PMR::vector<size_t> index {&pool};
 
-        auto* __restrict data_ptr = chars.data();
-        auto* __restrict offset_ptr = offsets.data();
-
-        if constexpr (Const) {
-            const auto start_value = start[0];
-            const auto len_value = len[0];
-            if (start_value == 0 || len_value <= 0) {
+        if constexpr (is_const) {
+            if (start[0] == 0 || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
+                return;
+            }
+        }
+
+        for (size_t i = 0; i < size; ++i) {
+            int str_size = offsets[i] - offsets[i - 1];
+            const char* str_data = (char*)chars.data() + offsets[i - 1];
+            int start_value = is_const ? start[0] : start[i];
+            int len_value = is_const ? len[0] : len[i];
+
+            // return empty string if start > src.length
+            if (start_value > str_size || str_size == 0 || start_value == 0 || len_value <= 0) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+
+            size_t byte_pos = 0;
+            index.clear();
+            for (size_t j = 0, char_size = 0; j < str_size; j += char_size) {
+                char_size = get_utf8_byte_length(str_data[j]);
+                index.push_back(j);
+                if (start_value > 0 && index.size() > start_value + len_value) {
+                    break;
+                }
+            }
+
+            int fixed_pos = start_value;
+            if (fixed_pos < -(int)index.size()) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+            if (fixed_pos < 0) {
+                fixed_pos = index.size() + fixed_pos + 1;
+            }
+            if (fixed_pos > index.size()) {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map);
+                continue;
+            }
+
+            byte_pos = index[fixed_pos - 1];
+            size_t fixed_len = str_size - byte_pos;
+            if (fixed_pos + len_value <= index.size()) {
+                fixed_len = index[fixed_pos + len_value - 1] - byte_pos;
+            }
+
+            if (byte_pos <= str_size && fixed_len > 0) {
+                StringOP::push_value_string_reserved_and_allow_overflow(
+                        {str_data + byte_pos, fixed_len}, i, res_chars, res_offsets);
             } else {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+            }
+        }
+    }
+
+    template <bool is_const>
+    static void vectors_ascii(const ColumnString::Chars& chars,
+                              const ColumnString::Offsets& offsets,
+                              const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+                              NullMap& null_map, ColumnString::Chars& res_chars,
+                              ColumnString::Offsets& res_offsets) {
+        size_t size = offsets.size();
+        res_offsets.resize(size);
+
+        if constexpr (is_const) {
+            if (start[0] == 0 || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
-                    const int str_size = offset_ptr[i] - offset_ptr[i - 1];
-                    const uint8_t* raw_str = data_ptr + offset_ptr[i - 1];
-                    // return empty string if start > src.length
-                    if (start_value > str_size || start_value < -str_size || str_size == 0) {
-                        StringOP::push_empty_string(i, res_chars, res_offsets);
-                        continue;
-                    }
-                    // reference to string_function.cpp: substring
-                    size_t byte_pos = 0;
-                    index.clear();
-                    for (size_t j = 0, char_size = 0;
-                         j < str_size &&
-                         (start_value <= 0 || index.size() <= start_value + len_value);
-                         j += char_size) {
-                        char_size = UTF8_BYTE_LENGTH[(unsigned char)(raw_str)[j]];
-                        index.push_back(j);
-                    }
-
-                    int fixed_pos = start_value;
-                    if (fixed_pos < 0) {
-                        fixed_pos = str_size + fixed_pos + 1;
-                    } else if (fixed_pos > index.size()) {
-                        StringOP::push_null_string(i, res_chars, res_offsets, null_map);
-                        continue;
-                    }
-
-                    byte_pos = index[fixed_pos - 1];
-                    int fixed_len = str_size - byte_pos;
-                    if (fixed_pos + len_value <= index.size()) {
-                        fixed_len = index[fixed_pos + len_value - 1] - byte_pos;
-                    }
-
-                    if (byte_pos <= str_size && fixed_len > 0) {
-                        // return StringRef(str.data + byte_pos, fixed_len);
-                        StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(raw_str + byte_pos),
-                                                  (size_t)fixed_len},
-                                i, res_chars, res_offsets);
-                    } else {
-                        StringOP::push_empty_string(i, res_chars, res_offsets);
-                    }
+                    StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
+                return;
             }
+            res_chars.reserve(std::min(chars.size(), len[0] * size));
         } else {
-            PMR::vector<std::pair<const unsigned char*, int>> strs(&pool);
-            strs.resize(size);
-            for (int i = 0; i < size; ++i) {
-                strs[i].first = data_ptr + offset_ptr[i - 1];
-                strs[i].second = offset_ptr[i] - offset_ptr[i - 1];
+            res_chars.reserve(chars.size());
+        }
+
+        for (size_t i = 0; i < size; ++i) {
+            int str_size = offsets[i] - offsets[i - 1];
+            const char* str_data = (char*)chars.data() + offsets[i - 1];
+
+            int start_value = is_const ? start[0] : start[i];
+            int len_value = is_const ? len[0] : len[i];
+
+            if (start_value > str_size || start_value < -str_size || str_size == 0 ||
+                len_value <= 0) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
             }
-
-            for (size_t i = 0; i < size; ++i) {
-                auto [raw_str, str_size] = strs[i];
-                const auto& start_value = start[i];
-                const auto& len_value = len[i];
-
-                // return empty string if start > src.length
-                if (start_value > str_size || str_size == 0 || start_value == 0 || len_value <= 0) {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
-                    continue;
-                }
-                // reference to string_function.cpp: substring
-                size_t byte_pos = 0;
-                index.clear();
-                for (size_t j = 0, char_size = 0; j < str_size; j += char_size) {
-                    char_size = UTF8_BYTE_LENGTH[(unsigned char)(raw_str)[j]];
-                    index.push_back(j);
-                    if (start_value > 0 && index.size() > start_value + len_value) {
-                        break;
-                    }
-                }
-
-                int fixed_pos = start_value;
-                if (fixed_pos < -(int)index.size()) {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
-                    continue;
-                }
-                if (fixed_pos < 0) {
-                    fixed_pos = index.size() + fixed_pos + 1;
-                }
-                if (fixed_pos > index.size()) {
-                    StringOP::push_null_string(i, res_chars, res_offsets, null_map);
-                    continue;
-                }
-
-                byte_pos = index[fixed_pos - 1];
-                int fixed_len = str_size - byte_pos;
-                if (fixed_pos + len_value <= index.size()) {
-                    fixed_len = index[fixed_pos + len_value - 1] - byte_pos;
-                }
-
-                if (byte_pos <= str_size && fixed_len > 0) {
-                    // return StringRef(str.data + byte_pos, fixed_len);
-                    StringOP::push_value_string(
-                            std::string_view {reinterpret_cast<const char*>(raw_str + byte_pos),
-                                              (size_t)fixed_len},
-                            i, res_chars, res_offsets);
-                } else {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
-                }
+            int fixed_pos = start_value - 1;
+            if (fixed_pos < 0) {
+                fixed_pos = str_size + fixed_pos + 1;
             }
+            size_t fixed_len = std::min(str_size - fixed_pos, len_value);
+            StringOP::push_value_string_reserved_and_allow_overflow(
+                    {str_data + fixed_pos, fixed_len}, i, res_chars, res_offsets);
         }
     }
 };
@@ -2353,10 +2356,15 @@ template <typename Impl>
 class FunctionMoneyFormat : public IFunction {
 public:
     static constexpr auto name = "money_format";
-    static FunctionPtr create() { return std::make_shared<FunctionMoneyFormat<Impl>>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMoneyFormat>(); }
     String get_name() const override { return name; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments.size() != 1) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Function {} requires exactly 1 argument", name);
+        }
+
         return std::make_shared<DataTypeString>();
     }
     DataTypes get_variadic_argument_types_impl() const override {
@@ -2429,9 +2437,11 @@ struct MoneyFormatDoubleImpl {
     static void execute(FunctionContext* context, ColumnString* result_column,
                         const ColumnPtr col_ptr, size_t input_rows_count) {
         const auto* data_column = assert_cast<const ColumnVector<Float64>*>(col_ptr.get());
+        // when scale is above 38, we will go here
         for (size_t i = 0; i < input_rows_count; i++) {
+            // truncate to 2 decimal places, keep same with mysql
             double value =
-                    MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
+                    MathFunctions::my_double_round(data_column->get_element(i), 2, false, true);
             StringRef str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
             result_column->insert_data(str.data, str.size);
         }
@@ -2488,8 +2498,8 @@ struct MoneyFormatDecimalImpl {
         } else if (auto* decimal32_column =
                            check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
-            const auto multiplier =
-                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            // scale is up to 9, so exp10_i32 is enough
+            const auto multiplier = common::exp10_i32(std::abs(static_cast<int>(scale - 2)));
             for (size_t i = 0; i < input_rows_count; i++) {
                 Decimal32 frac_part = decimal32_column->get_fractional_part(i);
                 if (scale > 2) {
@@ -2507,8 +2517,8 @@ struct MoneyFormatDecimalImpl {
         } else if (auto* decimal64_column =
                            check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
-            const auto multiplier =
-                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            // 9 < scale <= 18
+            const auto multiplier = common::exp10_i64(std::abs(static_cast<int>(scale - 2)));
             for (size_t i = 0; i < input_rows_count; i++) {
                 Decimal64 frac_part = decimal64_column->get_fractional_part(i);
                 if (scale > 2) {
@@ -2526,8 +2536,8 @@ struct MoneyFormatDecimalImpl {
         } else if (auto* decimal128_column =
                            check_and_get_column<ColumnDecimal<Decimal128I>>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
-            const auto multiplier =
-                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            // 18 < scale <= 38
+            const auto multiplier = common::exp10_i128(std::abs(static_cast<int>(scale - 2)));
             for (size_t i = 0; i < input_rows_count; i++) {
                 Decimal128I frac_part = decimal128_column->get_fractional_part(i);
                 if (scale > 2) {
@@ -2542,6 +2552,9 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
+        } else {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Not supported input argument type {}", col_ptr->get_name());
         }
     }
 };
@@ -3026,7 +3039,7 @@ public:
 // +---------------------------------------------------------------------------------------------+
 // | char(0xe5, 0xa4, 0x9a, 0xe7, 0x9d, 0xbf, 0xe4, 0xb8, 0x9d, 68, 111, 114, 105, 115 using utf8) |
 // +---------------------------------------------------------------------------------------------+
-// | 多睿丝Doris                                                                                 |
+// | 多睿丝 Doris                                                                                 |
 // +---------------------------------------------------------------------------------------------+
 // mysql> select char(68, 111, 114, 0, 105, null, 115 using utf8);
 // +--------------------------------------------------+
@@ -3279,7 +3292,7 @@ private:
     void integer_to_char_(int line_num, const int* num, ColumnString::Chars& chars,
                           IColumn::Offsets& offsets) {
         if (0 == *num) {
-            chars.push_back(' ');
+            chars.push_back('\0');
             offsets[line_num] = offsets[line_num - 1] + 1;
             return;
         }
@@ -3293,7 +3306,7 @@ private:
         }
         offsets[line_num] = offsets[line_num - 1] + k + 1;
         for (; k >= 0; --k) {
-            chars.push_back(bytes[k] ? bytes[k] : ' ');
+            chars.push_back(bytes[k] ? bytes[k] : '\0');
         }
 #else
         int k = 0;
@@ -3304,7 +3317,7 @@ private:
         }
         offsets[line_num] = offsets[line_num - 1] + 4 - k;
         for (; k < 4; ++k) {
-            chars.push_back(bytes[k] ? bytes[k] : ' ');
+            chars.push_back(bytes[k] ? bytes[k] : '\0');
         }
 #endif
     }

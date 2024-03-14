@@ -140,8 +140,16 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
             inverted_index_ctx.char_filter_map =
                     get_parser_char_filter_map_from_properties(properties);
-            auto analyzer =
-                    doris::segment_v2::InvertedIndexReader::create_analyzer(&inverted_index_ctx);
+
+            std::unique_ptr<lucene::analysis::Analyzer> analyzer;
+            try {
+                analyzer = doris::segment_v2::InvertedIndexReader::create_analyzer(
+                        &inverted_index_ctx);
+            } catch (CLuceneError& e) {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                        "inverted index create analyzer failed: {}", e.what());
+            }
+
             inverted_index_ctx.analyzer = analyzer.get();
             _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,
                          dest_nested_null_map);

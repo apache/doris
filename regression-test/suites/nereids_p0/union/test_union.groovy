@@ -320,4 +320,27 @@ suite("test_union") {
       sql """ insert into  ${tblName1} values("1", "2", "3"),("2", "3", "4") """
 
       qt_sql """ select a_key from (select * from ${tblName1} UNION ALL select * from ${tblName2}) t ORDER BY a_key + 1"""
+
+      sql """DROP TABLE IF EXISTS c5770_t1"""
+      sql """CREATE TABLE c5770_t1 (
+            `id` varchar(10) NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+      sql """DROP TABLE IF EXISTS c5770_t2"""
+      sql """CREATE TABLE c5770_t2 (
+            `id` varchar(20) NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+      explain {
+        sql("""select id from ( select id from c5770_t1 union all select id from c5770_t2 ) t;""")
+        contains("CAST")
+      }
 }

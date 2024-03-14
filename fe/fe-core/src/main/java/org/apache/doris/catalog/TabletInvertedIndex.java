@@ -809,22 +809,42 @@ public class TabletInvertedIndex {
 
     // just for ut
     public Table<Long, Long, Replica> getReplicaMetaTable() {
-        return replicaMetaTable;
+        long stamp = readLock();
+        try {
+            return HashBasedTable.create(replicaMetaTable);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     // just for ut
     public Table<Long, Long, Replica> getBackingReplicaMetaTable() {
-        return backingReplicaMetaTable;
+        long stamp = readLock();
+        try {
+            return HashBasedTable.create(backingReplicaMetaTable);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     // just for ut
     public Table<Long, Long, TabletMeta> getTabletMetaTable() {
-        return tabletMetaTable;
+        long stamp = readLock();
+        try {
+            return HashBasedTable.create(tabletMetaTable);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     // just for ut
     public Map<Long, TabletMeta> getTabletMetaMap() {
-        return tabletMetaMap;
+        long stamp = readLock();
+        try {
+            return new HashMap(tabletMetaMap);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     private boolean isLocal(TStorageMedium storageMedium) {

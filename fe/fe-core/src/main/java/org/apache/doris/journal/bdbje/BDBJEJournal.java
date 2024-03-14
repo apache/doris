@@ -276,6 +276,15 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
     @Override
     public long getMaxJournalId() {
+        return getMaxJournalIdInternal(true);
+    }
+
+    // get max journal id but do not check whether the txn is matched.
+    private long getMaxJournalIdWithoutCheck() {
+        return getMaxJournalIdInternal(false);
+    }
+
+    private long getMaxJournalIdInternal(boolean checkTxnMatched) {
         long ret = -1;
         if (bdbEnvironment == null) {
             return ret;
@@ -292,7 +301,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         String dbName = dbNames.get(index).toString();
         long dbNumberName = dbNames.get(index);
         Database database = bdbEnvironment.openDatabase(dbName);
-        if (!isReplicaTxnAreMatched(database, dbNumberName)) {
+        if (checkTxnMatched && !isReplicaTxnAreMatched(database, dbNumberName)) {
             LOG.warn("The current replica hasn't synced up with the master, current db name: {}", dbNumberName);
             if (index != 0) {
                 // Because roll journal occurs after write, the previous write must have
@@ -423,7 +432,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 }
 
                 // set next journal id
-                nextJournalId.set(getMaxJournalId() + 1);
+                nextJournalId.set(getMaxJournalIdWithoutCheck() + 1);
 
                 break;
             } catch (InsufficientLogException insufficientLogEx) {
@@ -555,6 +564,13 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 }
             } catch (RollbackException rollbackEx) {
                 if (!Env.isCheckpointThread()) {
+                    // Because Doris FE can not rollback its edit log, so it should restart and replay the new master's
+                    // edit log.
+                    if (rollbackEx.getEarliestTransactionId() != 0) {
+                        LOG.error("Catch rollback log exception and it may have replayed outdated "
+                                + "logs, so exec System.exit(-1).", rollbackEx);
+                        System.exit(-1);
+                    }
                     LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
                     bdbEnvironment.closeReplicatedEnvironment();
                     bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));

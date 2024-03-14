@@ -176,7 +176,6 @@ ALTER TABLE session_data ADD ROLLUP rollup_browser(browser,province,ip,url) DUPL
 - 增加、删除列
 - 修改列类型
 - 调整列顺序
-- 增加、修改 Bloom Filter
-- 增加、删除 bitmap index
+- 增加、删除索引
 
 具体请参照 [Schema 变更](../advanced/alter-table/schema-change.md)

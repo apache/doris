@@ -113,7 +113,7 @@ We generate a sparse index of short key every N rows (configurable) with the con
 
 ### Column's other indexes ###
 
-The format design supports the subsequent expansion of other index information, such as bitmap index, spatial index, etc. It only needs to write the required data to the existing column data, and add the corresponding metadata fields to FileFooterPB.
+The format design supports the subsequent expansion of other index information, such as inverted index, spatial index, etc. It only needs to write the required data to the existing column data, and add the corresponding metadata fields to FileFooterPB.
 
 ### Metadata Definition ###
 SegmentFooterPB is defined as:
@@ -210,7 +210,7 @@ Relevant issues:
 1. Read the magic of the file and judge the type and version of the file.
 2. Read FileFooterPB and check sum
 3. Read short key index and data ordinal index information of corresponding columns according to required columns
-4. Use start key and end key, locate the row number to be read through short key index, then determine the row ranges to be read through ordinal index, and filter the row ranges to be read through statistics, bitmap index and so on.
+4. Use start key and end key, locate the row number to be read through short key index, then determine the row ranges to be read through ordinal index, and filter the row ranges to be read through statistics, inverted index and so on.
 5. Then read row data through ordinal index according to row ranges
 
 Relevant issues:
@@ -232,4 +232,4 @@ It implements a scalable compression framework, supports a variety of compressio
 
 ## TODO ##
 1. How to implement nested types? How to locate line numbers in nested types?
-2. How to optimize the downstream bitmap and column statistics caused by ScanRange splitting?
+2. How to optimize the downstream inverted index and column statistics caused by ScanRange splitting?

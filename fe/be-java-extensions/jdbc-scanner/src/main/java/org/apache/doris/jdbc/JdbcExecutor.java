@@ -34,6 +34,7 @@ import com.clickhouse.data.value.UnsignedInteger;
 import com.clickhouse.data.value.UnsignedLong;
 import com.clickhouse.data.value.UnsignedShort;
 import com.google.common.base.Preconditions;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.vesoft.nebula.client.graph.data.ValueWrapper;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -84,14 +85,9 @@ public class JdbcExecutor {
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
     private DruidDataSource druidDataSource = null;
-    private byte[] druidDataSourceLock = new byte[0];
-    private int minPoolSize;
-    private int maxPoolSize;
-    private int minIdleSize;
-    private int maxIdleTime;
-    private int maxWaitTime;
-    private boolean isKeepAlive;
+    private final byte[] druidDataSourceLock = new byte[0];
     private TOdbcTableType tableType;
+    private JdbcDataSourceConfig config;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -102,20 +98,23 @@ public class JdbcExecutor {
             throw new InternalException(e.getMessage());
         }
         tableType = request.table_type;
-        minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
-        maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
-        maxIdleTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDLE_TIME", "300000"));
-        maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
-        isKeepAlive = Boolean.valueOf(System.getProperty("JDBC_KEEP_ALIVE", "false"));
-        minIdleSize = minPoolSize > 0 ? 1 : 0;
-        LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
-                + ", maxPoolSize = " + maxPoolSize
-                + ", maxIdleTime = " + maxIdleTime
-                + ", maxWaitTime = " + maxWaitTime
-                + ", minIdleSize = " + minIdleSize
-                + ", isKeepAlive = " + isKeepAlive);
-        init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
-                request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
+        this.config = new JdbcDataSourceConfig()
+                .setCatalogId(request.catalog_id)
+                .setJdbcUser(request.jdbc_user)
+                .setJdbcPassword(request.jdbc_password)
+                .setJdbcUrl(request.jdbc_url)
+                .setJdbcDriverUrl(request.driver_path)
+                .setJdbcDriverClass(request.jdbc_driver_class)
+                .setBatchSize(request.batch_size)
+                .setOp(request.op)
+                .setTableType(request.table_type)
+                .setConnectionPoolMinSize(request.connection_pool_min_size)
+                .setConnectionPoolMaxSize(request.connection_pool_max_size)
+                .setConnectionPoolMaxWaitTime(request.connection_pool_max_wait_time)
+                .setConnectionPoolMaxLifeTime(request.connection_pool_max_life_time)
+                .setConnectionPoolKeepAlive(request.connection_pool_keep_alive);
+        JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
+        init(config, request.statement);
     }
 
     public boolean isNebula() {
@@ -123,24 +122,62 @@ public class JdbcExecutor {
     }
 
     public void close() throws Exception {
-        if (resultSet != null) {
-            resultSet.close();
+        try {
+            if (stmt != null) {
+                try {
+                    stmt.cancel();
+                } catch (SQLException e) {
+                    LOG.error("Error cancelling statement", e);
+                }
+            }
+
+            boolean shouldAbort = conn != null && resultSet != null
+                    && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER);
+            boolean aborted = false; // Used to record whether the abort operation is performed
+            if (shouldAbort) {
+                aborted = abortReadConnection(conn, resultSet, tableType);
+            }
+
+            // If no abort operation is performed, the resource needs to be closed manually
+            if (!aborted) {
+                closeResources(resultSet, stmt, conn);
+            }
+        } finally {
+            if (config.getConnectionPoolMinSize() == 0 && druidDataSource != null) {
+                druidDataSource.close();
+                JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+                druidDataSource = null;
+            }
         }
-        if (stmt != null) {
-            stmt.close();
+    }
+
+    private void closeResources(AutoCloseable... closeables) {
+        for (AutoCloseable closeable : closeables) {
+            if (closeable != null) {
+                try {
+                    if (closeable instanceof Connection) {
+                        if (!((Connection) closeable).isClosed()) {
+                            closeable.close();
+                        }
+                    } else {
+                        closeable.close();
+                    }
+                } catch (Exception e) {
+                    LOG.error("Cannot close resource: ", e);
+                }
+            }
         }
-        if (conn != null) {
-            conn.close();
+    }
+
+    public boolean abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
+            throws SQLException {
+        if (!resultSet.isAfterLast() && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER)) {
+            // Abort connection before closing. Without this, the MySQL/SQLServer driver
+            // attempts to drain the connection by reading all the results.
+            connection.abort(MoreExecutors.directExecutor());
+            return true;
         }
-        if (minIdleSize == 0) {
-            // it can be immediately closed if there is no need to maintain the cache of datasource
-            druidDataSource.close();
-            JdbcDataSource.getDataSource().getSourcesMap().clear();
-            druidDataSource = null;
-        }
-        resultSet = null;
-        stmt = null;
-        conn = null;
+        return false;
     }
 
     public int read() throws UdfRuntimeException {
@@ -410,19 +447,18 @@ public class JdbcExecutor {
         }
     }
 
-    private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
-            String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
-        String druidDataSourceKey = JdbcDataSource.getDataSource().createCacheKey(jdbcUrl, jdbcUser, jdbcPassword,
-                driverUrl, driverClass);
+    private void init(JdbcDataSourceConfig config, String sql) throws UdfRuntimeException {
+        String druidDataSourceKey = config.createCacheKey();
         try {
             if (isNebula()) {
-                batchSizeNum = batchSize;
-                Class.forName(driverClass);
-                conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
+                batchSizeNum = config.getBatchSize();
+                Class.forName(config.getJdbcDriverClass());
+                conn = DriverManager.getConnection(config.getJdbcDriverClass(), config.getJdbcUser(),
+                                                   config.getJdbcPassword());
                 stmt = conn.prepareStatement(sql);
             } else {
                 ClassLoader parent = getClass().getClassLoader();
-                ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
+                ClassLoader classLoader = UdfUtils.getClassLoader(config.getJdbcDriverUrl(), parent);
                 druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
                 if (druidDataSource == null) {
                     synchronized (druidDataSourceLock) {
@@ -431,53 +467,61 @@ public class JdbcExecutor {
                             long start = System.currentTimeMillis();
                             DruidDataSource ds = new DruidDataSource();
                             ds.setDriverClassLoader(classLoader);
-                            ds.setDriverClassName(driverClass);
-                            ds.setUrl(jdbcUrl);
-                            ds.setUsername(jdbcUser);
-                            ds.setPassword(jdbcPassword);
-                            ds.setMinIdle(minIdleSize);
-                            ds.setInitialSize(minPoolSize);
-                            ds.setMaxActive(maxPoolSize);
-                            ds.setMaxWait(maxWaitTime);
+                            ds.setDriverClassName(config.getJdbcDriverClass());
+                            ds.setUrl(config.getJdbcUrl());
+                            ds.setUsername(config.getJdbcUser());
+                            ds.setPassword(config.getJdbcPassword());
+                            ds.setMinIdle(config.getConnectionPoolMinSize()); // default 1
+                            ds.setInitialSize(config.getConnectionPoolMinSize()); // default 1
+                            ds.setMaxActive(config.getConnectionPoolMaxSize()); // default 10
+                            ds.setMaxWait(config.getConnectionPoolMaxWaitTime()); // default 5000
                             ds.setTestWhileIdle(true);
                             ds.setTestOnBorrow(false);
-                            setValidationQuery(ds, tableType);
-                            ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
-                            ds.setMinEvictableIdleTimeMillis(maxIdleTime);
-                            ds.setKeepAlive(isKeepAlive);
+                            setValidationQuery(ds, config.getTableType());
+                            // default 3 min
+                            ds.setTimeBetweenEvictionRunsMillis(config.getConnectionPoolMaxLifeTime() / 10L);
+                            // default 15 min
+                            ds.setMinEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime() / 2L);
+                            // default 30 min
+                            ds.setMaxEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime());
+                            ds.setKeepAlive(config.isConnectionPoolKeepAlive());
+                            // default 6 min
+                            ds.setKeepAliveBetweenTimeMillis(config.getConnectionPoolMaxLifeTime() / 5L);
                             druidDataSource = ds;
-                            // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
-                            // jdbcPassword) as key.
-                            // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
-                            // time greater than 10 minutes. then connection will be retrieved.
                             JdbcDataSource.getDataSource().putSource(druidDataSourceKey, ds);
-                            LOG.info("init datasource [" + (jdbcUrl + jdbcUser) + "] cost: " + (
+                            LOG.info("JdbcClient set"
+                                     + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
+                                     + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
+                                     + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
+                                     + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime()
+                                     + ", ConnectionPoolKeepAlive = " + config.isConnectionPoolKeepAlive());
+                            LOG.info("init datasource [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
                                     System.currentTimeMillis() - start) + " ms");
                         }
                     }
                 }
-
                 long start = System.currentTimeMillis();
                 conn = druidDataSource.getConnection();
-                LOG.info("get connection [" + (jdbcUrl + jdbcUser) + "] cost: " + (System.currentTimeMillis() - start)
-                        + " ms");
-                if (op == TJdbcOperation.READ) {
+                LOG.info("get connection [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
+                        System.currentTimeMillis() - start)
+                         + " ms");
+                if (config.getOp() == TJdbcOperation.READ) {
                     conn.setAutoCommit(false);
                     Preconditions.checkArgument(sql != null);
                     stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                     if (tableType == TOdbcTableType.MYSQL) {
                         stmt.setFetchSize(Integer.MIN_VALUE);
                     } else {
-                        stmt.setFetchSize(batchSize);
+                        stmt.setFetchSize(config.getBatchSize());
                     }
-                    batchSizeNum = batchSize;
+                    batchSizeNum = config.getBatchSize();
                 } else {
                     LOG.info("insert sql: " + sql);
                     preparedStatement = conn.prepareStatement(sql);
                 }
             }
         } catch (MalformedURLException e) {
-            throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
+            throw new UdfRuntimeException("MalformedURLException to load class about " + config.getJdbcDriverUrl(), e);
         } catch (SQLException e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
         } catch (FileNotFoundException e) {
@@ -1877,6 +1921,53 @@ public class JdbcExecutor {
         return hexString.toString();
     }
 
+    private void byteaPutToSQLServerString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+                                       long offsetsAddr, long charsAddr) {
+        int[] offsets = new int[numRows];
+        byte[][] byteRes = new byte[numRows][];
+        int offset = 0;
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    byteRes[i] = emptyBytes;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    byteRes[i] = sqlserverByteArrayToHexString((byte[]) column[i]).getBytes(StandardCharsets.UTF_8);
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                byteRes[i] = sqlserverByteArrayToHexString((byte[]) column[i]).getBytes(StandardCharsets.UTF_8);
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        }
+        byte[] bytes = new byte[offsets[numRows - 1]];
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
+        int dst = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < byteRes[i].length; j++) {
+                bytes[dst++] = byteRes[i][j];
+            }
+        }
+        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
+        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
+    private String sqlserverByteArrayToHexString(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder("0x");
+        for (byte b : bytes) {
+            String hex = Integer.toHexString(0xFF & b);
+            if (hex.length() == 1) {
+                hexString.append('0');
+            }
+            hexString.append(hex);
+        }
+        return hexString.toString();
+    }
+
     public void copyBatchStringResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long charsAddr) {
         Object[] column = (Object[]) columnObj;
@@ -1901,6 +1992,9 @@ public class JdbcExecutor {
                 || tableType == TOdbcTableType.OCEANBASE)) {
             // for mysql bytea type
             byteaPutToMySQLString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else if (column[firstNotNullIndex] instanceof byte[] && tableType == TOdbcTableType.SQLSERVER) {
+            // for sqlserver bytea type
+            byteaPutToSQLServerString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else if (column[firstNotNullIndex] instanceof oracle.sql.CLOB && tableType == TOdbcTableType.ORACLE) {
             // for oracle clob type
             oracleClobToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
@@ -2182,4 +2276,3 @@ public class JdbcExecutor {
         return i;
     }
 }
-

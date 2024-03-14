@@ -505,7 +505,7 @@ public class Tablet extends MetaObject implements Writable {
                 aliveAndVersionComplete++;
             }
 
-            if (backend.isScheduleAvailable()) {
+            if (replica.isScheduleAvailable()) {
                 if (replica.needFurtherRepair() && (needFurtherRepairReplica == null || !versionCompleted)) {
                     needFurtherRepairReplica = replica;
                 }

@@ -90,4 +90,8 @@ public class BinlogUtils {
         long expireSeconds = currentSeconds - ttlSeconds;
         return expireSeconds * 1000;
     }
+
+    public static String convertTimeToReadable(long time) {
+        return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date(time));
+    }
 }

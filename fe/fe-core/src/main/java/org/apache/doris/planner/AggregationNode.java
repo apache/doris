@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
@@ -363,6 +364,16 @@ public class AggregationNode extends PlanNode {
                 result.add(tupleDesc.getMaterializedSlots().get(0).getId());
             }
         }
+        // if some input slot for aggregate slot which is not materialized, we need to remove it from the result
+        TupleDescriptor tupleDescriptor = aggInfo.getOutputTupleDesc();
+        ArrayList<SlotDescriptor>  slots = tupleDescriptor.getSlots();
+        for (SlotDescriptor slot : slots) {
+            if (!slot.isMaterialized()) {
+                List<SlotId> unRequestIds = Lists.newArrayList();
+                Expr.getIds(slot.getSourceExprs(), null, unRequestIds);
+                unRequestIds.forEach(result::remove);
+            }
+        }
         return result;
     }
 
@@ -372,6 +383,7 @@ public class AggregationNode extends PlanNode {
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         for (int i = 0; i < groupingExprs.size(); i++) {
             aggInfo.getOutputTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
+            aggInfo.getIntermediateTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
             aggInfo.getOutputTupleDesc().computeMemLayout();
         }
     }

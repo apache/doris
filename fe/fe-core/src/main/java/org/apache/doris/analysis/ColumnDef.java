@@ -534,6 +534,16 @@ public class ColumnDef {
             default:
                 throw new AnalysisException("Unsupported type: " + type);
         }
+        if (null != defaultValueExprDef && defaultValueExprDef.getExprName().equals("now")) {
+            switch (primitiveType) {
+                case DATETIME:
+                case DATETIMEV2:
+                    break;
+                default:
+                    throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
+                            + "cannot use current_timestamp as the default value");
+            }
+        }
     }
 
     public String toSql() {

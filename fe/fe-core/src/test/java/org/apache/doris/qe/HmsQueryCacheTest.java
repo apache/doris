@@ -159,6 +159,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 // mock initSchemaAndUpdateTime and do nothing
                 tbl.initSchemaAndUpdateTime();
                 minTimes = 0;
+
+                tbl.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -203,6 +207,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 // mock initSchemaAndUpdateTime and do nothing
                 tbl2.initSchemaAndUpdateTime();
                 minTimes = 0;
+
+                tbl2.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -254,6 +262,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view1.getUpdateTime();
                 minTimes = 0;
                 result = NOW;
+
+                view1.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -304,6 +316,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view2.getUpdateTime();
                 minTimes = 0;
                 result = NOW;
+
+                view2.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 

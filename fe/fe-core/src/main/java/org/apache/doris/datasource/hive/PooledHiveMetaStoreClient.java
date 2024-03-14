@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -55,6 +56,7 @@ import org.apache.hadoop.hive.metastore.txn.TxnUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.PrivilegedExceptionAction;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.LinkedList;
@@ -88,7 +90,7 @@ public class PooledHiveMetaStoreClient {
     public List<String> getAllDatabases() {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getAllDatabases();
+                return ugiDoAs(client.client::getAllDatabases);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -101,7 +103,7 @@ public class PooledHiveMetaStoreClient {
     public List<String> getAllTables(String dbName) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getAllTables(dbName);
+                return ugiDoAs(() -> client.client.getAllTables(dbName));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -114,7 +116,7 @@ public class PooledHiveMetaStoreClient {
     public boolean tableExists(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.tableExists(dbName, tblName);
+                return ugiDoAs(() -> client.client.tableExists(dbName, tblName));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -133,7 +135,7 @@ public class PooledHiveMetaStoreClient {
         short limited = max <= Short.MAX_VALUE ? (short) max : MAX_LIST_PARTITION_NUM;
         try (CachedClient client = getClient()) {
             try {
-                return client.client.listPartitionNames(dbName, tblName, limited);
+                return ugiDoAs(() -> client.client.listPartitionNames(dbName, tblName, limited));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -146,7 +148,7 @@ public class PooledHiveMetaStoreClient {
     public Partition getPartition(String dbName, String tblName, List<String> partitionValues) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getPartition(dbName, tblName, partitionValues);
+                return ugiDoAs(() -> client.client.getPartition(dbName, tblName, partitionValues));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -160,21 +162,22 @@ public class PooledHiveMetaStoreClient {
     public List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getPartitionsByNames(dbName, tblName, partitionNames);
+                return ugiDoAs(() -> client.client.getPartitionsByNames(dbName, tblName, partitionNames));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
             }
         } catch (Exception e) {
             throw new HMSClientException("failed to get partition for table %s in db %s with value %s", e, tblName,
-                dbName, partitionNames);
+                    dbName, partitionNames);
         }
     }
 
     public List<Partition> getPartitionsByFilter(String dbName, String tblName, String filter) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.listPartitionsByFilter(dbName, tblName, filter, MAX_LIST_PARTITION_NUM);
+                return ugiDoAs(() -> client.client.listPartitionsByFilter(dbName, tblName,
+                        filter, MAX_LIST_PARTITION_NUM));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -188,7 +191,7 @@ public class PooledHiveMetaStoreClient {
     public Table getTable(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getTable(dbName, tblName);
+                return ugiDoAs(() -> client.client.getTable(dbName, tblName));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -201,7 +204,7 @@ public class PooledHiveMetaStoreClient {
     public List<FieldSchema> getSchema(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getSchema(dbName, tblName);
+                return ugiDoAs(() -> client.client.getSchema(dbName, tblName));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -214,7 +217,7 @@ public class PooledHiveMetaStoreClient {
     public List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName, List<String> columns) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getTableColumnStatistics(dbName, tblName, columns);
+                return ugiDoAs(() -> client.client.getTableColumnStatistics(dbName, tblName, columns));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -228,7 +231,7 @@ public class PooledHiveMetaStoreClient {
             String dbName, String tblName, List<String> partNames, List<String> columns) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);
+                return ugiDoAs(() -> client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -241,7 +244,7 @@ public class PooledHiveMetaStoreClient {
     public CurrentNotificationEventId getCurrentNotificationEventId() {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getCurrentNotificationEventId();
+                return ugiDoAs(() -> client.client.getCurrentNotificationEventId());
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -254,12 +257,12 @@ public class PooledHiveMetaStoreClient {
     }
 
     public NotificationEventResponse getNextNotification(long lastEventId,
-            int maxEvents,
-            IMetaStoreClient.NotificationFilter filter)
+                                                         int maxEvents,
+                                                         IMetaStoreClient.NotificationFilter filter)
             throws MetastoreNotificationFetchException {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getNextNotification(lastEventId, maxEvents, filter);
+                return ugiDoAs(() -> client.client.getNextNotification(lastEventId, maxEvents, filter));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -275,7 +278,7 @@ public class PooledHiveMetaStoreClient {
     public long openTxn(String user) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.openTxn(user);
+                return ugiDoAs(() -> client.client.openTxn(user));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -288,7 +291,10 @@ public class PooledHiveMetaStoreClient {
     public void commitTxn(long txnId) {
         try (CachedClient client = getClient()) {
             try {
-                client.client.commitTxn(txnId);
+                ugiDoAs(() -> {
+                    client.client.commitTxn(txnId);
+                    return null;
+                });
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -299,7 +305,7 @@ public class PooledHiveMetaStoreClient {
     }
 
     public void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
-            List<String> partitionNames, long timeoutMs) {
+                                  List<String> partitionNames, long timeoutMs) {
         LockRequestBuilder request = new LockRequestBuilder(queryId).setTransactionId(txnId).setUser(user);
         List<LockComponent> lockComponents = createLockComponentsForRead(tblName, partitionNames);
         for (LockComponent component : lockComponents) {
@@ -308,7 +314,7 @@ public class PooledHiveMetaStoreClient {
         try (CachedClient client = getClient()) {
             LockResponse response;
             try {
-                response = client.client.lock(request.build());
+                response = ugiDoAs(() -> client.client.lock(request.build()));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -338,21 +344,23 @@ public class PooledHiveMetaStoreClient {
                 // Pass currentTxn as 0L to get the recent snapshot of valid transactions in Hive
                 // Do not pass currentTransactionId instead as it will break Hive's listing of delta directories if major compaction
                 // deletes delta directories for valid transactions that existed at the time transaction is opened
-                ValidTxnList validTransactions = client.client.getValidTxns();
-                List<TableValidWriteIds> tableValidWriteIdsList = client.client.getValidWriteIds(
-                        Collections.singletonList(fullTableName), validTransactions.toString());
-                if (tableValidWriteIdsList.size() != 1) {
-                    throw new Exception("tableValidWriteIdsList's size should be 1");
-                }
-                ValidTxnWriteIdList validTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(currentTransactionId,
-                        tableValidWriteIdsList);
-                ValidWriteIdList writeIdList = validTxnWriteIdList.getTableValidWriteIdList(fullTableName);
-                return writeIdList;
-             } catch (Exception e) {
+                return ugiDoAs(() -> {
+                    ValidTxnList validTransactions = client.client.getValidTxns();
+                    List<TableValidWriteIds> tableValidWriteIdsList = client.client.getValidWriteIds(
+                            Collections.singletonList(fullTableName), validTransactions.toString());
+                    if (tableValidWriteIdsList.size() != 1) {
+                        throw new Exception("tableValidWriteIdsList's size should be 1");
+                    }
+                    ValidTxnWriteIdList validTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(currentTransactionId,
+                            tableValidWriteIdsList);
+                    ValidWriteIdList writeIdList = validTxnWriteIdList.getTableValidWriteIdList(fullTableName);
+                    return writeIdList;
+                });
+            } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
             }
-         } catch (Exception e) {
+        } catch (Exception e) {
             // Ignore this exception when the version of hive is not compatible with these apis.
             // Currently, the workaround is using a max watermark.
             LOG.warn("failed to get valid write ids for {}, transaction {}", fullTableName, currentTransactionId, e);
@@ -363,7 +371,7 @@ public class PooledHiveMetaStoreClient {
     private LockResponse checkLock(long lockId) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.checkLock(lockId);
+                return ugiDoAs(() -> client.client.checkLock(lockId));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -400,7 +408,10 @@ public class PooledHiveMetaStoreClient {
     public void heartbeatForTxn(long txnId) {
         try (CachedClient client = getClient()) {
             try {
-                client.client.heartbeat(txnId, txnId);
+                ugiDoAs(() -> {
+                    client.client.heartbeat(txnId, txnId);
+                    return null;
+                });
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -458,6 +469,10 @@ public class PooledHiveMetaStoreClient {
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
         }
+    }
+
+    private <T> T ugiDoAs(PrivilegedExceptionAction<T> action) {
+        return HiveMetaStoreClientHelper.ugiDoAs(hiveConf, action);
     }
 }
 

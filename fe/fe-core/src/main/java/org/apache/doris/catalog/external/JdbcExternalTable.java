@@ -18,13 +18,11 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.JdbcAnalysisTask;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.logging.log4j.LogManager;
@@ -87,6 +85,7 @@ public class JdbcExternalTable extends ExternalTable {
         JdbcExternalCatalog jdbcCatalog = (JdbcExternalCatalog) catalog;
         String fullDbName = this.dbName + "." + this.name;
         JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
+        jdbcTable.setCatalogId(jdbcCatalog.getId());
         jdbcTable.setExternalTableName(fullDbName);
         jdbcTable.setRealDatabaseName(((JdbcExternalCatalog) catalog).getJdbcClient().getRealDatabaseName(this.dbName));
         jdbcTable.setRealTableName(
@@ -99,6 +98,11 @@ public class JdbcExternalTable extends ExternalTable {
         jdbcTable.setDriverUrl(jdbcCatalog.getDriverUrl());
         jdbcTable.setResourceName(jdbcCatalog.getResource());
         jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
+        jdbcTable.setConnectionPoolMinSize(jdbcCatalog.getConnectionPoolMinSize());
+        jdbcTable.setConnectionPoolMaxSize(jdbcCatalog.getConnectionPoolMaxSize());
+        jdbcTable.setConnectionPoolMaxLifeTime(jdbcCatalog.getConnectionPoolMaxLifeTime());
+        jdbcTable.setConnectionPoolMaxWaitTime(jdbcCatalog.getConnectionPoolMaxWaitTime());
+        jdbcTable.setConnectionPoolKeepAlive(jdbcCatalog.isConnectionPoolKeepAlive());
         return jdbcTable;
     }
 
@@ -106,22 +110,5 @@ public class JdbcExternalTable extends ExternalTable {
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         return new JdbcAnalysisTask(info);
-    }
-
-    @Override
-    public long getRowCount() {
-        makeSureInitialized();
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
-        if (tableStats != null) {
-            long rowCount = tableStats.rowCount;
-            LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
-            return rowCount;
-        }
-        return 1;
-    }
-
-    @Override
-    public long estimatedRowCount() {
-        return getRowCount();
     }
 }

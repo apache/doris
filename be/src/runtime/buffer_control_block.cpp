@@ -95,7 +95,9 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
           _is_cancelled(false),
           _buffer_rows(0),
           _buffer_limit(buffer_size),
-          _packet_num(0) {}
+          _packet_num(0) {
+    _query_statistics = std::make_unique<QueryStatistics>();
+}
 
 BufferControlBlock::~BufferControlBlock() {
     cancel();

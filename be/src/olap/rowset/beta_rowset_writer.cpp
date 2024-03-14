@@ -442,6 +442,7 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _next_segment_id = _num_segment.load();
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
+
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
@@ -545,7 +546,7 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     // When building a rowset, we must ensure that the current _segment_writer has been
     // flushed, that is, the current _segment_writer is nullptr
     DCHECK(_segment_writer == nullptr) << "segment must be null when build rowset";
-    _build_rowset_meta(_rowset_meta);
+    RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta, true));
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
@@ -608,7 +609,8 @@ void BetaRowsetWriter::_build_rowset_meta_with_spec_field(
     rowset_meta->set_segments_key_bounds(segments_key_bounds);
 }
 
-void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta) {
+Status BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta,
+                                            bool check_segment_num) {
     int64_t num_seg = _is_segcompacted() ? _num_segcompacted : _num_segment;
     int64_t num_rows_written = 0;
     int64_t total_data_size = 0;
@@ -634,8 +636,18 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     }
 
+    if (check_segment_num && config::check_segment_when_build_rowset_meta) {
+        auto segments_encoded_key_bounds_size = segments_encoded_key_bounds.size();
+        if (segments_encoded_key_bounds_size != num_seg) {
+            return Status::InternalError(
+                    "segments_encoded_key_bounds_size should  equal to _num_seg, "
+                    "segments_encoded_key_bounds_size "
+                    "is: {}, _num_seg is: {}",
+                    segments_encoded_key_bounds_size, num_seg);
+        }
+    }
+
     rowset_meta->set_num_segments(num_seg);
-    // TODO(zhangzhengyu): key_bounds.size() should equal num_seg, but currently not always
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
@@ -650,21 +662,27 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
     } else {
         rowset_meta->set_rowset_state(VISIBLE);
     }
+
+    return Status::OK();
 }
 
-RowsetSharedPtr BetaRowsetWriter::build_tmp() {
+Status BetaRowsetWriter::build_tmp(RowsetSharedPtr& rowset_ptr) {
+    Status status;
     std::shared_ptr<RowsetMeta> rowset_meta_ = std::make_shared<RowsetMeta>();
     *rowset_meta_ = *_rowset_meta;
-    _build_rowset_meta(rowset_meta_);
+    status = _build_rowset_meta(rowset_meta_);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to build rowset meta, res=" << status;
+        return status;
+    }
 
-    RowsetSharedPtr rowset;
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
-                                               rowset_meta_, &rowset);
+    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, rowset_meta_,
+                                          &rowset_ptr);
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
-        return nullptr;
+        return status;
     }
-    return rowset;
+    return Status::OK();
 }
 
 Status BetaRowsetWriter::_do_create_segment_writer(
@@ -688,7 +706,8 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         return Status::Error<INIT_FAILED>("get fs failed");
     }
     io::FileWriterPtr file_writer;
-    Status st = fs->create_file(path, &file_writer);
+    io::FileWriterOptions opts {.create_empty_file = false};
+    Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;

@@ -386,7 +386,7 @@ public class FEFunctionsTest {
                     new StringLiteral("2013-05-17 08:07:05 PM"), new StringLiteral("%Y-%m-%d %r")).getStringValue());
             Assert.assertEquals("2013-05-17 08:07:05", FEFunctions.dateParse(new StringLiteral("2013-05-17 08:07:05"),
                     new StringLiteral("%Y-%m-%d %T")).getStringValue());
-            Assert.assertEquals("2021 52 2022 01", FEFunctions.dateFormat(new DateLiteral("2022-01-01 00:12:42", Type.DATETIMEV2),
+            Assert.assertEquals("2021 52 2021 52", FEFunctions.dateFormat(new DateLiteral("2022-01-01 00:12:42", Type.DATETIMEV2),
                     new StringLiteral("%x %v %X %V")).getStringValue());
             Assert.assertEquals("2023 18 2023 19", FEFunctions.dateFormat(new DateLiteral("2023-05-07 02:41:42", Type.DATETIMEV2),
                     new StringLiteral("%x %v %X %V")).getStringValue());
@@ -705,25 +705,6 @@ public class FEFunctionsTest {
         Assert.assertEquals(expectedResult, actualResult);
     }
 
-    @Test
-    public void timeDiffTest() throws AnalysisException {
-        DateLiteral d1 = new DateLiteral("1019-02-28 00:00:00", Type.DATETIME);
-        DateLiteral d2 = new DateLiteral("2019-02-28 00:00:00", Type.DATETIME);
-        DateLiteral d3 = new DateLiteral("2019-03-28 00:00:00", Type.DATETIME);
-        Assert.assertEquals(31556995543L, FEFunctions.timeDiff(d2, d1).getLongValue());
-        Assert.assertEquals(31559414743L, FEFunctions.timeDiff(d3, d1).getLongValue());
-        Assert.assertEquals(2419200, FEFunctions.timeDiff(d3, d2).getLongValue());
-    }
-
-    @Test
-    public void timeDiffTest2() throws AnalysisException {
-        DateLiteral d1 = new DateLiteral("1019-02-28 00:00:00", Type.DATETIMEV2);
-        DateLiteral d2 = new DateLiteral("2019-02-28 00:00:00", Type.DATETIME);
-        DateLiteral d3 = new DateLiteral("2019-03-28 00:00:00", Type.DATETIMEV2);
-        Assert.assertEquals(31556995543L, FEFunctions.timeDiff(d2, d1).getLongValue());
-        Assert.assertEquals(31559414743L, FEFunctions.timeDiff(d3, d1).getLongValue());
-        Assert.assertEquals(2419200, FEFunctions.timeDiff(d3, d2).getLongValue());
-    }
 
     @Test
     public void timeNowTest() throws AnalysisException {

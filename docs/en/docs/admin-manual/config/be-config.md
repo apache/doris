@@ -1500,3 +1500,13 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
 * Default value: true
+
+#### `default_tzfiles_path`
+
+* Description: Doris comes with its own time zone database. If the time zone file is not found in the system directory, the data in that directory is enabled.
+* Default: "${DORIS_HOME}/zoneinfo"
+
+#### `use_doris_tzfile`
+
+* Description: Whether to use the time zone database that comes with Doris directly. Enabled to stop trying to find in  the system directory.
+* Default: false

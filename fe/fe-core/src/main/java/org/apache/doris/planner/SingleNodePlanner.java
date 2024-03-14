@@ -1367,18 +1367,18 @@ public class SingleNodePlanner {
                 if (olapScanNode.getSelectedPartitionIds().size() == 0 && !FeConstants.runningUnitTest) {
                     continue;
                 }
+                boolean tupleSelectFailed = false;
 
                 try {
                     // select index by the old Rollup selector
                     olapScanNode.selectBestRollupByRollupSelector(analyzer);
                 } catch (UserException e) {
-                    LOG.debug("May no rollup index matched");
+                    tupleSelectFailed = true;
                 }
 
                 // select index by the new Materialized selector
                 MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector
                         .selectBestMV(olapScanNode);
-                boolean tupleSelectFailed = false;
                 if (bestIndexInfo == null) {
                     tupleSelectFailed = true;
                 } else {

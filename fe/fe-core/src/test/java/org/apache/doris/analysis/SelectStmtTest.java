@@ -965,6 +965,11 @@ public class SelectStmtTest {
         OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertEquals(1, sampleTabletIds16.size());
+
+        String sql17 = "SELECT * FROM db1.table1 TABLESAMPLE(15 PERCENT) where siteid != 0";
+        OriginalPlanner planner17 = (OriginalPlanner) dorisAssert.query(sql17).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds17 = ((OlapScanNode) planner17.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(2, sampleTabletIds17.size());
         FeConstants.runningUnitTest = false;
     }
 

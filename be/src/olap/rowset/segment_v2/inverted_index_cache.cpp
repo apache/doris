@@ -43,9 +43,9 @@ InvertedIndexSearcherCache* InvertedIndexSearcherCache::_s_instance = nullptr;
 IndexSearcherPtr InvertedIndexSearcherCache::build_index_searcher(const io::FileSystemSPtr& fs,
                                                                   const std::string& index_dir,
                                                                   const std::string& file_name) {
-    DorisCompoundReader* directory =
-            new DorisCompoundReader(DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
-                                    file_name.c_str(), config::inverted_index_read_buffer_size);
+    DorisCompoundReader* directory = new DorisCompoundReader(
+            DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()), file_name.c_str(),
+            config::inverted_index_read_buffer_size);
     auto closeDirectory = true;
     auto index_searcher =
             std::make_shared<lucene::search::IndexSearcher>(directory, closeDirectory);
@@ -125,6 +125,12 @@ Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& 
             std::unique_ptr<MemTracker>(new MemTracker("InvertedIndexSearcherCacheWithRead"));
 #ifndef BE_TEST
     {
+        bool exists = false;
+        RETURN_IF_ERROR(fs->exists(file_path, &exists));
+        if (!exists) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index path: {} not exist.", file_path);
+        }
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker.get());
         index_searcher = build_index_searcher(fs, index_dir, file_name);
@@ -190,7 +196,7 @@ int64_t InvertedIndexSearcherCache::mem_consumption() {
 
 bool InvertedIndexSearcherCache::_lookup(const InvertedIndexSearcherCache::CacheKey& key,
                                          InvertedIndexCacheHandle* handle) {
-    auto lru_handle = _cache->lookup(key.index_file_path);
+    auto* lru_handle = _cache->lookup(key.index_file_path);
     if (lru_handle == nullptr) {
         return false;
     }

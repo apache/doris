@@ -125,10 +125,11 @@ void BlockedTaskScheduler::_schedule() {
                     _make_task_run(local_blocked_tasks, iter);
                 }
             } else if (task->query_context()->is_timeout(now)) {
-                LOG(WARNING) << "Timeout, query_id=" << print_id(task->query_context()->query_id)
-                             << ", instance_id="
+                LOG(WARNING) << "Timeout of blocking task of query_id="
+                             << print_id(task->query_context()->query_id) << ", instance_id="
                              << print_id(task->fragment_context()->get_fragment_instance_id());
-                task->fragment_context()->cancel(PPlanFragmentCancelReason::TIMEOUT);
+                task->fragment_context()->cancel(PPlanFragmentCancelReason::TIMEOUT,
+                                                 "Query timeout");
 
                 if (task->is_pending_finish()) {
                     task->set_state(PipelineTaskState::PENDING_FINISH);

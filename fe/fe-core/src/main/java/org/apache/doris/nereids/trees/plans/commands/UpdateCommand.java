@@ -22,10 +22,11 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.analysis.SlotBinder;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -94,28 +95,46 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     /**
      * add LogicalOlapTableSink node, public for test.
      */
-    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) throws AnalysisException {
+    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) {
         checkTable(ctx);
 
-        Map<String, Expression> colNameToExpression = Maps.newHashMap();
+        Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo equalTo : assignments) {
             List<String> nameParts = ((UnboundSlot) equalTo.left()).getNameParts();
+            checkAssignmentColumn(ctx, nameParts);
             colNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             if (!column.isVisible()) {
                 continue;
             }
             if (colNameToExpression.containsKey(column.getName())) {
                 Expression expr = colNameToExpression.get(column.getName());
+                // when updating the sequence map column, the real sequence column need to set with the same value.
+                boolean isSequenceMapColumn = targetTable.hasSequenceCol()
+                        && targetTable.getSequenceMapCol() != null
+                        && column.getName().equalsIgnoreCase(targetTable.getSequenceMapCol());
+                if (setExpr == null && isSequenceMapColumn) {
+                    setExpr = expr;
+                }
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
-                        : new Alias(expr));
+                        : new UnboundAlias(expr));
+                colNameToExpression.remove(column.getName());
             } else {
-                selectItems.add(new UnboundSlot(tableName, column.getName()));
+                if (column.isSequenceColumn() && setExpr != null) {
+                    selectItems.add(new UnboundAlias(setExpr, column.getName()));
+                } else {
+                    selectItems.add(new UnboundSlot(tableName, column.getName()));
+                }
             }
+        }
+        if (!colNameToExpression.isEmpty()) {
+            throw new AnalysisException("unknown column in assignment list: "
+                    + String.join(", ", colNameToExpression.keySet()));
         }
 
         logicalQuery = new LogicalProject<>(selectItems, logicalQuery);
@@ -126,6 +145,30 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         // make UnboundTableSink
         return new UnboundOlapTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), logicalQuery);
+    }
+
+    private void checkAssignmentColumn(ConnectContext ctx, List<String> columnNameParts) {
+        if (columnNameParts.size() <= 1) {
+            return;
+        }
+        String dbName = null;
+        String tableName = null;
+        if (columnNameParts.size() == 3) {
+            dbName = columnNameParts.get(0);
+            tableName = columnNameParts.get(1);
+        } else if (columnNameParts.size() == 2) {
+            tableName = columnNameParts.get(0);
+        } else {
+            throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
+        }
+        if (dbName != null && this.tableAlias != null) {
+            throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
+        }
+        List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
+        if (!SlotBinder.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
+                || (dbName != null && SlotBinder.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
+            throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
+        }
     }
 
     private void checkTable(ConnectContext ctx) throws AnalysisException {

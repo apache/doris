@@ -113,6 +113,7 @@ message RowsetMetaPB {
     reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
+    optional int64 compaction_level = 52 [default = 0];
 }
 
 // kv value for reclaiming remote rowset
@@ -315,6 +316,8 @@ message TabletMetaPB {
     optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
+    optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
+    optional int64 time_series_compaction_level_threshold = 33 [default = 1];
 }
 
 message OLAPRawDeltaHeaderMessage {

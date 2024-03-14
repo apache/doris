@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -41,6 +42,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +73,13 @@ public class StatementContext {
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
 
+    // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
+    // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
+    // And hence, when column stats are unknown, even if the tables used by a sql is more than
+    // MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, join reorder should choose cascading framework.
+    // Thus hasUnknownColStats has higher priority than isDpHyp
+    private boolean hasUnknownColStats = false;
+
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
@@ -86,6 +96,11 @@ public class StatementContext {
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
 
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
+    // collect all hash join conditions to compute node connectivity in join graph
+    private final List<Expression> joinFilters = new ArrayList<>();
+    private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
+
+    private final List<Hint> hints = new ArrayList<>();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -230,5 +245,29 @@ public class StatementContext {
 
     public List<String> getViewDdlSqls() {
         return ImmutableList.copyOf(viewDdlSqlSet);
+    }
+
+    public void addHint(Hint hint) {
+        this.hints.add(hint);
+    }
+
+    public List<Hint> getHints() {
+        return ImmutableList.copyOf(hints);
+    }
+
+    public List<Expression> getJoinFilters() {
+        return joinFilters;
+    }
+
+    public void addJoinFilters(Collection<Expression> newJoinFilters) {
+        this.joinFilters.addAll(newJoinFilters);
+    }
+
+    public boolean isHasUnknownColStats() {
+        return hasUnknownColStats;
+    }
+
+    public void setHasUnknownColStats(boolean hasUnknownColStats) {
+        this.hasUnknownColStats = hasUnknownColStats;
     }
 }

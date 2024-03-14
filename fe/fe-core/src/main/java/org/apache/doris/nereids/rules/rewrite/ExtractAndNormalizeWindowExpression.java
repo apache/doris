@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -34,6 +33,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -79,11 +79,21 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
 
             // 2. handle window's outputs and windowExprs
             // need to replace exprs with SlotReference in WindowSpec, due to LogicalWindow.getExpressions()
-            List<NamedExpression> normalizedOutputs1 = context.normalizeToUseSlotRef(outputs);
-            Set<WindowExpression> normalizedWindows =
-                    ExpressionUtils.collect(normalizedOutputs1, WindowExpression.class::isInstance);
 
-            existedAlias = ExpressionUtils.collect(normalizedOutputs1, Alias.class::isInstance);
+            // because alias is pushed down to bottom project
+            // we need replace alias's child expr with corresponding alias's slot in output
+            // so create a customNormalizeMap alias's child -> alias.toSlot to do it
+            Map<Expression, Slot> customNormalizeMap = toBePushedDown.stream()
+                    .filter(expr -> expr instanceof Alias)
+                    .collect(Collectors.toMap(expr -> ((Alias) expr).child(), expr -> ((Alias) expr).toSlot(),
+                            (oldExpr, newExpr) -> oldExpr));
+
+            List<NamedExpression> normalizedOutputs = context.normalizeToUseSlotRef(outputs,
+                    (ctx, expr) -> customNormalizeMap.getOrDefault(expr, null));
+            Set<WindowExpression> normalizedWindows =
+                    ExpressionUtils.collect(normalizedOutputs, WindowExpression.class::isInstance);
+
+            existedAlias = ExpressionUtils.collect(normalizedOutputs, Alias.class::isInstance);
             NormalizeToSlotContext ctxForWindows = NormalizeToSlotContext.buildContext(
                     existedAlias, Sets.newHashSet(normalizedWindows));
 
@@ -93,7 +103,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                     new LogicalWindow<>(ImmutableList.copyOf(normalizedWindowWithAlias), normalizedChild);
 
             // 3. handle top projects
-            List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs1);
+            List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs);
             return project.withProjectsAndChild(topProjects, normalizedLogicalWindow);
         }).toRule(RuleType.EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS);
     }

@@ -60,10 +60,11 @@ statement
 identifierOrText
     : errorCapturingIdentifier
     | STRING_LITERAL
+    | LEADING_STRING
     ;
 
 userIdentify
-    : user=identifierOrText (AT (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
+    : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
 
@@ -191,7 +192,7 @@ havingClause
 selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
-    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
     ;
 
 hintAssignment
@@ -259,7 +260,7 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition?
+    : multipartIdentifier materializedViewName? specifiedPartition?
        tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
@@ -269,6 +270,10 @@ relationPrimary
 
 property
     : key=propertyItem EQ value=propertyItem
+    ;
+
+materializedViewName
+    : INDEX indexName=identifier
     ;
 
 propertyItem : identifier | constant ;
@@ -321,8 +326,8 @@ predicate
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
     | operator=(SUBTRACT | PLUS | TILDE) valueExpression                                     #arithmeticUnary
-    | left=valueExpression operator=(ASTERISK | SLASH | MOD) right=valueExpression           #arithmeticBinary
-    | left=valueExpression operator=(PLUS | SUBTRACT | DIV | HAT | PIPE | AMPERSAND)
+    | left=valueExpression operator=(ASTERISK | SLASH | MOD | DIV) right=valueExpression     #arithmeticBinary
+    | left=valueExpression operator=(PLUS | SUBTRACT | HAT | PIPE | AMPERSAND)
                            right=valueExpression                                             #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     | operator=(BITAND | BITOR | BITXOR) LEFT_PAREN left = valueExpression
@@ -366,6 +371,12 @@ primaryExpression
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
+    | CHAR LEFT_PAREN
+                    arguments+=expression (COMMA arguments+=expression)*
+                    (USING charSet=identifierOrText)?
+              RIGHT_PAREN                                                                     #charFunction
+    | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN       #convertCharSet
+    | CONVERT LEFT_PAREN argument=expression COMMA type=dataType RIGHT_PAREN                  #convertType
     | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
       (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
       (OVER windowSpec)?                                                                        #functionCall
@@ -562,6 +573,7 @@ nonReserved
     | BACKENDS
     | BACKUP
     | BEGIN
+    | BELONG
     | BIN
     | BITAND
     | BITMAP
@@ -581,6 +593,7 @@ nonReserved
     | CHAIN
     | CHAR
     | CHARSET
+    | CHANGE
     | CHECK
     | CLUSTER
     | CLUSTERS
@@ -601,6 +614,15 @@ nonReserved
     | CREATION
     | CRON
     | CURRENT_CATALOG
+    | COMPACTIONS
+    | COMPUTE
+    | CONCATENATE
+    | CONSTRAINT
+    | CONVERT
+    | COST
+    | CREATE
+    | CUBE
+    | CURRENT
     | CURRENT_TIMESTAMP
     | DATA
     | DATE
@@ -683,6 +705,7 @@ nonReserved
     | LAST
     | LDAP
     | LDAP_ADMIN_PASSWORD
+    | LEADING
     | LEFT_BRACE
     | LESS
     | LEVEL
@@ -718,6 +741,7 @@ nonReserved
     | ONLY
     | OPEN
     | OPTIMIZED
+    | ORDERED
     | PARAMETER
     | PARSED
     | PASSWORD

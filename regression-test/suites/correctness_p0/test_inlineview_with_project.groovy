@@ -518,6 +518,50 @@ suite("test_inlineview_with_project") {
                                 FROM test_01 ) TOTAL;
     """
 
+    qt_select5 """
+    SELECT
+        caseId
+    FROM
+        (
+            SELECT
+                caseId,
+                count(judgementDateId)
+            FROM
+                (
+                    SELECT
+                        abs(caseId) AS caseId,
+                        id as judgementDateId
+                    FROM
+                        dr_user_test_t2
+                ) AGG_RESULT
+            GROUP BY
+                caseId
+        ) TOTAL
+        order by 1;
+    """
+
+    qt_select5 """
+    SELECT
+        caseId
+    FROM
+        (
+            SELECT
+                caseId,
+                count(judgementDateId)
+            FROM
+                (
+                    SELECT
+                        caseId AS caseId,
+                        abs(id) as judgementDateId
+                    FROM
+                        dr_user_test_t2
+                ) AGG_RESULT
+            GROUP BY
+                caseId
+        ) TOTAL
+        order by 1;
+    """
+
     sql """DROP TABLE IF EXISTS `dr_user_test_t1`;"""
     sql """DROP TABLE IF EXISTS `dr_user_test_t2`;"""
 }

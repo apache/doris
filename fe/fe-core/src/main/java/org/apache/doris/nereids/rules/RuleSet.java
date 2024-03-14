@@ -73,6 +73,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
+import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
@@ -134,6 +135,7 @@ public class RuleSet {
             new PushdownFilterThroughSetOperation(),
             new PushdownProjectThroughLimit(),
             new EliminateOuterJoin(),
+            new ConvertOuterJoinToAntiJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeGenerates(),
@@ -180,6 +182,14 @@ public class RuleSet {
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .build();
 
+    // left-zig-zag tree is used when column stats are not available.
+    public static final List<Rule> LEFT_ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
+            .add(JoinCommute.LEFT_ZIG_ZAG)
+            .add(InnerJoinLAsscom.LEFT_ZIG_ZAG)
+            .add(InnerJoinLAsscomProject.LEFT_ZIG_ZAG)
+            .addAll(OTHER_REORDER_RULES)
+            .build();
+
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.ZIG_ZAG)
             .add(InnerJoinLAsscom.INSTANCE)
@@ -214,6 +224,10 @@ public class RuleSet {
 
     public List<Rule> getDPHypReorderRules() {
         return DPHYP_REORDER_RULES;
+    }
+
+    public List<Rule> getLeftZigZagTreeJoinReorder() {
+        return LEFT_ZIG_ZAG_TREE_JOIN_REORDER;
     }
 
     public List<Rule> getZigZagTreeJoinReorder() {

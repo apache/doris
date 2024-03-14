@@ -39,7 +39,6 @@
 #include "vec/runtime/vfile_result_writer.h"
 
 namespace doris {
-class QueryStatistics;
 class TExpr;
 } // namespace doris
 
@@ -47,7 +46,6 @@ namespace doris::vectorized {
 
 VResultFileSink::VResultFileSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                  const TResultFileSink& sink, int per_channel_buffer_size,
-                                 bool send_query_statistics_with_every_batch,
                                  const std::vector<TExpr>& t_output_expr)
         : _t_output_expr(t_output_expr), _row_desc(row_desc) {
     CHECK(sink.__isset.file_options);
@@ -66,7 +64,6 @@ VResultFileSink::VResultFileSink(ObjectPool* pool, int sender_id, const RowDescr
                                  const TResultFileSink& sink,
                                  const std::vector<TPlanFragmentDestination>& destinations,
                                  int per_channel_buffer_size,
-                                 bool send_query_statistics_with_every_batch,
                                  const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
         : _t_output_expr(t_output_expr),
           _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false),
@@ -78,8 +75,7 @@ VResultFileSink::VResultFileSink(ObjectPool* pool, int sender_id, const RowDescr
     _is_top_sink = false;
     CHECK_EQ(destinations.size(), 1);
     _stream_sender.reset(new VDataStreamSender(pool, sender_id, row_desc, sink.dest_node_id,
-                                               destinations, per_channel_buffer_size,
-                                               send_query_statistics_with_every_batch));
+                                               destinations, per_channel_buffer_size));
 
     _name = "VResultFileSink";
     //for impl csv_with_name and csv_with_names_and_types
@@ -168,7 +164,7 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
     if (_is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+            _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
             _sender->close(final_status);
         }
         state->exec_env()->result_mgr()->cancel_at_time(
@@ -187,14 +183,6 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
 
     _closed = true;
     return Status::OK();
-}
-
-void VResultFileSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-    if (_is_top_sink) {
-        _sender->set_query_statistics(statistics);
-    } else {
-        _stream_sender->set_query_statistics(statistics);
-    }
 }
 
 } // namespace doris::vectorized

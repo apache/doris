@@ -17,12 +17,16 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -49,7 +53,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     private static final String BASIC_STATS_TEMPLATE = "SELECT "
             + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) as min, "
             + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) as max "
-            + "FROM `${dbName}`.`${tblName}`";
+            + "FROM `${dbName}`.`${tblName}` ${index}";
 
     @VisibleForTesting
     public OlapAnalysisTask() {
@@ -61,7 +65,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     public void doExecute() throws Exception {
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if ((info.emptyJob && info.analysisMethod.equals(AnalysisInfo.AnalysisMethod.SAMPLE))
+        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod)
                 || partitionNames == null || partitionNames.isEmpty()) {
             if (partitionNames == null) {
                 LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
@@ -89,13 +93,16 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         Pair<List<Long>, Long> pair = calcActualSampleTablets(tbl.isPartitionColumn(col.getName()));
         LOG.info("Number of tablets selected {}, rows in tablets {}", pair.first.size(), pair.second);
         List<Long> tabletIds = pair.first;
-        double scaleFactor = (double) tbl.getRowCount() / (double) pair.second;
+        long totalRowCount = info.indexId == -1
+                ? tbl.getRowCount()
+                : ((OlapTable) tbl).getRowCountForIndex(info.indexId);
+        double scaleFactor = (double) totalRowCount / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
         if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
             LOG.warn("Scale factor is infinite or Nan, will set scale factor to 1.");
             scaleFactor = 1;
             tabletIds = Collections.emptyList();
-            pair.second = tbl.getRowCount();
+            pair.second = totalRowCount;
         }
         String tabletStr = tabletIds.stream()
                 .map(Object::toString)
@@ -103,9 +110,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(info.jobType.equals(JobType.SYSTEM))) {
             // Get basic stats, including min and max.
             ResultRow basicStats = collectBasicStat(r);
-            long rowCount = tbl.getRowCount();
-            String min = StatisticsUtil.escapeSQL(basicStats.get(0));
-            String max = StatisticsUtil.escapeSQL(basicStats.get(1));
+            String min = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 0
+                    ? basicStats.get(0) : null);
+            String max = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 1
+                    ? basicStats.get(1) : null);
 
             boolean limitFlag = false;
             long rowsToSample = pair.second;
@@ -120,16 +128,17 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
             params.put("dataSizeFunction", getDataSizeFunction(col, false));
             params.put("dbName", db.getFullName());
-            params.put("colName", info.colName);
+            params.put("colName", StatisticsUtil.escapeColumnName(info.colName));
             params.put("tblName", tbl.getName());
             params.put("scaleFactor", String.valueOf(scaleFactor));
             params.put("sampleHints", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
-            params.put("ndvFunction", getNdvFunction(String.valueOf(rowCount)));
+            params.put("ndvFunction", getNdvFunction(String.valueOf(totalRowCount)));
             params.put("min", StatisticsUtil.quote(min));
             params.put("max", StatisticsUtil.quote(max));
-            params.put("rowCount", String.valueOf(rowCount));
+            params.put("rowCount", String.valueOf(totalRowCount));
             params.put("type", col.getType().toString());
             params.put("limit", "");
+            params.put("index", getIndex());
             if (needLimit()) {
                 // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
                 // the scaleFactor.
@@ -146,7 +155,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             if (useLinearAnalyzeTemplate()) {
                 // For single unique key, use count as ndv.
                 if (isSingleUniqueKey()) {
-                    params.put("ndvFunction", String.valueOf(rowCount));
+                    params.put("ndvFunction", String.valueOf(totalRowCount));
                 } else {
                     params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
                 }
@@ -166,13 +175,30 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     protected ResultRow collectBasicStat(AutoCloseConnectContext context) {
+        // Agg table value columns has no zone map.
+        // For these columns, skip collecting min and max value to avoid scan whole table.
+        if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS) && !col.isKey()) {
+            LOG.info("Aggregation table {} column {} is not a key column, skip collecting min and max.",
+                    tbl.getName(), col.getName());
+            return null;
+        }
+        long startTime = System.currentTimeMillis();
         Map<String, String> params = new HashMap<>();
         params.put("dbName", db.getFullName());
-        params.put("colName", info.colName);
+        params.put("colName", StatisticsUtil.escapeColumnName(info.colName));
         params.put("tblName", tbl.getName());
+        params.put("index", getIndex());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        stmtExecutor = new StmtExecutor(context.connectContext, stringSubstitutor.replace(BASIC_STATS_TEMPLATE));
-        return stmtExecutor.executeInternalQuery().get(0);
+        String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
+        stmtExecutor = new StmtExecutor(context.connectContext, sql);
+        ResultRow resultRow = stmtExecutor.executeInternalQuery().get(0);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime)
+                    + " Min max SQL: " + sql + " QueryId: " + DebugUtil.printId(stmtExecutor.getContext().queryId()));
+        }
+        // Release the reference to stmtExecutor, reduce memory usage.
+        stmtExecutor = null;
+        return resultRow;
     }
 
     /**
@@ -193,14 +219,24 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         params.put("catalogName", catalog.getName());
         params.put("dbName", db.getFullName());
-        params.put("colName", String.valueOf(info.colName));
+        params.put("colName", StatisticsUtil.escapeColumnName(String.valueOf(info.colName)));
         params.put("tblName", String.valueOf(tbl.getName()));
+        params.put("index", getIndex());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String collectColStats = stringSubstitutor.replace(COLLECT_COL_STATISTICS);
         runQuery(collectColStats);
     }
 
-    // Get sample tablets id and scale up scaleFactor
+    protected String getIndex() {
+        if (info.indexId == -1) {
+            return "";
+        } else {
+            OlapTable olapTable = (OlapTable) this.tbl;
+            return "index `" + olapTable.getIndexNameById(info.indexId) + "`";
+        }
+    }
+
+    // Get sample tablets id and sample row count
     protected Pair<List<Long>, Long> calcActualSampleTablets(boolean forPartitionColumn) {
         // Below code copied from OlapScanNode.java
         long sampleRows; // The total number of sample rows
@@ -215,8 +251,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         long actualSampledRowCount = 0;
         boolean enough = false;
         for (Partition p : olapTable.getPartitions()) {
-            List<Long> ids = p.getBaseIndex().getTabletIdsInOrder();
-
+            MaterializedIndex materializedIndex = info.indexId == -1 ? p.getBaseIndex() : p.getIndex(info.indexId);
+            if (materializedIndex == null) {
+                continue;
+            }
+            List<Long> ids = materializedIndex.getTabletIdsInOrder();
             if (ids.isEmpty()) {
                 continue;
             }
@@ -224,11 +263,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             // Skip partitions with row count < row count / 2 expected to be sampled per partition.
             // It can be expected to sample a smaller number of partitions to avoid uneven distribution
             // of sampling results.
-            if (p.getBaseIndex().getRowCount() < (avgRowsPerPartition / 2)) {
+            if (materializedIndex.getRowCount() < (avgRowsPerPartition / 2)) {
                 continue;
             }
-            MaterializedIndex baseIndex = p.getBaseIndex();
-            long avgRowsPerTablet = Math.max(baseIndex.getRowCount() / ids.size(), 1);
+            long avgRowsPerTablet = Math.max(materializedIndex.getRowCount() / ids.size(), 1);
             long tabletCounts = Math.max(
                     avgRowsPerPartition / avgRowsPerTablet + (avgRowsPerPartition % avgRowsPerTablet != 0 ? 1 : 0), 1);
             tabletCounts = Math.min(tabletCounts, ids.size());
@@ -238,13 +276,13 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 int seekTid = (int) ((i + seek) % ids.size());
                 long tabletId = ids.get(seekTid);
                 sampleTabletIds.add(tabletId);
-                actualSampledRowCount += baseIndex.getTablet(tabletId).getRowCount(true);
+                actualSampledRowCount += materializedIndex.getTablet(tabletId).getRowCount(true);
                 if (actualSampledRowCount >= sampleRows && !forPartitionColumn) {
                     enough = true;
                     break;
                 }
             }
-            totalRows += p.getBaseIndex().getRowCount();
+            totalRows += materializedIndex.getRowCount();
             totalTablet += ids.size();
             if (enough) {
                 break;
@@ -299,8 +337,12 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (isSingleUniqueKey()) {
             return true;
         }
+        String columnName = col.getName();
+        if (columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
+            columnName = columnName.substring(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX.length());
+        }
         Set<String> distributionColumns = tbl.getDistributionColumnNames();
-        return distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase());
+        return distributionColumns.size() == 1 && distributionColumns.contains(columnName.toLowerCase());
     }
 
     /**
@@ -308,8 +350,25 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * @return True if the table has a single unique/agg key. False otherwise.
      */
     protected boolean isSingleUniqueKey() {
-        int keysNum = ((OlapTable) tbl).getKeysNum();
-        KeysType keysType = ((OlapTable) tbl).getKeysType();
+        OlapTable olapTable = (OlapTable) this.tbl;
+        List<Column> schema;
+        KeysType keysType;
+        if (info.indexId == -1) {
+            schema = olapTable.getBaseSchema();
+            keysType = olapTable.getKeysType();
+        } else {
+            MaterializedIndexMeta materializedIndexMeta = olapTable.getIndexIdToMeta().get(info.indexId);
+            schema = materializedIndexMeta.getSchema();
+            keysType = materializedIndexMeta.getKeysType();
+        }
+
+        int keysNum = 0;
+        for (Column column : schema) {
+            if (column.isKey()) {
+                keysNum += 1;
+            }
+        }
+
         return col.isKey()
             && keysNum == 1
             && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.AGG_KEYS));

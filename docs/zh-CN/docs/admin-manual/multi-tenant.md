@@ -249,7 +249,7 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
 
   ```sql
    CREATE DATABASE db1 PROPERTIES (
-   "replication_allocation" = "tag.location.group_a:1, tag.location.group_b:2"
+   "replication_allocation" = "tag.location.group_c:1, tag.location.group_b:2"
    )
    ```
    
@@ -260,7 +260,7 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
    (k1 int, k2 int)
    distributed by hash(k1) buckets 1
    properties(
-   "replication_allocation"="tag.location.group_c:1, tag.location.group_b:2"
+   "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
    )
    ```
 

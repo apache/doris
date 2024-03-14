@@ -29,29 +29,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersect;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopback;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPosition;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayProduct;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySize;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayWithConstant;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
@@ -89,6 +66,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
@@ -163,6 +141,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
@@ -402,98 +381,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(array, context);
     }
 
-    default R visitArrayAvg(ArrayAvg arrayAvg, C context) {
-        return visitScalarFunction(arrayAvg, context);
-    }
-
-    default R visitArrayCompact(ArrayCompact arrayCompact, C context) {
-        return visitScalarFunction(arrayCompact, context);
-    }
-
-    default R visitArrayContains(ArrayContains arrayContains, C context) {
-        return visitScalarFunction(arrayContains, context);
-    }
-
-    default R visitArrayDifference(ArrayDifference arrayDifference, C context) {
-        return visitScalarFunction(arrayDifference, context);
-    }
-
-    default R visitArrayDistinct(ArrayDistinct arrayDistinct, C context) {
-        return visitScalarFunction(arrayDistinct, context);
-    }
-
-    default R visitArrayEnumerate(ArrayEnumerate arrayEnumerate, C context) {
-        return visitScalarFunction(arrayEnumerate, context);
-    }
-
-    default R visitArrayExcept(ArrayExcept arrayExcept, C context) {
-        return visitScalarFunction(arrayExcept, context);
-    }
-
-    default R visitArrayIntersect(ArrayIntersect arrayIntersect, C context) {
-        return visitScalarFunction(arrayIntersect, context);
-    }
-
-    default R visitArrayJoin(ArrayJoin arrayJoin, C context) {
-        return visitScalarFunction(arrayJoin, context);
-    }
-
-    default R visitArrayMax(ArrayMax arrayMax, C context) {
-        return visitScalarFunction(arrayMax, context);
-    }
-
-    default R visitArrayMin(ArrayMin arrayMin, C context) {
-        return visitScalarFunction(arrayMin, context);
-    }
-
-    default R visitArrayPopback(ArrayPopback arrayPopback, C context) {
-        return visitScalarFunction(arrayPopback, context);
-    }
-
-    default R visitArrayPosition(ArrayPosition arrayPosition, C context) {
-        return visitScalarFunction(arrayPosition, context);
-    }
-
-    default R visitArrayProduct(ArrayProduct arrayProduct, C context) {
-        return visitScalarFunction(arrayProduct, context);
-    }
-
-    default R visitArrayRange(ArrayRange arrayRange, C context) {
-        return visitScalarFunction(arrayRange, context);
-    }
-
-    default R visitArrayRemove(ArrayRemove arrayRemove, C context) {
-        return visitScalarFunction(arrayRemove, context);
-    }
-
-    default R visitArraySize(ArraySize arraySize, C context) {
-        return visitScalarFunction(arraySize, context);
-    }
-
-    default R visitArraySlice(ArraySlice arraySlice, C context) {
-        return visitScalarFunction(arraySlice, context);
-    }
-
-    default R visitArraySort(ArraySort arraySort, C context) {
-        return visitScalarFunction(arraySort, context);
-    }
-
-    default R visitArraySum(ArraySum arraySum, C context) {
-        return visitScalarFunction(arraySum, context);
-    }
-
-    default R visitArrayUnion(ArrayUnion arrayUnion, C context) {
-        return visitScalarFunction(arrayUnion, context);
-    }
-
-    default R visitArrayWithConstant(ArrayWithConstant arrayWithConstant, C context) {
-        return visitScalarFunction(arrayWithConstant, context);
-    }
-
-    default R visitArraysOverlap(ArraysOverlap arraysOverlap, C context) {
-        return visitScalarFunction(arraysOverlap, context);
-    }
-
     default R visitAscii(Ascii ascii, C context) {
         return visitScalarFunction(ascii, context);
     }
@@ -652,6 +539,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitConcat(Concat concat, C context) {
         return visitScalarFunction(concat, context);
+    }
+
+    default R visitChar(Char charFunc, C context) {
+        return visitScalarFunction(charFunc, context);
     }
 
     default R visitConcatWs(ConcatWs concatWs, C context) {
@@ -987,6 +878,10 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitIf(If function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitIgnore(Ignore function, C context) {
         return visitScalarFunction(function, context);
     }
 

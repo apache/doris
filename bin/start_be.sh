@@ -89,6 +89,8 @@ if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
 fi
 
 # add java libs
+# Must add hadoop libs, because we should load specified jars
+# instead of jars in hadoop libs, such as avro
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
 
@@ -231,7 +233,7 @@ if [[ -f "${pidfile}" ]]; then
     fi
 fi
 
-chmod 755 "${DORIS_HOME}/lib/doris_be"
+chmod 550 "${DORIS_HOME}/lib/doris_be"
 echo "start time: $(date)" >>"${LOG_DIR}/be.out"
 
 if [[ ! -f '/bin/limit3' ]]; then

@@ -27,7 +27,7 @@ suite("nereids_timestamp_arithmetic") {
 
     test {
         sql = "select date '20200808' + interval array() day;"
-        exception = "timestamp arithmetic could not contains complex type"
+        exception = "Array function is not supported yet"
     }
 
     sql """

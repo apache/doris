@@ -272,7 +272,6 @@ public class PlanChecker {
             PhysicalQuickSort<? extends Plan> sort = (PhysicalQuickSort) plan;
             plan = sort.withChildren(new PhysicalDistribute<>(
                     DistributionSpecGather.INSTANCE,
-                    plan.child(0).getLogicalProperties(),
                     plan.child(0)));
         }
         physicalPlan = ((PhysicalPlan) plan);

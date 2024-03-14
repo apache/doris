@@ -128,15 +128,15 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             return;
         }
 
-        // check if topic has more data to consume
-        if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
-            needScheduleTasksQueue.put(routineLoadTaskInfo);
-            return;
-        }
-
-        // allocate BE slot for this task.
-        // this should be done before txn begin, or the txn may be begun successfully but failed to be allocated.
         try {
+            // check if topic has more data to consume
+            if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
+                needScheduleTasksQueue.put(routineLoadTaskInfo);
+                return;
+            }
+
+            // allocate BE slot for this task.
+            // this should be done before txn begin, or the txn may be begun successfully but failed to be allocated.
             if (!allocateTaskToBe(routineLoadTaskInfo)) {
                 // allocate failed, push it back to the queue to wait next scheduling
                 needScheduleTasksQueue.put(routineLoadTaskInfo);

@@ -175,8 +175,6 @@ public:
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
-    void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
-
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
@@ -215,8 +213,6 @@ private:
     inline bool _is_receiver_eof(InstanceLoId id);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
-
-    QueryStatistics* _statistics = nullptr;
 };
 
 } // namespace pipeline

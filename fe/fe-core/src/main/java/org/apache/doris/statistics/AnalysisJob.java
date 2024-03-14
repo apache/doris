@@ -136,7 +136,6 @@ public class AnalysisJob {
             }
         }
         updateTaskState(AnalysisState.FINISHED, "");
-        syncLoadStats();
         queryFinished.clear();
         buf.clear();
     }
@@ -193,17 +192,7 @@ public class AnalysisJob {
         }
     }
 
-    protected void syncLoadStats() {
-        long tblId = jobInfo.tblId;
-        for (BaseAnalysisTask task : queryFinished) {
-            if (task.info.externalTableLevelTask) {
-                continue;
-            }
-            String colName = task.col.getName();
-            if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
-                analysisManager.removeColStatsStatus(tblId, colName);
-            }
-        }
+    public AnalysisInfo getJobInfo() {
+        return jobInfo;
     }
-
 }

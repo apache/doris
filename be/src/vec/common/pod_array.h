@@ -465,6 +465,14 @@ public:
         this->c_end += bytes_to_copy;
     }
 
+    template <typename It1, typename It2>
+    void insert_assume_reserved_and_allow_overflow(It1 from_begin, It2 from_end) {
+        size_t bytes_to_copy = this->byte_size(from_end - from_begin);
+        memcpy_small_allow_read_write_overflow15(
+                this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
+        this->c_end += bytes_to_copy;
+    }
+
     void swap(PODArray& rhs) {
 #ifndef NDEBUG
         this->unprotect();

@@ -583,8 +583,8 @@ Status SnapshotLoader::remote_http_download(
                                  << ", local_file_size=" << local_file_size;
                     return Status::InternalError("downloaded file size is not equal");
                 }
-                chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
-                return Status::OK();
+                return io::global_local_filesystem()->permission(
+                        local_file_path, io::LocalFileSystem::PERMS_OWNER_RW);
             };
             RETURN_IF_ERROR(HttpClient::execute_with_retry(kDownloadFileMaxRetry, 1, download_cb));
 

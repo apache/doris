@@ -1064,9 +1064,11 @@ void StorageEngine::start_delete_unused_rowset() {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             uint64_t now = UnixSeconds();
-            if (it->second.use_count() == 1 && it->second->need_delete_file() &&
+            if (now > it->second->delayed_expired_timestamp()) {
                 // We delay the GC time of this rowset since it's maybe still needed, see #20732
-                now > it->second->delayed_expired_timestamp()) {
+                evict_querying_rowset(it->second->rowset_id());
+            }
+            if (it->second.use_count() == 1 && it->second->need_delete_file()) {
                 if (it->second->is_local()) {
                     unused_rowsets_copy[it->first] = it->second;
                 }
@@ -1254,28 +1256,6 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
     std::lock_guard<std::mutex> lock(_gc_mutex);
     auto search = _unused_rowsets.find(rowset_id.to_string());
     return search != _unused_rowsets.end();
-}
-
-void StorageEngine::create_cumulative_compaction(
-        TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
-    cumulative_compaction.reset(new CumulativeCompaction(best_tablet));
-}
-
-void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
-                                           std::shared_ptr<BaseCompaction>& base_compaction) {
-    base_compaction.reset(new BaseCompaction(best_tablet));
-}
-
-void StorageEngine::create_full_compaction(TabletSharedPtr best_tablet,
-                                           std::shared_ptr<FullCompaction>& full_compaction) {
-    full_compaction.reset(new FullCompaction(best_tablet));
-}
-
-void StorageEngine::create_single_replica_compaction(
-        TabletSharedPtr best_tablet,
-        std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
-        CompactionType compaction_type) {
-    single_replica_compaction.reset(new SingleReplicaCompaction(best_tablet, compaction_type));
 }
 
 bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,

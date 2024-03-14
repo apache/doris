@@ -518,10 +518,13 @@ template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* state, int child_id, Block* block,
                                                    bool eos) {
     SCOPED_TIMER(_probe_timer);
-    CHECK(_build_finished) << "cannot sink probe data before build finished";
-    if (child_id > 1) {
-        CHECK(_probe_finished_children_index[child_id - 1])
-                << fmt::format("child with id: {} should be probed first", child_id);
+    if (!_build_finished) {
+        return Status::RuntimeError("cannot sink probe data before build finished " +
+                                    std::to_string(child_id));
+    }
+    if (child_id > 1 && !_probe_finished_children_index[child_id - 1]) {
+        return Status::RuntimeError("the child with id should be probed first " +
+                                    std::to_string(child_id - 1));
     }
     auto probe_rows = block->rows();
     if (probe_rows > 0) {

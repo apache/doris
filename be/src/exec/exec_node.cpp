@@ -74,7 +74,6 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
-class QueryStatistics;
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
 
@@ -96,6 +95,7 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
     if (tnode.__isset.output_tuple_id) {
         _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
     }
+    _query_statistics = std::make_shared<QueryStatistics>();
 }
 
 ExecNode::~ExecNode() = default;
@@ -168,22 +168,6 @@ Status ExecNode::reset(RuntimeState* state) {
     _num_rows_returned = 0;
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->reset(state));
-    }
-    return Status::OK();
-}
-
-Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
-    DCHECK(statistics != nullptr);
-    for (auto child_node : _children) {
-        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics));
-    }
-    return Status::OK();
-}
-
-Status ExecNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
-    DCHECK(statistics != nullptr);
-    for (auto child_node : _children) {
-        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics, sender_id));
     }
     return Status::OK();
 }
@@ -271,6 +255,9 @@ Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
     int num_children = tnodes[*node_idx].num_children;
     ExecNode* node = nullptr;
     RETURN_IF_ERROR(create_node(state, pool, tnodes[*node_idx], descs, &node));
+    if (node != nullptr) {
+        state->get_query_ctx()->register_query_statistics(node->get_query_statistics());
+    }
 
     // assert(parent != nullptr || (node_idx == 0 && root_expr != nullptr));
     if (parent != nullptr) {

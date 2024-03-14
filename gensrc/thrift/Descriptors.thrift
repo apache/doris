@@ -318,7 +318,12 @@ struct TJdbcTable {
   6: optional string jdbc_resource_name
   7: optional string jdbc_driver_class
   8: optional string jdbc_driver_checksum
-  
+  9: optional i32 connection_pool_min_size
+  10: optional i32 connection_pool_max_size
+  11: optional i32 connection_pool_max_wait_time
+  12: optional i32 connection_pool_max_life_time
+  13: optional bool connection_pool_keep_alive
+  14: optional i64 catalog_id
 }
 
 struct TMCTable {
@@ -328,6 +333,8 @@ struct TMCTable {
   4: optional string access_key
   5: optional string secret_key
   6: optional string public_access
+  7: optional string odps_url
+  8: optional string tunnel_url
 }
 
 // "Union" of all table types.

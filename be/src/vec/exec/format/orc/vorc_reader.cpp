@@ -138,7 +138,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     bool enable_lazy_mat)
+                     bool enable_lazy_mat, std::vector<orc::TypeKind>* unsupported_pushdown_types)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -150,7 +150,8 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _is_hive(params.__isset.slot_name_to_schema_pos),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
-          _is_dict_cols_converted(false) {
+          _is_dict_cols_converted(false),
+          _unsupported_pushdown_types(unsupported_pushdown_types) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
@@ -512,8 +513,20 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
 
 template <PrimitiveType primitive_type>
 std::vector<OrcPredicate> value_range_to_predicate(
-        const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type) {
+        const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type,
+        std::vector<orc::TypeKind>* unsupported_pushdown_types) {
     std::vector<OrcPredicate> predicates;
+
+    if (unsupported_pushdown_types != nullptr) {
+        for (vector<orc::TypeKind>::iterator it = unsupported_pushdown_types->begin();
+             it != unsupported_pushdown_types->end(); ++it) {
+            if (*it == type->getKind()) {
+                // Unsupported type
+                return predicates;
+            }
+        }
+    }
+
     orc::PredicateDataType predicate_data_type;
     auto type_it = TYPEKIND_TO_PREDICATE_TYPE.find(type->getKind());
     if (type_it == TYPEKIND_TO_PREDICATE_TYPE.end()) {
@@ -655,8 +668,8 @@ bool OrcReader::_init_search_argument(
         }
         std::visit(
                 [&](auto& range) {
-                    std::vector<OrcPredicate> value_predicates =
-                            value_range_to_predicate(range, type_it->second);
+                    std::vector<OrcPredicate> value_predicates = value_range_to_predicate(
+                            range, type_it->second, _unsupported_pushdown_types);
                     for (auto& range_predicate : value_predicates) {
                         predicates.emplace_back(range_predicate);
                     }
@@ -1035,7 +1048,7 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
                                         const orc::TypeKind& type_kind, orc::ColumnVectorBatch* cvb,
                                         size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    auto* data = down_cast<orc::EncodedStringVectorBatch*>(cvb);
+    auto* data = dynamic_cast<orc::EncodedStringVectorBatch*>(cvb);
     if (data == nullptr) {
         return Status::InternalError("Wrong data type for colum '{}'", col_name);
     }

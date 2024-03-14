@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.external.elasticsearch.EsMetaStateTracker;
 import org.apache.doris.external.elasticsearch.EsRestClient;
@@ -140,15 +141,15 @@ public class EsTable extends Table {
         super(id, name, tableType, schema);
     }
 
-    public Map<String, String> fieldsContext() {
+    public Map<String, String> fieldsContext() throws UserException {
         return esMetaStateTracker.searchContext().fetchFieldsContext();
     }
 
-    public Map<String, String> docValueContext() {
+    public Map<String, String> docValueContext() throws UserException {
         return esMetaStateTracker.searchContext().docValueFieldsContext();
     }
 
-    public List<String> needCompatDateFields() {
+    public List<String> needCompatDateFields() throws UserException {
         return esMetaStateTracker.searchContext().needCompatDateFields();
     }
 

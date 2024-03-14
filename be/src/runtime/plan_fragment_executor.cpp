@@ -82,9 +82,9 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _closed(false),
           _is_report_success(false),
           _is_report_on_cancel(true),
-          _collect_query_statistics_with_every_batch(false),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
     _report_thread_future = _report_thread_promise.get_future();
+    _query_statistics = std::make_shared<QueryStatistics>();
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
@@ -127,6 +127,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _runtime_state->set_query_mem_tracker(query_ctx == nullptr ? _exec_env->orphan_mem_tracker()
                                                                : query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
+    query_ctx->register_query_statistics(_query_statistics);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
     _runtime_state->runtime_filter_mgr()->init();
@@ -219,11 +220,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         if (sink_profile != nullptr) {
             profile()->add_child(sink_profile, true, nullptr);
         }
-
-        _collect_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
     } else {
         // _sink is set to nullptr
         _sink.reset(nullptr);
@@ -238,11 +234,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
-
-    _query_statistics.reset(new QueryStatistics());
-    if (_sink != nullptr) {
-        _sink->set_query_statistics(_query_statistics);
-    }
     return Status::OK();
 }
 
@@ -304,7 +295,13 @@ Status PlanFragmentExecutor::open() {
 Status PlanFragmentExecutor::open_vectorized_internal() {
     SCOPED_TIMER(profile()->total_time_counter());
     {
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        ThreadCpuStopWatch cpu_time_stop_watch;
+        cpu_time_stop_watch.start();
+        Defer defer {[&]() {
+            int64_t cpu_time = cpu_time_stop_watch.elapsed_time();
+            _fragment_cpu_timer->update(cpu_time);
+        }};
+
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
         RETURN_IF_CANCELLED(_runtime_state);
         if (_sink == nullptr) {
@@ -314,14 +311,17 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         doris::vectorized::Block block;
         bool eos = false;
 
+        int64_t old_cpu_time = cpu_time_stop_watch.elapsed_time();
         while (!eos) {
+            Defer defer {[&]() {
+                int64_t current_cpu_time = cpu_time_stop_watch.elapsed_time();
+                int64_t delta_time = current_cpu_time - old_cpu_time;
+                _query_statistics->add_cpu_nanos(delta_time);
+                old_cpu_time = current_cpu_time;
+            }};
+
             RETURN_IF_CANCELLED(_runtime_state);
             RETURN_IF_ERROR(get_vectorized_internal(&block, &eos));
-
-            // Collect this plan and sub plan statistics, and send to parent plan.
-            if (_collect_query_statistics_with_every_batch) {
-                _collect_query_statistics();
-            }
 
             if (!eos || block.rows() > 0) {
                 auto st = _sink->send(runtime_state(), &block);
@@ -333,7 +333,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         }
     }
     {
-        _collect_query_statistics();
         Status status;
         {
             std::lock_guard<std::mutex> l(_status_lock);
@@ -368,26 +367,6 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
     *eos = _done;
 
     return Status::OK();
-}
-
-void PlanFragmentExecutor::_collect_query_statistics() {
-    _query_statistics->clear();
-    Status status = _plan->collect_query_statistics(_query_statistics.get());
-    if (!status.ok()) {
-        LOG(INFO) << "collect query statistics failed, st=" << status;
-        return;
-    }
-    _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
-    if (_runtime_state->backend_id() != -1) {
-        _collect_node_statistics();
-    }
-}
-
-void PlanFragmentExecutor::_collect_node_statistics() {
-    DCHECK(_runtime_state->backend_id() != -1);
-    NodeStatistics* node_statistics =
-            _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->set_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {

@@ -74,15 +74,14 @@ public:
     VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
                       const RowDescriptor& row_desc, const TDataStreamSink& sink,
                       const std::vector<TPlanFragmentDestination>& destinations,
-                      int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
+                      int per_channel_buffer_size);
 
     VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                       PlanNodeId dest_node_id,
                       const std::vector<TPlanFragmentDestination>& destinations,
-                      int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
+                      int per_channel_buffer_size);
 
-    VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc, int per_channel_buffer_size,
-                      bool send_query_statistics_with_every_batch);
+    VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc, int per_channel_buffer_size);
 
     ~VDataStreamSender() override;
 
@@ -105,9 +104,6 @@ public:
     bool channel_all_can_write();
 
     const RowDescriptor& row_desc() { return _row_desc; }
-
-    QueryStatistics* query_statistics() { return _query_statistics.get(); }
-    QueryStatisticsPtr query_statisticsPtr() { return _query_statistics; }
 
 protected:
     friend class Channel;
@@ -215,8 +211,7 @@ public:
     // when data is added via add_row() and not sent directly via send_batch().
     Channel(VDataStreamSender* parent, const RowDescriptor& row_desc,
             const TNetworkAddress& brpc_dest, const TUniqueId& fragment_instance_id,
-            PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain,
-            bool send_query_statistics_with_every_batch)
+            PlanNodeId dest_node_id, int buffer_size)
             : _parent(parent),
               _row_desc(row_desc),
               _fragment_instance_id(fragment_instance_id),
@@ -225,9 +220,7 @@ public:
               _packet_seq(0),
               _need_close(false),
               _closed(false),
-              _brpc_dest_addr(brpc_dest),
-              _is_transfer_chain(is_transfer_chain),
-              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
+              _brpc_dest_addr(brpc_dest) {
         std::string localhost = BackendOptions::get_localhost();
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
@@ -367,9 +360,6 @@ protected:
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
-    // whether the dest can be treated as query statistics transfer chain.
-    bool _is_transfer_chain;
-    bool _send_query_statistics_with_every_batch;
     RuntimeState* _state;
 
     bool _is_local;
@@ -417,10 +407,9 @@ class PipChannel final : public Channel {
 public:
     PipChannel(VDataStreamSender* parent, const RowDescriptor& row_desc,
                const TNetworkAddress& brpc_dest, const TUniqueId& fragment_instance_id,
-               PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain,
-               bool send_query_statistics_with_every_batch)
-            : Channel(parent, row_desc, brpc_dest, fragment_instance_id, dest_node_id, buffer_size,
-                      is_transfer_chain, send_query_statistics_with_every_batch) {
+               PlanNodeId dest_node_id, int buffer_size)
+            : Channel(parent, row_desc, brpc_dest, fragment_instance_id, dest_node_id,
+                      buffer_size) {
         ch_roll_pb_block();
     }
 

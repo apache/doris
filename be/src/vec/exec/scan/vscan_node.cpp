@@ -1077,7 +1077,7 @@ Status VScanNode::_normalize_binary_in_compound_predicate(vectorized::VExpr* exp
         auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
         auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
         auto noneq_checker = [](const std::string& fn_name) {
-            return fn_name != "ne" && fn_name != "eq";
+            return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";
         };
 
         StringRef value;
@@ -1297,6 +1297,9 @@ Status VScanNode::_prepare_scanners(const int query_parallel_instance_num) {
     if (scanners.empty()) {
         _eos = true;
     } else {
+        for (auto& scanner : scanners) {
+            scanner->set_query_statistics(_query_statistics.get());
+        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(scanners, query_parallel_instance_num));
     }

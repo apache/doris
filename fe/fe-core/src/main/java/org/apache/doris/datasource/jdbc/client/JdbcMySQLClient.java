@@ -56,8 +56,9 @@ public class JdbcMySQLClient extends JdbcClient {
                 String versionComment = rs.getString("Value");
                 isDoris = versionComment.toLowerCase().contains("doris");
             }
-        } catch (SQLException e) {
-            throw new JdbcClientException("Failed to determine MySQL Version Comment", e);
+        } catch (SQLException | JdbcClientException e) {
+            closeClient();
+            throw new JdbcClientException("Failed to initialize JdbcMySQLClient: %s", e.getMessage());
         } finally {
             close(rs, stmt, conn);
         }
@@ -166,8 +167,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, finalTableName,
-                Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for table %.%s: %s",
+                    e, dbName, tableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }

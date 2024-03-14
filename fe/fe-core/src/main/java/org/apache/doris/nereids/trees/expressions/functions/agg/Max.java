@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindow
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -57,6 +59,9 @@ public class Max extends NullableAggregateFunction
     @Override
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();
+        if (dataType instanceof DecimalV2Type) {
+            dataType = DecimalV3Type.forType(dataType);
+        }
         return FunctionSignature.ret(dataType).args(dataType);
     }
 

@@ -121,7 +121,7 @@ public:
         return _task_group_entity;
     }
 
-private:
+protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
@@ -201,7 +201,8 @@ private:
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
 
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
+    static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 };
 } // namespace pipeline
 } // namespace doris

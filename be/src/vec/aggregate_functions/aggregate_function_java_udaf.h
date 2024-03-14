@@ -59,13 +59,20 @@ public:
     AggregateJavaUdafData(int64_t num_args) { argument_size = num_args; }
 
     ~AggregateJavaUdafData() {
-        JNIEnv* env;
+        JNIEnv* env = nullptr;
+        //use defer as the jni call maybe have error, then directly return without delete
+        Defer defer([&, this] {
+            std::string temp;
+            temp.swap(serialize_data);
+            if (env != nullptr) {
+                env->DeleteGlobalRef(executor_cl);
+                env->DeleteGlobalRef(executor_obj);
+            }
+        });
         Status status;
         RETURN_IF_STATUS_ERROR(status, JniUtil::GetJNIEnv(&env));
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_close_id);
         RETURN_IF_STATUS_ERROR(status, JniUtil::GetJniExceptionMsg(env));
-        env->DeleteGlobalRef(executor_cl);
-        env->DeleteGlobalRef(executor_obj);
     }
 
     Status init_udaf(const TFunction& fn, const std::string& local_location) {
@@ -421,6 +428,7 @@ private:
             return Status::InvalidArgument(strings::Substitute(
                     "Java UDAF doesn't support return type is $0 now !", return_type->get_name()));
         }
+        env->DeleteLocalRef(result_obj);
         return Status::OK();
     }
 

@@ -166,8 +166,8 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     }
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchemaSPtr tablet_schema;
-    tablet_schema =
-            TabletSchemaCache::instance()->insert(new_tablet_meta_pb.schema().SerializeAsString());
+    tablet_schema = TabletSchemaCache::instance()->insert(
+            TabletSchema::deterministic_string_serialize(new_tablet_meta_pb.schema()));
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
     std::unordered_map<RowsetId, RowsetId, HashOfRowsetId> rowset_id_mapping;
@@ -190,6 +190,12 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
             // remote rowset
             *rowset_meta = visible_rowset;
         }
+
+        rowset_meta->set_tablet_id(tablet_id);
+        if (partition_id != -1) {
+            rowset_meta->set_partition_id(partition_id);
+        }
+
         Version rowset_version = {visible_rowset.start_version(), visible_rowset.end_version()};
         rs_version_map[rowset_version] = rowset_meta;
     }
@@ -217,6 +223,11 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         } else {
             // remote rowset
             *rowset_meta = stale_rowset;
+        }
+
+        rowset_meta->set_tablet_id(tablet_id);
+        if (partition_id != -1) {
+            rowset_meta->set_partition_id(partition_id);
         }
     }
 
@@ -432,10 +443,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                           << ref_tablet->tablet_id();
                 Version version(request.start_version, request.end_version);
                 const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version, false);
-                if (rowset != nullptr) {
+                if (rowset && rowset->is_local()) {
                     consistent_rowsets.push_back(rowset);
                 } else {
-                    LOG(WARNING) << "failed to find version when do compaction snapshot. "
+                    LOG(WARNING) << "failed to find local version when do compaction snapshot. "
                                  << " tablet=" << request.tablet_id
                                  << " schema_hash=" << request.schema_hash
                                  << " version=" << version;

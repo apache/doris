@@ -31,7 +31,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.S3Util;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
@@ -69,6 +69,9 @@ import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.iceberg.util.TableScanUtil;
 
 import java.io.IOException;
@@ -86,9 +89,6 @@ import java.util.stream.Collectors;
 public class IcebergScanNode extends FileQueryScanNode {
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
-    private static final String TOTAL_RECORDS = "total-records";
-    private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
-    private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
 
     private IcebergSource source;
     private Table icebergTable;
@@ -148,7 +148,9 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
-                deleteFileDesc.setPath(S3Util.toScanRangeLocation(deleteFilePath, icebergSplit.getConfig()).toString());
+                LocationPath locationPath = new LocationPath(deleteFilePath, icebergSplit.getConfig());
+                Path splitDeletePath = locationPath.toScanRangeLocation();
+                deleteFileDesc.setPath(splitDeletePath.toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     fileDesc.setContent(FileContent.POSITION_DELETES.id());
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
@@ -218,18 +220,30 @@ public class IcebergScanNode extends FileQueryScanNode {
                 List<String> partitionValues = new ArrayList<>();
                 if (isPartitionedTable) {
                     StructLike structLike = splitTask.file().partition();
+                    List<PartitionField> fields = splitTask.spec().fields();
+                    Types.StructType structType = icebergTable.schema().asStruct();
 
                     // set partitionValue for this IcebergSplit
                     for (int i = 0; i < structLike.size(); i++) {
-                        String partition = String.valueOf(structLike.get(i, Object.class));
-                        partitionValues.add(partition);
+                        Object obj = structLike.get(i, Object.class);
+                        String value = String.valueOf(obj);
+                        PartitionField partitionField = fields.get(i);
+                        if (partitionField.transform().isIdentity()) {
+                            Type type = structType.fieldType(partitionField.name());
+                            if (type != null && type.typeId().equals(Type.TypeID.DATE)) {
+                                // iceberg use integer to store date,
+                                // we need transform it to string
+                                value = DateTimeUtil.daysToIsoDate((Integer) obj);
+                            }
+                        }
+                        partitionValues.add(value);
                     }
 
                     // Counts the number of partitions read
                     partitionPathSet.add(structLike.toString());
                 }
-
-                Path finalDataFilePath = S3Util.toScanRangeLocation(dataFilePath, source.getCatalog().getProperties());
+                LocationPath locationPath = new LocationPath(dataFilePath, source.getCatalog().getProperties());
+                Path finalDataFilePath = locationPath.toScanRangeLocation();
                 IcebergSplit split = new IcebergSplit(
                         finalDataFilePath,
                         splitTask.start(),
@@ -330,17 +344,22 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public TFileType getLocationType(String location) throws UserException {
         final String fLocation = normalizeLocation(location);
-        return getTFileType(fLocation).orElseThrow(() ->
+        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
                 new DdlException("Unknown file location " + fLocation + " for iceberg table " + icebergTable.name()));
     }
 
     private String normalizeLocation(String location) {
         Map<String, String> props = source.getCatalog().getProperties();
+        LocationPath locationPath = new LocationPath(location, props);
         String icebergCatalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
         if ("hadoop".equalsIgnoreCase(icebergCatalogType)) {
-            if (!location.startsWith(HdfsResource.HDFS_PREFIX)) {
+            // if no scheme info, fill will HADOOP_FS_NAME
+            // if no HADOOP_FS_NAME, then should be local file system
+            if (locationPath.getLocationType() == LocationPath.LocationType.NOSCHEME) {
                 String fsName = props.get(HdfsResource.HADOOP_FS_NAME);
-                location = fsName + location;
+                if (fsName != null) {
+                    location = fsName + location;
+                }
             }
         }
         return location;
@@ -409,8 +428,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         Map<String, String> summary = snapshot.summary();
-        if (summary.get(TOTAL_EQUALITY_DELETES).equals("0")) {
-            return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        if (summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
+            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS))
+                - Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
         } else {
             return -1;
         }

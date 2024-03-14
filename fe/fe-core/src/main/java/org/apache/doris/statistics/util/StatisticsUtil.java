@@ -19,6 +19,7 @@ package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -67,6 +68,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -83,7 +85,6 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
@@ -192,6 +193,8 @@ public class StatisticsUtil {
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
         sessionVariable.forbidUnknownColStats = false;
+        sessionVariable.enablePushDownMinMaxOnUnique = true;
+        sessionVariable.enablePushDownStringMinMax = true;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -546,10 +549,9 @@ public class StatisticsUtil {
      * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
      *
      * @param table Hive HMSExternalTable to estimate row count.
-     * @param isInit Flag to indicate if this is called during init. To avoid recursively get schema.
      * @return estimated row count
      */
-    public static long getHiveRowCount(HMSExternalTable table, boolean isInit) {
+    public static long getHiveRowCount(HMSExternalTable table) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
             return -1;
@@ -562,7 +564,7 @@ public class StatisticsUtil {
                 return rows;
             }
         }
-        if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
+        if (!parameters.containsKey(TOTAL_SIZE)) {
             return -1;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
@@ -572,7 +574,7 @@ public class StatisticsUtil {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
-            return 1;
+            return -1;
         }
         return totalSize / estimatedRowSize;
     }
@@ -588,31 +590,6 @@ public class StatisticsUtil {
             return 0;
         }
         return parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE)) : 0;
-    }
-
-    /**
-     * Estimate iceberg table row count.
-     * Get the row count by adding all task file recordCount.
-     *
-     * @param table Iceberg HMSExternalTable to estimate row count.
-     * @return estimated row count
-     */
-    public static long getIcebergRowCount(HMSExternalTable table) {
-        long rowCount = 0;
-        try {
-            Table icebergTable = Env.getCurrentEnv()
-                    .getExtMetaCacheMgr()
-                    .getIcebergMetadataCache()
-                    .getIcebergTable(table);
-            TableScan tableScan = icebergTable.newScan().includeColumnStats();
-            for (FileScanTask task : tableScan.planFiles()) {
-                rowCount += task.file().recordCount();
-            }
-            return rowCount;
-        } catch (Exception e) {
-            LOG.warn("Fail to collect row count for db {} table {}", table.getDbName(), table.getName(), e);
-        }
-        return -1;
     }
 
     /**
@@ -650,7 +627,7 @@ public class StatisticsUtil {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
-            return 1;
+            return 0;
         }
         if (samplePartitionSize < totalPartitionSize) {
             totalSize = totalSize * totalPartitionSize / samplePartitionSize;
@@ -796,6 +773,13 @@ public class StatisticsUtil {
         }
         return str.replace("'", "''")
                 .replace("\\", "\\\\");
+    }
+
+    public static String escapeColumnName(String str) {
+        if (str == null) {
+            return null;
+        }
+        return str.replace("`", "``");
     }
 
     public static boolean isExternalTable(String catalogName, String dbName, String tblName) {
@@ -969,6 +953,52 @@ public class StatisticsUtil {
         } else {
             return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /**
+     * Check if the given column name is a materialized view column.
+     * @param table
+     * @param columnName
+     * @return True for mv column.
+     */
+    public static boolean isMvColumn(TableIf table, String columnName) {
+        return table instanceof OlapTable
+            && columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+            || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
+        int waitRowCountReportedTime = 90;
+        if (!(table instanceof OlapTable) || method.equals(AnalysisInfo.AnalysisMethod.FULL)) {
+            return false;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        for (int i = 0; i < waitRowCountReportedTime; i++) {
+            if (olapTable.getRowCount() > 0) {
+                return false;
+            }
+            boolean allInitVersion = true;
+            // If all partitions' visible version are PARTITION_INIT_VERSION, return true.
+            // If any partition's visible version is greater than 2, return true.
+            // Otherwise, wait row count to be reported.
+            for (Partition p : olapTable.getPartitions()) {
+                if (p.getVisibleVersion() != Partition.PARTITION_INIT_VERSION) {
+                    allInitVersion = false;
+                }
+                if (p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION + 1) {
+                    return true;
+                }
+            }
+            if (allInitVersion) {
+                return true;
+            }
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                LOG.info("Sleep interrupted.", e);
+            }
+        }
+        return true;
     }
 
 }

@@ -37,30 +37,19 @@ import java.util.List;
 public class JdbcTableSink extends DataSink {
     private static final Logger LOG = LogManager.getLogger(JdbcTableSink.class);
 
-    private final String resourceName;
     private final String externalTableName;
     private final String dorisTableName;
-    private final String jdbcUrl;
-    private final String jdbcUser;
-    private final String jdbcPasswd;
-    private final String driverClass;
-    private final String driverUrl;
-    private final String checkSum;
     private final TOdbcTableType jdbcType;
     private final boolean useTransaction;
     private String insertSql;
 
+    private JdbcTable jdbcTable;
+
     public JdbcTableSink(JdbcTable jdbcTable, List<String> insertCols) {
-        resourceName = jdbcTable.getResourceName();
+        this.jdbcTable = jdbcTable;
         jdbcType = jdbcTable.getJdbcTableType();
         externalTableName = jdbcTable.getProperRealFullTableName(jdbcType);
         useTransaction = ConnectContext.get().getSessionVariable().isEnableOdbcTransaction();
-        jdbcUrl = jdbcTable.getJdbcUrl();
-        jdbcUser = jdbcTable.getJdbcUser();
-        jdbcPasswd = jdbcTable.getJdbcPasswd();
-        driverClass = jdbcTable.getDriverClass();
-        driverUrl = jdbcTable.getDriverUrl();
-        checkSum = jdbcTable.getCheckSum();
         dorisTableName = jdbcTable.getName();
         insertSql = jdbcTable.getInsertSql(insertCols);
     }
@@ -81,20 +70,11 @@ public class JdbcTableSink extends DataSink {
     protected TDataSink toThrift() {
         TDataSink tDataSink = new TDataSink(TDataSinkType.JDBC_TABLE_SINK);
         TJdbcTableSink jdbcTableSink = new TJdbcTableSink();
-        TJdbcTable jdbcTable = new TJdbcTable();
+        TJdbcTable jdbcTable = this.jdbcTable.toThrift().getJdbcTable();
         jdbcTableSink.setJdbcTable(jdbcTable);
-        jdbcTableSink.jdbc_table.setJdbcUrl(jdbcUrl);
-        jdbcTableSink.jdbc_table.setJdbcUser(jdbcUser);
-        jdbcTableSink.jdbc_table.setJdbcPassword(jdbcPasswd);
-        jdbcTableSink.jdbc_table.setJdbcTableName(externalTableName);
-        jdbcTableSink.jdbc_table.setJdbcDriverUrl(driverUrl);
-        jdbcTableSink.jdbc_table.setJdbcDriverClass(driverClass);
-        jdbcTableSink.jdbc_table.setJdbcDriverChecksum(checkSum);
-        jdbcTableSink.jdbc_table.setJdbcResourceName(resourceName);
         jdbcTableSink.setInsertSql(insertSql);
         jdbcTableSink.setUseTransaction(useTransaction);
         jdbcTableSink.setTableType(jdbcType);
-
         tDataSink.setJdbcTableSink(jdbcTableSink);
         return tDataSink;
     }

@@ -471,6 +471,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     private void addBackupOrRestoreJob(long dbId, AbstractJob job) {
+        // If there are too many backup/restore jobs, it may cause OOM.  If the job num option is set to 0,
+        // skip all backup/restore jobs.
+        if (Config.max_backup_restore_job_num_per_db <= 0) {
+            return;
+        }
+
         jobLock.lock();
         try {
             Deque<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.computeIfAbsent(dbId, k -> Lists.newLinkedList());

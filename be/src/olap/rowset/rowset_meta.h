@@ -56,7 +56,7 @@ public:
     virtual bool init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
         if (rowset_meta_pb.has_tablet_schema()) {
             _schema = TabletSchemaCache::instance()->insert(
-                    rowset_meta_pb.tablet_schema().SerializeAsString());
+                    TabletSchema::deterministic_string_serialize(rowset_meta_pb.tablet_schema()));
         }
         // Release ownership of TabletSchemaPB from `rowset_meta_pb` and then set it back to `rowset_meta_pb`,
         // this won't break const semantics of `rowset_meta_pb`, because `rowset_meta_pb` is not changed
@@ -365,6 +365,12 @@ public:
 
     TabletSchemaSPtr tablet_schema() { return _schema; }
 
+    void set_compaction_level(int64_t compaction_level) {
+        _rowset_meta_pb.set_compaction_level(compaction_level);
+    }
+
+    int64_t compaction_level() { return _rowset_meta_pb.compaction_level(); }
+
 private:
     bool _deserialize_from_pb(const std::string& value) {
         RowsetMetaPB rowset_meta_pb;
@@ -373,7 +379,7 @@ private:
         }
         if (rowset_meta_pb.has_tablet_schema()) {
             _schema = TabletSchemaCache::instance()->insert(
-                    rowset_meta_pb.tablet_schema().SerializeAsString());
+                    TabletSchema::deterministic_string_serialize(rowset_meta_pb.tablet_schema()));
             rowset_meta_pb.clear_tablet_schema();
         }
         _rowset_meta_pb = rowset_meta_pb;

@@ -31,6 +31,7 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <regex>
 #include <set>
 #include <shared_mutex>
 #include <system_error>
@@ -165,12 +166,19 @@ Status EngineCloneTask::_do_clone() {
             StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
 
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
-    // change failure. It should not provide normal read and write, so drop it here.
+    // change failure. Clone a new tablet from remote be to overwrite it. This situation basically only
+    // occurs when the be_rebalancer_fuzzy_test configuration is enabled.
     if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
                      << tablet->tablet_id();
+        // can not drop tablet when under clone. so unregister clone tablet firstly.
+        StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
         RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
                 tablet->tablet_id(), tablet->replica_id(), false));
+        if (!StorageEngine::instance()->tablet_manager()->register_clone_tablet(
+                    _clone_req.tablet_id)) {
+            return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
+        }
         tablet.reset();
     }
     bool is_new_tablet = tablet == nullptr;
@@ -388,7 +396,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                     _clone_req.partition_id, _clone_req.schema_hash);
         } else {
             LOG_WARNING("failed to download snapshot from remote BE")
-                    .tag("url", remote_url_prefix)
+                    .tag("url", _mask_token(remote_url_prefix))
                     .error(status);
         }
 
@@ -532,11 +540,11 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 
         std::string local_file_path = local_path + "/" + file_name;
 
-        LOG(INFO) << "clone begin to download file from: " << remote_file_url
+        LOG(INFO) << "clone begin to download file from: " << _mask_token(remote_file_url)
                   << " to: " << local_file_path << ". size(B): " << file_size
                   << ", timeout(s): " << estimate_timeout;
 
-        auto download_cb = [&remote_file_url, estimate_timeout, &local_file_path,
+        auto download_cb = [this, &remote_file_url, estimate_timeout, &local_file_path,
                             file_size](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
@@ -552,12 +560,13 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             }
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
-                             << ", remote_path=" << remote_file_url << ", file_size=" << file_size
+                             << ", remote_path=" << _mask_token(remote_file_url)
+                             << ", file_size=" << file_size
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }
-            chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
-            return Status::OK();
+            return io::global_local_filesystem()->permission(local_file_path,
+                                                             io::LocalFileSystem::PERMS_OWNER_RW);
         };
         RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb));
     } // Clone files from remote backend
@@ -704,7 +713,6 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     std::lock_guard cumulative_compaction_lock(tablet->get_cumulative_compaction_lock());
     std::lock_guard cold_compaction_lock(tablet->get_cold_compaction_lock());
     std::lock_guard build_inverted_index_lock(tablet->get_build_inverted_index_lock());
-    tablet->set_clone_occurred(true);
     std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
     std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
     std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
@@ -831,6 +839,11 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
     return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
+}
+
+std::string EngineCloneTask::_mask_token(const std::string& str) {
+    std::regex pattern("token=[\\w|-]+");
+    return regex_replace(str, pattern, "token=******");
 }
 
 } // namespace doris

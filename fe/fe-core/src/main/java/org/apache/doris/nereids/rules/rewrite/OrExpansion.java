@@ -149,11 +149,11 @@ public class OrExpansion extends OneExplorationRuleFactory {
     }
 
     // expand Anti Join:
-    // Left Anti join cond1 or cond2           Left Anti join cond1
-    // /                      \                /               \
-    //left                   right   ===>  Anti join cond2    CTERight2
-    //                                      /      \
-    //                                  CTELeft CTERight1
+    // Left Anti join cond1 or cond2, other           Left Anti join cond1 and other
+    // /                      \                         /                        \
+    //left                   right          ===>  Anti join cond2 and other    CTERight2
+    //                                                  /      \
+    //                                               CTELeft CTERight1
     private Plan expandLeftAntiJoin(CascadesContext ctx,
             Pair<List<Expression>, List<Expression>> hashOtherConditions,
             LogicalJoin<? extends Plan, ? extends Plan> originJoin,
@@ -170,13 +170,13 @@ public class OrExpansion extends OneExplorationRuleFactory {
         replaced.putAll(right.getProducerToConsumerOutputMap());
         List<Expression> disjunctions = hashOtherConditions.first;
         List<Expression> otherConditions = hashOtherConditions.second;
-        otherConditions = otherConditions.stream()
+        List<Expression> newOtherConditions = otherConditions.stream()
                 .map(e -> e.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s)).collect(Collectors.toList());
 
         Expression hashCond = disjunctions.get(0);
         hashCond = hashCond.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s);
         Plan newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
-                otherConditions, originJoin.getHint(),
+                newOtherConditions, originJoin.getHint(),
                 originJoin.getMarkJoinSlotReference(), left, right);
         if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
             Plan normalizedPlan = PushdownExpressionsInHashCondition.pushDownHashExpression(
@@ -191,9 +191,12 @@ public class OrExpansion extends OneExplorationRuleFactory {
             ctx.putCTEIdToConsumer(newRight);
             Map<Slot, Slot> newReplaced = new HashMap<>(left.getProducerToConsumerOutputMap());
             newReplaced.putAll(newRight.getProducerToConsumerOutputMap());
+            newOtherConditions = otherConditions.stream()
+                    .map(e -> e.rewriteUp(s -> newReplaced.containsKey(s) ? newReplaced.get(s) : s))
+                    .collect(Collectors.toList());
             hashCond = hashCond.rewriteUp(s -> newReplaced.containsKey(s) ? newReplaced.get(s) : s);
             newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
-                    new ArrayList<>(), originJoin.getHint(),
+                    newOtherConditions, originJoin.getHint(),
                     originJoin.getMarkJoinSlotReference(), newPlan, newRight);
             if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
                 newPlan = PushdownExpressionsInHashCondition.pushDownHashExpression(

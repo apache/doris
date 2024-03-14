@@ -138,4 +138,44 @@ suite("test_null_aware_left_anti_join") {
     qt_select_1 """
         SELECT COUNT(*) FROM (SELECT    alias2 . `pk` AS field1 , alias1 . `pk` AS field2 , alias2 . `pk` AS field3 , alias1 . `pk` AS field4 , alias1 . `pk` AS field5 FROM table_20_undef_undef AS alias1 , table_100_undef_undef AS alias2 WHERE (  alias1 . `col_int_undef_signed_` NOT IN ( SELECT   SQ1_alias1 . `pk` AS SQ1_field1 FROM table_22_undef_undef AS SQ1_alias1    ) ) AND ( alias1 . `col_varchar_1024__undef_signed_` >= "I'm" OR alias1 . `col_varchar_1024__undef_signed_` >= "the" ) OR alias1 . `pk` <= alias2 . `col_int_undef_signed_`  HAVING field4 <= 8) AS T ;
     """
+
+    sql """drop table if exists table_25_undef_partitions2_keys3;"""
+    sql """drop table if exists table_7_undef_partitions2_keys3;"""
+    sql """
+                create table table_25_undef_partitions2_keys3 (
+            `col_int_undef_signed` int   ,
+            `col_varchar_10__undef_signed` varchar(10)   ,
+            `pk` int
+            ) engine=olap
+            distributed by hash(pk) buckets 10
+            properties('replication_num' = '1');
+    """
+    sql """
+        insert into table_25_undef_partitions2_keys3(pk,col_int_undef_signed,col_varchar_10__undef_signed) values (0,4,'n'),(1,null,"on"),(2,4,null),(3,1,""),(4,6,""),(5,null,'e'),(6,1,"if"),(7,4,"don't"),(8,null,'q'),(9,null,"did"),(10,null,null),(11,4,null),(12,null,"a"),(13,3,null),(14,1,null),(15,8,null),(16,7,null),(17,null,"what"),(18,6,'l'),(19,null,""),(20,7,null),(21,null,"yes"),(22,0,null),(23,3,""),(24,8,null);
+    """
+    sql """
+            create table table_7_undef_partitions2_keys3 (
+            `col_int_undef_signed` int   ,
+            `col_varchar_10__undef_signed` varchar(10)   ,
+            `pk` int
+            ) engine=olap
+            distributed by hash(pk) buckets 10
+            properties('replication_num' = '1');
+    """
+
+    sql """
+        insert into table_7_undef_partitions2_keys3(pk,col_int_undef_signed,col_varchar_10__undef_signed) values (0,2,""),(1,null,'d'),(2,6,"like"),(3,null,"time"),(4,5,""),(5,9,""),(6,2,"a");
+    """
+
+    qt_select_2 """
+        SELECT *
+        FROM table_25_undef_partitions2_keys3 AS t1
+        WHERE NOT t1.`pk` <= 7
+            OR t1.`pk` >= 1
+            OR t1.`pk` NOT IN (
+                SELECT `pk`
+                FROM table_7_undef_partitions2_keys3 AS t2
+                WHERE t1.pk = t2.pk
+            ) order by pk;
+    """
 }

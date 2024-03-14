@@ -161,10 +161,24 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     if (_read_context->predicates_except_leafnode_of_andnode != nullptr) {
-        _read_options.column_predicates_except_leafnode_of_andnode.insert(
-                _read_options.column_predicates_except_leafnode_of_andnode.end(),
-                _read_context->predicates_except_leafnode_of_andnode->begin(),
-                _read_context->predicates_except_leafnode_of_andnode->end());
+        bool should_push_down = true;
+        bool should_push_down_value_predicates = _should_push_down_value_predicates();
+        for (auto pred : *_read_context->predicates_except_leafnode_of_andnode) {
+            if (_rowset->keys_type() == UNIQUE_KEYS && !should_push_down_value_predicates &&
+                !_read_context->tablet_schema->column(pred->column_id()).is_key()) {
+                VLOG_DEBUG << "do not push down except_leafnode_of_andnode value pred "
+                           << pred->debug_string();
+                should_push_down = false;
+                break;
+            }
+        }
+
+        if (should_push_down) {
+            _read_options.column_predicates_except_leafnode_of_andnode.insert(
+                    _read_options.column_predicates_except_leafnode_of_andnode.end(),
+                    _read_context->predicates_except_leafnode_of_andnode->begin(),
+                    _read_context->predicates_except_leafnode_of_andnode->end());
+        }
     }
 
     // Take a delete-bitmap for each segment, the bitmap contains all deletes

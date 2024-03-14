@@ -68,8 +68,9 @@ suite("test_bloom_filter_hit") {
         def dst = 'http://' + context.config.feHttpAddress
         def conn = new URL(dst + url).openConnection()
         conn.setRequestMethod("GET")
-        //token for root
-        conn.setRequestProperty("Authorization","Basic cm9vdDo=")
+        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+        conn.setRequestProperty("Authorization", "Basic ${encoding}")
         return conn.getInputStream().getText()
     }
 

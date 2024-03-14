@@ -420,9 +420,10 @@ public class ExportMgr extends MasterDaemon {
         infoMap.put("broker", job.getBrokerDesc().getName());
         infoMap.put("column_separator", job.getColumnSeparator());
         infoMap.put("format", job.getFormat());
+        infoMap.put("with_bom", job.getWithBom());
         infoMap.put("line_delimiter", job.getLineDelimiter());
         infoMap.put("columns", job.getColumns());
-        infoMap.put("tablet_num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
+        infoMap.put("tablet_num", job.getTabletsNum());
         infoMap.put("max_file_size", job.getMaxFileSize());
         infoMap.put("delete_existing_files", job.getDeleteExistingFiles());
         jobInfo.add(new Gson().toJson(infoMap));

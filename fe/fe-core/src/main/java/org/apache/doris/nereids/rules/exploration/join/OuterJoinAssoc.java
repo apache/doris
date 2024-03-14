@@ -79,7 +79,7 @@ public class OuterJoinAssoc extends OneExplorationRuleFactory {
                                 .addAll(topJoin.getOtherJoinConjuncts()).build();
                         Set<Slot> notNullSlots = ExpressionUtils.inferNotNullSlots(on,
                                 ctx.cascadesContext);
-                        if (!conditionSlot.equals(notNullSlots)) {
+                        if (conditionSlot.isEmpty() || !conditionSlot.equals(notNullSlots)) {
                             return null;
                         }
                     }

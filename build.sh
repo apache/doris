@@ -302,7 +302,7 @@ update_submodule() {
 }
 
 update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene-2.0.tar.gz"
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
     clean_gensrc
@@ -323,9 +323,6 @@ if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
 fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
-fi
-if [[ -z "${WITH_LZO}" ]]; then
-    WITH_LZO='OFF'
 fi
 if [[ -z "${USE_LIBCPP}" ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
@@ -422,7 +419,6 @@ echo "Get params:
     PARALLEL                    -- ${PARALLEL}
     CLEAN                       -- ${CLEAN}
     WITH_MYSQL                  -- ${WITH_MYSQL}
-    WITH_LZO                    -- ${WITH_LZO}
     GLIBC_COMPATIBILITY         -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                    -- ${USE_AVX2}
     USE_LIBCPP                  -- ${USE_LIBCPP}
@@ -509,7 +505,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
-        -DWITH_LZO="${WITH_LZO}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
@@ -586,9 +581,18 @@ if [[ "${FE_MODULES}" != '' ]]; then
         clean_fe
     fi
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true
+        # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
+        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}"
+        else
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}}
+        fi
     else
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests
+        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}"
+        else
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}}
+        fi
     fi
     cd "${DORIS_HOME}"
 fi

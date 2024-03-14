@@ -761,6 +761,9 @@ public class Load {
         Map<String, Expr> mvDefineExpr = Maps.newHashMap();
         for (Column column : tbl.getFullSchema()) {
             if (column.getDefineExpr() != null) {
+                if (column.getDefineExpr().getType().isInvalid()) {
+                    column.getDefineExpr().setType(column.getType());
+                }
                 mvDefineExpr.put(column.getName(), column.getDefineExpr());
             }
         }
@@ -852,13 +855,13 @@ public class Load {
             List<SlotRef> slots = Lists.newArrayList();
             entry.getValue().collect(SlotRef.class, slots);
             for (SlotRef slot : slots) {
-                if (slotDescByName.get(slot.getColumnName()) != null) {
-                    smap.getLhs().add(slot);
-                    smap.getRhs().add(getExprFromDesc(analyzer, slotDescByName.get(slot.getColumnName()), slot));
-                } else if (exprsByName.get(slot.getColumnName()) != null) {
+                if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
                             exprsByName.get(slot.getColumnName())));
+                } else if (slotDescByName.get(slot.getColumnName()) != null) {
+                    smap.getLhs().add(slot);
+                    smap.getRhs().add(getExprFromDesc(analyzer, slotDescByName.get(slot.getColumnName()), slot));
                 } else {
                     if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
                         throw new UserException("unknown reference column in DELETE ON clause:" + slot.getColumnName());

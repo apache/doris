@@ -272,7 +272,8 @@ private:
     static Status _validate_alter_result(TabletSharedPtr new_tablet,
                                          const TAlterTabletReqV2& request);
 
-    static Status _convert_historical_rowsets(const SchemaChangeParams& sc_params);
+    static Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
+                                              int64_t* real_alter_version);
 
     static Status _parse_request(const SchemaChangeParams& sc_params, BlockChanger* changer,
                                  bool* sc_sorting, bool* sc_directly);
@@ -280,6 +281,9 @@ private:
     // Initialization Settings for creating a default value
     static Status _init_column_mapping(ColumnMapping* column_mapping,
                                        const TabletColumn& column_schema, const std::string& value);
+
+    static Status _calc_delete_bitmap_for_mow_table(TabletSharedPtr new_tablet,
+                                                    int64_t alter_version);
 
     static std::shared_mutex _mutex;
     static std::unordered_set<int64_t> _tablet_ids_in_converting;

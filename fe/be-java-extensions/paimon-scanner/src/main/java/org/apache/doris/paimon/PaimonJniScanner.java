@@ -30,6 +30,8 @@ import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,8 +60,10 @@ public class PaimonJniScanner extends JniScanner {
     private long tblId;
     private long lastUpdateTime;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
+    private final ClassLoader classLoader;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
+        this.classLoader = this.getClass().getClassLoader();
         LOG.debug("params:{}", params);
         this.params = params;
         String[] requiredFields = params.get("required_fields").split(",");
@@ -85,8 +89,19 @@ public class PaimonJniScanner extends JniScanner {
 
     @Override
     public void open() throws IOException {
-        initTable();
-        initReader();
+        try {
+            // When the user does not specify hive-site.xml, Paimon will look for the file from the classpath:
+            //    org.apache.paimon.hive.HiveCatalog.createHiveConf:
+            //        `Thread.currentThread().getContextClassLoader().getResource(HIVE_SITE_FILE)`
+            // so we need to provide a classloader, otherwise it will cause NPE.
+            Thread.currentThread().setContextClassLoader(classLoader);
+            initTable();
+            initReader();
+            resetDatetimeV2Precision();
+        } catch (Exception e) {
+            LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
+            throw e;
+        }
     }
 
     private void initReader() throws IOException {
@@ -110,6 +125,22 @@ public class PaimonJniScanner extends JniScanner {
         Split split = PaimonScannerUtils.decodeStringToObject(paimonSplit);
         LOG.debug("split:{}", split);
         return split;
+    }
+
+    private void resetDatetimeV2Precision() {
+        for (int i = 0; i < types.length; i++) {
+            if (types[i].isDateTimeV2()) {
+                // paimon support precision > 6, but it has been reset as 6 in FE
+                // try to get the right precision for datetimev2
+                int index = paimonAllFieldNames.indexOf(fields[i]);
+                if (index != -1) {
+                    DataType dataType = table.rowType().getTypeAt(index);
+                    if (dataType instanceof TimestampType) {
+                        types[i].setPrecision(((TimestampType) dataType).getPrecision());
+                    }
+                }
+            }
+        }
     }
 
     @Override
@@ -163,7 +194,7 @@ public class PaimonJniScanner extends JniScanner {
         PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId, paimonOptionParams, dbName, tblName);
         TableExt tableExt = PaimonTableCache.getTable(key);
         if (tableExt.getCreateTime() < lastUpdateTime) {
-            LOG.warn("invalidate cacha table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
+            LOG.warn("invalidate cache table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
                     lastUpdateTime);
             PaimonTableCache.invalidateTableCache(key);
             tableExt = PaimonTableCache.getTable(key);

@@ -221,7 +221,7 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>1.0.2</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>1.0.3</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
@@ -321,8 +321,8 @@ under the License.
         <hamcrest.version>2.1</hamcrest.version>
         <httpclient.version>4.5.13</httpclient.version>
         <httpcore.version>4.4.15</httpcore.version>
-        <aws-java-sdk.version>1.12.519</aws-java-sdk.version>
-        <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
+        <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
+        <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <dlf-metastore-client-hive.version>0.2.14</dlf-metastore-client-hive.version>
         <hadoop.version>3.3.6</hadoop.version>
         <joda.version>2.8.1</joda.version>
@@ -342,7 +342,7 @@ under the License.
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
         <!-- paimon -->
-        <paimon.version>0.5.0-incubating</paimon.version>
+        <paimon.version>0.6.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <trino.parser.version>395</trino.parser.version>
         <!-- arrow flight sql -->
@@ -401,11 +401,6 @@ under the License.
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
                 <version>${nimbusds.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-bundle</artifactId>
-                <version>${aws-java-sdk.version}</version>
             </dependency>
             <!-- opentelemetry-->
             <dependency>
@@ -874,6 +869,22 @@ under the License.
                 <artifactId>netty-transport-native-unix-common</artifactId>
                 <version>${netty-all.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-sctp</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-classes-kqueue</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-epoll</artifactId>
+                <classifier>linux-x86_64</classifier>
+                <version>${netty-all.version}</version>
+            </dependency>
             <!-- velocity-engine-core dependency-->
             <dependency>
                 <groupId>org.apache.velocity</groupId>
@@ -891,12 +902,29 @@ under the License.
                         <artifactId>logback-classic</artifactId>
                     </exclusion>
                     <exclusion>
-                        <artifactId>elasticsearch-rest-high-level-client</artifactId>
-                        <groupId>org.elasticsearch.client</groupId>
-                    </exclusion>
-                    <exclusion>
                         <groupId>org.apache.hive</groupId>
                         <artifactId>hive-storage-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.solr</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.elasticsearch.client</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.elasticsearch.plugin</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.elasticsearch</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <!--ranger audit only depends on aws logs, which is provided alone-->
+                    <exclusion>
+                        <groupId>com.amazonaws</groupId>
+                        <artifactId>*</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1397,6 +1425,12 @@ under the License.
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-dynamodb</artifactId>
+                <version>${aws-java-sdk.version}</version>
+            </dependency>
+            <!--only for apache ranger audit-->
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-logs</artifactId>
                 <version>${aws-java-sdk.version}</version>
             </dependency>
             <dependency>

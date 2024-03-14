@@ -86,6 +86,8 @@ private:
 
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
 
+    std::string _mask_token(const std::string& str);
+
 private:
     const TCloneReq& _clone_req;
     vector<TTabletInfo>* _tablet_infos;

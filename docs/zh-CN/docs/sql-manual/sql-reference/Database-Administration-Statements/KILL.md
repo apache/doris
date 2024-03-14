@@ -39,8 +39,18 @@ KILL
 语法：
 
 ```sql
-KILL [CONNECTION | QUERY] processlist_id
+KILL [CONNECTION] processlist_id
 ```
+
+除此之外，您还可以使用 processlist_id 或者 query_id 终止正在执行的查询命令
+
+语法：
+
+```sql
+KILL QUERY processlist_id | query_id
+```
+
+
 
 ### Example
 

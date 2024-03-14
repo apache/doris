@@ -32,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -66,6 +67,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.stream.Collectors;
 
@@ -76,7 +78,7 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
-    public static final String PROP_SEPERATOR_CHAR = "seperatorChar";
+    public static final String PROP_SEPARATOR_CHAR = "separatorChar";
     public static final String PROP_QUOTA_CHAR = "quoteChar";
 
 
@@ -337,8 +339,8 @@ public class HiveScanNode extends FileQueryScanNode {
         if (bindBrokerName != null) {
             return TFileType.FILE_BROKER;
         }
-        return getTFileType(location).orElseThrow(() ->
-            new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
+        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
+                new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }
 
     @Override
@@ -367,8 +369,8 @@ public class HiveScanNode extends FileQueryScanNode {
         java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
         if (delimiter.containsKey(PROP_FIELD_DELIMITER)) {
             textParams.setColumnSeparator(delimiter.get(PROP_FIELD_DELIMITER));
-        } else if (delimiter.containsKey(PROP_SEPERATOR_CHAR)) {
-            textParams.setColumnSeparator(delimiter.get(PROP_SEPERATOR_CHAR));
+        } else if (delimiter.containsKey(PROP_SEPARATOR_CHAR)) {
+            textParams.setColumnSeparator(delimiter.get(PROP_SEPARATOR_CHAR));
         } else {
             textParams.setColumnSeparator(DEFAULT_FIELD_DELIMITER);
         }

@@ -118,6 +118,7 @@ public class Utils {
         HoodieTableMetaClient metaClient;
         if (ugi != null) {
             try {
+                ugi.checkTGTAndReloginFromKeytab();
                 metaClient = ugi.doAs(
                         (PrivilegedExceptionAction<HoodieTableMetaClient>) () -> HoodieTableMetaClient.builder()
                                 .setConf(conf).setBasePath(basePath).build());

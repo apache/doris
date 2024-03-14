@@ -21,7 +21,16 @@
                         "install/construct-docker/run-docker-cluster"
                     ]
                 },
-                "install/k8s-deploy",
+                {
+                    "type": "category",
+                    "label": "Deploy Doris on Kubernetes",
+                    "items": [
+                        "install/k8s-deploy/operator-deploy",
+                        "install/k8s-deploy/helm-chart-deploy",
+                        "install/k8s-deploy/network",
+                        "install/k8s-deploy/persistent-volume"
+                    ]
+                },
                 {
                     "type": "category",
                     "label": "Source Code Compilation",
@@ -51,8 +60,7 @@
                         "data-table/index/index-overview",
                         "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
-                        "data-table/index/ngram-bloomfilter-index",
-                        "data-table/index/bitmap-index"
+                        "data-table/index/ngram-bloomfilter-index"
                     ]
                 }
             ]
@@ -92,13 +100,6 @@
                                 "data-operate/import/import-way/s3-load-manual",
                                 "data-operate/import/import-way/insert-into-manual",
                                 "data-operate/import/import-way/load-json-format"
-                            ]
-                        },
-                        {
-                            "type": "category",
-                            "label": "Import Advanced",
-                            "items": [
-                                "data-operate/import/import-advanced/min-load-replica-num"
                             ]
                         }
                     ]
@@ -169,12 +170,12 @@
                 "advanced/using-hll",
                 "advanced/variables",
                 "advanced/time-zone",
+                "advanced/sql-mode",
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
-                "advanced/compute-node",
-                "advanced/lateral-view",
                 "advanced/is-being-synced",
-                "advanced/sql-mode"
+                "advanced/lateral-view"
+                
             ]
         },
         {
@@ -220,6 +221,7 @@
                 },
                 "lakehouse/file",
                 "lakehouse/filecache",
+                "lakehouse/compute-node",
                 "lakehouse/external-statistics",
                 "lakehouse/fs-benchmark-tool",
                 "lakehouse/faq"
@@ -231,6 +233,8 @@
             "items": [
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
+                "ecosystem/doris-kafka-connector",
+                "ecosystem/doris-streamloader",
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
@@ -928,7 +932,6 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-DATABASE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
@@ -1011,7 +1014,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/ANALYZE"
                                     ]
                                 },
                                 "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"
@@ -1023,6 +1027,7 @@
                             "items": [
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ALTER",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ANALYZE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-BACKUP",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-BACKENDS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-BROKER",
@@ -1037,6 +1042,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-COLUMN-STATS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLLATION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATABASES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATA-SKEW",
@@ -1065,12 +1071,14 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WHITE-LIST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WARNING",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLETS-BELONG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-VARIABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PLUGINS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PROCEDURE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD-TASK",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PROC",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-STATS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-STATUS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-REPOSITORIES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-QUERY-PROFILE",
@@ -1322,10 +1330,14 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.6",
+                "releasenotes/release-2.0.5",
+                "releasenotes/release-2.0.4",
                 "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",
+                "releasenotes/release-1.2.8",
                 "releasenotes/release-1.2.7",
                 "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",

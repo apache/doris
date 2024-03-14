@@ -44,7 +44,7 @@ under the License.
 
 ## 开始导入
 
-导入方式和 [Broker Load](broker-load-manual.md)  基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
+导入方式和 [Broker Load](../data-operate/import/import-way/broker-load-manual)  基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
 
 ```text
     WITH S3

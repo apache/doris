@@ -89,7 +89,7 @@ public:
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
-    RowsetSharedPtr build_tmp() override;
+    Status build_tmp(RowsetSharedPtr& rowset_ptr) override;
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
 
@@ -149,7 +149,8 @@ private:
                                   const FlushContext* ctx = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
-    void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
+    Status _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta,
+                              bool check_segment_num = false);
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);

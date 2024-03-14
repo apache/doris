@@ -32,14 +32,17 @@ suite("test_nereids_row_policy") {
             sql "set enable_fallback_to_original_planner = false"
             sql "SELECT * FROM ${tableName}"
         }
-        def result3 = connect(user=user, password='123abc!@#', url=url) {
+        connect(user=user, password='123abc!@#', url=url) {
             sql "set enable_nereids_planner = true"
             sql "set enable_fallback_to_original_planner = false"
-            sql "SELECT * FROM ${viewName}"
+
+            test {
+                sql "SELECT * FROM ${viewName}"
+                exception "SELECT command denied to user"
+            }
         }
         assertEquals(size, result1.size())
         assertEquals(size, result2.size())
-        assertEquals(size, result3.size())
     }
 
     def createPolicy = { name, predicate, type ->
@@ -51,7 +54,7 @@ suite("test_nereids_row_policy") {
 
     def dropPolciy = { name ->
         sql """
-            DROP ROW POLICY IF EXISTS ${name}
+            DROP ROW POLICY IF EXISTS ${name} ON ${dbName}.${tableName} FOR ${user}
         """
     }
 
@@ -79,6 +82,7 @@ suite("test_nereids_row_policy") {
     sql "CREATE USER ${user} IDENTIFIED BY '123abc!@#'"
     sql "GRANT SELECT_PRIV ON internal.${dbName}.${tableName} TO ${user}"
 
+    sql 'sync'
 
     // no policy
     assertQueryResult 3

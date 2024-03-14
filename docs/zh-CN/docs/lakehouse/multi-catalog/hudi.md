@@ -55,6 +55,12 @@ CREATE CATALOG hudi PROPERTIES (
 );
 ```
 
+可选配置参数：
+
+|参数名|说明|默认值|
+|---|---|---|
+|use_hive_sync_partition|使用hms已同步的分区数据|false|
+
 ## 列类型映射
 
 和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。

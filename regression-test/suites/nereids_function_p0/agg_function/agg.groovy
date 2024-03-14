@@ -2178,6 +2178,12 @@ suite("nereids_agg_fn") {
 	qt_sql_sum_BigInt_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), sum(kbint) from fn_test'''
 
+	//not cast float to double
+    explain {
+        sql("select sum(kfloat) from fn_test;")
+        contains "partial_sum(kfloat"
+    }
+
 	qt_sql_sum_Double_gb '''
 		select sum(kdbl) from fn_test group by kbool order by kbool'''
 	qt_sql_sum_Double '''

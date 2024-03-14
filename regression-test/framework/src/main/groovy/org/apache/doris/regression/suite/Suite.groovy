@@ -745,5 +745,32 @@ class Suite implements GroovyInterceptable {
     DebugPoint GetDebugPoint() {
         return debugPoint
     }
+
+    boolean isCloudMode() {
+        return !getFeConfig("cloud_unique_id").isEmpty()
+    }
+
+    String getFeConfig(String key) {
+        return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
+    }
+
+    void setFeConfig(String key, Object value) {
+        sql "ADMIN SET FRONTEND CONFIG ('${key}' = '${value}')"
+    }
+
+    void setFeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
+        def oldConfig = tempConfig.keySet().collectEntries { [it, getFeConfig(it)] }
+
+        def updateConfig = { conf ->
+            conf.each { key, value -> setFeConfig(key, value) }
+        }
+
+        try {
+            updateConfig tempConfig
+            actionSupplier()
+        } finally {
+            updateConfig oldConfig
+        }
+    }
 }
 

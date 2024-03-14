@@ -17,7 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import lombok.Getter;
 
@@ -77,5 +83,13 @@ public class InsertOverwriteTableStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        target.getTblName().analyze(analyzer);
+        InternalDatabaseUtil.checkDatabase(getDb(), ConnectContext.get());
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), getDb(), getTbl(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    getDb() + ": " + getTbl());
+        }
     }
 }

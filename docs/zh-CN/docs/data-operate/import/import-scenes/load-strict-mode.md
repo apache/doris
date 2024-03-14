@@ -37,7 +37,7 @@ under the License.
 
 不同的导入方式设置严格模式的方式不尽相同。
 
-1. [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md)
+1. [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD)
 
    ```sql
    LOAD LABEL example_db.label1
@@ -58,7 +58,7 @@ under the License.
    )
    ```
 
-2. [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md)
+2. [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD)
 
    ```bash
    curl --location-trusted -u user:passwd \
@@ -67,7 +67,7 @@ under the License.
    http://host:port/api/example_db/my_table/_stream_load
    ```
 
-3. [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.md)
+3. [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD)
 
    ```sql
    CREATE ROUTINE LOAD example_db.test_job ON my_table
@@ -82,9 +82,9 @@ under the License.
    );
    ```
 
-4. [INSERT](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.md)
+4. [INSERT](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT)
 
-   通过[会话变量](../../../advanced/variables.md)设置：
+   通过[会话变量](../../../advanced/variables)设置：
 
    ```sql
    SET enable_insert_strict = true;

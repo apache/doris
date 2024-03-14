@@ -721,7 +721,7 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> currentAllocMap = Maps.newHashMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
+            if (replica.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
                     && be.isMixNode()) {
                 Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
                 currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
@@ -875,8 +875,9 @@ public class TabletScheduler extends MasterDaemon {
                 // this case should be handled in deleteBackendDropped()
                 continue;
             }
-            if (!be.isScheduleAvailable()) {
-                deleteReplicaInternal(tabletCtx, replica, "backend unavailable", force);
+            if (!replica.isScheduleAvailable()) {
+                String reason = be.isScheduleAvailable() ? "backend unavailable" : "user drop replica";
+                deleteReplicaInternal(tabletCtx, replica, reason, force);
                 return true;
             }
         }

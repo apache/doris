@@ -52,6 +52,7 @@ import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -351,19 +352,28 @@ public class DynamicPartitionScheduler extends MasterDaemon {
      */
     private void setStorageMediumProperty(HashMap<String, String> partitionProperties,
             DynamicPartitionProperty property, ZonedDateTime now, int hotPartitionNum, int offset) {
-        if ((hotPartitionNum <= 0 || offset + hotPartitionNum <= 0) && !property.getStorageMedium()
-                .equalsIgnoreCase("ssd")) {
-            return;
-        }
-        String cooldownTime;
-        if (property.getStorageMedium().equalsIgnoreCase("ssd")) {
-            cooldownTime = TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS);
+        // 1. no hot partition, then use dynamic_partition.storage_medium
+        // 2. has hot partition
+        //    1) dynamic_partition.storage_medium = 'ssd', then use ssd;
+        //    2) otherwise
+        //       a. cooldown partition, then use hdd
+        //       b. hot partition. then use ssd
+        if (hotPartitionNum <= 0 || property.getStorageMedium().equalsIgnoreCase("ssd")) {
+            if (!Strings.isNullOrEmpty(property.getStorageMedium())) {
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, property.getStorageMedium());
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                        TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS));
+            }
+        } else if (offset + hotPartitionNum <= 0) {
+            partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.HDD.name());
+            partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                    TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS));
         } else {
-            cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
+            String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
                     property, now, offset + hotPartitionNum, DynamicPartitionUtil.DATETIME_FORMAT);
+            partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.SSD.name());
+            partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownTime);
         }
-        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.SSD.name());
-        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownTime);
     }
 
     private void setStoragePolicyProperty(HashMap<String, String> partitionProperties,

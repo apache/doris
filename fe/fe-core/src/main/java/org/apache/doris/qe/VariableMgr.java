@@ -385,6 +385,26 @@ public class VariableMgr {
         }
     }
 
+    public static void enableNereidsPlanner() {
+        wlock.lock();
+        try {
+            VarContext ctx = ctxByVarName.get(SessionVariable.ENABLE_NEREIDS_PLANNER);
+            try {
+                setValue(ctx.getObj(), ctx.getField(), String.valueOf(true));
+            } catch (DdlException e) {
+                LOG.warn("failed to set global variable: {}", SessionVariable.ENABLE_NEREIDS_PLANNER, e);
+                return;
+            }
+
+            // write edit log
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
+                    Lists.newArrayList(SessionVariable.ENABLE_NEREIDS_PLANNER));
+            Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
+        } finally {
+            wlock.unlock();
+        }
+    }
+
     public static void setLowerCaseTableNames(int mode) throws DdlException {
         VarContext ctx = ctxByVarName.get(GlobalVariable.LOWER_CASE_TABLE_NAMES);
         setGlobalVarAndWriteEditLog(ctx, GlobalVariable.LOWER_CASE_TABLE_NAMES, "" + mode);

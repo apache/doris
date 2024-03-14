@@ -60,6 +60,8 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
+            <!-- Must be provided, we use hadoop_libs in BE's 3rd party instead -->
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.hudi</groupId>
@@ -219,6 +221,18 @@ under the License.
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-cos</artifactId>
             <version>3.3.5</version>
+        </dependency>
+        <!-- For BE Paimon OSS/S3 Access -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-s3</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-oss</artifactId>
+            <version>${paimon.version}</version>
         </dependency>
     </dependencies>
 

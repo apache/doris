@@ -28,13 +28,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
+import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -89,6 +89,8 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final String NUM_ROWS = "numRows";
 
+    private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
+
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
@@ -113,9 +115,6 @@ public class HMSExternalTable extends ExternalTable {
     protected List<Column> partitionColumns;
 
     protected DLAType dlaType = DLAType.UNKNOWN;
-
-    // No as precise as row count in TableStats, but better than none.
-    private long estimatedRowCount = -1;
 
     // record the event update time when enable hms event listener
     protected volatile long eventUpdateTime;
@@ -168,7 +167,6 @@ public class HMSExternalTable extends ExternalTable {
                 }
             }
             objectCreated = true;
-            estimatedRowCount = getRowCountFromExternalSource(true);
         }
     }
 
@@ -194,6 +192,14 @@ public class HMSExternalTable extends ExternalTable {
         return inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName);
     }
 
+    /**
+     * Some data lakes (such as Hudi) will synchronize their partition information to HMS,
+     * then we can quickly obtain the partition information of the table from HMS.
+     */
+    public boolean useHiveSyncPartition() {
+        return Boolean.parseBoolean(catalog.getProperties().getOrDefault(USE_HIVE_SYNC_PARTITION, "false"));
+    }
+
     public boolean isHoodieCowTable() {
         if (remoteTable.getSd() == null) {
             return false;
@@ -207,12 +213,22 @@ public class HMSExternalTable extends ExternalTable {
      * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
+        // we will return false if null, which means that the table type maybe unsupported.
+        if (remoteTable.getSd() == null) {
+            return false;
+        }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         if (inputFileFormat == null) {
             return false;
         }
+        boolean supportedFileFormat = SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        if (!supportedFileFormat) {
+            // for easier debugging, need return error message if unsupported input format is used.
+            // NotSupportedException is required by some operation.
+            throw new NotSupportedException("Unsupported hive input format: " + inputFileFormat);
+        }
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
-        return SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        return true;
     }
 
     /**
@@ -286,25 +302,14 @@ public class HMSExternalTable extends ExternalTable {
         return 0;
     }
 
-    @Override
-    public long getRowCount() {
-        makeSureInitialized();
-        long rowCount = getRowCountFromExternalSource(false);
-        if (rowCount == -1) {
-            LOG.debug("Will estimate row count from file list.");
-            rowCount = StatisticsUtil.getRowCountFromFileList(this);
-        }
-        return rowCount;
-    }
-
-    private long getRowCountFromExternalSource(boolean isInit) {
+    private long getRowCountFromExternalSource() {
         long rowCount;
         switch (dlaType) {
             case HIVE:
-                rowCount = StatisticsUtil.getHiveRowCount(this, isInit);
+                rowCount = StatisticsUtil.getHiveRowCount(this);
                 break;
             case ICEBERG:
-                rowCount = StatisticsUtil.getIcebergRowCount(this);
+                rowCount = IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
                 break;
             default:
                 LOG.warn("getRowCount for dlaType {} is not supported.", dlaType);
@@ -458,27 +463,30 @@ public class HMSExternalTable extends ExternalTable {
         return tmpSchema;
     }
 
-    @Override
-    public long estimatedRowCount() {
-        try {
-            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
-            if (tableStats != null) {
-                long rowCount = tableStats.rowCount;
-                LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
-                return rowCount;
-            }
-
-            if (estimatedRowCount != -1) {
-                return estimatedRowCount;
-            }
-            // Cache the estimated row count in this structure
-            // though the table never get analyzed, since the row estimation might be expensive caused by RPC.
-            estimatedRowCount = getRowCount();
-            return estimatedRowCount;
-        } catch (Exception e) {
-            LOG.warn("Fail to get row count for table {}", name, e);
+    private List<Column> getHiveSchema() {
+        List<Column> columns;
+        List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
+        for (FieldSchema field : schema) {
+            tmpSchema.add(new Column(field.getName().toLowerCase(Locale.ROOT),
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                    true, field.getComment(), true, -1));
         }
-        return 1;
+        columns = tmpSchema;
+        return columns;
+    }
+
+    @Override
+    public long fetchRowCount() {
+        makeSureInitialized();
+        // Get row count from hive metastore property.
+        long rowCount = getRowCountFromExternalSource();
+        // Only hive table supports estimate row count by listing file.
+        if (rowCount == -1 && dlaType.equals(DLAType.HIVE)) {
+            LOG.debug("Will estimate row count from file list.");
+            rowCount = StatisticsUtil.getRowCountFromFileList(this);
+        }
+        return rowCount;
     }
 
     private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
@@ -669,7 +677,6 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
-        estimatedRowCount = -1;
     }
 
     @Override

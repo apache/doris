@@ -55,6 +55,8 @@ TEST(function_string_test, function_string_substr_test) {
                 {{std::string(""), 0, 4}, std::string("")},
                 {{std::string("123"), 0, 4}, std::string("")},
                 {{std::string("123"), 1, 0}, std::string("")},
+                {{std::string("123"), 1, -1}, std::string("")},
+                {{std::string("你好好"), 1, -1}, std::string("")},
                 {{Null(), 5, 4}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
@@ -105,6 +107,8 @@ TEST(function_string_test, function_string_strleft_test) {
                         {{std::string(""), -2}, std::string("")},
                         {{std::string(""), 0}, std::string("")},
                         {{std::string("123"), 0}, std::string("")},
+                        {{std::string("123"), -1}, std::string("")},
+                        {{std::string("你好好"), -1}, std::string("")},
                         {{Null(), 3}, Null()}};
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);

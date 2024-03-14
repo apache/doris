@@ -121,8 +121,6 @@ suite("test_analyze") {
         SET forbid_unknown_col_stats=true;
         """
 
-    Thread.sleep(1000 * 60)
-
 //    sql """
 //        SELECT * FROM ${tbl};
 //    """
@@ -252,7 +250,7 @@ suite("test_analyze") {
 
     def expected_result = { r->
         for(int i = 0; i < r.size; i++) {
-            if ((int) Double.parseDouble(r[i][1]) == 6) {
+            if ((int) Double.parseDouble(r[i][2]) == 6) {
                 return true
             } else {
                 return false
@@ -894,7 +892,7 @@ PARTITION `p599` VALUES IN (599)
 
     sql """ANALYZE TABLE test_600_partition_table_analyze WITH SYNC"""
 
-    //  0:column_name | 1:count | 2:ndv  | 3:num_null | 4:data_size | 5:avg_size_byte | 6:min  | 7:max  | 8:updated_time
+    //  0:column_name | 1:index_name | 2:count | 3:ndv  | 4:num_null | 5:data_size | 6:avg_size_byte | 7:min  | 8:max  | 9:method | 10:type | 11:trigger | 12:query_times | 13:updated_time
     id_col_stats = sql """
         SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
     """
@@ -903,25 +901,14 @@ PARTITION `p599` VALUES IN (599)
         return (int) Double.parseDouble(r[0][idx]) == expected_value
     }
 
-    assert expected_col_stats(id_col_stats, 600, 1)
-    assert (int) Double.parseDouble(id_col_stats[0][2]) < 700
-            && (int) Double.parseDouble(id_col_stats[0][2]) > 500
-    assert expected_col_stats(id_col_stats, 0, 3)
-    assert expected_col_stats(id_col_stats, 2400, 4)
-    assert expected_col_stats(id_col_stats, 4, 5)
-    assert expected_col_stats(id_col_stats, 0, 6)
-    assert expected_col_stats(id_col_stats, 599, 7)
-
-    def update_time = id_col_stats[0][8]
-
-    sql """ANALYZE TABLE test_600_partition_table_analyze WITH SYNC"""
-
-    // Data has no change, update time shouldn't be update since this table don't need to analyze again
-    id_col_stats_2 = sql """
-        SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
-    """
-
-    assert update_time == id_col_stats_2[0][8]
+    assert expected_col_stats(id_col_stats, 600, 2)
+    assert (int) Double.parseDouble(id_col_stats[0][3]) < 700
+            && (int) Double.parseDouble(id_col_stats[0][3]) > 500
+    assert expected_col_stats(id_col_stats, 0, 4)
+    assert expected_col_stats(id_col_stats, 2400, 5)
+    assert expected_col_stats(id_col_stats, 4, 6)
+    assert expected_col_stats(id_col_stats, 0, 7)
+    assert expected_col_stats(id_col_stats, 599, 8)
 
     sql """DROP TABLE IF EXISTS increment_analyze_test"""
     sql """
@@ -949,7 +936,7 @@ PARTITION `p599` VALUES IN (599)
         SHOW COLUMN CACHED STATS increment_analyze_test(id)
     """
 
-    expected_col_stats(inc_res, 6, 1)
+    expected_col_stats(inc_res, 6, 2)
 
     sql """
         DROP TABLE increment_analyze_test;
@@ -989,12 +976,12 @@ PARTITION `p599` VALUES IN (599)
         SHOW COLUMN CACHED STATS a_partitioned_table_for_analyze_test(val)
     """
 
-    expected_col_stats(col_val_res, 3, 1)
+    expected_col_stats(col_val_res, 3, 2)
 
     def col_id_res = sql """
         SHOW COLUMN CACHED STATS a_partitioned_table_for_analyze_test(id)
     """
-    expected_col_stats(col_id_res, 3, 1)
+    expected_col_stats(col_id_res, 3, 2)
 
     sql """DROP TABLE IF EXISTS `some_complex_type_test`"""
 
@@ -1297,8 +1284,8 @@ PARTITION `p599` VALUES IN (599)
     def truncate_test_result = sql """
         SHOW COLUMN CACHED STATS ${tbl}(analyzetestlimitedk12)
     """
-    assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][6].substring(1, 1025)
     assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][7].substring(1, 1025)
+    assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][8].substring(1, 1025)
 
     // Test analyze empty table
     sql """TRUNCATE TABLE ${tbl}"""
@@ -1308,156 +1295,156 @@ PARTITION `p599` VALUES IN (599)
     result = sql """show column stats ${tbl}(analyzetestlimitedk0);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk0", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk1);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk1", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk2);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk2", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk3);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk3", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk4);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk4", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk5);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk5", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk6);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk6", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk7);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk7", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk8);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk8", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk9);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk9", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk10);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk10", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk11);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk11", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk12);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk12", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk13);"""
     assertEquals(1, result.size())
     assertEquals("analyzetestlimitedk13", result[0][0])
-    assertEquals("0.0", result[0][1])
     assertEquals("0.0", result[0][2])
     assertEquals("0.0", result[0][3])
     assertEquals("0.0", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("N/A", result[0][6])
+    assertEquals("0.0", result[0][6])
     assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
 
     // Test drop stats with more than 1024 columns.
     sql """
@@ -2573,14 +2560,93 @@ PARTITION `p599` VALUES IN (599)
     sql """drop stats col1100 """
     sql """DROP TABLE IF EXISTS col1100"""
 
-    // Test trigger type.
-    sql """DROP DATABASE IF EXISTS trigger"""
-    sql """CREATE DATABASE IF NOT EXISTS trigger"""
-    sql """USE trigger"""
+    // Test partititon load data for the first time.
     sql """
-      CREATE TABLE if not exists trigger_test(
+     CREATE TABLE `partition_test` (
+      `id` INT NOT NULL,
+      `name` VARCHAR(25) NOT NULL,
+      `comment` VARCHAR(152) NULL
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT 'OLAP'
+      PARTITION BY RANGE(`id`)
+      (PARTITION p1 VALUES [("0"), ("100")),
+       PARTITION p2 VALUES [("100"), ("200")),
+       PARTITION p3 VALUES [("200"), ("300")))
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1");
+     """
+
+    sql """analyze table partition_test with sync"""
+    sql """insert into partition_test values (1, '1', '1')"""
+    def partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    assertEquals(partition_result[0][0], "1")
+    sql """analyze table partition_test with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (101, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    sql """analyze table partition_test(id) with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (102, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+
+    // Test sample agg table value column
+    sql """
+     CREATE TABLE `agg_table_test` (
+      `id` BIGINT NOT NULL,
+      `name` VARCHAR(10) REPLACE NULL
+     ) ENGINE=OLAP
+     AGGREGATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+    sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
+    Thread.sleep(1000 * 60)
+    sql """analyze table agg_table_test with sample rows 100 with sync"""
+    def agg_result = sql """show column stats agg_table_test (name)"""
+    assertEquals(agg_result[0][7], "N/A")
+    assertEquals(agg_result[0][8], "N/A")
+
+    // Test sample string type min max
+    sql """
+     CREATE TABLE `string_min_max` (
+      `id` BIGINT NOT NULL,
+      `name` string NULL
+     ) ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+   sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
+   sql """set forbid_unknown_col_stats=false"""
+   explain {
+       sql("select min(name), max(name) from string_min_max")
+       contains "pushAggOp=NONE"
+   }
+   sql """set enable_pushdown_string_minmax = true"""
+   explain {
+       sql("select min(name), max(name) from string_min_max")
+       contains "pushAggOp=MINMAX"
+   }
+   sql """set forbid_unknown_col_stats=true"""
+
+    // Test alter
+    sql """
+      CREATE TABLE alter_test(
        `id`      int NOT NULL,
-       `name`    VARCHAR(152)
+       `name`     VARCHAR(25) NOT NULL
       )ENGINE=OLAP
       DUPLICATE KEY(`id`)
       COMMENT "OLAP"
@@ -2588,28 +2654,127 @@ PARTITION `p599` VALUES IN (599)
       PROPERTIES (
        "replication_num" = "1"
       );
-    """
+   """
+    sql """ANALYZE TABLE alter_test WITH SYNC"""
+    def alter_result = sql """show table stats alter_test"""
+    assertEquals("false", alter_result[0][7])
+    sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("true", alter_result[0][7])
+    sql """ANALYZE TABLE alter_test WITH SYNC"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("false", alter_result[0][7])
+    sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("true", alter_result[0][7])
+    sql """drop stats alter_test"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("false", alter_result[0][7])
+    sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show column stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+    alter_result = sql """show column cached stats alter_test(id)"""
+    assertEquals(0, alter_result.size())
+    alter_result = sql """show column cached stats alter_test(id)"""
+    assertEquals(0, alter_result.size())
+    sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='100', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show column stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+    alter_result = sql """show column cached stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+    sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='1', 'num_nulls'='0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show column stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+    alter_result = sql """show column cached stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+
+    // Test trigger type, manual default full, manual high health value, sample empty, kill job, show analyze
+    sql """DROP DATABASE IF EXISTS trigger"""
+    sql """CREATE DATABASE IF NOT EXISTS trigger"""
+    sql """USE trigger"""
+    sql """
+     CREATE TABLE if not exists trigger_test(
+      `id`      int NOT NULL,
+      `name`    VARCHAR(152)
+     )ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT "OLAP"
+     DISTRIBUTED BY HASH(`id`) BUCKETS 1
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+    // Test sample empty table
+    def result_sample = sql """analyze table trigger_test with sample percent 10 with sync"""
+    result_sample = sql """show column stats trigger_test"""
+    assertEquals(2, result_sample.size())
+    assertEquals("0.0", result_sample[0][2])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("0.0", result_sample[1][2])
+    assertEquals("SAMPLE", result_sample[1][9])
+
+    sql """drop stats trigger_test"""
+    sql """analyze table trigger_test with sample rows 1000 with sync"""
+    result_sample = sql """show column stats trigger_test"""
+    assertEquals(2, result_sample.size())
+    assertEquals("0.0", result_sample[0][2])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("0.0", result_sample[1][2])
+    assertEquals("SAMPLE", result_sample[1][9])
+
+    // Test show task
+    result_sample = sql """analyze table trigger_test with sample percent 10"""
+    String jobId = result_sample[0][0]
+    result_sample = sql """show analyze task status ${jobId}"""
+    assertEquals(2, result_sample.size())
+    Thread.sleep(1000)
+    sql """drop stats trigger_test"""
+
+    // Test trigger type
     sql """insert into trigger_test values(1,'name1') """
+    sql """insert into trigger_test values(2,'name2') """
+    sql """insert into trigger_test values(3,'name3') """
+    sql """insert into trigger_test values(4,'name4') """
+
     sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
 
     int i = 0;
     for (0; i < 10; i++) {
         def result = sql """show column stats trigger_test"""
         if (result.size() != 2) {
-	    Thread.sleep(1000)
+            Thread.sleep(1000)
             continue;
         }
-        assertEquals(result[0][10], "SYSTEM")
-        assertEquals(result[1][10], "SYSTEM")
+        assertEquals(result[0][11], "SYSTEM")
+        assertEquals(result[1][11], "SYSTEM")
         break
     }
     if (i < 10) {
         sql """analyze table trigger_test with sync"""
         def result = sql """show column stats trigger_test"""
         assertEquals(result.size(), 2)
-        assertEquals(result[0][10], "MANUAL")
-        assertEquals(result[1][10], "MANUAL")
+        assertEquals(result[0][11], "MANUAL")
+        assertEquals(result[1][11], "MANUAL")
     }
-    sql """DROP DATABASE IF EXISTS trigger"""
 
+    // Test analyze default full.
+    sql """analyze table trigger_test with sync"""
+    def result = sql """show column stats trigger_test"""
+    assertEquals(2, result.size())
+    assertEquals("4.0", result[0][2])
+    assertEquals("FULL", result[0][9])
+    assertEquals("4.0", result[1][2])
+    assertEquals("FULL", result[1][9])
+
+    // Test analyze hive health value
+    sql """insert into trigger_test values(5,'name5') """
+    sql """analyze table trigger_test with sync"""
+    result = sql """show column stats trigger_test"""
+    assertEquals(2, result.size())
+    assertEquals("5.0", result[0][2])
+    assertEquals("5.0", result[1][2])
+
+
+    sql """DROP DATABASE IF EXISTS trigger"""
 }
+

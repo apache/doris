@@ -21,8 +21,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -232,12 +235,8 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (needToMysql) {
-            if (col != null) {
-                return col;
-            } else {
-                return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
-            }
+        if (needExternalSql) {
+            return toExternalSqlImpl();
         }
 
         if (disableTableName && label != null) {
@@ -279,6 +278,25 @@ public class SlotRef extends Expr {
             return sb.toString();
         } else {
             return "<slot " + desc.getId().asInt() + ">" + sb.toString();
+        }
+    }
+
+    private String toExternalSqlImpl() {
+        if (col != null) {
+            if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
+                    .equals(TableType.ODBC)) {
+                if (inputTable instanceof JdbcTable) {
+                    return JdbcTable.databaseProperName(((JdbcTable) inputTable).getJdbcTableType(), col);
+                } else if (inputTable instanceof OdbcTable) {
+                    return JdbcTable.databaseProperName(((OdbcTable) inputTable).getOdbcTableType(), col);
+                } else {
+                    return col;
+                }
+            } else {
+                return col;
+            }
+        } else {
+            return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
         }
     }
 
