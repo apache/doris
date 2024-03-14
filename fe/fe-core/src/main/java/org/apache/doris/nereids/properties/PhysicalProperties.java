@@ -49,8 +49,11 @@ public class PhysicalProperties {
     public static PhysicalProperties TABLET_ID_SHUFFLE
             = new PhysicalProperties(DistributionSpecTabletIdShuffle.INSTANCE);
 
-    public static PhysicalProperties HIVE_PARTITIONED
-            = new PhysicalProperties(DistributionSpecHivePartitionShuffle.INSTANCE);
+    public static PhysicalProperties SINK_HASH_PARTITIONED
+            = new PhysicalProperties(DistributionSpecTableSinkHashPartitioned.INSTANCE);
+
+    public static PhysicalProperties SINK_RANDOM_PARTITIONED
+            = new PhysicalProperties(DistributionSpecTableSinkRandomPartitioned.INSTANCE);
 
     private final OrderSpec orderSpec;
 

@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHivePartitionShuffle;
+import org.apache.doris.nereids.properties.DistributionSpecTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -153,14 +153,15 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
                     columnIdx.add(i);
                 }
             }
-            DistributionSpecHivePartitionShuffle shuffleInfo =
-                    (DistributionSpecHivePartitionShuffle) PhysicalProperties.HIVE_PARTITIONED.getDistributionSpec();
+            DistributionSpecTableSinkHashPartitioned shuffleInfo =
+                    (DistributionSpecTableSinkHashPartitioned) PhysicalProperties.SINK_HASH_PARTITIONED
+                            .getDistributionSpec();
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
             shuffleInfo.setOutputColExprIds(exprIds);
-            return PhysicalProperties.HIVE_PARTITIONED;
+            return PhysicalProperties.SINK_HASH_PARTITIONED;
         }
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.SINK_RANDOM_PARTITIONED;
     }
 }

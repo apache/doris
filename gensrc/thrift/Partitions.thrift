@@ -45,8 +45,11 @@ enum TPartitionType {
   // used for shuffle data by parititon and tablet
   TABLET_SINK_SHUFFLE_PARTITIONED,
 
-  // used for shuffle data by hiveparititon
-  HIVE_SINK_SHUFFLE_PARTITIONED
+  // used for shuffle data by hive parititon
+  TABLE_SINK_HASH_PARTITIONED,
+
+  // used for hive unparititoned table
+  TABLE_SINK_RANDOM_PARTITIONED
 }
 
 enum TDistributionType {
