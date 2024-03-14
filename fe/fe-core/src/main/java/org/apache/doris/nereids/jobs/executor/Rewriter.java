@@ -121,6 +121,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
+import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoin;
@@ -218,6 +219,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topDown(
                     new NormalizeAggregate(),
                     new CountLiteralRewrite(),
+                    new SumLiteralRewrite(),
                     new NormalizeSort()
             ),
             topic("Window analysis",
