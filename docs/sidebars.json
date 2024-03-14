@@ -1002,6 +1002,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-AS-SELECT",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
