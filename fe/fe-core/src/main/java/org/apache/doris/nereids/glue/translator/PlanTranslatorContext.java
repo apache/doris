@@ -287,16 +287,19 @@ public class PlanTranslatorContext {
             slotDescriptor.setLabel(slotReference.getName());
         } else {
             slotRef = new SlotRef(slotDescriptor);
-            if (slotReference.hasSubColPath()) {
-                slotDescriptor.setSubColLables(slotReference.getSubColPath());
-                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName()
-                            + "." + String.join(".", slotReference.getSubColPath()));
-            }
         }
         slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
-        slotDescriptor.setIsNullable(slotReference.nullable());
+        if (slotReference.hasSubColPath()) {
+            slotDescriptor.setSubColLables(slotReference.getSubColPath());
+            slotDescriptor.setMaterializedColumnName(slotRef.getColumnName()
+                        + "." + String.join(".", slotReference.getSubColPath()));
+            // always nullable at present
+            slotDescriptor.setIsNullable(true);
+        } else {
+            slotDescriptor.setIsNullable(slotReference.nullable());
+        }
         return slotDescriptor;
     }
 
