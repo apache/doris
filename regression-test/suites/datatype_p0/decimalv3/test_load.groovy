@@ -118,21 +118,16 @@ suite("test_load") {
         );
     """
     sql """
-        insert into test_sys_update_basic_test_update_decimal_tb values(1.001, 2.002);
+        insert into test_sys_update_basic_test_update_decimal_tb values
+            (1.001, 2.002), (1.002, 0.00000002), (1.003, 0.100000001), (1.004, 0.100044001), (1.005, 0.100045001);
     """
     qt_decimalv3_underflow1 """
         select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
     """
     sql """
-        insert into test_sys_update_basic_test_update_decimal_tb values(1.002, 0.00000002);
-    """
-    qt_decimalv3_underflow2 """
-        select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
-    """
-    sql """
         UPDATE test_sys_update_basic_test_update_decimal_tb SET v1="0.00000001" WHERE k1 = 1.001;
     """
-    qt_decimalv3_underflow3 """
+    qt_decimalv3_underflow2 """
         select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
     """
 
@@ -149,21 +144,16 @@ suite("test_load") {
         );
     """
     sql """
-        insert into test_sys_update_basic_test_update_decimal_tb values(1.001, 2.002);
+        insert into test_sys_update_basic_test_update_decimal_tb values
+            (1.001, 2.002), (1.002, 0.00000002), (1.003, 0.100000001), (1.004, 0.100044001), (1.005, 0.100045001);
     """
-    qt_decimalv3_underflow4 """
-        select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
-    """
-    sql """
-        insert into test_sys_update_basic_test_update_decimal_tb values(1.002, 0.00000002);
-    """
-    qt_decimalv3_underflow5 """
+    qt_decimalv3_underflow3 """
         select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
     """
     sql """
         UPDATE test_sys_update_basic_test_update_decimal_tb SET v1="0.00000001" WHERE k1 = 1.001;
     """
-    qt_decimalv3_underflow6 """
+    qt_decimalv3_underflow4 """
         select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
     """
 }
