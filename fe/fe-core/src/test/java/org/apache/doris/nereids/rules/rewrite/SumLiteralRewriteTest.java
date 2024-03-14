@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -35,9 +33,6 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
-import java.util.List;
-
 class SumLiteralRewriteTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
@@ -47,15 +42,13 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
         Alias sum = new Alias(new Sum(slot1));
         Alias add1 = new Alias(new Sum(new Add(slot1, Literal.of(1))));
         Alias add2 = new Alias(new Sum(new Add(slot1, Literal.of(2))));
-        Alias sub1 = new Alias(new Sum(new Subtract(slot1, Literal.of(2))));
+        Alias sub1 = new Alias(new Sum(new Subtract(slot1, Literal.of(1))));
         Alias sub2 = new Alias(new Sum(new Subtract(slot1, Literal.of(2))));
         LogicalAggregate<?> agg = new LogicalAggregate<>(
                 ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sum, add1, add2, sub1, sub2), scan1);
-        List<Rule> rules = new NormalizeAggregate().buildRules();
-        rules = new ArrayList<>(rules);
-        rules.add(new SumLiteralRewrite().build());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
-                .applyTopDown(rules)
-                .printlnTree();
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getAggregateFunctions().size() == 2));
     }
 }

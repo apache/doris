@@ -89,12 +89,14 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
                     newAggOutput.add(namedCount);
                 });
         LogicalAggregate<?> newAgg = agg.withAggOutput(ImmutableList.copyOf(newAggOutput));
-        List<NamedExpression> newProjects = funcMap.entrySet().stream()
-                .map(e -> {
-                    NamedExpression namedExpr = e.getKey();
-                    Expression originExpr = e.getValue().first;
-                    Literal literal = e.getValue().second;
-                    if (namedExpr.child(0) instanceof Sum) {
+        List<NamedExpression> newProjects = agg.getOutputExpressions().stream()
+                .map(namedExpr -> {
+                    if (!funcMap.containsKey(namedExpr)) {
+                        return namedExpr.toSlot();
+                    }
+                    Expression originExpr = funcMap.get(namedExpr).first;
+                    Literal literal = funcMap.get(namedExpr).second;
+                    if (namedExpr.child(0).child(0) instanceof Add) {
                         Expression newExpr = new Add(exprToSum.get(originExpr),
                                 new Multiply(literal, exprToCount.get(originExpr)));
                         return new Alias(namedExpr.getExprId(), newExpr, namedExpr.getName());
