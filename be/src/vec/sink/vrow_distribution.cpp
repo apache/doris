@@ -409,7 +409,6 @@ Status VRowDistribution::generate_rows_distribution(
     }
 
     auto num_rows = block->rows();
-    _tablet_finder->filter_bitmap().Reset(num_rows);
     _reset_find_tablets(num_rows);
 
     // if there's projection of partition calc, we need to calc it first.
@@ -449,6 +448,7 @@ Status VRowDistribution::generate_rows_distribution(
 
 // reuse vars for find_tablets
 void VRowDistribution::_reset_find_tablets(int64_t rows) {
+    _tablet_finder->filter_bitmap().Reset(rows);
     _partitions.assign(rows, nullptr);
     _skip.assign(rows, false);
     _tablet_indexes.assign(rows, 0);

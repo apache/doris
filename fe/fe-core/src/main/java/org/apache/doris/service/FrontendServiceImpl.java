@@ -3617,26 +3617,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .mapToObj(partitionIds::get)
                     .collect(Collectors.toList());
             // from here we ONLY deal the pending partitions. not include the dealed(by others).
+            if (!pendingPartitionIds.isEmpty()) {
+                // below two must have same order inner.
+                List<String> pendingPartitionNames = olapTable.getPartitionNamesByIds(pendingPartitionIds);
+                List<String> tempPartitionNames = InsertOverwriteUtil
+                        .generateTempPartitionNames(pendingPartitionNames);
 
-            // below two must have same order inner.
-            List<String> pendingPartitionNames = olapTable.getPartitionNamesByIds(pendingPartitionIds);
-            List<String> tempPartitionNames = InsertOverwriteUtil
-                    .generateTempPartitionNames(pendingPartitionNames);
-
-            long taskId = overwriteManager.registerTask(dbId, tableId, tempPartitionNames);
-            overwriteManager.registerTaskInGroup(taskGroupId, taskId);
-            InsertOverwriteUtil.addTempPartitions(olapTable, pendingPartitionNames, tempPartitionNames);
-            InsertOverwriteUtil.replacePartition(olapTable, pendingPartitionNames, tempPartitionNames);
-            // now temp partitions are bumped up and use new names. we get their ids and record them.
-            List<Long> newPartitionIds = new ArrayList<Long>();
-            for (String newPartName : pendingPartitionNames) {
-                newPartitionIds.add(olapTable.getPartition(newPartName).getId());
-            }
-            overwriteManager.recordPartitionPairs(taskGroupId, pendingPartitionIds, newPartitionIds);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("partitoin replacement: ");
-                for (int i = 0; i < pendingPartitionIds.size(); i++) {
-                    LOG.debug("[" + pendingPartitionIds.get(i) + ", " + newPartitionIds.get(i) + "], ");
+                long taskId = overwriteManager.registerTask(dbId, tableId, tempPartitionNames);
+                overwriteManager.registerTaskInGroup(taskGroupId, taskId);
+                InsertOverwriteUtil.addTempPartitions(olapTable, pendingPartitionNames, tempPartitionNames);
+                InsertOverwriteUtil.replacePartition(olapTable, pendingPartitionNames, tempPartitionNames);
+                // now temp partitions are bumped up and use new names. we get their ids and record them.
+                List<Long> newPartitionIds = new ArrayList<Long>();
+                for (String newPartName : pendingPartitionNames) {
+                    newPartitionIds.add(olapTable.getPartition(newPartName).getId());
+                }
+                overwriteManager.recordPartitionPairs(taskGroupId, pendingPartitionIds, newPartitionIds);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("partition replacement: ");
+                    for (int i = 0; i < pendingPartitionIds.size(); i++) {
+                        LOG.debug("[" + pendingPartitionIds.get(i) + ", " + newPartitionIds.get(i) + "], ");
+                    }
                 }
             }
         } catch (DdlException ex) {

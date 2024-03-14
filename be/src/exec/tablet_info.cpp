@@ -629,18 +629,12 @@ Status VOlapTablePartitionParam::replace_partitions(
 
         /// just substitute directly. no need to remove and reinsert keys.
         // range partition
-        if (t_part.__isset.start_keys) {
-            part->start_key = std::move(old_part->start_key);
-        }
-        if (t_part.__isset.end_keys) {
-            part->end_key = std::move(old_part->end_key);
-        }
+        part->start_key = std::move(old_part->start_key);
+        part->end_key = std::move(old_part->end_key);
         // list partition
-        if (t_part.__isset.in_keys) {
-            part->in_keys = std::move(old_part->in_keys);
-            if (t_part.__isset.is_default_partition && t_part.is_default_partition) {
-                _default_partition = part;
-            }
+        part->in_keys = std::move(old_part->in_keys);
+        if (t_part.__isset.is_default_partition && t_part.is_default_partition) {
+            _default_partition = part;
         }
 
         part->num_buckets = t_part.num_buckets;
@@ -680,9 +674,11 @@ Status VOlapTablePartitionParam::replace_partitions(
     }
     // remove old partitions by id
     std::ranges::sort(old_partition_ids);
-    for (auto it = _partitions.begin(); it != _partitions.end(); it++) {
+    for (auto it = _partitions.begin(); it != _partitions.end();) {
         if (std::ranges::binary_search(old_partition_ids, (*it)->id)) {
             it = _partitions.erase(it);
+        } else {
+            it++;
         }
     }
 
