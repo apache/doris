@@ -100,6 +100,7 @@ public:
     bool record_rowids = false;
     // flag for enable topn opt
     bool use_topn_opt = false;
+    std::vector<int> topn_filter_source_node_ids;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
     // columns for orderby keys

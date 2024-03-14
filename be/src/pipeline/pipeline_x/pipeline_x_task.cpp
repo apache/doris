@@ -36,6 +36,7 @@
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
+#include "util/mem_info.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -267,11 +268,44 @@ Status PipelineXTask::execute(bool* eos) {
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
+        auto sys_mem_available = doris::MemInfo::sys_mem_available();
+        auto sys_mem_warning_water_mark = doris::MemInfo::sys_mem_available_warning_water_mark();
+        auto query_mem = query_context()->query_mem_tracker->consumption();
+        auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
+        if (sink_revocable_mem_size > 0) {
+            VLOG_ROW << "sys mem available: "
+                     << PrettyPrinter::print(sys_mem_available, TUnit::BYTES)
+                     << ",\nsys_mem_available_warning_water_mark: "
+                     << PrettyPrinter::print(sys_mem_warning_water_mark, TUnit::BYTES)
+                     << ",\nquery mem limit: "
+                     << PrettyPrinter::print(_state->query_mem_limit(), TUnit::BYTES)
+                     << ",\nquery mem: " << PrettyPrinter::print(query_mem, TUnit::BYTES)
+                     << ",\nmin revocable mem: "
+                     << PrettyPrinter::print(_state->min_revocable_mem(), TUnit::BYTES)
+                     << ",\nrevocable mem: "
+                     << PrettyPrinter::print(
+                                static_cast<uint64_t>(_sink->revocable_mem_size(_state)),
+                                TUnit::BYTES);
+        }
+        if (sys_mem_available < sys_mem_warning_water_mark * config::spill_mem_warning_water_mark_multiplier /*&&
+            (double)query_mem >= (double)_state->query_mem_limit() * 0.8*/) {
+            if (_state->min_revocable_mem() > 0 &&
+                sink_revocable_mem_size >= _state->min_revocable_mem()) {
+                RETURN_IF_ERROR(_sink->revoke_memory(_state));
+                continue;
+            }
+        }
+
         // Pull block from operator chain
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+            try {
+                RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+            } catch (const Exception& e) {
+                return Status::InternalError(e.to_string() +
+                                             " task debug string: " + debug_string());
+            }
         } else {
             *eos = true;
         }

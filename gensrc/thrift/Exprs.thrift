@@ -77,6 +77,9 @@ enum TExprNodeType {
 
   IPV4_LITERAL,
   IPV6_LITERAL
+
+  // only used in runtime filter
+  NULL_AWARE_IN_PRED,
 }
 
 //enum TAggregationOp {

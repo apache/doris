@@ -222,6 +222,7 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
         return Status::InternalError("Fail to get JniScanner class.");
     }
     RETURN_ERROR_IF_EXC(env);
+
     jmethodID scanner_constructor =
             env->GetMethodID(_jni_scanner_cls, "<init>", "(ILjava/util/Map;)V");
     RETURN_ERROR_IF_EXC(env);
@@ -230,6 +231,10 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     jobject hashmap_object = JniUtil::convert_to_java_map(env, _scanner_params);
     jobject jni_scanner_obj =
             env->NewObject(_jni_scanner_cls, scanner_constructor, batch_size, hashmap_object);
+
+    RETURN_ERROR_IF_EXC(env);
+
+    // prepare constructor parameters
     env->DeleteLocalRef(hashmap_object);
     RETURN_ERROR_IF_EXC(env);
 

@@ -152,6 +152,7 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
             .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                     : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true,
+            .file_size = _rowset_meta->segment_file_size(seg_id),
     };
     auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
                                        segment);
@@ -192,7 +193,7 @@ Status BetaRowset::remove() {
             success = false;
         }
         for (auto& column : _schema->columns()) {
-            const TabletIndex* index_meta = _schema->get_inverted_index(column);
+            const TabletIndex* index_meta = _schema->get_inverted_index(*column);
             if (index_meta) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
                         seg_path, index_meta->index_id(), index_meta->get_index_suffix());
@@ -320,7 +321,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
         RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(src_path, dst_path));
         for (auto& column : _schema->columns()) {
             // if (column.has_inverted_index()) {
-            const TabletIndex* index_meta = _schema->get_inverted_index(column);
+            const TabletIndex* index_meta = _schema->get_inverted_index(*column);
             if (index_meta) {
                 std::string inverted_index_src_file_path =
                         InvertedIndexDescriptor::get_index_file_name(
@@ -355,7 +356,7 @@ Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_
         local_paths.push_back(local_seg_path);
         for (auto& column : _schema->columns()) {
             // if (column.has_inverted_index()) {
-            const TabletIndex* index_meta = _schema->get_inverted_index(column);
+            const TabletIndex* index_meta = _schema->get_inverted_index(*column);
             if (index_meta) {
                 std::string remote_inverted_index_file =
                         InvertedIndexDescriptor::get_index_file_name(
@@ -418,7 +419,9 @@ bool BetaRowset::check_current_rowset_segment() {
         io::FileReaderOptions reader_options {
                 .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                         : io::FileCachePolicy::NO_CACHE,
-                .is_doris_table = true};
+                .is_doris_table = true,
+                .file_size = _rowset_meta->segment_file_size(seg_id),
+        };
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
                                            reader_options, &segment);
         if (!s.ok()) {
@@ -439,7 +442,7 @@ Status BetaRowset::add_to_binlog() {
     if (fs->type() != io::FileSystemType::LOCAL) {
         return Status::InternalError("should be local file system");
     }
-    io::LocalFileSystem* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
+    auto* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
 
     // all segments are in the same directory, so cache binlog_dir without multi times check
     std::string binlog_dir;
@@ -447,6 +450,22 @@ Status BetaRowset::add_to_binlog() {
     auto segments_num = num_segments();
     VLOG_DEBUG << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
                               rowset_id().to_string(), segments_num);
+
+    Status status;
+    std::vector<string> linked_success_files;
+    Defer remove_linked_files {[&]() { // clear linked files if errors happen
+        if (!status.ok()) {
+            LOG(WARNING) << "will delete linked success files due to error " << status;
+            std::vector<io::Path> paths;
+            for (auto& file : linked_success_files) {
+                paths.emplace_back(file);
+                LOG(WARNING) << "will delete linked success file " << file << " due to error";
+            }
+            static_cast<void>(local_fs->batch_delete(paths));
+            LOG(WARNING) << "done delete linked success files due to error " << status;
+        }
+    }};
+
     for (int i = 0; i < segments_num; ++i) {
         auto seg_file = segment_file_path(i);
 
@@ -465,8 +484,30 @@ Status BetaRowset::add_to_binlog() {
                         .string();
         VLOG_DEBUG << "link " << seg_file << " to " << binlog_file;
         if (!local_fs->link_file(seg_file, binlog_file).ok()) {
-            return Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
-                                           seg_file, binlog_file, Errno::no());
+            status = Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
+                                             seg_file, binlog_file, Errno::no());
+            return status;
+        }
+        linked_success_files.push_back(binlog_file);
+
+        for (const auto& index : _schema->indexes()) {
+            if (index.index_type() != IndexType::INVERTED) {
+                continue;
+            }
+            auto index_id = index.index_id();
+            auto index_file = InvertedIndexDescriptor::get_index_file_name(
+                    seg_file, index_id, index.get_index_suffix());
+            auto binlog_index_file = (std::filesystem::path(binlog_dir) /
+                                      std::filesystem::path(index_file).filename())
+                                             .string();
+            VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
+            if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
+                status = Status::Error<OS_ERROR>(
+                        "fail to create hard link. from={}, to={}, errno={}", index_file,
+                        binlog_index_file, Errno::no());
+                return status;
+            }
+            linked_success_files.push_back(binlog_index_file);
         }
     }
 

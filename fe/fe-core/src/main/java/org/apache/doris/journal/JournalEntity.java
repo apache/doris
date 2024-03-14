@@ -127,7 +127,9 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.NewPartitionLoadedEvent;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -932,6 +934,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_META_ID_MAPPINGS: {
                 data = MetaIdMappingsLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_LOG_UPDATE_ROWS: {
+                data = UpdateRowsEvent.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_LOG_NEW_PARTITION_LOADED: {
+                data = NewPartitionLoadedEvent.read(in);
                 isRead = true;
                 break;
             }

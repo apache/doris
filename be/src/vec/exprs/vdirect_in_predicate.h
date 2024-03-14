@@ -26,8 +26,11 @@ class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
 
 public:
-    VDirectInPredicate(const TExprNode& node)
-            : VExpr(node), _filter(nullptr), _expr_name("direct_in_predicate") {}
+    VDirectInPredicate(const TExprNode& node, bool null_aware = false)
+            : VExpr(node),
+              _filter(nullptr),
+              _expr_name("direct_in_predicate"),
+              _null_aware(null_aware) {}
     ~VDirectInPredicate() override = default;
 
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
@@ -67,6 +70,12 @@ public:
             const auto& null_map =
                     static_cast<const ColumnNullable*>(argument_column.get())->get_null_map_data();
             _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data());
+            if (_null_aware) {
+                auto* __restrict res_data = res_data_column->get_data().data();
+                for (size_t i = 0; i < sz; ++i) {
+                    res_data[i] |= null_map[i];
+                }
+            }
         } else {
             _filter->find_batch(*argument_column, sz, res_data_column->get_data());
         }
@@ -88,5 +97,6 @@ public:
 private:
     std::shared_ptr<HybridSetBase> _filter;
     std::string _expr_name;
+    bool _null_aware;
 };
 } // namespace doris::vectorized

@@ -68,6 +68,7 @@ suite("test_export_data_consistency", "p0") {
         `name` string NULL,
         `age` int(11) NULL
         )
+        UNIQUE KEY(`id`)
         PARTITION BY RANGE(id)
         (
             PARTITION less_than_20 VALUES LESS THAN ("20"),
@@ -149,15 +150,20 @@ suite("test_export_data_consistency", "p0") {
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator" = ",",
+                "parallelism" = "10",
                 "data_consistency" = "partition"
             );
         """
         // do insert in parallel
+        // [0, 20), [20, 70), [70, +inf)
+        // The export task should keep partition consistency.
         sql """INSERT INTO ${table_export_name} VALUES
             (10, 'test', 11),
-            (20, 'test', 21),
+            (15, 'test', 11),
+            (30, 'test', 21),
             (40, 'test', 51),
-            (80, 'test', 51)
+            (80, 'test', 51),
+            (90, 'test', 51)
             """
 
         // wait export
@@ -202,7 +208,30 @@ suite("test_export_data_consistency", "p0") {
             }
         }
 
-        qt_select_load1 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
+        // The partition ranges are:
+        // [0, 20), [20, 70), [70, +inf)
+        // The export task should keep partition consistency.
+        def result = sql """ SELECT * FROM ${table_load_name} t WHERE id in (10,15,30,40,80,90) ORDER BY id; """
+        logger.info("result ${result}")
+        assert result.size == 6
+        if (result[0][1] == 'test') {
+            assert result[1][1] == 'test'
+        } else {
+            assert result[0][1] == 'ftw-10'
+            assert result[1][1] == 'ftw-15'
+        }
+        if (result[2][1] == 'test') {
+            assert result[3][1] == 'test'
+        } else {
+            assert result[2][1] == 'ftw-30'
+            assert result[3][1] == 'ftw-40'
+        }
+        if (result[4][1] == 'test') {
+            assert result[5][1] == 'test'
+        } else {
+            assert result[4][1] == 'ftw-80'
+            assert result[5][1] == 'ftw-90'
+        }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")

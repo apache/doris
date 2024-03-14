@@ -92,7 +92,7 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
                 }
                 for (auto* slot : tuple_desc->slots()) {
                     if (slot->id() == first_sort_slot.slot_id) {
-                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate().init(
+                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_id).init(
                                 slot->type().type, _nulls_first[0], _is_asc_order[0],
                                 slot->col_name()));
                         break;
@@ -100,7 +100,7 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
                 }
             }
         }
-        if (!query_ctx->get_runtime_predicate().inited()) {
+        if (!query_ctx->get_runtime_predicate(_id).inited()) {
             return Status::InternalError("runtime predicate is not properly initialized");
         }
     }
@@ -141,13 +141,15 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
 
-        // update runtime predicate
         if (_use_topn_opt) {
-            Field new_top = _sorter->get_top_value();
-            if (!new_top.is_null() && new_top != old_top) {
-                auto* query_ctx = state->get_query_ctx();
-                RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(new_top));
-                old_top = std::move(new_top);
+            auto& predicate = state->get_query_ctx()->get_runtime_predicate(_id);
+            if (predicate.need_update()) {
+                vectorized::Field new_top = _sorter->get_top_value();
+                if (!new_top.is_null() && new_top != old_top) {
+                    auto* query_ctx = state->get_query_ctx();
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_id).update(new_top));
+                    old_top = std::move(new_top);
+                }
             }
         }
         if (!_reuse_mem) {
@@ -201,9 +203,6 @@ Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_blo
     SCOPED_TIMER(_get_next_timer);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sorter->get_next(state, output_block, eos));
     reached_limit(output_block, eos);
-    if (*eos) {
-        _runtime_profile->add_info_string("Spilled", _sorter->is_spilled() ? "true" : "false");
-    }
     return Status::OK();
 }
 

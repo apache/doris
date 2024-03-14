@@ -138,6 +138,7 @@ public:
 
     // publish rowset to make it visible to read
     void make_visible(Version version);
+    void set_version(Version version);
     const TabletSchemaSPtr& tablet_schema() const { return _schema; }
 
     // helper class to access RowsetMeta
@@ -170,7 +171,7 @@ public:
 
     // used for partial update, when publish, partial update may add a new rowset
     // and we should update rowset meta
-    void merge_rowset_meta(const RowsetMetaSharedPtr& other);
+    Status merge_rowset_meta(const RowsetMeta& other);
 
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on

@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/compiler_util.h"
 #include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -269,8 +270,8 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         auto data = new (place) WindowFunnelState<DateValueType, NativeType>();
-        /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
-        data->enable_mode = version >= 3;
+        /// support window funnel mode from 2.1. See `BeExecVersionManager::max_be_exec_version`
+        data->enable_mode = version >= USE_NEW_SERDE;
     }
 
     String get_name() const override { return "window_funnel"; }
@@ -279,7 +280,7 @@ public:
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& window =
                 assert_cast<const ColumnVector<Int64>&>(*columns[0]).get_data()[row_num];

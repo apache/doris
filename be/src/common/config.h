@@ -204,6 +204,10 @@ DECLARE_Int32(tablet_publish_txn_max_thread);
 DECLARE_Int32(publish_version_task_timeout_s);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
+// the count of thread to calc delete bitmap worker, only used for cloud
+DECLARE_Int32(calc_delete_bitmap_worker_count);
+// the count of thread to calc tablet delete bitmap task, only used for cloud
+DECLARE_Int32(calc_tablet_delete_bitmap_task_max_thread);
 // the count of thread to clear transaction task
 DECLARE_Int32(clear_transaction_task_worker_count);
 // the count of thread to delete
@@ -1061,6 +1065,8 @@ DECLARE_Int32(inverted_index_read_buffer_size);
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
 DECLARE_mBool(inverted_index_compaction_enable);
+// Only for debug, do not use in production
+DECLARE_mBool(debug_inverted_index_compaction);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
@@ -1251,11 +1257,25 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
+DECLARE_String(spill_storage_root_path);
+DECLARE_mInt64(spill_storage_limit);
+DECLARE_mInt32(spill_gc_interval_ms);
+DECLARE_Int32(spill_io_thread_pool_per_disk_thread_num);
+DECLARE_Int32(spill_io_thread_pool_queue_size);
+DECLARE_Int32(spill_async_task_thread_pool_thread_num);
+DECLARE_Int32(spill_async_task_thread_pool_queue_size);
+DECLARE_mInt32(spill_mem_warning_water_mark_multiplier);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
+
+// write as inverted index tmp directory
+DECLARE_String(tmp_file_dir);
+
+// the directory for storing the trino-connector plugins.
+DECLARE_String(trino_connector_plugin_dir);
 
 #ifdef BE_TEST
 // test s3

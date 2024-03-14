@@ -21,12 +21,9 @@ import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
@@ -36,7 +33,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -50,6 +46,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
+import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -68,7 +65,6 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -93,9 +89,9 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -201,10 +197,10 @@ import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReplicaInfo;
+import org.apache.doris.thrift.TReportCommitTxnResultRequest;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
@@ -212,6 +208,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
 import org.apache.doris.thrift.TShowVariableRequest;
@@ -247,13 +244,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -1066,12 +1063,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private void checkToken(String token) throws AuthenticationException {
-        if (!Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token)) {
-            throw new AuthenticationException("Un matched cluster token.");
-        }
-    }
-
     private void checkPassword(String user, String passwd, String clientIp)
             throws AuthenticationException {
         final String fullUserName = ClusterNamespace.getNameFromFullName(user);
@@ -1136,7 +1127,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         } else {
-            checkToken(request.getToken());
+            if (!checkToken(request.getToken())) {
+                throw new AuthenticationException("Invalid token: " + request.getToken());
+            }
         }
 
         // check label
@@ -1313,6 +1306,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         if (request.isSetTableId() && request.getTableId() > 0) {
             Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
+            if (table == null) {
+                throw new MetaNotFoundException("unknown table, table_id=" + request.getTableId());
+            }
             return Collections.singletonList(table);
         }
 
@@ -1344,7 +1340,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // CHECKSTYLE IGNORE THIS LINE
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            if (!checkToken(request.getToken())) {
+                throw new AuthenticationException("Invalid token: " + request.getToken());
+            }
         } else {
             // refactoring it
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -1504,7 +1502,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 status.addToErrorMsgs("transaction commit successfully, BUT data will be visible later");
             }
         } catch (UserException e) {
-            LOG.warn("failed to commit txn: {}: {}", request.getTxnId(), e.getMessage());
+            LOG.warn("failed to commit txn: {}", request.getTxnId(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -1687,12 +1685,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             loadTxnRollbackImpl(request);
         } catch (MetaNotFoundException e) {
-            String msg = "failed to rollback txn" + request.getTxnId();
-            LOG.warn(msg, e);
+            LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);
             status.setStatusCode(TStatusCode.NOT_FOUND);
             status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
-            LOG.warn("failed to rollback txn {}: {}", request.getTxnId(), e.getMessage());
+            LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -2024,12 +2021,42 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    private HttpStreamParams initHttpStreamPlan(TStreamLoadPutRequest request, ConnectContext ctx)
+            throws UserException {
+        String originStmt = request.getLoadSql();
+        HttpStreamParams httpStreamParams;
+        try {
+            StmtExecutor executor = new StmtExecutor(ctx, originStmt);
+            ctx.setExecutor(executor);
+            httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
+
+            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+            Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
+            coord.setLoadMemLimit(request.getExecMemLimit());
+            coord.setQueryType(TQueryType.LOAD);
+            TableIf table = httpStreamParams.getTable();
+            if (table instanceof OlapTable) {
+                boolean isEnableMemtableOnSinkNode =
+                        ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                            ? coord.getQueryOptions().isEnableMemtableOnSinkNode() : false;
+                coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+            }
+            httpStreamParams.setParams(coord.getStreamLoadPlan());
+        } catch (UserException e) {
+            LOG.warn("exec sql error", e);
+            throw new UserException("exec sql error" + e);
+        } catch (Throwable e) {
+            LOG.warn("exec sql error catch unknown result.", e);
+            throw new UserException("exec sql error catch unknown result." + e);
+        }
+        return httpStreamParams;
+    }
+
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result, ConnectContext ctx)
             throws UserException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive http stream put request: {}", request);
         }
-        String originStmt = request.getLoadSql();
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
@@ -2037,48 +2064,31 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
+        if (request.isSetMemtableOnSinkNode()) {
+            ctx.getSessionVariable().enableMemtableOnSinkNode = request.isMemtableOnSinkNode();
+        } else {
+            ctx.getSessionVariable().enableMemtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
+        }
+        ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
         try {
-            NativeInsertStmt parsedStmt = (NativeInsertStmt) SqlParserUtils.getFirstStmt(parser);
-            parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
-            parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            if (!StringUtils.isEmpty(request.getGroupCommitMode())) {
-                if (!Config.wait_internal_group_commit_finish && parsedStmt.getLabel() != null) {
-                    throw new AnalysisException("label and group_commit can't be set at the same time");
-                }
-                ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
-                parsedStmt.isGroupCommitStreamLoadSql = true;
-            }
-            StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
-            ctx.setExecutor(executor);
-            TQueryOptions tQueryOptions = ctx.getSessionVariable().toThrift();
-            executor.analyze(tQueryOptions);
-            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-            Coordinator coord =  EnvFactory.getInstance().createCoordinator(ctx, analyzer, executor.planner(), null);
-            coord.setLoadMemLimit(request.getExecMemLimit());
-            coord.setQueryType(TQueryType.LOAD);
-
-            TExecPlanFragmentParams plan = coord.getStreamLoadPlan();
+            HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
             int loadStreamPerNode = 20;
             if (request.getStreamPerNode() > 0) {
                 loadStreamPerNode = request.getStreamPerNode();
             }
-            plan.setLoadStreamPerNode(loadStreamPerNode);
-            plan.setTotalLoadStreams(loadStreamPerNode);
-            plan.setNumLocalSink(1);
-            final long txn_id = parsedStmt.getTransactionId();
-            result.setParams(plan);
-            result.getParams().setDbName(parsedStmt.getDbName());
-            result.getParams().setTableName(parsedStmt.getTbl());
-            // The txn_id here is obtained from the NativeInsertStmt
-            result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
-            result.getParams().setImportLabel(parsedStmt.getLabel());
-            result.setDbId(parsedStmt.getTargetTable().getDatabase().getId());
-            result.setTableId(parsedStmt.getTargetTable().getId());
-            result.setBaseSchemaVersion(((OlapTable) parsedStmt.getTargetTable()).getBaseSchemaVersion());
-            result.setGroupCommitIntervalMs(((OlapTable) parsedStmt.getTargetTable()).getGroupCommitIntervalMs());
-            result.setGroupCommitDataBytes(((OlapTable) parsedStmt.getTargetTable()).getGroupCommitDataBytes());
+            httpStreamParams.getParams().setLoadStreamPerNode(loadStreamPerNode);
+            httpStreamParams.getParams().setTotalLoadStreams(loadStreamPerNode);
+            httpStreamParams.getParams().setNumLocalSink(1);
+            result.setParams(httpStreamParams.getParams());
+            result.getParams().setDbName(httpStreamParams.getDb().getFullName());
+            result.getParams().setTableName(httpStreamParams.getTable().getName());
+            result.getParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
+            result.getParams().setImportLabel(httpStreamParams.getLabel());
+            result.setDbId(httpStreamParams.getDb().getId());
+            result.setTableId(httpStreamParams.getTable().getId());
+            result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());
+            result.setGroupCommitIntervalMs(((OlapTable) httpStreamParams.getTable()).getGroupCommitIntervalMs());
+            result.setGroupCommitDataBytes(((OlapTable) httpStreamParams.getTable()).getGroupCommitDataBytes());
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
@@ -2287,13 +2297,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
-        switch (request.getSchemaTableName()) {
-            case METADATA_TABLE:
-                return MetadataGenerator.getMetadataTable(request);
-            default:
-                break;
+        if (!request.isSetSchemaTableName()) {
+            return MetadataGenerator.errorResult("Fetch schema table name is not set");
         }
-        return MetadataGenerator.errorResult("Fetch schema table name is not set");
+        // tvf queries
+        if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
+            return MetadataGenerator.getMetadataTable(request);
+        } else {
+            // database information_schema's tables
+            return MetadataGenerator.getSchemaTableData(request);
+        }
     }
 
     private TNetworkAddress getClientAddr() {
@@ -2400,6 +2413,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         return result;
+    }
+
+    @Override
+    public boolean checkToken(String token) {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive check token request from client: {}", clientAddr);
+        }
+        try {
+            return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token);
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            return false;
+        }
     }
 
     @Override
@@ -3290,7 +3317,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
             errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to createPartition: {}", NOT_MASTER_ERR_MSG);
+            LOG.warn("failed to createPartition: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -3298,6 +3325,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db == null) {
             errorStatus.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3306,6 +3334,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3313,12 +3342,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             errorStatus.setErrorMsgs(
                     Lists.newArrayList(String.format("dbId=%d tableId=%d is not olap table", dbId, tableId)));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
         if (request.partitionValues == null) {
             errorStatus.setErrorMsgs(Lists.newArrayList("partitionValues should not null."));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3331,6 +3362,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         Lists.newArrayList(
                                 "Only support single partition of RANGE, partitionValues size should equal 1."));
                 result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
                 return result;
             }
             partitionValues.add(request.partitionValues.get(i));
@@ -3342,6 +3374,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (AnalysisException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3355,6 +3388,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn(errorMessage);
             errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
             result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
             return result;
         }
 
@@ -3367,6 +3401,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 errorStatus.setErrorMsgs(
                         Lists.newArrayList(String.format("create partition failed. error:%s", e.getMessage())));
                 result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
                 return result;
             }
         }
@@ -3407,6 +3442,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                         result.setStatus(errorStatus);
+                        LOG.warn("send create partition error status: {}", result);
                         return result;
                     }
                     if (bePathsMap.keySet().size() < quorum) {
@@ -3651,6 +3687,37 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             throw e;
         }
+    }
+
+    class TableStats {
+        public long updatedRowCount;
+    }
+
+    public TStatus reportCommitTxnResult(TReportCommitTxnResultRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        // FE only has one master, this should not be a problem
+        if (!Env.getCurrentEnv().isMaster()) {
+            LOG.error("failed to handle load stats report: not master, backend:{}",
+                      clientAddr);
+            return new TStatus(TStatusCode.NOT_MASTER);
+        }
+
+        LOG.info("receive load stats report request: {}, backend: {}, dbId: {}, txnId: {}, label: {}",
+                  request, clientAddr, request.getDbId(), request.getTxnId(), request.getLabel());
+
+        try {
+            byte[] receivedProtobufBytes = request.getPayload();
+            if (receivedProtobufBytes == null || receivedProtobufBytes.length <= 0) {
+                return new TStatus(TStatusCode.INVALID_ARGUMENT);
+            }
+            CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
+            Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse);
+        } catch (InvalidProtocolBufferException e) {
+            // Handle the exception, log it, or take appropriate action
+            e.printStackTrace();
+        }
+
+        return new TStatus(TStatusCode.OK);
     }
 
     @Override

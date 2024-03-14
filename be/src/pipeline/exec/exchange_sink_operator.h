@@ -122,7 +122,10 @@ public:
     std::string name_suffix() override;
     segment_v2::CompressionTypePB compression_type() const;
     std::string debug_string(int indentation_level) const override;
-
+    static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
+        return Status::OK();
+    }
+    Status _send_new_partition_batch();
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
             channel_shared_ptrs;
@@ -190,6 +193,22 @@ private:
     int _partition_count;
 
     std::shared_ptr<Dependency> _finish_dependency;
+
+    // for shuffle data by partition and tablet
+    int64_t _txn_id = -1;
+    vectorized::VExprContextSPtrs _fake_expr_ctxs;
+    std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
+    std::unique_ptr<vectorized::OlapTabletFinder> _tablet_finder = nullptr;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
+    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor = nullptr;
+    TupleDescriptor* _tablet_sink_tuple_desc = nullptr;
+    RowDescriptor* _tablet_sink_row_desc = nullptr;
+    OlapTableLocationParam* _location = nullptr;
+    vectorized::VRowDistribution _row_distribution;
+    RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
+    std::vector<vectorized::RowPartTabletIds> _row_part_tablet_ids;
+    int64_t _number_input_rows = 0;
+    TPartitionType::type _part_type;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -219,6 +238,11 @@ private:
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
                             const HashValueType* channel_ids, int rows, vectorized::Block* block,
                             bool eos);
+
+    template <typename Channels>
+    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
+                                     std::vector<std::vector<uint32_t>>& channel2rows,
+                                     vectorized::Block* block, bool eos);
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr>& _texprs;
@@ -242,6 +266,14 @@ private:
     bool _transfer_large_data_by_brpc = false;
 
     segment_v2::CompressionTypePB _compression_type;
+
+    // for tablet sink shuffle
+    const TOlapTableSchemaParam& _tablet_sink_schema;
+    const TOlapTablePartitionParam& _tablet_sink_partition;
+    const TOlapTableLocationParam& _tablet_sink_location;
+    const TTupleId& _tablet_sink_tuple_id;
+    int64_t _tablet_sink_txn_id = -1;
+    std::shared_ptr<ObjectPool> _pool;
 };
 
 } // namespace pipeline

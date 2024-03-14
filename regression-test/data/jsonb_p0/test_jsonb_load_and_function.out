@@ -7494,6 +7494,9 @@ false
 -- !sql_json_length --
 2
 
+-- !sql_json_length --
+\N
+
 -- !select_length --
 1	\N	\N
 2	null	1

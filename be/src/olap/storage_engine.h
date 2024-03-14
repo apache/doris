@@ -158,7 +158,7 @@ protected:
 
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;
-    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _querying_rowsets;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
     scoped_refptr<Thread> _evict_quering_rowset_thread;
 };
 
@@ -409,7 +409,7 @@ private:
     std::atomic_bool _stopped {false};
 
     std::mutex _gc_mutex;
-    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _unused_rowsets;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
     PendingRowsetSet _pending_local_rowsets;
     PendingRowsetSet _pending_remote_rowsets;
 
@@ -527,7 +527,10 @@ public:
 
     void set_index(const std::string& key, int next_idx);
 
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE) {}
+
         int idx = 0;
     };
 

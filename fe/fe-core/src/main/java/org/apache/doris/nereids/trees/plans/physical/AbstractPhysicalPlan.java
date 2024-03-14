@@ -24,7 +24,9 @@ import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -131,6 +133,12 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 ctx.setTargetsOnScanNode(ctx.getAliasTransferPair(probeSlot).first, scanSlot);
             }
         } else {
+            // null safe equal runtime filter only support bloom filter
+            EqualPredicate eq = (EqualPredicate) builderNode.getHashJoinConjuncts().get(exprOrder);
+            if (eq instanceof NullSafeEqual && type == TRuntimeFilterType.MIN_MAX
+                    || type == TRuntimeFilterType.BITMAP) {
+                return false;
+            }
             filter = new RuntimeFilter(generator.getNextId(),
                     src, ImmutableList.of(scanSlot), ImmutableList.of(probeExpr),
                     type, exprOrder, builderNode, buildSideNdv,

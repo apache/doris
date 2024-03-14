@@ -217,6 +217,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.tablet_schema = _read_context->tablet_schema;
     _read_options.record_rowids = _read_context->record_rowids;
     _read_options.use_topn_opt = _read_context->use_topn_opt;
+    _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
@@ -231,6 +232,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.io_ctx.query_id = &_read_context->runtime_state->query_id();
         _read_options.io_ctx.read_file_cache =
                 _read_context->runtime_state->query_options().enable_file_cache;
+        _read_options.io_ctx.is_disposable =
+                _read_context->runtime_state->query_options().disable_file_cache;
     }
 
     // load segments

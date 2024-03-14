@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -44,6 +45,7 @@ public:
         TABLET_SCHEMA_CACHE = 14,
         CREATE_TABLET_RR_IDX_CACHE = 15,
         CLOUD_TABLET_CACHE = 16,
+        CLOUD_TXN_DELETE_BITMAP_CACHE = 17,
     };
 
     static std::string type_string(CacheType type) {
@@ -82,6 +84,8 @@ public:
             return "CreateTabletRRIdxCache";
         case CacheType::CLOUD_TABLET_CACHE:
             return "CloudTabletCache";
+        case CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE:
+            return "CloudTxnDeleteBitmapCache";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
@@ -96,6 +100,8 @@ public:
     virtual void prune_all(bool force) = 0;
 
     CacheType type() { return _type; }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker() { return _mem_tracker; }
+    int64_t mem_consumption() { return _mem_tracker->consumption(); }
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
@@ -110,8 +116,13 @@ protected:
         _cost_timer = ADD_TIMER(_profile, "CostTime");
     }
 
+    void init_mem_tracker(const std::string& name) {
+        _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, name);
+    }
+
     CacheType _type;
-    std::list<CachePolicy*>::iterator _it;
+
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;

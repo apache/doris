@@ -122,6 +122,7 @@ suite("test_create_index_2", "inverted_index"){
     sql "drop index name_idx_1 on ${indexTbName1}"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     sql "drop index name_idx_2 on ${indexTbName1}"
+    sleep(2*delta_time)
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 0)
 
@@ -129,6 +130,7 @@ suite("test_create_index_2", "inverted_index"){
     sql """
         create index name_idx on ${indexTbName1}(name) using inverted properties("parser" = "english") comment 'name index';
     """
+    sleep(2*delta_time)
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result[0][2], "name_idx")

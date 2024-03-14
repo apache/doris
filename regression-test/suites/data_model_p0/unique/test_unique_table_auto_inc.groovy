@@ -279,7 +279,8 @@ suite("test_unique_table_auto_inc") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_partial_update_value "select * from ${table7} order by id;"
+    qt_partial_update_value1 "select name, value from ${table7} order by value;"
+    qt_partial_update_value2 "select id, count(*) from ${table7} group by id having count(*) > 1;"
 
     streamLoad {
         table "${table7}"
@@ -294,8 +295,21 @@ suite("test_unique_table_auto_inc") {
     }
     sql "sync"
     qt_partial_update_value "select * from ${table7} order by id;"
-    sql "drop table if exists ${table7};"
 
+    streamLoad {
+        table "${table7}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'name, value'
+        set 'partial_columns', 'true'
+
+        file 'auto_inc_partial_update3.csv'
+        time 10000
+    }
+    sql "sync"
+    qt_partial_update_value "select * from ${table7} order by id;"
+    sql "drop table if exists ${table7};"
 
     def table8 = "test_auto_inc_col_create_as_select1"
     def table9 = "test_auto_inc_col_create_as_select2"

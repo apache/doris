@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -64,13 +65,20 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     public static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
+    public static final double DEFAULT_ISNULL_SELECTIVITY = 0.001;
     private Set<Slot> aggSlots;
+
+    private boolean isOnBaseTable = false;
 
     public FilterEstimation() {
     }
 
     public FilterEstimation(Set<Slot> aggSlots) {
         this.aggSlots = aggSlots;
+    }
+
+    public FilterEstimation(boolean isOnBaseTable) {
+        this.isOnBaseTable = isOnBaseTable;
     }
 
     /**
@@ -239,7 +247,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Expression left = cp.left();
         Expression right = cp.right();
         if (cp instanceof EqualPredicate) {
-            return estimateColumnEqualToColumn(left, statsForLeft, right, statsForRight, context);
+            return estimateColumnEqualToColumn(left, statsForLeft, right, statsForRight,
+                    cp instanceof NullSafeEqual, context);
         }
         if (cp instanceof GreaterThan || cp instanceof GreaterThanEqual) {
             return estimateColumnLessThanColumn(right, statsForRight, left, statsForLeft, context);
@@ -288,7 +297,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             if (option instanceof Literal) {
                 // remove the options which is out of compareExpr.range
                 if (compareExprStats.minValue <= optionStats.maxValue
-                        && optionStats.maxValue <= compareExprStats.maxValue) {
+                        && optionStats.minValue <= compareExprStats.maxValue) {
                     validInOptCount++;
                     LiteralExpr optionLiteralExpr = ((Literal) option).toLegacyLiteral();
                     if (maxOptionLiteral == null || optionLiteralExpr.compareTo(maxOptionLiteral) >= 0) {
@@ -409,12 +418,20 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     @Override
     public Statistics visitIsNull(IsNull isNull, EstimationContext context) {
-        ColumnStatistic childStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
-        if (childStats.isUnKnown()) {
+        ColumnStatistic childColStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
+        if (childColStats.isUnKnown()) {
             return new StatisticsBuilder(context.statistics).build();
         }
-        double outputRowCount = childStats.numNulls;
-        ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(childStats);
+        double outputRowCount = childColStats.numNulls;
+        if (!isOnBaseTable) {
+            // for is null on base table, use the numNulls, otherwise
+            // nulls will be generated such as outer join and then we do a protection
+            Expression child = isNull.child();
+            Statistics childStats = child.accept(this, context);
+            outputRowCount = Math.max(childStats.getRowCount() * DEFAULT_ISNULL_SELECTIVITY, outputRowCount);
+            outputRowCount = Math.max(outputRowCount, 1);
+        }
+        ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(childColStats);
         colBuilder.setCount(outputRowCount).setNumNulls(outputRowCount)
                 .setMaxValue(Double.POSITIVE_INFINITY)
                 .setMinValue(Double.NEGATIVE_INFINITY)
@@ -488,7 +505,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private Statistics estimateColumnEqualToColumn(Expression leftExpr, ColumnStatistic leftStats,
-            Expression rightExpr, ColumnStatistic rightStats, EstimationContext context) {
+            Expression rightExpr, ColumnStatistic rightStats, boolean keepNull, EstimationContext context) {
         StatisticRange leftRange = StatisticRange.from(leftStats, leftExpr.getDataType());
         StatisticRange rightRange = StatisticRange.from(rightStats, rightExpr.getDataType());
         StatisticRange leftIntersectRight = leftRange.intersect(rightRange);
@@ -497,11 +514,16 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         intersectBuilder.setNdv(intersect.getDistinctValues());
         intersectBuilder.setMinValue(intersect.getLow());
         intersectBuilder.setMaxValue(intersect.getHigh());
-        intersectBuilder.setNumNulls(0);
+        double numNull = 0;
+        if (keepNull) {
+            numNull = Math.min(leftStats.numNulls, rightStats.numNulls);
+        }
+        intersectBuilder.setNumNulls(numNull);
         double sel = 1 / StatsMathUtil.nonZeroDivisor(Math.max(leftStats.ndv, rightStats.ndv));
-        Statistics updatedStatistics = context.statistics.withSel(sel);
+        Statistics updatedStatistics = context.statistics.withSel(sel, numNull);
         updatedStatistics.addColumnStats(leftExpr, intersectBuilder.build());
         updatedStatistics.addColumnStats(rightExpr, intersectBuilder.build());
+
         context.addKeyIfSlot(leftExpr);
         context.addKeyIfSlot(rightExpr);
         return updatedStatistics;
@@ -600,12 +622,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         //if (numNulls > rowCount - ndv) {
         //    numNulls = rowCount - ndv > 0 ? rowCount - ndv : 0;
         //}
-        double notNullSel = rowCount <= 1.0 ? 1.0 : 1 - getValidSelectivity(numNulls / rowCount);
+        double notNullSel = rowCount <= 1.0 ? 1.0 : 1 - Statistics.getValidSelectivity(numNulls / rowCount);
         double validSel = origSel * notNullSel;
-        return getValidSelectivity(validSel);
-    }
-
-    private static double getValidSelectivity(double nullSel) {
-        return nullSel < 0 ? 0 : (nullSel > 1 ? 1 : nullSel);
+        return Statistics.getValidSelectivity(validSel);
     }
 }

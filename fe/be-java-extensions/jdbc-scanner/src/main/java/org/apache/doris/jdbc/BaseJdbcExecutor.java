@@ -150,6 +150,26 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return false;
     }
 
+    public void cleanDataSource() {
+        if (druidDataSource != null) {
+            druidDataSource.close();
+            JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+            druidDataSource = null;
+        }
+    }
+
+    public void testConnection() throws UdfRuntimeException {
+        try {
+            resultSet = ((PreparedStatement) stmt).executeQuery();
+            if (!resultSet.next()) {
+                throw new UdfRuntimeException(
+                        "Failed to test connection in BE: query executed but returned no results.");
+            }
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("Failed to test connection in BE: ", e);
+        }
+    }
+
     public int read() throws UdfRuntimeException {
         try {
             resultSet = ((PreparedStatement) stmt).executeQuery();
@@ -524,5 +544,18 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             end--;
         }
         return str.substring(0, end + 1);
+    }
+
+    protected String timeToString(java.sql.Time time) {
+        if (time == null) {
+            return null;
+        } else {
+            long milliseconds = time.getTime() % 1000L;
+            if (milliseconds > 0) {
+                return String.format("%s.%03d", time, milliseconds);
+            } else {
+                return time.toString();
+            }
+        }
     }
 }
