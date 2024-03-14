@@ -390,6 +390,10 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(),
                 Optional.empty(),
                 child);
+        // we need to insert all the columns of the target table
+        if (boundSink.getCols().size() != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
         return boundSink;
     }
 

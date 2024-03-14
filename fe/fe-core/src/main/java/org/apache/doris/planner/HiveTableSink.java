@@ -89,26 +89,21 @@ public class HiveTableSink extends DataSink {
         THiveTableSink tSink = new THiveTableSink();
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
-        List<FieldSchema> partitionKeys = targetTable.getRemoteTable().getPartitionKeys();
-
-        Set<String> nameToPartitions = new HashSet<>();
-        for (FieldSchema partitionKey : partitionKeys) {
-            nameToPartitions.add(partitionKey.getName());
-        }
+        Set<String> partNames = new HashSet<>(targetTable.getPartitionColumnNames());
         List<FieldSchema> hmsColumns = targetTable.getRemoteTable().getSd().getCols();
-        Set<String> nameToColumns = new HashSet<>();
+        Set<String> colNames = new HashSet<>();
         for (FieldSchema column : hmsColumns) {
-            nameToColumns.add(column.getName());
+            colNames.add(column.getName());
         }
         List<THiveColumn> targetColumns = new ArrayList<>();
         for (Column col : insertCols) {
-            if (nameToPartitions.contains(col.getName())) {
+            if (partNames.contains(col.getName())) {
                 THiveColumn tHiveColumn = new THiveColumn();
                 tHiveColumn.setName(col.getName());
                 tHiveColumn.setDataType(col.getType().toThrift());
                 tHiveColumn.setColumnType(THiveColumnType.PARTITION_KEY);
                 targetColumns.add(tHiveColumn);
-            } else if (nameToColumns.contains(col.getName())) {
+            } else if (colNames.contains(col.getName())) {
                 THiveColumn tHiveColumn = new THiveColumn();
                 tHiveColumn.setName(col.getName());
                 tHiveColumn.setDataType(col.getType().toThrift());
