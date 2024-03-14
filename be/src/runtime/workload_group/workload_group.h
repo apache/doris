@@ -182,7 +182,7 @@ struct WorkloadGroupInfo {
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;
 
-    static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
+    static Status parse_topic_info(const TWorkloadGroupInfo& tworkload_group_info,
                                    WorkloadGroupInfo* workload_group_info);
 };
 

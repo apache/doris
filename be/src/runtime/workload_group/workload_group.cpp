@@ -201,12 +201,12 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile)
     return freed_mem;
 }
 
-Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_info,
+Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_group_info,
                                            WorkloadGroupInfo* workload_group_info) {
     // 1 id
     int tg_id = 0;
-    if (workload_group_info.__isset.id) {
-        tg_id = workload_group_info.id;
+    if (tworkload_group_info.__isset.id) {
+        tg_id = tworkload_group_info.id;
     } else {
         return Status::InternalError<false>("workload group id is required");
     }
@@ -214,15 +214,15 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_gr
 
     // 2 name
     std::string name = "INVALID_NAME";
-    if (workload_group_info.__isset.name) {
-        name = workload_group_info.name;
+    if (tworkload_group_info.__isset.name) {
+        name = tworkload_group_info.name;
     }
     workload_group_info->name = name;
 
     // 3 version
     int version = 0;
-    if (workload_group_info.__isset.version) {
-        version = workload_group_info.version;
+    if (tworkload_group_info.__isset.version) {
+        version = tworkload_group_info.version;
     } else {
         return Status::InternalError<false>("workload group version is required");
     }
@@ -230,22 +230,22 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_gr
 
     // 4 cpu_share
     uint64_t cpu_share = CPU_SHARE_DEFAULT_VALUE;
-    if (workload_group_info.__isset.cpu_share) {
-        cpu_share = workload_group_info.cpu_share;
+    if (tworkload_group_info.__isset.cpu_share) {
+        cpu_share = tworkload_group_info.cpu_share;
     }
     workload_group_info->cpu_share = cpu_share;
 
     // 5 cpu hard limit
     int cpu_hard_limit = CPU_HARD_LIMIT_DEFAULT_VALUE;
-    if (workload_group_info.__isset.cpu_hard_limit) {
-        cpu_hard_limit = workload_group_info.cpu_hard_limit;
+    if (tworkload_group_info.__isset.cpu_hard_limit) {
+        cpu_hard_limit = tworkload_group_info.cpu_hard_limit;
     }
     workload_group_info->cpu_hard_limit = cpu_hard_limit;
 
     // 6 mem_limit
     std::string mem_limit_str = MEMORY_LIMIT_DEFAULT_VALUE;
-    if (workload_group_info.__isset.mem_limit) {
-        mem_limit_str = workload_group_info.mem_limit;
+    if (tworkload_group_info.__isset.mem_limit) {
+        mem_limit_str = tworkload_group_info.mem_limit;
     }
     bool is_percent = true;
     int64_t mem_limit =
@@ -254,38 +254,38 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_gr
 
     // 7 mem overcommit
     bool enable_memory_overcommit = ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE;
-    if (workload_group_info.__isset.enable_memory_overcommit) {
-        enable_memory_overcommit = workload_group_info.enable_memory_overcommit;
+    if (tworkload_group_info.__isset.enable_memory_overcommit) {
+        enable_memory_overcommit = tworkload_group_info.enable_memory_overcommit;
     }
     workload_group_info->enable_memory_overcommit = enable_memory_overcommit;
 
     // 8 cpu soft limit or hard limit
     bool enable_cpu_hard_limit = false;
-    if (workload_group_info.__isset.enable_cpu_hard_limit) {
-        enable_cpu_hard_limit = workload_group_info.enable_cpu_hard_limit;
+    if (tworkload_group_info.__isset.enable_cpu_hard_limit) {
+        enable_cpu_hard_limit = tworkload_group_info.enable_cpu_hard_limit;
     }
     workload_group_info->enable_cpu_hard_limit = enable_cpu_hard_limit;
 
     // 9 scan thread num
     workload_group_info->scan_thread_num = config::doris_scanner_thread_pool_thread_num;
-    if (workload_group_info.__isset.scan_thread_num && workload_group_info.scan_thread_num > 0) {
-        workload_group_info->scan_thread_num = workload_group_info.scan_thread_num;
+    if (tworkload_group_info.__isset.scan_thread_num && workload_group_info.scan_thread_num > 0) {
+        workload_group_info->scan_thread_num = tworkload_group_info.scan_thread_num;
     }
 
     // 10 max remote scan thread num
     workload_group_info->max_remote_scan_thread_num = config::doris_scanner_thread_pool_thread_num;
-    if (workload_group_info.__isset.max_remote_scan_thread_num &&
-        workload_group_info.max_remote_scan_thread_num > 0) {
+    if (tworkload_group_info.__isset.max_remote_scan_thread_num &&
+        tworkload_group_info.max_remote_scan_thread_num > 0) {
         workload_group_info->max_remote_scan_thread_num =
-                workload_group_info.max_remote_scan_thread_num;
+                tworkload_group_info.max_remote_scan_thread_num;
     }
 
     // 11 min remote scan thread num
     workload_group_info->min_remote_scan_thread_num = config::doris_scanner_thread_pool_thread_num;
-    if (workload_group_info.__isset.min_remote_scan_thread_num &&
-        workload_group_info.min_remote_scan_thread_num > 0) {
+    if (tworkload_group_info.__isset.min_remote_scan_thread_num &&
+        tworkload_group_info.min_remote_scan_thread_num > 0) {
         workload_group_info->min_remote_scan_thread_num =
-                workload_group_info.min_remote_scan_thread_num;
+                tworkload_group_info.min_remote_scan_thread_num;
     }
 
     return Status::OK();
