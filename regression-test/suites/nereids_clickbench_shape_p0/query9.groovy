@@ -21,10 +21,11 @@ suite("query9") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    def ds = """SELECT RegionID, COUNT(DISTINCT UserID) AS u FROM hits GROUP BY RegionID ORDER BY u DESC LIMIT 10
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT RegionID, COUNT(DISTINCT UserID) AS u FROM hits GROUP BY RegionID ORDER BY u DESC LIMIT 10
 """
-    qt_ds_shape_9 """
+    qt_ckbench_shape_9 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }
