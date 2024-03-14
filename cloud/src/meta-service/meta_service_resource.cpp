@@ -292,8 +292,8 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
         } else if constexpr (std::is_same_v<std::decay_t<decltype(last)>, std::string>) {
             value = last;
         }
-        auto [_, ec] = std::from_chars(value.data(), value.data() + value.size(), last_id);
-        if (ec == std::errc {}) {
+        if (auto [_, ec] = std::from_chars(value.data(), value.data() + value.size(), last_id);
+            ec != std::errc {}) [[unlikely]] {
             LOG_WARNING("Invalid resource id format: {}", value);
             last_id = 0;
             DCHECK(false);
