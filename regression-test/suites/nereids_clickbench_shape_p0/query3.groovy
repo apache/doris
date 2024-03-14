@@ -20,9 +20,10 @@
 suite("query3") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    def ds = """SELECT SUM(AdvEngineID), COUNT(*), AVG(ResolutionWidth) FROM hits"""
-    qt_ds_shape_3 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT SUM(AdvEngineID), COUNT(*), AVG(ResolutionWidth) FROM hits"""
+    qt_ckbench_shape_3 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }
