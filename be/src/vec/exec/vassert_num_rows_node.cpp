@@ -106,7 +106,8 @@ Status VAssertNumRowsNode::pull(doris::RuntimeState* state, vectorized::Block* b
             }
         } else if (!has_more_rows && _assertion == TAssertion::EQ && _num_rows_returned == 0 &&
                    _desired_num_rows == 1) {
-            auto new_block = vectorized::VectorizedUtils::create_columns_with_type_and_name(_row_descriptor);
+            auto new_block =
+                    vectorized::VectorizedUtils::create_columns_with_type_and_name(_row_descriptor);
             block->swap(new_block);
             for (size_t i = 0; i != block->columns(); ++i) {
                 auto& column = block->get_by_position(i).column;
