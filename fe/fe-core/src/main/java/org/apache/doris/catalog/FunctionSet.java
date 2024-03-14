@@ -611,6 +611,8 @@ public class FunctionSet<T> {
 
     public static final String GROUP_ARRAY = "group_array";
 
+    public static final String GROUP_ARRAY_INTERSECT = "group_array_intersect";
+
     public static final String ARRAY_AGG = "array_agg";
 
     // Populate all the aggregate builtins in the catalog.
@@ -1442,7 +1444,9 @@ public class FunctionSet<T> {
             addBuiltin(
                     AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
-
+            addBuiltin(
+                    AggregateFunction.createBuiltin(GROUP_ARRAY_INTERSECT, Lists.newArrayList(new ArrayType(t)),
+                            new ArrayType(t), Type.VARCHAR, "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(ARRAY_AGG, Lists.newArrayList(t), new ArrayType(t), t, "", "", "", "", "",
                     true, false, true, true));
 

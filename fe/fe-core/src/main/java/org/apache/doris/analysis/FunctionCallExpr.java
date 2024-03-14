@@ -1713,7 +1713,8 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equalsIgnoreCase("group_uniq_array")
-                || fnName.getFunction().equalsIgnoreCase("group_array")) {
+                || fnName.getFunction().equalsIgnoreCase("group_array")
+                || fnName.getFunction().equalsIgnoreCase("group_array_intersect")) {
             fn.setReturnType(new ArrayType(getChild(0).type));
         }
 

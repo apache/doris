@@ -49,6 +49,7 @@ void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFact
 void register_aggregate_function_stddev_variance_samp(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_group_array_intersect(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
@@ -79,6 +80,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_uniq(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
+        register_aggregate_function_group_array_intersect(instance);
         register_aggregate_function_group_concat(instance);
         register_aggregate_function_quantile_state(instance);
         register_aggregate_function_combinator_distinct(instance);
