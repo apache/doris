@@ -329,9 +329,11 @@ static HttpResponse process_get_value(MetaServiceImpl* service, brpc::Controller
 }
 
 static HttpResponse process_get_instance_info(MetaServiceImpl* service, brpc::Controller* ctrl) {
-    auto& uri = ctrl->http_request().uri();
-    std::string_view instance_id = http_query(uri, "instance_id");
-    std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
+    GetInstanceRequest req;
+    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+
+    std::string_view instance_id = req.instance_id();
+    std::string_view cloud_unique_id = req.cloud_unique_id();
 
     InstanceInfoPB instance;
     auto [code, msg] = service->get_instance_info(std::string(instance_id),
