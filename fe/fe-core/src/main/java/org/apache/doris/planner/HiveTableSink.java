@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class HiveTableSink extends DataSink {
 
@@ -90,11 +91,10 @@ public class HiveTableSink extends DataSink {
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
         Set<String> partNames = new HashSet<>(targetTable.getPartitionColumnNames());
-        List<FieldSchema> hmsColumns = targetTable.getRemoteTable().getSd().getCols();
-        Set<String> colNames = new HashSet<>();
-        for (FieldSchema column : hmsColumns) {
-            colNames.add(column.getName());
-        }
+        Set<String> colNames = targetTable.getColumns()
+                .stream().map(Column::getName)
+                .collect(Collectors.toSet());
+        colNames.removeAll(partNames);
         List<THiveColumn> targetColumns = new ArrayList<>();
         for (Column col : insertCols) {
             if (partNames.contains(col.getName())) {
