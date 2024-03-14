@@ -152,6 +152,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     if (read_options.use_topn_opt) {
         auto* query_ctx = read_options.runtime_state->get_query_ctx();
         for (int id : read_options.topn_filter_source_node_ids) {
+            if (!query_ctx->get_runtime_predicate(id).need_update()) {
+                continue;
+            }
             auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate();
 
             int32_t uid =

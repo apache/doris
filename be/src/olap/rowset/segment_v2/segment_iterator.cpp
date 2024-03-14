@@ -595,6 +595,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_zonemap_ns);
             auto* query_ctx = _opts.runtime_state->get_query_ctx();
             for (int id : _opts.topn_filter_source_node_ids) {
+                if (!query_ctx->get_runtime_predicate(id).need_update()) {
+                    continue;
+                }
+
                 std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
                         query_ctx->get_runtime_predicate(id).get_predicate();
                 if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
@@ -1510,6 +1514,10 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     if (_opts.use_topn_opt &&
         (_opts.read_orderby_key_columns == nullptr || _opts.read_orderby_key_columns->empty())) {
         for (int id : _opts.topn_filter_source_node_ids) {
+            if (!_opts.runtime_state->get_query_ctx()->get_runtime_predicate(id).need_update()) {
+                continue;
+            }
+
             auto& runtime_predicate =
                     _opts.runtime_state->get_query_ctx()->get_runtime_predicate(id);
             _col_predicates.push_back(runtime_predicate.get_predicate().get());
