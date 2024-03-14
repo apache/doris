@@ -105,7 +105,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
 
-
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
@@ -778,10 +777,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 getDbName(), getName(), getPartitionColumnTypes());
-
-        return hivePartitionValues.getIdToPartitionItem().entrySet().stream()
-                .filter(entry -> !entry.getValue().isDefaultPartition())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        return hivePartitionValues.getIdToPartitionItem();
     }
 
     public Long getPartitionId(String partName) {

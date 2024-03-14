@@ -163,6 +163,10 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     if (_writer_status.ok() && _eos) {
         _writer_status = finish(state);
     }
+    // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
+    if (_finish_dependency) {
+        _finish_dependency->set_ready();
+    }
 
     Status close_st = close(_writer_status);
     // If it is already failed before, then not update the write status so that we could get
@@ -171,9 +175,6 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         _writer_status = close_st;
     }
     _writer_thread_closed = true;
-    if (_finish_dependency) {
-        _finish_dependency->set_ready();
-    }
 }
 
 Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_block,

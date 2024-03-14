@@ -27,6 +27,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <numeric>
 #include <ostream>
 #include <set>
@@ -39,6 +40,7 @@
 #include "common/status.h"
 #include "common/sync_point.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
@@ -82,7 +84,7 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
     // check segment size
     auto* beta_rowset = reinterpret_cast<BetaRowset*>(rhs.get());
     std::vector<size_t> segments_size;
-    static_cast<void>(beta_rowset->get_segments_size(&segments_size));
+    RETURN_FALSE_IF_ERROR(beta_rowset->get_segments_size(&segments_size));
     for (auto segment_size : segments_size) {
         // is segment is too small, need to do compaction
         if (segment_size < min_tidy_size) {
@@ -181,7 +183,7 @@ Status Compaction::merge_input_rowsets() {
                                    fmt::format("rowset writer build failed. output_version: {}",
                                                _output_version.to_string()));
 
-    //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), true));
+    //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // Now we support delete in cumu compaction, to make all data in rowsets whose version
     // is below output_version to be delete in the future base compaction, we should carry
@@ -509,6 +511,43 @@ Status CompactionMixin::do_inverted_index_compaction() {
     for (int i = 0; i < dest_segment_num; ++i) {
         auto prefix = dest_rowset_id.to_string() + "_" + std::to_string(i);
         dest_index_files[i] = prefix;
+    }
+
+    // Only write info files when debug index compaction is enabled.
+    // The files are used to debug index compaction and works with index_tool.
+    if (config::debug_inverted_index_compaction) {
+        auto write_json_to_file = [&](const nlohmann::json& json_obj,
+                                      const std::string& file_name) {
+            io::FileWriterPtr file_writer;
+            std::string file_path = fmt::format("{}/{}.json", config::sys_log_dir, file_name);
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
+            RETURN_IF_ERROR(file_writer->append(json_obj.dump()));
+            RETURN_IF_ERROR(file_writer->append("\n"));
+            return file_writer->close();
+        };
+
+        // Convert trans_vec to JSON and print it
+        nlohmann::json trans_vec_json = trans_vec;
+        auto output_version =
+                _output_version.to_string().substr(1, _output_version.to_string().size() - 2);
+        RETURN_IF_ERROR(write_json_to_file(
+                trans_vec_json,
+                fmt::format("trans_vec_{}_{}", _tablet->tablet_id(), output_version)));
+
+        nlohmann::json src_index_files_json = src_index_files;
+        RETURN_IF_ERROR(write_json_to_file(
+                src_index_files_json,
+                fmt::format("src_idx_dirs_{}_{}", _tablet->tablet_id(), output_version)));
+
+        nlohmann::json dest_index_files_json = dest_index_files;
+        RETURN_IF_ERROR(write_json_to_file(
+                dest_index_files_json,
+                fmt::format("dest_idx_dirs_{}_{}", _tablet->tablet_id(), output_version)));
+
+        nlohmann::json dest_segment_num_rows_json = dest_segment_num_rows;
+        RETURN_IF_ERROR(write_json_to_file(
+                dest_segment_num_rows_json,
+                fmt::format("dest_seg_num_rows_{}_{}", _tablet->tablet_id(), output_version)));
     }
 
     // create index_writer to compaction indexes
@@ -885,7 +924,7 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 
     RETURN_IF_ERROR(merge_input_rowsets());
 
-    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), true));
+    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());
@@ -922,8 +961,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
-    RETURN_IF_ERROR(
-            _engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get(), true));
+    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
     return Status::OK();
 }
 

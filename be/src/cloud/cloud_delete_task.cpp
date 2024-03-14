@@ -77,7 +77,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     RETURN_IF_ERROR(rowset_writer->build(rowset));
     rowset->rowset_meta()->set_delete_predicate(std::move(del_pred));
 
-    auto st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), true);
+    auto st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta());
 
     // Update tablet stats
     tablet->fetch_add_approximate_num_rowsets(1);

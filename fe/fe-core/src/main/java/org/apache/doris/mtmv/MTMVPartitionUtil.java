@@ -122,10 +122,12 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMVRelatedTableIf relatedTable,
-            Map<String, String> tableProperties, String relatedCol) throws AnalysisException {
+            Map<String, String> tableProperties, String relatedCol, Map<String, String> mvProperties)
+            throws AnalysisException {
         HashMap<String, String> partitionProperties = Maps.newHashMap();
         List<AllPartitionDesc> res = Lists.newArrayList();
-        Set<PartitionKeyDesc> relatedPartitionDescs = getRelatedPartitionDescs(relatedTable, relatedCol);
+        Set<PartitionKeyDesc> relatedPartitionDescs = getRelatedPartitionDescs(relatedTable, relatedCol,
+                MTMVUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties));
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
                     generatePartitionName(partitionKeyDesc),
@@ -137,11 +139,12 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    private static Set<PartitionKeyDesc> getRelatedPartitionDescs(MTMVRelatedTableIf relatedTable, String relatedCol)
+    private static Set<PartitionKeyDesc> getRelatedPartitionDescs(MTMVRelatedTableIf relatedTable, String relatedCol,
+            MTMVPartitionSyncConfig config)
             throws AnalysisException {
         int pos = getPos(relatedTable, relatedCol);
         Set<PartitionKeyDesc> res = Sets.newHashSet();
-        for (Entry<Long, PartitionItem> entry : relatedTable.getAndCopyPartitionItems().entrySet()) {
+        for (Entry<Long, PartitionItem> entry : relatedTable.getPartitionItemsByTimeFilter(pos, config).entrySet()) {
             PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(pos);
             res.add(partitionKeyDesc);
         }

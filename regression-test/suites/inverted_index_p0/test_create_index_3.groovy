@@ -65,6 +65,7 @@ suite("test_create_index_3", "inverted_index"){
             create index name_idx on ${indexTbName1}(name) using inverted properties("parser" = "english") comment 'name index';
         """
     
+    sleep(2*1000)
     def show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result.size(), 1)

@@ -943,19 +943,28 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                 io::global_local_filesystem()->list(schema_hash_path, true, &files, &exists));
         for (auto& file : files) {
             auto& filename = file.file_name;
-            if (!filename.ends_with(".binlog")) {
+            std::string new_suffix;
+            std::string old_suffix;
+
+            if (filename.ends_with(".binlog")) {
+                old_suffix = ".binlog";
+                new_suffix = ".dat";
+            } else if (filename.ends_with(".binlog-index")) {
+                old_suffix = ".binlog-index";
+                new_suffix = ".idx";
+            } else {
                 continue;
             }
 
-            // change clone_file suffix .binlog to .dat
             std::string new_filename = filename;
-            new_filename.replace(filename.size() - 7, 7, ".dat");
+            new_filename.replace(filename.size() - old_suffix.size(), old_suffix.size(),
+                                 new_suffix);
             auto from = fmt::format("{}/{}", schema_hash_path, filename);
             auto to = fmt::format("{}/_binlog/{}", schema_hash_path, new_filename);
             RETURN_IF_ERROR(io::global_local_filesystem()->rename(from, to));
         }
 
-        auto meta = store->get_meta();
+        auto* meta = store->get_meta();
         // if ingest binlog metas error, it will be gc in gc_unused_binlog_metas
         RETURN_IF_ERROR(
                 RowsetMetaManager::ingest_binlog_metas(meta, tablet_uid, &rowset_binlog_metas_pb));
@@ -968,7 +977,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     // should change tablet uid when tablet object changed
     tablet_meta->set_tablet_uid(std::move(tablet_uid));
     std::string meta_binary;
-    RETURN_IF_ERROR(tablet_meta->serialize(&meta_binary));
+    tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_STATUS_WITH_WARN(
             load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
                                   true),

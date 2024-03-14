@@ -42,6 +42,7 @@
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vpartition_sort_node.h"
 #include "vec/exec/vset_operation_node.h"
+#include "vec/spill/spill_stream.h"
 
 namespace doris::pipeline {
 
@@ -336,17 +337,24 @@ public:
             _close_with_serialized_key();
         }
     }
-    void init_spill_partition_helper(size_t spill_partition_count_bits) {
-        spill_partition_helper =
-                std::make_unique<vectorized::SpillPartitionHelper>(spill_partition_count_bits);
+
+    Status reset_hash_table();
+
+    // We should call this function only at 1st phase.
+    // 1st phase: is_merge=true, only have one SlotRef.
+    // 2nd phase: is_merge=false, maybe have multiple exprs.
+    static int get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
+        auto ctxs = evaluator->input_exprs_ctxs();
+        CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
+                << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
+                << ctxs[0]->root()->debug_string();
+        return ((vectorized::VSlotRef*)ctxs[0]->root().get())->column_id();
     }
 
     vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<vectorized::AggregateDataContainer> aggregate_data_container;
-    vectorized::AggSpillContext spill_context;
     vectorized::ArenaUPtr agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
-    std::unique_ptr<vectorized::SpillPartitionHelper> spill_partition_helper;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
@@ -367,6 +375,8 @@ public:
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
     std::atomic<bool> ready_to_execute = false;
+
+    bool enable_spill = false;
 
 private:
     void _close_with_serialized_key() {
@@ -406,9 +416,98 @@ private:
     }
 };
 
+struct AggSpillPartition;
+struct PartitionedAggSharedState : public BasicSharedState {
+public:
+    PartitionedAggSharedState() = default;
+    ~PartitionedAggSharedState() override = default;
+
+    void init_spill_params(size_t spill_partition_count_bits);
+
+    void close();
+
+    AggSharedState* in_mem_shared_state = nullptr;
+    std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
+
+    size_t partition_count_bits;
+    size_t partition_count;
+    size_t max_partition_index;
+    Status sink_status;
+    std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
+
+    size_t get_partition_index(size_t hash_value) const {
+        return (hash_value >> (32 - partition_count_bits)) & max_partition_index;
+    }
+};
+
+struct AggSpillPartition {
+    static constexpr int64_t AGG_SPILL_FILE_SIZE = 1024 * 1024 * 1024; // 1G
+
+    AggSpillPartition() = default;
+
+    void close();
+
+    Status get_spill_stream(RuntimeState* state, int node_id, RuntimeProfile* profile,
+                            vectorized::SpillStreamSPtr& spilling_stream);
+
+    // wait for current bock spilling to finish
+    Status wait_spill(RuntimeState* state) {
+        DCHECK(spilling_stream_);
+        auto status = spilling_stream_->wait_spill();
+        RETURN_IF_ERROR(status);
+        // avoid small spill files
+        if (spilling_stream_->get_written_bytes() >= AGG_SPILL_FILE_SIZE) {
+            status = spilling_stream_->spill_eof();
+            spilling_stream_.reset();
+        }
+        return status;
+    }
+
+    Status finish_current_spilling(bool eos = false) {
+        if (spilling_stream_) {
+            if (eos || spilling_stream_->get_written_bytes() >= AGG_SPILL_FILE_SIZE) {
+                auto status = spilling_stream_->spill_eof();
+                spilling_stream_.reset();
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+    std::deque<vectorized::SpillStreamSPtr> spill_streams_;
+    vectorized::SpillStreamSPtr spilling_stream_;
+};
+using AggSpillPartitionSPtr = std::shared_ptr<AggSpillPartition>;
 struct SortSharedState : public BasicSharedState {
 public:
     std::unique_ptr<vectorized::Sorter> sorter;
+};
+
+struct SpillSortSharedState : public BasicSharedState {
+    SpillSortSharedState() = default;
+    ~SpillSortSharedState() override = default;
+
+    // This number specifies the maximum size of sub blocks
+    static constexpr int SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
+    void update_spill_block_batch_row_count(const vectorized::Block* block) {
+        auto rows = block->rows();
+        if (rows > 0 && 0 == avg_row_bytes) {
+            avg_row_bytes = std::max((std::size_t)1, block->bytes() / rows);
+            spill_block_batch_row_count =
+                    (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes - 1) / avg_row_bytes;
+            LOG(INFO) << "spill sort block batch row count: " << spill_block_batch_row_count;
+        }
+    }
+    void clear();
+
+    SortSharedState* in_mem_shared_state = nullptr;
+    bool enable_spill = false;
+    Status sink_status;
+    std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
+
+    std::deque<vectorized::SpillStreamSPtr> sorted_streams;
+    size_t avg_row_bytes = 0;
+    int spill_block_batch_row_count;
 };
 
 struct UnionSharedState : public BasicSharedState {
@@ -474,6 +573,11 @@ struct HashJoinSharedState : public JoinSharedState {
     std::shared_ptr<vectorized::Block> build_block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
     bool probe_ignore_null = false;
+};
+
+struct PartitionedHashJoinSharedState : public HashJoinSharedState {
+    std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
+    std::vector<vectorized::SpillStreamSPtr> spilled_streams;
 };
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
