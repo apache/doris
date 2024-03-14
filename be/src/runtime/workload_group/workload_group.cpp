@@ -268,7 +268,7 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
 
     // 9 scan thread num
     workload_group_info->scan_thread_num = config::doris_scanner_thread_pool_thread_num;
-    if (tworkload_group_info.__isset.scan_thread_num && workload_group_info.scan_thread_num > 0) {
+    if (tworkload_group_info.__isset.scan_thread_num && tworkload_group_info.scan_thread_num > 0) {
         workload_group_info->scan_thread_num = tworkload_group_info.scan_thread_num;
     }
 
