@@ -46,6 +46,7 @@ import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
+import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 
 import java.util.List;
 import java.util.Objects;
@@ -162,6 +163,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
 
+            topDown(new SimplifyAggGroupBy()),
             topDown(new NormalizeAggregate()),
             topDown(new HavingToFilter()),
             bottomUp(new SemiJoinCommute()),
