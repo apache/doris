@@ -94,13 +94,16 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
 
 Status JniConnector::init(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _generate_predicates(colname_to_value_range);
-    if (_predicates_length != 0 && _predicates != nullptr) {
-        int64_t predicates_address = (int64_t)_predicates.get();
-        // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
-        // serialized predicates in java side.
-        _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
-    }
+    // TODO: This logic need to be changed.
+    // See the comment of "predicates" field in JniScanner.java
+
+    // _generate_predicates(colname_to_value_range);
+    // if (_predicates_length != 0 && _predicates != nullptr) {
+    //     int64_t predicates_address = (int64_t)_predicates.get();
+    //     // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
+    //     // serialized predicates in java side.
+    //     _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
+    // }
     return Status::OK();
 }
 
