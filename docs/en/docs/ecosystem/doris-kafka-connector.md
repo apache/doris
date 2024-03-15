@@ -26,9 +26,20 @@ under the License.
 
 [Kafka Connect](https://docs.confluent.io/platform/current/connect/index.html) is a scalable and reliable tool for data transmission between Apache Kafka and other systems. Connectors can be defined Move large amounts of data in and out of Kafka.
 
-Doris provides the Sink Connector plug-in, which can write data from Kafka topics to Doris.
-
+The Doris community provides the [doris-kafka-connector](https://github.com/apache/doris-kafka-connector) plug-in, which can write data in the Kafka topic to Doris.
 ## Usage Doris Kafka Connector
+
+### Download
+[doris-kafka-connector](https://dist.apache.org/repos/dist/dev/doris/doris-kafka-connector/)
+
+maven dependencies
+```xml
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>doris-kafka-connector</artifactId>
+  <version>1.0.0</version>
+</dependency>
+```
 
 ### Standalone mode startup
 
@@ -67,7 +78,7 @@ Start Standalone
 ```shell
 $KAFKA_HOME/bin/connect-standalone.sh -daemon $KAFKA_HOME/config/connect-standalone.properties $KAFKA_HOME/config/doris-connector-sink.properties
 ```
-:::warning
+:::note
 Note: It is generally not recommended to use standalone mode in a production environment.
 :::
 
@@ -133,7 +144,7 @@ curl -i http://127.0.0.1:8083/connectors/test-doris-sink-cluster/tasks/0/restart
 ```
 Refer to: [Connect REST Interface](https://docs.confluent.io/platform/current/connect/references/restapi.html#kconnect-rest-interface)
 
-:::warning
+:::note
 Note that when kafka-connect is started for the first time, three topics `config.storage.topic` `offset.storage.topic` and `status.storage.topic` will be created in the kafka cluster to record the shared connector configuration of kafka-connect. Offset data and status updates. [How to Use Kafka Connect - Get Started](https://docs.confluent.io/platform/current/connect/userguide.html)
 :::
 

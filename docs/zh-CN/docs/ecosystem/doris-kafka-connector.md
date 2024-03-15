@@ -26,9 +26,21 @@ under the License.
 
 [Kafka Connect](https://docs.confluent.io/platform/current/connect/index.html) 是一款可扩展、可靠的在 Apache Kafka 和其他系统之间进行数据传输的工具，可以定义 Connectors 将大量数据迁入迁出 Kafka。
 
-Doris 提供了 Sink Connector 插件，可以将 Kafka topic 中的数据写入到 Doris 中。
+Doris 社区提供了 [doris-kafka-connector](https://github.com/apache/doris-kafka-connector) 插件，可以将 Kafka topic 中的数据写入到 Doris 中。
 
 ## Doris Kafka Connector 使用
+
+### 下载
+[doris-kafka-connector](https://dist.apache.org/repos/dist/dev/doris/doris-kafka-connector/)
+
+maven 依赖
+```xml
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>doris-kafka-connector</artifactId>
+  <version>1.0.0</version>
+</dependency> 
+```
 
 ### Standalone 模式启动
 
@@ -67,7 +79,7 @@ value.converter.schemas.enable=false
 ```shell
 $KAFKA_HOME/bin/connect-standalone.sh -daemon $KAFKA_HOME/config/connect-standalone.properties $KAFKA_HOME/config/doris-connector-sink.properties
 ```
-:::warning
+:::note
 注意：一般不建议在生产环境中使用 standalone 模式
 :::
 
@@ -134,7 +146,7 @@ curl -i http://127.0.0.1:8083/connectors/test-doris-sink-cluster/tasks/0/restart
 ```
 参考：[Connect REST Interface](https://docs.confluent.io/platform/current/connect/references/restapi.html#kconnect-rest-interface)
 
-:::warning
+:::note
 注意 kafka-connect 首次启动时，会往 kafka 集群中创建 `config.storage.topic` `offset.storage.topic` `status.storage.topic` 三个 topic 用于记录 kafka-connect 的共享连接器配置、偏移数据和状态更新。[How to Use Kafka Connect - Get Started](https://docs.confluent.io/platform/current/connect/userguide.html)
 :::
 
