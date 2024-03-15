@@ -61,6 +61,7 @@ import java.util.stream.Collectors
 import java.util.stream.LongStream
 import static org.apache.doris.regression.util.DataUtils.sortByToString
 
+import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSetMetaData
@@ -343,8 +344,11 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def sql_return_maparray_impl(Connection conn, String sqlStr) {
+    def sql_return_maparray(String sqlStr, Connection conn = null) {        
         logger.info("Execute sql: ${sqlStr}".toString())
+        if (conn == null) {
+            conn = context.getConnection()
+        }
         def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
 
         // get all column names as list
@@ -713,6 +717,11 @@ class Suite implements GroovyInterceptable {
         return lines;
     }
 
+
+    Connection getTargetConnection() {
+        return context.getTargetConnection(this)
+    }
+    
     boolean deleteFile(String filePath) {
         def file = new File(filePath)
         file.delete()
