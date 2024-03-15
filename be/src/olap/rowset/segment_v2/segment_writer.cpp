@@ -227,6 +227,9 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             (column.is_extracted_column() && column.is_array_type())) {
             // variant and jsonb type skip write index
             opts.indexes.clear();
+            opts.need_zone_map = false;
+            opts.need_bloom_filter = false;
+            opts.need_bitmap_index = false;
         }
         opts.inverted_index_file_writer = _inverted_index_file_writer.get();
         for (auto index : opts.indexes) {
@@ -253,7 +256,6 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         CHECK_FIELD_TYPE(JSONB, "jsonb")
         CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
         CHECK_FIELD_TYPE(MAP, "map")
-        CHECK_FIELD_TYPE(VARIANT, "variant")
         CHECK_FIELD_TYPE(OBJECT, "object")
         CHECK_FIELD_TYPE(HLL, "hll")
         CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")

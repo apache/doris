@@ -492,17 +492,24 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType())
-                || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType())) {
+        if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType() && !t2.isVariantType())
+                || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType() && !t1.isVariantType())) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
                     SessionVariable.getEnableDecimal256());
         }
 
         // Variant can be implicit cast to numeric type and string type at present
         if (t1.isVariantType() && (t2.isNumericType() || t2.isStringType())) {
+            if (t2.isDecimalV2Type() || t2.isDecimalV3Type()) {
+                // TODO support decimal
+                return Type.DOUBLE;
+            }
             return Type.fromPrimitiveType(t2);
         }
         if (t2.isVariantType() && (t1.isNumericType() || t1.isStringType())) {
+            if (t1.isDecimalV2Type() || t1.isDecimalV3Type()) {
+                return Type.DOUBLE;
+            }
             return Type.fromPrimitiveType(t1);
         }
 

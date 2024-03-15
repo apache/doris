@@ -14,28 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-package org.apache.doris.common.profile;
-
-import org.apache.doris.common.util.RuntimeProfile;
-
-import java.util.Map;
-
-/**
-* AggregatedProfile is part of a query profile.
-* It contains the aggregated information of a query.
-*/
-public class AggregatedProfile {
-
-    public static final String PROFILE_NAME = "MergedProfile";
-    private ExecutionProfile executionProfile;
-
-    public AggregatedProfile(RuntimeProfile rootProfile, ExecutionProfile executionProfile) {
-        this.executionProfile = executionProfile;
-    }
-
-    public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
-        return executionProfile.getAggregatedFragmentsProfile(planNodeMap);
-    }
+suite("grouping_with_same_grouping_set") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+    sql """
+         DROP TABLE IF EXISTS t1;
+        """
+    sql """
+        create table t1(a int) distributed by hash(a) buckets 1 properties ( 'replication_num' = '1');
+    """
+    sql """
+        insert into t1 values (1), (2), (3);
+    """
+    qt_test "select max(a) from t1 group by grouping sets ((a), (a)) order by 1"
 
 }
