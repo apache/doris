@@ -149,9 +149,9 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
     bool owned_dir = false;
     try {
         // try to get query bitmap result from cache and return immediately on cache hit
-        auto index_file_path = _inverted_index_file_reader->get_index_file_path(&_index_meta);
+        auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {
-                index_file_path, "", InvertedIndexQueryType::UNKNOWN_QUERY, "null_bitmap"};
+                index_file_key, "", InvertedIndexQueryType::UNKNOWN_QUERY, "null_bitmap"};
         auto* cache = InvertedIndexQueryCache::instance();
         if (cache->lookup(cache_key, cache_handle)) {
             return Status::OK();
@@ -196,7 +196,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 
 Status InvertedIndexReader::handle_searcher_cache(
         InvertedIndexCacheHandle* inverted_index_cache_handle, OlapReaderStatistics* stats) {
-    auto index_file_key = _inverted_index_file_reader->get_index_file_path(&_index_meta);
+    auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
     InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
     if (InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
                                                        inverted_index_cache_handle)) {
@@ -263,10 +263,10 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     try {
         std::vector<std::string> analyse_result;
         InvertedIndexQueryCache::CacheKey cache_key;
-        auto index_file_path = _inverted_index_file_reader->get_index_file_path(&_index_meta);
+        auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
 
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
-            cache_key = {index_file_path, column_name, query_type, search_str};
+            cache_key = {index_file_key, column_name, query_type, search_str};
             analyse_result.emplace_back(search_str);
         } else {
             InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
@@ -310,7 +310,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             query_type == InvertedIndexQueryType::MATCH_ANY_QUERY) {
             std::string str_tokens = join(analyse_result, " ");
 
-            cache_key = {index_file_path, column_name, query_type, str_tokens};
+            cache_key = {index_file_key, column_name, query_type, str_tokens};
         }
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
@@ -400,10 +400,10 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
             [](lucene::index::Term* term) { _CLDECDELETE(term); }};
     std::unique_ptr<lucene::search::Query> query;
 
-    auto index_file_path = _inverted_index_file_reader->get_index_file_path(&_index_meta);
+    auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
 
     // try to get query bitmap result from cache and return immediately on cache hit
-    InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name, query_type,
+    InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
                                                  search_str};
     auto* cache = InvertedIndexQueryCache::instance();
     InvertedIndexQueryCacheHandle cache_handler;
@@ -639,18 +639,19 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
                                  const void* query_value, InvertedIndexQueryType query_type,
                                  uint32_t* count) {
     try {
-        auto index_file_path = _inverted_index_file_reader->get_index_file_path(&_index_meta);
-
         std::shared_ptr<lucene::util::bkd::bkd_reader> r;
         auto st = get_bkd_reader(r, stats);
         if (!st.ok()) {
-            LOG(WARNING) << "get bkd reader for  " << index_file_path << " failed: " << st;
+            LOG(WARNING) << "get bkd reader for  "
+                         << _inverted_index_file_reader->get_index_file_path(&_index_meta)
+                         << " failed: " << st;
             return st;
         }
         std::string query_str;
         _value_key_coder->full_encode_ascending(query_value, &query_str);
 
-        InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name, query_type,
+        auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+        InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
                                                      query_str};
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
@@ -678,18 +679,19 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
     try {
-        auto index_file_path = _inverted_index_file_reader->get_index_file_path(&_index_meta);
-
         std::shared_ptr<lucene::util::bkd::bkd_reader> r;
         auto st = get_bkd_reader(r, stats);
         if (!st.ok()) {
-            LOG(WARNING) << "get bkd reader for  " << index_file_path << " failed: " << st;
+            LOG(WARNING) << "get bkd reader for  "
+                         << _inverted_index_file_reader->get_index_file_path(&_index_meta)
+                         << " failed: " << st;
             return st;
         }
         std::string query_str;
         _value_key_coder->full_encode_ascending(query_value, &query_str);
 
-        InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name, query_type,
+        auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+        InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
                                                      query_str};
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
@@ -707,8 +709,8 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
 
         return Status::OK();
     } catch (const CLuceneError& e) {
-        LOG(ERROR) << "BKD Query CLuceneError Occurred, error msg:  " << e.what()
-                   << " file_path:" << _index_dir / _index_file_name;
+        LOG(ERROR) << "BKD Query CLuceneError Occurred, error msg:  " << e.what() << " file_path:"
+                   << _inverted_index_file_reader->get_index_file_path(&_index_meta);
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "BKD Query CLuceneError Occurred, error msg: {}", e.what());
     }
