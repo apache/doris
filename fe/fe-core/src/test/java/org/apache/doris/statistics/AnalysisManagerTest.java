@@ -22,9 +22,6 @@ import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -34,7 +31,6 @@ import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -48,7 +44,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
@@ -259,69 +254,6 @@ public class AnalysisManagerTest {
                 times = 1;
             }
         };
-    }
-
-    @Test
-    public void testReAnalyze() {
-        new MockUp<OlapTable>() {
-
-            final Column c = new Column("col1", PrimitiveType.INT);
-            @Mock
-            public List<Column> getBaseSchema() {
-                return Lists.newArrayList(c);
-            }
-
-            @Mock
-            public List<Column> getColumns() { return Lists.newArrayList(c); }
-
-            @Mock
-            public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-                List<Pair<String, String>> jobList = Lists.newArrayList();
-                jobList.add(Pair.of("1", "1"));
-                jobList.add(Pair.of("2", "2"));
-                jobList.add(Pair.of("3", "3"));
-                return jobList;
-            }
-        };
-        OlapTable olapTable = new OlapTable();
-        List<Pair<String, String>> jobList = Lists.newArrayList();
-        jobList.add(Pair.of("1", "1"));
-        jobList.add(Pair.of("2", "2"));
-        TableStatsMeta stats0 = new TableStatsMeta(
-            0, new AnalysisInfoBuilder().setJobColumns(jobList)
-            .setColName("col1").build(), olapTable);
-        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats0));
-
-        new MockUp<OlapTable>() {
-            int count = 0;
-            int[] rowCount = new int[]{100, 100, 200, 200, 1, 1};
-
-            @Mock
-            public long getRowCount() {
-                return rowCount[count++];
-            }
-            @Mock
-            public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-                List<Pair<String, String>> jobList = Lists.newArrayList();
-                return jobList;
-            }
-        };
-        TableStatsMeta stats1 = new TableStatsMeta(
-                50, new AnalysisInfoBuilder().setJobColumns(new ArrayList<>())
-                .setColName("col1").build(), olapTable);
-        stats1.updatedRows.addAndGet(50);
-
-        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
-        TableStatsMeta stats2 = new TableStatsMeta(
-                190, new AnalysisInfoBuilder()
-                .setJobColumns(new ArrayList<>()).setColName("col1").build(), olapTable);
-        stats2.updatedRows.addAndGet(20);
-        Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
-
-        TableStatsMeta stats3 = new TableStatsMeta(0, new AnalysisInfoBuilder()
-                .setColToPartitions(new HashMap<>()).setRowCount(0).setColName("col1").build(), olapTable);
-        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats3));
-
     }
 
     @Test

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
@@ -31,6 +32,7 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,18 +47,33 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class StatisticsAutoCollector extends StatisticsCollector {
+public class StatisticsAutoCollector extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsAutoCollector.class);
 
+    protected final AnalysisTaskExecutor analysisTaskExecutor;
+
     public StatisticsAutoCollector() {
-        super("Automatic Analyzer",
-                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
-                new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num,
-                        StatisticConstants.TASK_QUEUE_CAP));
+        super("Automatic Analyzer", TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes));
+        this.analysisTaskExecutor = new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num,
+                StatisticConstants.TASK_QUEUE_CAP);
     }
 
     @Override
+    protected void runAfterCatalogReady() {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return;
+        }
+        if (!StatisticsUtil.statsTblAvailable()) {
+            LOG.info("Stats table not available, skip");
+            return;
+        }
+        if (Env.isCheckpointThread()) {
+            return;
+        }
+        collect();
+    }
+
     protected void collect() {
         while (canCollect()) {
             Pair<Entry<TableName, Set<String>>, JobPriority> job = getJob();
@@ -70,8 +87,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 if (!supportAutoAnalyze(table)) {
                     continue;
                 }
-                Set<String> columns = job.first.getValue().stream().collect(Collectors.toSet());
-                processOneJob(table, columns, job.second);
+                processOneJob(table, job.first.getValue(), job.second);
             } catch (Exception e) {
                 LOG.warn("Failed to analyze table {} with columns [{}]", job.first.getKey().getTbl(),
                         job.first.getValue().stream().collect(Collectors.joining(",")), e);
@@ -107,13 +123,14 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     }
 
     protected void processOneJob(TableIf table, Set<String> columns, JobPriority priority) throws DdlException {
+        columns = columns.stream().filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)).collect(Collectors.toSet());
         appendPartitionColumns(table, columns);
         if (columns.isEmpty()) {
             return;
         }
         AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
-        LOG.info("Analyze job : {}", analyzeJob.toString());
-        createSystemAnalysisJob(analyzeJob);
+        LOG.debug("Auto analyze job : {}", analyzeJob.toString());
+        executeSystemAnalysisJob(analyzeJob);
     }
 
     protected void appendPartitionColumns(TableIf table, Set<String> columns) {
@@ -169,5 +186,21 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setColToPartitions(colToPartitions)
                 .setPriority(priority)
                 .build();
+    }
+
+    // Analysis job created by the system
+    @VisibleForTesting
+    protected void executeSystemAnalysisJob(AnalysisInfo jobInfo)
+            throws DdlException {
+        Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
+        if (StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)
+                && jobInfo.priority.equals(JobPriority.LOW)) {
+            analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTasks, false);
+        }
+        Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
+        Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
+        analysisTasks.values().forEach(analysisTaskExecutor::submitTask);
     }
 }

@@ -112,8 +112,8 @@ public class AnalysisManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
     private static final int COLUMN_QUEUE_SIZE = 1000;
-    public final Queue<HighPriorityColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
-    public final Queue<HighPriorityColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
+    public final Queue<QueryColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
+    public final Queue<QueryColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Map<TableName, Set<String>> highPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<String>> midPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<String>> lowPriorityJobs = new LinkedHashMap<>();
@@ -310,7 +310,7 @@ public class AnalysisManager implements Writable {
     // Make sure colName of job has all the column as this AnalyzeStmt specified, no matter whether it will be analyzed
     // or not.
     @VisibleForTesting
-    public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
+    public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) {
         AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
         long jobId = Env.getCurrentEnv().getNextId();
         TableIf table = stmt.getTable();
@@ -725,6 +725,7 @@ public class AnalysisManager implements Writable {
         }
         tableStats.updatedTime = 0;
         tableStats.userInjected = false;
+        tableStats.rowCount = table.getRowCount();
     }
 
     public void invalidateRemoteStats(long catalogId, long dbId, long tableId,
@@ -1142,16 +1143,14 @@ public class AnalysisManager implements Writable {
 
 
     public void updateColumnUsedInPredicate(Set<Slot> slotReferences) {
-        LOG.info("Add slots to high priority queues.");
         updateColumn(slotReferences, highPriorityColumns);
     }
 
     public void updateQueriedColumn(Collection<Slot> slotReferences) {
-        LOG.info("Add slots to mid priority queues.");
         updateColumn(slotReferences, midPriorityColumns);
     }
 
-    protected void updateColumn(Collection<Slot> slotReferences, Queue<HighPriorityColumn> queue) {
+    protected void updateColumn(Collection<Slot> slotReferences, Queue<QueryColumn> queue) {
         for (Slot s : slotReferences) {
             if (!(s instanceof SlotReference)) {
                 return;
@@ -1165,10 +1164,12 @@ public class AnalysisManager implements Writable {
                 if (database != null) {
                     CatalogIf catalog = database.getCatalog();
                     if (catalog != null) {
-                        queue.offer(new HighPriorityColumn(catalog.getId(), database.getId(),
+                        queue.offer(new QueryColumn(catalog.getId(), database.getId(),
                                 table.getId(), optionalColumn.get().getName()));
-                        LOG.info("Offer column " + table.getName() + "(" + table.getId() + ")."
-                                + optionalColumn.get().getName());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Offer column " + table.getName() + "(" + table.getId() + ")."
+                                    + optionalColumn.get().getName());
+                        }
                     }
                 }
             }
@@ -1177,14 +1178,15 @@ public class AnalysisManager implements Writable {
 
     public void mergeFollowerQueryColumns(Collection<TQueryColumn> highColumns,
             Collection<TQueryColumn> midColumns) {
+        LOG.info("Received {} high columns and {} mid columns", highColumns.size(), midColumns.size());
         for (TQueryColumn c : highColumns) {
-            if (!highPriorityColumns.offer(new HighPriorityColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
+            if (!highPriorityColumns.offer(new QueryColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
                     Long.parseLong(c.tblId), c.colName))) {
                 break;
             }
         }
         for (TQueryColumn c : midColumns) {
-            if (!midPriorityColumns.offer(new HighPriorityColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
+            if (!midPriorityColumns.offer(new QueryColumn(Long.parseLong(c.catalogId), Long.parseLong(c.dbId),
                     Long.parseLong(c.tblId), c.colName))) {
                 break;
             }
