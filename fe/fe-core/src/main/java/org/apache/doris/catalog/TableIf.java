@@ -30,7 +30,6 @@ import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
@@ -181,10 +180,6 @@ public interface TableIf {
     DatabaseIf getDatabase();
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
-
-    boolean needReAnalyzeTable(TableStatsMeta tblStats);
-
-    Map<String, Set<String>> findReAnalyzeNeededPartitions();
 
     // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
     // For HMS external table, the return result is a list of all the files' size.

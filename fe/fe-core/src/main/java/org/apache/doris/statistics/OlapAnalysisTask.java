@@ -229,7 +229,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("tblName", String.valueOf(tbl.getName()));
         params.put("index", getIndex());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String collectColStats = stringSubstitutor.replace(COLLECT_COL_STATISTICS);
+        String collectColStats = stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE);
         runQuery(collectColStats);
     }
 

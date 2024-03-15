@@ -33,7 +33,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -641,16 +640,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public void analyze(String dbName) {}
-
-    @Override
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        return true;
-    }
-
-    @Override
-    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-        return Collections.emptyMap();
-    }
 
     @Override
     public List<Long> getChunkSizes() {
