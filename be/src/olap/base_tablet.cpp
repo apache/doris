@@ -1380,10 +1380,15 @@ Status BaseTablet::update_delete_bitmap_without_lock(
         const TabletSharedPtr& self, const RowsetSharedPtr& rowset,
         const std::vector<RowsetSharedPtr>* specified_base_rowsets) {
     DBUG_EXECUTE_IF("BaseTablet.update_delete_bitmap_without_lock.random_failed", {
-        if (rand() % 100 < (100 * dp->param("percent", 0.1))) {
-            LOG_WARNING("BaseTablet.update_delete_bitmap_without_lock.random_failed");
+        auto rnd = rand() % 100;
+        auto percent = dp->param("percent", 0.1);
+        if (rnd < (100 * percent)) {
+            LOG(WARNING) << "BaseTablet.update_delete_bitmap_without_lock.random_failed";
             return Status::InternalError(
                     "debug tablet update delete bitmap without lock random failed");
+        } else {
+            LOG(INFO) << "BaseTablet.update_delete_bitmap_without_lock.random_failed not triggered"
+                      << ", rnd:" << rnd << ", percent: " << percent;
         }
     });
     int64_t cur_version = rowset->end_version();
