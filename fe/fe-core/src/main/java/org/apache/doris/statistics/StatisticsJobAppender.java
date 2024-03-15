@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class StatisticsJobAppender extends MasterDaemon {
@@ -44,9 +45,12 @@ public class StatisticsJobAppender extends MasterDaemon {
 
     public static final long INTERVAL = 1000;
     public static final int JOB_MAP_SIZE = 1000;
+    public static final int TABLE_BATCH_SIZE = 100;
 
-    private long currentDbId;
-    private long currentTableId;
+    private long currentDbId = 0;
+    private long currentTableId = 0;
+    private long lastRoundFinishTime = 0;
+    private long lowJobIntervalMs = TimeUnit.MINUTES.toMillis(1);
 
     public StatisticsJobAppender() {
         super("Statistics Job Appender", INTERVAL);
@@ -60,10 +64,6 @@ public class StatisticsJobAppender extends MasterDaemon {
         if (!Env.getCurrentEnv().isMaster()) {
             return;
         }
-        if (!StatisticsUtil.statsTblAvailable()) {
-            LOG.info("Stats table not available, skip");
-            return;
-        }
         if (Env.isCheckpointThread()) {
             return;
         }
@@ -72,31 +72,28 @@ public class StatisticsJobAppender extends MasterDaemon {
 
     protected void appendJobs() {
         AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
-        // LOG.info("Append column to high priority job map.");
         appendColumnsToJobs(manager.highPriorityColumns, manager.highPriorityJobs);
-        // LOG.info("Append column to mid priority job map.");
         appendColumnsToJobs(manager.midPriorityColumns, manager.midPriorityJobs);
         if (StatisticsUtil.enableAutoAnalyzeInternalCatalog()) {
-            // LOG.info("Append column to low priority job map.");
-            appendToLowQueue(manager.lowPriorityJobs);
+            appendToLowJobs(manager.lowPriorityJobs);
         }
     }
 
-    protected void appendColumnsToJobs(Queue<HighPriorityColumn> columnQueue, Map<TableName, Set<String>> jobsMap) {
+    protected void appendColumnsToJobs(Queue<QueryColumn> columnQueue, Map<TableName, Set<String>> jobsMap) {
         int size = columnQueue.size();
+        int processed = 0;
         for (int i = 0; i < size; i++) {
-            HighPriorityColumn column = columnQueue.poll();
+            QueryColumn column = columnQueue.poll();
             if (!StatisticsUtil.needAnalyzeColumn(column)) {
                 continue;
             }
-            LOG.info("Process column " + column.tblId + "." + column.colName);
             TableIf table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
             TableName tableName = new TableName(table.getDatabase().getCatalog().getName(),
                     table.getDatabase().getFullName(), table.getName());
             synchronized (jobsMap) {
                 // If job map reach the upper limit, stop putting new jobs.
                 if (!jobsMap.containsKey(tableName) && jobsMap.size() >= JOB_MAP_SIZE) {
-                    LOG.info("Job map full.");
+                    LOG.info("High or mid job map full.");
                     break;
                 }
                 if (jobsMap.containsKey(tableName)) {
@@ -106,15 +103,21 @@ public class StatisticsJobAppender extends MasterDaemon {
                     columns.add(column.colName);
                     jobsMap.put(tableName, columns);
                 }
-                LOG.info("Column " + column.tblId + "." + column.colName + " added");
             }
+            processed++;
+        }
+        if (size > 0 && LOG.isDebugEnabled()) {
+            LOG.debug("{} of {} columns append to jobs", processed, size);
         }
     }
 
-    protected void appendToLowQueue(Map<TableName, Set<String>> jobsMap) {
+    protected void appendToLowJobs(Map<TableName, Set<String>> jobsMap) {
+        if (System.currentTimeMillis() - lastRoundFinishTime < lowJobIntervalMs) {
+            return;
+        }
         InternalCatalog catalog = Env.getCurrentInternalCatalog();
         List<Long> sortedDbs = catalog.getDbIds().stream().sorted().collect(Collectors.toList());
-        int batchSize = 100;
+        int processed = 0;
         for (long dbId : sortedDbs) {
             if (dbId < currentDbId
                     || StatisticConstants.SYSTEM_DBS.contains(catalog.getDbNullable(dbId).getFullName())) {
@@ -128,31 +131,40 @@ public class StatisticsJobAppender extends MasterDaemon {
                 if (!(t instanceof OlapTable) || t.getId() <= currentTableId) {
                     continue;
                 }
-                TableName tableName = new TableName(t.getDatabase().getCatalog().getName(),
-                        t.getDatabase().getFullName(), t.getName());
+                OlapTable olapTable = (OlapTable) t;
+                Set<String> columns = olapTable.getColumns().stream()
+                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                        .filter(c -> StatisticsUtil.needAnalyzeColumn(olapTable, c.getName()))
+                        .map(c -> c.getName()).collect(Collectors.toSet());
+                if (columns.isEmpty()) {
+                    continue;
+                }
+                TableName tableName = new TableName(olapTable.getDatabase().getCatalog().getName(),
+                        olapTable.getDatabase().getFullName(), olapTable.getName());
                 synchronized (jobsMap) {
                     // If job map reach the upper limit, stop adding new jobs.
                     if (!jobsMap.containsKey(tableName) && jobsMap.size() >= JOB_MAP_SIZE) {
+                        LOG.info("Low job map full.");
                         return;
                     }
-                    Set<String> columns = t.getColumns().stream()
-                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                            .filter(c -> StatisticsUtil.needAnalyzeColumn(t, c.getName()))
-                            .map(c -> c.getName()).collect(Collectors.toSet());
                     if (jobsMap.containsKey(tableName)) {
                         jobsMap.get(tableName).addAll(columns);
                     } else {
                         jobsMap.put(tableName, columns);
                     }
                 }
-                currentTableId = t.getId();
-                if (--batchSize <= 0) {
+                currentTableId = olapTable.getId();
+                if (++processed > TABLE_BATCH_SIZE) {
                     return;
                 }
             }
         }
         // All tables have been processed once, reset for the next loop.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("All low priority internal tables are appended once.");
+        }
         currentDbId = 0;
         currentTableId = 0;
+        lastRoundFinishTime = System.currentTimeMillis();
     }
 }
