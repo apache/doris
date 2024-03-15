@@ -330,7 +330,7 @@ under the License.
         <spring.version>2.7.13</spring.version>
         <orc.version>1.8.4</orc.version>
         <ojdbc8.version>12.2.0.1</ojdbc8.version>
-        <zookeeper.version>3.9.1</zookeeper.version>
+        <zookeeper.version>3.9.2</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
