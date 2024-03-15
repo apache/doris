@@ -596,6 +596,11 @@ void test_file_cache(io::FileCacheType cache_type) {
 
     {
         /// Test max file block size
+        std::string cache_path2 = caches_dir / "cache2";
+        if (fs::exists(cache_path2)) {
+            fs::remove_all(cache_path2);
+        }
+        fs::create_directories(cache_path2);
         auto settings2 = settings;
         settings2.index_queue_elements = 5;
         settings2.index_queue_size = 30;
@@ -604,7 +609,7 @@ void test_file_cache(io::FileCacheType cache_type) {
         settings2.query_queue_size = 0;
         settings2.query_queue_elements = 0;
         settings2.max_file_block_size = 10;
-        io::BlockFileCache cache2(caches_dir / "cache2", settings2);
+        io::BlockFileCache cache2(cache_path2, settings2);
         ASSERT_TRUE(cache2.initialize().ok());
         while (true) {
             if (cache2.get_lazy_open_success()) {
