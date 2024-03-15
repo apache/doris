@@ -105,6 +105,28 @@ void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullM
     }
 }
 
+void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
+                                int end, const cctz::time_zone& ctz) const {
+    auto& col_data = static_cast<ColumnIPv6&>(column).get_data();
+    auto concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+    std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+
+    for (size_t offset_i = start; offset_i < end; ++offset_i) {
+        if (!concrete_array->IsNull(offset_i)) {
+            const char* raw_data = reinterpret_cast<const char*>(buffer->data() + concrete_array->value_offset(offset_i));
+            const auto raw_data_len = concrete_array->value_length(offset_i);
+
+            IPv6 ipv6_val;
+            if (!IPv6Value::from_string(ipv6_val, raw_data, raw_data_len)) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "parse number fail, string: '{}'",
+                                        std::string(raw_data, raw_data_len).c_str());
+            }
+            col_data.emplace_back(ipv6_val);
+        }
+    }
+}
+
 Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                               const NullMap* null_map,
                                               orc::ColumnVectorBatch* orc_col_batch, int start,
