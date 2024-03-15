@@ -59,7 +59,7 @@ public class Profile {
         this.isFinished = !isEnable;
     }
 
-    public void setExecutionProfile(ExecutionProfile executionProfile) {
+    public void addExecutionProfile(ExecutionProfile executionProfile) {
         if (executionProfile == null) {
             LOG.warn("try to set a null excecution profile, it is abnormal", new Exception());
             return;
