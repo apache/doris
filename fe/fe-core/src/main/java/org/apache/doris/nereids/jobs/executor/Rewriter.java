@@ -32,7 +32,7 @@ import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
-import org.apache.doris.nereids.rules.expression.HighPriorityColumnCollector;
+import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
@@ -412,7 +412,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new CollectProjectAboveConsumer()
                     )
             ),
-            topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, HighPriorityColumnCollector::new))
+            topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new))
     );
 
     private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS
