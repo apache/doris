@@ -40,6 +40,7 @@
 #include "olap/olap_common.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
@@ -253,8 +254,8 @@ Status VParquetTransformer::write(const Block& block) {
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(
-            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
+                                           &result, _state->timezone_obj()));
 
     auto get_table_res = arrow::Table::FromRecordBatches(result->schema(), {result});
     if (!get_table_res.ok()) {

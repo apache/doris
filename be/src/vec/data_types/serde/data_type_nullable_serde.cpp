@@ -262,11 +262,11 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
 **/
 void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                   arrow::ArrayBuilder* array_builder, int start,
-                                                  int end) const {
+                                                  int end, const cctz::time_zone& ctz) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
                                         &column_nullable.get_null_map_data(), array_builder, start,
-                                        end);
+                                        end, ctz);
 }
 
 void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,

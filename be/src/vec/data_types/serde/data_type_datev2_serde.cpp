@@ -82,7 +82,7 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
 
 void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
-                                                int end) const {
+                                                int end, const cctz::time_zone& ctz) const {
     const auto& col_data = static_cast<const ColumnVector<UInt32>&>(column).get_data();
     auto& date32_builder = assert_cast<arrow::Date32Builder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
