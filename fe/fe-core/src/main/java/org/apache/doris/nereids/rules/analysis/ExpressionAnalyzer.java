@@ -348,7 +348,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 currentElementAtLevel = 0;
                 return visitElementAt((ElementAt) boundFunction, context);
             }
-            if (unboundFunction.getName().equalsIgnoreCase("element_at")) {
+            if (boundFunction instanceof ElementAt) {
                 --currentElementAtLevel;
             }
             return boundFunction;
