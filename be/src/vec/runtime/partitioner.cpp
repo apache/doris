@@ -33,6 +33,9 @@ Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* sta
         auto column_to_keep = block->columns();
 
         int result_size = _partition_expr_ctxs.size();
+        //        fprintf(stderr, "result_size: %d\n", result_size);
+        //        fprintf(stderr, "_partition_expr_ctxs[0]->root()->type().type: %d\n", _partition_expr_ctxs[0]->root()->type().type);
+        //        fprintf(stderr, "_partition_expr_ctxs[0]->root()->node_type(): %d\n", _partition_expr_ctxs[0]->root()->node_type());
         std::vector<int> result(result_size);
 
         _hash_vals.resize(rows);

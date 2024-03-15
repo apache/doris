@@ -48,6 +48,11 @@ VSlotRef::VSlotRef(const SlotDescriptor* desc)
 
 Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                          VExprContext* context) {
+    //    fprintf(stderr, "_slot_id: %d\n", _slot_id);
+    // HACK
+    //    if (_slot_id == -1) {
+    //        _slot_id = 23;
+    //    }
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     DCHECK_EQ(_children.size(), 0);
     if (_slot_id == -1) {
@@ -61,7 +66,9 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
                 state->desc_tbl().debug_string());
     }
     _column_name = &slot_desc->col_name();
+    fprintf(stderr, "_column_name: %s, _slot_id: %d\n", _column_name->c_str(), _slot_id);
     if (!context->force_materialize_slot() && !slot_desc->need_materialize()) {
+        //        fprintf(stderr, "!context->force_materialize_slot() && !slot_desc->need_materialize()\n");
         // slot should be ignored manually
         _column_id = -1;
         _prepare_finished = true;
@@ -87,6 +94,7 @@ Status VSlotRef::open(RuntimeState* state, VExprContext* context,
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
+    //    fprintf(stderr, "VSlotRef::execute(). _column_id: %d\n", _column_id);
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,

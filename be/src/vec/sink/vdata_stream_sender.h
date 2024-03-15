@@ -50,6 +50,7 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/partitioner.h"
 #include "vec/runtime/vdata_stream_recvr.h"
+#include "vec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "vec/sink/vrow_distribution.h"
 #include "vec/sink/vtablet_finder.h"
 
@@ -76,6 +77,20 @@ namespace vectorized {
 template <typename>
 class Channel;
 class VDataStreamSender;
+
+class HashPartitionFunction {
+public:
+    HashPartitionFunction(PartitionerBase* partitioner) : _partitioner(partitioner) {}
+    int partitionCount() { return _partitioner->get_partition_count(); }
+
+    int getPartition(Block* block, int position) {
+        uint64_t* partition_ids = (uint64_t*)_partitioner->get_channel_ids();
+        return partition_ids[position];
+    }
+
+private:
+    PartitionerBase* _partitioner;
+};
 
 template <typename Parent>
 class BlockSerializer {
@@ -151,6 +166,13 @@ public:
     RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
+    template <typename Channels>
+    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
+                                     std::vector<std::vector<uint32_t>>& channel2rows, Block* block,
+                                     bool eos);
+
+    std::vector<Channel<VDataStreamSender>*> _channels;
+
 protected:
     friend class BlockSerializer<VDataStreamSender>;
     friend class Channel<VDataStreamSender>;
@@ -164,10 +186,10 @@ protected:
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
                             const HashValueType* __restrict channel_ids, int rows, Block* block,
                             bool eos);
-    template <typename Channels>
-    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
-                                     std::vector<std::vector<uint32_t>>& channel2rows, Block* block,
-                                     bool eos);
+    //    template <typename Channels>
+    //    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
+    //                                     std::vector<std::vector<uint32_t>>& channel2rows, Block* block,
+    //                                     bool eos);
 
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
@@ -197,8 +219,12 @@ protected:
 
     std::unique_ptr<PartitionerBase> _partitioner;
     size_t _partition_count;
+    std::unique_ptr<HashPartitionFunction> _partition_function;
+    std::unique_ptr<SkewedPartitionRebalancer> _rebalancer = nullptr;
+    std::unique_ptr<ScaleWriterPartitioningExchanger<HashPartitionFunction>>
+            _scale_writer_partitioning_exchanger = nullptr;
 
-    std::vector<Channel<VDataStreamSender>*> _channels;
+    //    std::vector<Channel<VDataStreamSender>*> _channels;
     std::vector<std::shared_ptr<Channel<VDataStreamSender>>> _channel_shared_ptrs;
 
     RuntimeProfile::Counter* _serialize_batch_timer {};
@@ -414,6 +440,8 @@ protected:
     PBlock _ch_pb_block2;
 
     BlockSerializer<Parent> _serializer;
+
+    int _write_count = 1;
 };
 
 #define HANDLE_CHANNEL_STATUS(state, channel, status)    \
@@ -447,6 +475,7 @@ Status VDataStreamSender::channel_add_rows_with_idx(
     Status status;
     for (int i = 0; i < num_channels; ++i) {
         if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
+            fprintf(stderr, "channels[%d]->add_rows()\n", i);
             status = channels[i]->add_rows(block, channel2rows[i], false);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
             channel2rows[i].clear();
