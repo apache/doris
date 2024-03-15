@@ -38,6 +38,7 @@ import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
@@ -801,16 +802,15 @@ public class HashJoinNode extends JoinNodeBase {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
             }
         }
-        if (vSrcToOutputSMap != null && vSrcToOutputSMap.getLhs() != null) {
-            for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                TExpr tExpr = vSrcToOutputSMap.getLhs().get(i).treeToThrift();
-                msg.hash_join_node.addToSrcExprList(tExpr);
-                // make legacy planner compatible
-                msg.addToProjections(tExpr);
+        if (ConnectContext.get() != null && !ConnectContext.get().getState().isNereids()) {
+            if (vSrcToOutputSMap != null && vSrcToOutputSMap.getLhs() != null) {
+                for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
+                    msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                }
             }
-        }
-        if (outputTupleDesc != null) {
-            msg.hash_join_node.setVoutputTupleId(outputTupleDesc.getId().asInt());
+            if (outputTupleDesc != null) {
+                msg.hash_join_node.setVoutputTupleId(outputTupleDesc.getId().asInt());
+            }
         }
 
         if (vIntermediateTupleDescList != null) {

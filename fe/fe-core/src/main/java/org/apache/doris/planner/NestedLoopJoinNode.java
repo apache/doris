@@ -188,13 +188,14 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
         msg.nested_loop_join_node.setIsMark(isMarkJoin());
 
-        if (!ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-            // legacy planner use vSrcExprList
-            // while nereids use PlanNode.projections
+        if (ConnectContext.get() != null && !ConnectContext.get().getState().isNereids()) {
             if (vSrcToOutputSMap != null) {
                 for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                     msg.nested_loop_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
                 }
+            }
+            if (outputTupleDesc != null) {
+                msg.nested_loop_join_node.setVoutputTupleId(outputTupleDesc.getId().asInt());
             }
         }
 
