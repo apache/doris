@@ -87,12 +87,13 @@ K8s 部署 Doris 的方法请参考[K8s 部署 Doris](../../install/k8s-deploy/o
     1. 停止节点。
     2. 检查节点是否停止。通过 MySQL 客户端执行`show frontends`，查看该 FE 节点的 Alive 状态直至变为 false
     3. 为节点设置 FQDN: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`（停掉master后，会选举出新的master节点，用新的master节点来执行sql语句）
-    4. 修改节点配置。修改 FE 根目录中的`conf/fe.conf`文件，添加配置：`enable_fqdn_mode = true`
+    4. 修改节点配置。修改 FE 根目录中的`conf/fe.conf`文件，添加配置：`enable_fqdn_mode = true`。如果在刚停止的节点对应fe.config添加了配置后无法正常启动，请在所有fe.config中添加配置`enable_fqdn_mode = true`后再启动刚刚停止的fe节点
     5. 启动节点。
-    
+
 2. BE 节点启用 FQDN 只需要通过 MySQL 执行以下命令，不需要对 BE 执行重启操作。
 
-   `ALTER SYSTEM MODIFY BACKEND "<backend_ip>:<backend_port>" HOSTNAME "<be_hostname>"`
+   `ALTER SYSTEM MODIFY BACKEND "<backend_ip>:<HeartbeatPort>" HOSTNAME "<be_hostname>"`，如果无法确定HeartbeatPort，请使用show backends命令来帮助寻找;
+
 
 
 ## 常见问题
