@@ -88,5 +88,64 @@ Status DataTypeIPv6SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     return Status::OK();
 }
 
+void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                              arrow::ArrayBuilder* array_builder, int start,
+                                              int end) const {
+    auto& col_data = static_cast<const ColumnIPv6&>(column).get_data();
+    auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    for (size_t i = start; i < end; ++i) {
+        if (null_map && (*null_map)[i]) {
+            checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+                             array_builder->type()->name());
+        } else {
+            std::string ipv6_str = IPv6Value::to_string(col_data[i]);
+            checkArrowStatus(string_builder.Append(ipv6_str.c_str(), ipv6_str.size()),
+                             column.get_name(), array_builder->type()->name());
+        }
+    }
+}
+
+Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                              const NullMap* null_map,
+                                              orc::ColumnVectorBatch* orc_col_batch, int start,
+                                              int end, std::vector<StringRef>& buffer_list) const {
+    auto& col_data = static_cast<const ColumnIPv6&>(column).get_data();
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory error when write largeint column data to orc file.");
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = BUFFER_UNIT_SIZE;
+    size_t offset = 0;
+    const size_t begin_off = offset;
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 0) {
+            continue;
+        }
+        std::string ipv6_str = IPv6Value::to_string(col_data[row_id]);
+        size_t len = ipv6_str.size();
+
+        REALLOC_MEMORY_FOR_ORC_WRITER()
+
+        strcpy(const_cast<char*>(bufferRef.data) + offset, ipv6_str.c_str());
+        offset += len;
+        cur_batch->length[row_id] = len;
+    }
+    size_t data_off = 0;
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
+            data_off += cur_batch->length[row_id];
+        }
+    }
+    buffer_list.emplace_back(bufferRef);
+    cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

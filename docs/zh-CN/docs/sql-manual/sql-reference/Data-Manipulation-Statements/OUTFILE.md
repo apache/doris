@@ -151,6 +151,8 @@ parquet、orc文件格式拥有自己的数据类型，Doris的导出功能能�
     | datev2 | string |
     | datetime | string |
     | datetimev2 | timestamp |
+    | ipv4 | string |
+    | ipv6 | string |
     | float | float |
     | double | double |
     | char / varchar / string | string |
@@ -174,6 +176,8 @@ parquet、orc文件格式拥有自己的数据类型，Doris的导出功能能�
     | datev2 | utf8 |
     | datetime | utf8 |
     | datetimev2 | utf8 |
+    | ipv4 | utf8 |
+    | ipv6 | utf8 |
     | float  | float32 |
     | double | float64 |
     | char / varchar / string | utf8 |

@@ -78,6 +78,10 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_HLL:
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
+    case TYPE_IPV4:
+    case TYPE_IPV6:
     case TYPE_STRING:
     case TYPE_JSONB:
     case TYPE_OBJECT:
@@ -102,12 +106,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
         *result = std::make_shared<arrow::Decimal128Type>(type.precision, type.scale);
-        break;
-    case TYPE_IPV4:
-        *result = arrow::uint32();
-        break;
-    case TYPE_IPV6:
-        *result = arrow::utf8();
         break;
     case TYPE_DECIMAL256:
         *result = std::make_shared<arrow::Decimal256Type>(type.precision, type.scale);
