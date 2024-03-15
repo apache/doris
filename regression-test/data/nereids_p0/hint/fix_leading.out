@@ -215,3 +215,45 @@ SyntaxError:
 -- !select2_5_13 --
 816000
 
+-- !select3_1 --
+1719
+
+-- !select3_2 --
+1719
+
+-- !select3_3 --
+1719
+
+-- !select3_4 --
+5169
+
+-- !select4_1 --
+1000
+
+-- !select4_2 --
+1000
+
+-- !select4_3 --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalProject
+--------NestedLoopJoin[RIGHT_OUTER_JOIN](t3.c3 > 500)
+----------PhysicalDistribute[DistributionSpecGather]
+------------PhysicalProject
+--------------NestedLoopJoin[LEFT_OUTER_JOIN](t1.c1 < 200)(t1.c1 > 500)
+----------------PhysicalProject
+------------------PhysicalOlapScan[t1]
+----------------PhysicalDistribute[DistributionSpecReplicated]
+------------------PhysicalProject
+--------------------filter((t2.c2 > 500))
+----------------------PhysicalOlapScan[t2]
+----------PhysicalDistribute[DistributionSpecGather]
+------------PhysicalProject
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used: leading(t1 t2 t3 )
+UnUsed:
+SyntaxError:
+
