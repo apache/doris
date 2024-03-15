@@ -25,6 +25,7 @@ suite("test_base_insert_job") {
     def jobName = "insert_recovery_test_base_insert_job"
     def jobMixedName = "Insert_recovery_Test_base_insert_job"
     sql """drop table if exists `${tableName}` force"""
+    sql """set enable_fold_constant_by_be = false;"""
     sql """
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
