@@ -30,7 +30,7 @@ under the License.
 
 ### 1.1 GROUPING SETS 子句
 
-GROUP BY GROUPING SETS 是对 GROUP BY 子句的扩展，它能够在一个 GROUP BY 子句中一次实现多个集合的分组。其结果等价于将多个相应 GROUP BY 子句进行 UNION ALL 操作。
+GROUP BY GROUPING SETS 是对 GROUP BY 子句的扩展，它能够在一个 GROUP BY 子句中一次实现多个集合的分组。其结果等价于将多个相应 GROUP BY 子句进行 UNION 操作。
 
 特别地，一个空的子集意味着将所有的行聚集到一个分组。
 GROUP BY 子句是只含有一个元素的 GROUP BY GROUPING SETS 的特例。
@@ -45,11 +45,11 @@ SELECT k1, k2, SUM( k3 ) FROM t GROUP BY GROUPING SETS ( (k1, k2), (k1), (k2), (
 
 ```
 SELECT k1, k2, SUM( k3 ) FROM t GROUP BY k1, k2
-UNION ALL
+UNION
 SELECT k1, null, SUM( k3 ) FROM t GROUP BY k1
-UNION ALL
+UNION
 SELECT null, k2, SUM( k3 ) FROM t GROUP BY k2
-UNION ALL
+UNION
 SELECT null, null, SUM( k3 ) FROM t
 ```
 
@@ -314,7 +314,7 @@ GROUP BY CUBE ( expr  [ , expr [ , ... ] ] )
 
 ### 3.1 整体思路
 
-既然 GROUPING SET 子句逻辑上等价于多个相应 GROUP BY 子句的 UNION ALL，可以通过扩展输入行(此输入行已经是通过下推条件过滤和投影后的), 在此基础上进行一个单一的 GROUP BY 操作来达到目的。
+既然 GROUPING SET 子句逻辑上等价于多个相应 GROUP BY 子句的 UNION，可以通过扩展输入行(此输入行已经是通过下推条件过滤和投影后的), 在此基础上进行一个单一的 GROUP BY 操作来达到目的。
 
 关键是怎样扩展输入行呢？下面举例说明：
 
@@ -458,7 +458,7 @@ SELECT k1, k2, GROUPING_ID(k1,k2), SUM(k3) FROM t GROUP BY GROUPING SETS ((k1, k
 
 ```
 
-可以看到，其结果与对 GROUPING SETS 子句后每个子集进行 GROUP BY 后再进行 UNION ALL的结果一致。
+可以看到，其结果与对 GROUPING SETS 子句后每个子集进行 GROUP BY 后再进行 UNION 的结果一致。
 
 ```
 select k1, k2, sum(k3) from t group by k1, k2
