@@ -74,10 +74,19 @@ public class RowPolicy extends Policy {
     private String roleName = null;
 
     @SerializedName(value = "dbId")
+    @Deprecated
     private long dbId = -1;
 
     @SerializedName(value = "tableId")
+    @Deprecated
     private long tableId = -1;
+
+    @SerializedName(value = "ctlName")
+    private String ctlName;
+    @SerializedName(value = "dbName")
+    private String dbName;
+    @SerializedName(value = "tableName")
+    private String tableName;
 
     /**
      * PERMISSIVE | RESTRICTIVE, If multiple types exist, the last type prevails.
@@ -123,6 +132,20 @@ public class RowPolicy extends Policy {
         this.wherePredicate = wherePredicate;
     }
 
+    public RowPolicy(long policyId, final String policyName, String ctlName, String dbName, String tableName,
+            UserIdentity user, String roleName,
+            String originStmt, final FilterType filterType, final Expr wherePredicate) {
+        super(policyId, PolicyTypeEnum.ROW, policyName);
+        this.user = user;
+        this.roleName = roleName;
+        this.ctlName = ctlName;
+        this.dbName = dbName;
+        this.tableName = tableName;
+        this.filterType = filterType;
+        this.originStmt = originStmt;
+        this.wherePredicate = wherePredicate;
+    }
+
     /**
      * Use for SHOW POLICY.
      **/
@@ -156,11 +179,12 @@ public class RowPolicy extends Policy {
                 this.filterType, this.wherePredicate);
     }
 
-    private boolean checkMatched(long dbId, long tableId, PolicyTypeEnum type,
+    private boolean checkMatched(String ctlName, String dbName, String tableName, PolicyTypeEnum type,
             String policyName, UserIdentity user, String roleName) {
         return super.checkMatched(type, policyName)
-                && (dbId == -1 || dbId == this.dbId)
-                && (tableId == -1 || tableId == this.tableId)
+                && (StringUtils.isEmpty(ctlName) || StringUtils.equals(ctlName, this.ctlName))
+                && (StringUtils.isEmpty(dbName) || StringUtils.equals(dbName, this.dbName))
+                && (StringUtils.isEmpty(tableName) || StringUtils.equals(tableName, this.tableName))
                 && (StringUtils.isEmpty(roleName) || StringUtils.equals(roleName, this.roleName))
                 && (user == null || Objects.equals(user, this.user));
     }
@@ -171,13 +195,15 @@ public class RowPolicy extends Policy {
             return false;
         }
         RowPolicy rowPolicy = (RowPolicy) checkedPolicyCondition;
-        return checkMatched(rowPolicy.getDbId(), rowPolicy.getTableId(), rowPolicy.getType(),
+        return checkMatched(rowPolicy.getCtlName(), rowPolicy.getDbName(), rowPolicy.getTableName(),
+                rowPolicy.getType(),
                 rowPolicy.getPolicyName(), rowPolicy.getUser(), rowPolicy.getRoleName());
     }
 
     @Override
     public boolean matchPolicy(DropPolicyLog checkedDropPolicyLogCondition) {
-        return checkMatched(checkedDropPolicyLogCondition.getDbId(), checkedDropPolicyLogCondition.getTableId(),
+        return checkMatched(checkedDropPolicyLogCondition.getCtlName(), checkedDropPolicyLogCondition.getDbName(),
+                checkedDropPolicyLogCondition.getTableName(),
                 checkedDropPolicyLogCondition.getType(), checkedDropPolicyLogCondition.getPolicyName(),
                 checkedDropPolicyLogCondition.getUser(), checkedDropPolicyLogCondition.getRoleName());
     }

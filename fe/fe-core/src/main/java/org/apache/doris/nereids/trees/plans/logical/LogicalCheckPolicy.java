@@ -132,9 +132,10 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         }
 
         CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
-        long dbId = catalogRelation.getDatabase().getId();
-        long tableId = catalogRelation.getTable().getId();
-        List<RowPolicy> policies = policyMgr.getUserPolicies(dbId, tableId, currentUserIdentity);
+        String ctlName = catalogRelation.getDatabase().getCatalog().getName();
+        String dbName = catalogRelation.getDatabase().getFullName();
+        String tableName = catalogRelation.getTable().getName();
+        List<RowPolicy> policies = policyMgr.getUserPolicies(ctlName, dbName, tableName, currentUserIdentity);
         if (policies.isEmpty()) {
             return Optional.empty();
         }
