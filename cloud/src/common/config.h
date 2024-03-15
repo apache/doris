@@ -125,6 +125,9 @@ CONF_mBool(snapshot_get_tablet_stats, "true");
 // Value codec version
 CONF_mInt16(meta_schema_value_version, "1");
 
+// Value codec version
+CONF_mInt16(columnpb_dict_value_version, 0);
+
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
 

@@ -413,10 +413,12 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     // init by column path
     for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
         auto& column = _tablet_schema->column(ordinal);
-        if (!column.has_path_info()) {
+        if (!column.has_path_info() && !column.is_variant_type()) {
             continue;
         }
-        auto iter = column_path_to_footer_ordinal.find(*column.path_info_ptr());
+        auto path = column.has_path_info() ? *column.path_info_ptr()
+                                           : vectorized::PathInData(column.name_lower_case());
+        auto iter = column_path_to_footer_ordinal.find(path);
         if (iter == column_path_to_footer_ordinal.end()) {
             continue;
         }

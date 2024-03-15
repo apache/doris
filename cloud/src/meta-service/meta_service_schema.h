@@ -30,4 +30,10 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
 // Return true if parse success
 [[nodiscard]] bool parse_schema_value(const ValueBuf& buf, doris::TabletSchemaCloudPB* schema);
 
+// Writes schema dictionary metadata to RowsetMetaCloudPB
+[[nodiscard]] std::pair<MetaServiceCode, std::string> write_schema_dict(
+            const std::string& instance_id,
+            Transaction* txn,
+            RowsetMetaCloudPB* rowset_meta);
+
 } // namespace doris::cloud

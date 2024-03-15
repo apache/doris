@@ -40,6 +40,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -1080,14 +1081,11 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         DCHECK(rowset_meta.tablet_schema().has_schema_version());
         DCHECK_GE(rowset_meta.tablet_schema().schema_version(), 0);
         rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
-        std::string schema_key;
-        if (rowset_meta.has_variant_type_in_schema()) {
-            // encodes schema in a seperate kv, since variant schema is volatile
-            schema_key = meta_rowset_schema_key(
-                    {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
-        } else {
-            schema_key = meta_schema_key(
+        std::string schema_key = meta_schema_key(
                     {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+        if (rowset_meta.has_variant_type_in_schema()) {
+            std::tie(code, msg) = write_schema_dict(instance_id, txn.get(), &rowset_meta); 
+            if (code != MetaServiceCode::OK) return;
         }
         put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
         if (code != MetaServiceCode::OK) return;
@@ -1423,6 +1421,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     }
 
     // get referenced schema
+    bool need_read_schema_dict = false;
     std::unordered_map<int32_t, doris::TabletSchemaCloudPB*> version_to_schema;
     for (auto& rowset_meta : *response->mutable_rowset_meta()) {
         if (rowset_meta.has_tablet_schema()) {
@@ -1443,14 +1442,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     rowset_meta.start_version(), rowset_meta.end_version());
             return;
         }
-        if (rowset_meta.has_variant_type_in_schema()) {
-            // get rowset schema kv
-            auto key = meta_rowset_schema_key(
-                    {instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
-            if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
-                return;
-            }
-            continue;
+        if (rowset_meta.schema_dict_key_list().column_dict_key_list_size() > 0) {
+            need_read_schema_dict = true;
         }
         if (auto it = version_to_schema.find(rowset_meta.schema_version());
             it != version_to_schema.end()) {
@@ -1467,6 +1460,25 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             version_to_schema.emplace(rowset_meta.schema_version(),
                                       rowset_meta.mutable_tablet_schema());
         }
+    }
+
+    if (need_read_schema_dict) {
+        std::string column_dict_key = meta_schema_pb_dictionary_key({instance_id, idx.index_id()});
+        ValueBuf dict_val;
+        err = cloud::get(txn.get(), column_dict_key, &dict_val);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "internal error, failed to get dict ret=" << err;
+            msg = ss.str();
+            return;
+        }
+        if (err == TxnErrorCode::TXN_OK && !dict_val.to_pb(response->mutable_schema_dict())) [[unlikely]] {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse SchemaCloudDictionary";
+            return;
+        }
+        LOG(INFO) << "Get schema_dict, column size=" << response->schema_dict().column_dict_size()
+                    << ", index size=" << response->schema_dict().index_dict_size();
     }
 }
 

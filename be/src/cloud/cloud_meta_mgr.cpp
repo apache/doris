@@ -28,6 +28,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <shared_mutex>
 #include <string>
@@ -512,7 +513,9 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                     existed_rowset->rowset_id().to_string() == cloud_rs_meta_pb.rowset_id_v2()) {
                     continue; // Same rowset, skip it
                 }
-                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb);
+                auto dict = resp.has_schema_dict() ? resp.schema_dict()
+                                                   : std::optional<SchemaCloudDictionary> {};
+                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb, dict);
                 auto rs_meta = std::make_shared<RowsetMeta>();
                 rs_meta->init_from_pb(meta_pb);
                 RowsetSharedPtr rowset;
@@ -653,7 +656,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
             RowsetMetaPB doris_rs_meta =
-                    cloud_rowset_meta_to_doris(std::move(*resp.mutable_existed_rowset_meta()));
+                    cloud_rowset_meta_to_doris(std::move(*resp.mutable_existed_rowset_meta()), {});
             *existed_rs_meta = std::make_shared<RowsetMeta>();
             (*existed_rs_meta)->init_from_pb(doris_rs_meta);
         }
@@ -676,7 +679,7 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
             RowsetMetaPB doris_rs_meta =
-                    cloud_rowset_meta_to_doris(std::move(*resp.mutable_existed_rowset_meta()));
+                    cloud_rowset_meta_to_doris(std::move(*resp.mutable_existed_rowset_meta()), {});
             *existed_rs_meta = std::make_shared<RowsetMeta>();
             (*existed_rs_meta)->init_from_pb(doris_rs_meta);
         }

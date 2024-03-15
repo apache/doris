@@ -18,6 +18,14 @@
 #include "meta-service/meta_service_schema.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/cloud.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <google/protobuf/map.h>
+#include <google/protobuf/message_lite.h>
+#include <google/protobuf/repeated_field.h>
+#include <algorithm>
+#include <cstdint>
+#include <type_traits>
 
 #include "common/logging.h"
 #include "common/sync_point.h"
@@ -117,6 +125,165 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
 bool parse_schema_value(const ValueBuf& buf, doris::TabletSchemaCloudPB* schema) {
     // TODO(plat1ko): Apply decompression based on value version
     return buf.to_pb(schema);
+}
+
+// Map item to dictionary key, and add key to rowset meta, if it is a new one, generate it and increase item id
+// Need to remove dynamic parts from original RowsetMeta's TabletSchema, to make fdb schema kv stable
+template<typename ItemPB>
+void process_dictionary(
+    SchemaCloudDictionary& dict,
+    const google::protobuf::Map<int32_t, ItemPB>& item_dict,
+    google::protobuf::RepeatedPtrField<ItemPB>* result,
+    RowsetMetaCloudPB* rowset_meta,
+    const google::protobuf::RepeatedPtrField<ItemPB>& items,
+    const std::function<bool(const ItemPB&)>& filter,
+    const std::function<void(int32_t)>& add_dict_key_fn) {
+    if (items.empty()) {
+        return;
+    }
+    // Use deterministic method to do serialization since structure like
+    // `google::protobuf::Map`'s serialization is unstable
+    auto serialize_fn = [](const ItemPB& item) -> std::string {
+        std::string output;
+        google::protobuf::io::StringOutputStream string_output_stream(&output);
+        google::protobuf::io::CodedOutputStream output_stream(&string_output_stream);
+        output_stream.SetSerializationDeterministic(true);
+        item.SerializeToCodedStream(&output_stream);
+        return output;
+    };
+
+    google::protobuf::RepeatedPtrField<ItemPB> none_ext_items;
+    std::unordered_map<std::string, int> reversed_dict;
+    for (const auto& [key, val] : item_dict) {
+        reversed_dict[serialize_fn(val)] = key;
+    }
+
+    for (const auto& item : items) {
+        if (filter(item)) {
+            // Filter none extended items, mainly extended columns and extended indexes
+            *none_ext_items.Add() = item;
+            continue;
+        }
+        const std::string serialized_key = serialize_fn(item);
+        auto it = reversed_dict.find(serialized_key);
+        if (it != reversed_dict.end()) {
+            // Add existed dict key to related dict
+            add_dict_key_fn(it->second);
+        } else {
+            // Add new dictionary key-value pair and update current_xxx_dict_id.
+            int64_t current_dict_id = 0;
+            if constexpr (std::is_same_v<ItemPB, ColumnPB>) {
+                current_dict_id = dict.current_column_dict_id() + 1;
+                dict.set_current_column_dict_id(current_dict_id);
+                dict.mutable_column_dict()->emplace(current_dict_id, item);
+            }
+            if constexpr (std::is_same_v<ItemPB, doris::TabletIndexPB>) {
+                current_dict_id = dict.current_index_dict_id() + 1;
+                dict.set_current_index_dict_id(current_dict_id);
+                dict.mutable_index_dict()->emplace(current_dict_id, item);
+            }
+            add_dict_key_fn(current_dict_id);
+            reversed_dict[serialized_key] = current_dict_id;
+            // LOG(INFO) << "Add dict key = " << current_dict_id << " dict value = " << item.ShortDebugString();
+        }
+    }
+    if (result != nullptr) {
+        result->Swap(&none_ext_items);
+    }
+}
+
+// Writes schema dictionary metadata to RowsetMetaCloudPB.
+// Schema was extended in BE side, we need to reset schema to original frontend schema and store
+// such restored schema in fdb. And also add extra dict key info to RowsetMetaCloudPB.
+std::pair<MetaServiceCode, std::string> write_schema_dict(
+            const std::string& instance_id,
+            Transaction* txn,
+            RowsetMetaCloudPB* rowset_meta) {
+    std::string msg;
+    std::stringstream ss;
+    MetaServiceCode code = MetaServiceCode::OK;
+    // wrtie dict to rowset meta and update dict
+    SchemaCloudDictionary dict;
+    std::string dict_key = meta_schema_pb_dictionary_key({instance_id, rowset_meta->index_id()});
+    ValueBuf dict_val;
+    auto err = cloud::get(txn, dict_key, &dict_val);
+    LOG(INFO) << "Retrieved column pb dictionary, index_id=" << rowset_meta->index_id()
+              << " key=" << hex(dict_key) << " error=" << err;
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
+        // Handle retrieval error.
+        ss << "Failed to retrieve column pb dictionary, instance_id=" << instance_id
+           << " table_id=" << rowset_meta->index_id() << " key=" << hex(dict_key) << " error=" << err;
+        msg = ss.str();
+        code = cast_as<ErrCategory::READ>(err);
+        return {code, msg};
+    } 
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && !dict_val.to_pb(&dict)) {
+        // Handle parse error.
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("Malformed tablet dictionary value, key={}", hex(dict_key));
+        return {code, msg};
+    }
+
+    // collect sparse columns and clear in parent column
+    google::protobuf::RepeatedPtrField<ColumnPB> sparse_columns;
+    for (auto& column_pb : *rowset_meta->mutable_tablet_schema()->mutable_column()) {
+        if (column_pb.type() == "VARIANT" && !column_pb.sparse_columns().empty()) {
+            // set parent_id for restore info
+            for (auto& sparse_col: *column_pb.mutable_sparse_columns()) {
+                sparse_col.set_parent_unique_id(column_pb.unique_id());
+            }
+            sparse_columns.Add(column_pb.sparse_columns().begin(), column_pb.sparse_columns().end());
+        }
+        column_pb.clear_sparse_columns();
+    }
+    auto* dict_list = rowset_meta->mutable_schema_dict_key_list();
+    // handle column dict
+    auto original_column_dict_id = dict.current_column_dict_id();
+    auto column_filter = [&](const doris::ColumnPB& col) -> bool {return col.unique_id() >= 0;};
+    auto column_dict_adder = [&](int32_t key) { dict_list->add_column_dict_key_list(key); };
+    process_dictionary<doris::ColumnPB>(dict, dict.column_dict(),
+            rowset_meta->mutable_tablet_schema()->mutable_column(),
+                    rowset_meta, rowset_meta->tablet_schema().column(),
+                    column_filter, column_dict_adder);
+
+    // handle sparse column dict
+    auto sparse_column_dict_adder = [&](int32_t key) { dict_list->add_sparse_column_dict_key_list(key); };
+    // not filter any
+    auto sparse_column_filter = [&](const doris::ColumnPB& col) -> bool {return false;};
+    process_dictionary<doris::ColumnPB>(dict, dict.column_dict(),
+                    nullptr, rowset_meta, sparse_columns,
+                    sparse_column_filter, sparse_column_dict_adder);
+
+    // handle index info dict
+    auto original_index_dict_id = dict.current_index_dict_id();
+    auto index_filter = [&](const doris::TabletIndexPB& index_pb) -> bool {return index_pb.index_suffix_name().empty();};
+    auto index_dict_adder = [&](int32_t key) { dict_list->add_index_info_dict_key_list(key); };
+    process_dictionary<doris::TabletIndexPB>(dict, dict.index_dict(),
+            rowset_meta->mutable_tablet_schema()->mutable_index(),
+                    rowset_meta, rowset_meta->tablet_schema().index(),
+                    index_filter, index_dict_adder);
+
+    // Write back modified dictionaries.
+    if (original_index_dict_id != dict.current_index_dict_id()
+            || original_column_dict_id != dict.current_column_dict_id()) {
+        // If dictionary was modified, serialize and save it.
+        std::string dict_key = meta_schema_pb_dictionary_key({instance_id, rowset_meta->index_id()});
+        std::string dict_val;
+        if (!dict.SerializeToString(&dict_val)) {
+            // Handle serialization error.
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "Failed to serialize dictionary for saving, txn_id=" << rowset_meta->txn_id();
+            msg = ss.str();
+            return {code, msg};
+        }
+        // Save serialized dictionary and update size accumulator.
+        cloud::put(txn, dict_key, dict_val, config::columnpb_dict_value_version);
+        LOG(INFO) << "Dictionary saved, key=" << hex(dict_key) << " txn_id=" << rowset_meta->txn_id()
+                  << " Dict size=" << dict.column_dict_size()
+                  << ", Current column ID=" << dict.current_column_dict_id()
+                  << ", Current index ID=" << dict.current_index_dict_id();
+    }
+    return {code, msg};
 }
 
 } // namespace doris::cloud

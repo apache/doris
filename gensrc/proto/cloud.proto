@@ -864,6 +864,7 @@ message GetRowsetResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated doris.RowsetMetaCloudPB rowset_meta = 2;
     optional TabletStatsPB stats = 3;
+    optional SchemaCloudDictionary schema_dict = 4;
 }
 
 message IndexRequest {
