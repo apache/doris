@@ -21,14 +21,14 @@ import org.apache.doris.thrift.TQueryColumn;
 
 import java.util.Objects;
 
-public class HighPriorityColumn {
+public class QueryColumn {
 
     public final long catalogId;
     public final long dbId;
     public final long tblId;
     public final String colName;
 
-    public HighPriorityColumn(long catalogId, long dbId, long tblId, String colName) {
+    public QueryColumn(long catalogId, long dbId, long tblId, String colName) {
         this.catalogId = catalogId;
         this.dbId = dbId;
         this.tblId = tblId;
@@ -45,10 +45,10 @@ public class HighPriorityColumn {
         if (this == other) {
             return true;
         }
-        if (!(other instanceof HighPriorityColumn)) {
+        if (!(other instanceof QueryColumn)) {
             return false;
         }
-        HighPriorityColumn otherCriticalColumn = (HighPriorityColumn) other;
+        QueryColumn otherCriticalColumn = (QueryColumn) other;
         return this.catalogId == otherCriticalColumn.catalogId
             && this.dbId == otherCriticalColumn.dbId
             && this.tblId == otherCriticalColumn.tblId

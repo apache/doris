@@ -75,8 +75,8 @@ import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.HighPriorityColumn;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.QueryColumn;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -1044,57 +1044,58 @@ public class StatisticsUtil {
         return true;
     }
 
-    // TODO: Need refactor, hard to understand now.
     public static boolean needAnalyzeColumn(TableIf table, String column) {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
+        // Table never been analyzed, need analyze.
         if (tableStatsStatus == null) {
             return true;
         }
+        // User injected column stats, don't do auto analyze, avoid overwrite user injected stats.
         if (tableStatsStatus.userInjected) {
             return false;
         }
         ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(column);
+        // Column never been analyzed, need analyze.
         if (columnStatsMeta == null) {
             return true;
         }
         if (table instanceof OlapTable) {
-            long currentUpdatedRows = tableStatsStatus.updatedRows.get();
-            long lastAnalyzeUpdateRows = columnStatsMeta.updatedRows;
-            if (lastAnalyzeUpdateRows == 0 && currentUpdatedRows > 0) {
-                return true;
-            }
-            if (lastAnalyzeUpdateRows > currentUpdatedRows) {
-                // Shouldn't happen. Just in case.
-                return true;
-            }
             OlapTable olapTable = (OlapTable) table;
+            // 0. Check new partition first time loaded flag.
+            if (olapTable.isPartitionColumn(column) && tableStatsStatus.newPartitionLoaded.get()) {
+                return true;
+            }
+            // 1. Check row count.
+            // TODO: One conner case. Last analyze row count is 0, but actually it's not 0 because isEmptyTable waiting.
             long currentRowCount = olapTable.getRowCount();
             long lastAnalyzeRowCount = columnStatsMeta.rowCount;
-            if (tableStatsStatus.newPartitionLoaded.get() && olapTable.isPartitionColumn(column)) {
+            // 1.1 Empty table -> non-empty table. Need analyze.
+            if (currentRowCount != 0 && lastAnalyzeRowCount == 0) {
                 return true;
             }
-            if (lastAnalyzeRowCount == 0 && currentRowCount > 0) {
-                return true;
-            }
-            if (currentUpdatedRows == lastAnalyzeUpdateRows) {
-                return false;
-            }
-            double healthValue = ((double) (currentUpdatedRows - lastAnalyzeUpdateRows)
-                    / (double) currentUpdatedRows) * 100.0;
-            LOG.info("Column " + column + " update rows health value is " + healthValue);
-            if (healthValue < StatisticsUtil.getTableStatsHealthThreshold()) {
-                return true;
-            }
+            // 1.2 Non-empty table -> empty table. Need analyze;
             if (currentRowCount == 0 && lastAnalyzeRowCount != 0) {
                 return true;
             }
-            if (currentRowCount == 0 && lastAnalyzeRowCount == 0) {
+            // 1.3 Table is still empty. Not need to analyze. lastAnalyzeRowCount == 0 is always true here.
+            if (currentRowCount == 0) {
                 return false;
             }
-            healthValue = ((double) (currentRowCount - lastAnalyzeRowCount) / (double) currentRowCount) * 100.0;
-            return healthValue < StatisticsUtil.getTableStatsHealthThreshold();
+            // 1.4 If row count changed more than the threshold, need analyze.
+            // lastAnalyzeRowCount == 0 is always false here.
+            double changeRate =
+                    ((double) Math.abs(currentRowCount - lastAnalyzeRowCount) / lastAnalyzeRowCount) * 100.0;
+            if (changeRate > StatisticsUtil.getTableStatsHealthThreshold()) {
+                return true;
+            }
+            // 2. Check update rows.
+            long currentUpdatedRows = tableStatsStatus.updatedRows.get();
+            long lastAnalyzeUpdateRows = columnStatsMeta.updatedRows;
+            changeRate = ((double) Math.abs(currentUpdatedRows - lastAnalyzeUpdateRows) / lastAnalyzeRowCount) * 100.0;
+            return changeRate > StatisticsUtil.getTableStatsHealthThreshold();
         } else {
+            // Now, we only support Hive external table auto analyze.
             if (!(table instanceof HMSExternalTable)) {
                 return false;
             }
@@ -1102,12 +1103,13 @@ public class StatisticsUtil {
             if (!hmsTable.getDlaType().equals(DLAType.HIVE)) {
                 return false;
             }
+            // External is hard to calculate change rate, use time interval to control analyze frequency.
             return System.currentTimeMillis()
                     - tableStatsStatus.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
         }
     }
 
-    public static boolean needAnalyzeColumn(HighPriorityColumn column) {
+    public static boolean needAnalyzeColumn(QueryColumn column) {
         if (column == null) {
             return false;
         }
