@@ -133,72 +133,50 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     // Submit scanners to thread pool
     // TODO(cmy): How to handle this "nice"?
     int nice = 1;
-    if (ctx->thread_token != nullptr) {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return;
-        }
+    std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
+    if (scanner_delegate == nullptr) {
+        return;
+    }
 
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        auto s = ctx->thread_token->submit_func(
-                [this, scanner_ref = scan_task, ctx]() { this->_scanner_scan(ctx, scanner_ref); });
-        if (!s.ok()) {
-            scan_task->set_status(s);
-            ctx->append_block_to_queue(scan_task);
-            return;
+    scanner_delegate->_scanner->start_wait_worker_timer();
+    TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
+    bool ret = false;
+    if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
+        if (auto* scan_sched = ctx->get_simple_scan_scheduler()) {
+            auto work_func = [this, scanner_ref = scan_task, ctx]() {
+                this->_scanner_scan(ctx, scanner_ref);
+            };
+            SimplifiedScanTask simple_scan_task = {work_func, ctx};
+            ret = scan_sched->submit_scan_task(simple_scan_task);
+        } else {
+            PriorityThreadPool::Task task;
+            task.work_function = [this, scanner_ref = scan_task, ctx]() {
+                this->_scanner_scan(ctx, scanner_ref);
+            };
+            task.priority = nice;
+            ret = _local_scan_thread_pool->offer(task);
         }
     } else {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return;
-        }
-
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
-        bool ret = false;
-        if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-            if (auto* scan_sched = ctx->get_simple_scan_scheduler()) {
-                auto work_func = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = scan_sched->submit_scan_task(simple_scan_task);
-            } else {
-                PriorityThreadPool::Task task;
-                task.work_function = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                task.priority = nice;
-                ret = _local_scan_thread_pool->offer(task);
-            }
+        if (auto* remote_scan_sched = ctx->get_remote_scan_scheduler()) {
+            auto work_func = [this, scanner_ref = scan_task, ctx]() {
+                this->_scanner_scan(ctx, scanner_ref);
+            };
+            SimplifiedScanTask simple_scan_task = {work_func, ctx};
+            ret = remote_scan_sched->submit_scan_task(simple_scan_task);
         } else {
-            if (auto* remote_scan_sched = ctx->get_remote_scan_scheduler()) {
-                auto work_func = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = remote_scan_sched->submit_scan_task(simple_scan_task);
-            } else {
-                PriorityThreadPool::Task task;
-                task.work_function = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                task.priority = nice;
-                ret = _remote_scan_thread_pool->offer(task);
-            }
-        }
-        if (!ret) {
-            scan_task->set_status(
-                    Status::InternalError("Failed to submit scanner to scanner pool"));
-            ctx->append_block_to_queue(scan_task);
-            return;
+            PriorityThreadPool::Task task;
+            task.work_function = [this, scanner_ref = scan_task, ctx]() {
+                this->_scanner_scan(ctx, scanner_ref);
+            };
+            task.priority = nice;
+            ret = _remote_scan_thread_pool->offer(task);
         }
     }
-}
-
-std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
-        ThreadPool::ExecutionMode mode, int max_concurrency) {
-    return _limited_scan_thread_pool->new_token(mode, max_concurrency);
+    if (!ret) {
+        scan_task->set_status(Status::InternalError("Failed to submit scanner to scanner pool"));
+        ctx->append_block_to_queue(scan_task);
+        return;
+    }
 }
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
