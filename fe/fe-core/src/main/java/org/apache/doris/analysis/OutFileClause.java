@@ -312,6 +312,11 @@ public class OutFileClause {
             case LARGEINT:
             case DATE:
             case DATETIME:
+            case DATEV2:
+            case IPV4:
+            case IPV6:
+            case CHAR:
+            case VARCHAR:
                 orcType = "string";
                 break;
             case DECIMALV2:
@@ -426,7 +431,16 @@ public class OutFileClause {
                 case LARGEINT:
                 case DATE:
                 case DATETIME:
-                    checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
+                case DATEV2:
+                case IPV4:
+                case IPV6:
+                case CHAR:
+                case VARCHAR:
+                    if (!schema.second.equals("string")) {
+                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
+                                + ", should use string, but the definition type of column " + i + " is "
+                                + schema.second);
+                    }
                     break;
                 case DECIMAL32:
                 case DECIMAL64:
