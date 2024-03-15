@@ -1377,7 +1377,7 @@ Status BaseTablet::check_rowid_conversion(
 
 // The caller should hold _rowset_update_lock and _meta_lock lock.
 Status BaseTablet::update_delete_bitmap_without_lock(
-        const TabletSharedPtr& self, const RowsetSharedPtr& rowset,
+        const BaseTabletSPtr& self, const RowsetSharedPtr& rowset,
         const std::vector<RowsetSharedPtr>* specified_base_rowsets) {
     DBUG_EXECUTE_IF("BaseTablet.update_delete_bitmap_without_lock.random_failed", {
         auto rnd = rand() % 100;

@@ -230,7 +230,7 @@ public:
                     location_map);
 
     static Status update_delete_bitmap_without_lock(
-            const TabletSharedPtr& self, const RowsetSharedPtr& rowset,
+            const BaseTabletSPtr& self, const RowsetSharedPtr& rowset,
             const std::vector<RowsetSharedPtr>* specified_base_rowsets = nullptr);
 
     ////////////////////////////////////////////////////////////////////////////
