@@ -45,11 +45,11 @@ This statement is equivalent to:
 
 ```
 SELECT k1, k2, SUM( k3 ) FROM t GROUP BY k1, k2
-UNION
+UNION ALL
 SELECT k1, null, SUM( k3 ) FROM t GROUP BY k1
-UNION
+UNION ALL
 SELECT null, k2, SUM( k3 ) FROM t GROUP BY k2
-UNION
+UNION ALL
 SELECT null, null, SUM( k3 ) FROM t
 ```
 
@@ -308,7 +308,7 @@ Expression, column name.
 
 ### 3.1 Overall Design Approaches
 
-For `GROUPING SET`  is equivalent to the `UNION` of  `GROUP BY` . So we can expand input rows, and run an GROUP BY on these rows.
+For `GROUPING SET`  is equivalent to the `UNION ALL` of  `GROUP BY` . So we can expand input rows, and run an GROUP BY on these rows.
 
 For example:
 
