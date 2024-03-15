@@ -458,7 +458,7 @@ SELECT k1, k2, GROUPING_ID(k1,k2), SUM(k3) FROM t GROUP BY GROUPING SETS ((k1, k
 
 ```
 
-可以看到，其结果与对 GROUPING SETS 子句后每个子集进行 GROUP BY 后再进行 UNION ALL 的结果一致。
+可以看到，其结果与对 GROUPING SETS 子句后每个子集进行 GROUP BY 后再进行 UNION ALL的结果一致。
 
 ```
 select k1, k2, sum(k3) from t group by k1, k2
