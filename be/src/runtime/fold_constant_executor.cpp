@@ -272,6 +272,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         result = column_type->to_string(*column_ptr, 0);
         break;
     }
+    case TYPE_VARIANT:
     case TYPE_QUANTILE_STATE: {
         result = column_type->to_string(*column_ptr, 0);
         break;
