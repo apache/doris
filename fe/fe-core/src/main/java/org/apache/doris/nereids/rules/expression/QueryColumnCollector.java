@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.expression.HighPriorityColumnCollector.CollectorContext;
+import org.apache.doris.nereids.rules.expression.QueryColumnCollector.CollectorContext;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -51,9 +51,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Used to collect High priority column.
+ * Used to collect query column.
  */
-public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorContext> implements CustomRewriter {
+public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -64,10 +64,10 @@ public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorCo
         CollectorContext context = new CollectorContext();
         plan.accept(this, context);
         if (StatisticsUtil.enableAutoAnalyze()) {
-            context.queried.removeAll(context.usedInPredicate);
+            context.midPriority.removeAll(context.highPriority);
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            analysisManager.updateColumnUsedInPredicate(context.usedInPredicate);
-            analysisManager.updateQueriedColumn(context.queried);
+            analysisManager.updateHighPriorityColumn(context.highPriority);
+            analysisManager.updateMidPriorityColumn(context.midPriority);
         }
         return plan;
     }
@@ -78,9 +78,9 @@ public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorCo
     public static class CollectorContext {
         public Map<Slot/*project output column*/, NamedExpression/*Actual project expr*/> projects = new HashMap<>();
 
-        public Set<Slot> usedInPredicate = new HashSet<>();
+        public Set<Slot> highPriority = new HashSet<>();
 
-        public Set<Slot> queried = new HashSet<>();
+        public Set<Slot> midPriority = new HashSet<>();
     }
 
     @Override
@@ -103,7 +103,7 @@ public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorCo
             List<Slot> outputOfScan = scan.getOutput();
             for (Slot slot : outputOfScan) {
                 if (!allUsed.contains(slot)) {
-                    context.queried.remove(slot);
+                    context.midPriority.remove(slot);
                 }
             }
         }
@@ -114,7 +114,7 @@ public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorCo
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, CollectorContext context) {
         join.child(0).accept(this, context);
         join.child(1).accept(this, context);
-        context.usedInPredicate.addAll(
+        context.highPriority.addAll(
                 (join.isMarkJoin() ? join.getLeftConditionSlot() : join.getConditionSlot())
                 .stream().flatMap(s -> backtrace(s, context).stream())
                 .collect(Collectors.toSet())
@@ -125,7 +125,7 @@ public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorCo
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, CollectorContext context) {
         aggregate.child(0).accept(this, context);
-        context.usedInPredicate.addAll(aggregate.getGroupByExpressions()
+        context.highPriority.addAll(aggregate.getGroupByExpressions()
                 .stream()
                 .flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
                 .flatMap(s -> backtrace(s, context).stream())
@@ -136,7 +136,7 @@ public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorCo
     @Override
     public Plan visitLogicalHaving(LogicalHaving<? extends Plan> having, CollectorContext context) {
         having.child(0).accept(this, context);
-        context.usedInPredicate.addAll(
+        context.highPriority.addAll(
                 having.getExpressions().stream()
                 .flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
                 .flatMap(s -> backtrace(s, context).stream())
@@ -147,21 +147,21 @@ public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorCo
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, CollectorContext context) {
         List<Slot> slots = olapScan.getOutput();
-        context.queried.addAll(slots);
+        context.midPriority.addAll(slots);
         return olapScan;
     }
 
     @Override
     public Plan visitLogicalFileScan(LogicalFileScan fileScan, CollectorContext context) {
         List<Slot> slots = fileScan.getOutput();
-        context.queried.addAll(slots);
+        context.midPriority.addAll(slots);
         return fileScan;
     }
 
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, CollectorContext context) {
         filter.child(0).accept(this, context);
-        context.usedInPredicate.addAll(filter
+        context.highPriority.addAll(filter
                 .getExpressions()
                 .stream()
                 .flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
@@ -173,7 +173,7 @@ public class HighPriorityColumnCollector extends DefaultPlanRewriter<CollectorCo
     @Override
     public Plan visitLogicalWindow(LogicalWindow<? extends Plan> window, CollectorContext context) {
         window.child(0).accept(this, context);
-        context.usedInPredicate.addAll(window
+        context.highPriority.addAll(window
                 .getWindowExpressions()
                 .stream()
                 .flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
