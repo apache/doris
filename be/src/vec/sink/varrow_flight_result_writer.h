@@ -75,7 +75,7 @@ private:
 
     std::shared_ptr<arrow::Schema> _arrow_schema;
 
-    cctz::time_zone& _timezone_obj;
+    cctz::time_zone _timezone_obj;
 };
 } // namespace vectorized
 } // namespace doris

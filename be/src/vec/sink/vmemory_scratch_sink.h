@@ -66,7 +66,7 @@ public:
 
 private:
     Status _prepare_vexpr(RuntimeState* state);
-    cctz::time_zone& _timezone_obj;
+    cctz::time_zone _timezone_obj;
     BlockQueueSharedPtr _queue;
 
     // Owned by the RuntimeState.
