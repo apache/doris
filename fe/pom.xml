@@ -467,6 +467,12 @@ under the License.
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-starter-jetty</artifactId>
                 <version>${spring.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.tomcat</groupId>
+                        <artifactId>tomcat-embed-el</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -478,6 +484,10 @@ under the License.
                 <artifactId>spring-boot-starter-web</artifactId>
                 <version>${spring.version}</version>
                 <exclusions>
+                    <exclusion>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-starter-tomcat</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>validator</groupId>
                         <artifactId>hibernate-validator</artifactId>
