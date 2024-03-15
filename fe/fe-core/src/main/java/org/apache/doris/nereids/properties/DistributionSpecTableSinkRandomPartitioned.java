@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 /**
- * use for  by sink.
+ * use for Round Robin by data sink.
  */
 public class DistributionSpecTableSinkRandomPartitioned extends DistributionSpec {
 

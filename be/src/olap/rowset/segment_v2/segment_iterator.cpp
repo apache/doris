@@ -38,6 +38,7 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
@@ -50,6 +51,7 @@
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -595,6 +597,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_zonemap_ns);
             auto* query_ctx = _opts.runtime_state->get_query_ctx();
             for (int id : _opts.topn_filter_source_node_ids) {
+                if (!query_ctx->get_runtime_predicate(id).need_update()) {
+                    continue;
+                }
+
                 std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
                         query_ctx->get_runtime_predicate(id).get_predicate();
                 if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
@@ -1223,12 +1229,12 @@ Status SegmentIterator::_init_return_column_iterators() {
         std::vector<bool> tmp_is_pred_column;
         tmp_is_pred_column.resize(_schema->columns().size(), false);
         for (auto predicate : _col_predicates) {
-            auto cid = predicate->column_id();
-            tmp_is_pred_column[cid] = true;
+            auto p_cid = predicate->column_id();
+            tmp_is_pred_column[p_cid] = true;
         }
         // handle delete_condition
-        for (auto cid : del_cond_id_set) {
-            tmp_is_pred_column[cid] = true;
+        for (auto d_cid : del_cond_id_set) {
+            tmp_is_pred_column[d_cid] = true;
         }
 
         if (_column_iterators[cid] == nullptr) {
@@ -1510,6 +1516,10 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     if (_opts.use_topn_opt &&
         (_opts.read_orderby_key_columns == nullptr || _opts.read_orderby_key_columns->empty())) {
         for (int id : _opts.topn_filter_source_node_ids) {
+            if (!_opts.runtime_state->get_query_ctx()->get_runtime_predicate(id).need_update()) {
+                continue;
+            }
+
             auto& runtime_predicate =
                     _opts.runtime_state->get_query_ctx()->get_runtime_predicate(id);
             _col_predicates.push_back(runtime_predicate.get_predicate().get());

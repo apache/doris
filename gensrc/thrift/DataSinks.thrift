@@ -102,7 +102,7 @@ enum TParquetRepetitionType {
 struct TParquetSchema {
     1: optional TParquetRepetitionType schema_repetition_type
     2: optional TParquetDataType schema_data_type
-    3: optional string schema_column_name    
+    3: optional string schema_column_name
     4: optional TParquetDataLogicalType schema_data_logical_type
 }
 
@@ -307,6 +307,7 @@ enum THiveColumnType {
     REGULAR = 1,
     SYNTHESIZED = 2
 }
+
 struct THiveColumn {
   1: optional string name
   2: optional Types.TTypeDesc data_type
