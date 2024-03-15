@@ -1,6 +1,6 @@
 ---
 {
-    "title": "doris future project",
+    "title": "Doris Future Project",
     "language": "en"
 }
 ---
@@ -32,7 +32,7 @@ The doris future project is a growth plan for novice developers, aiming to allow
 
 ## Way of participation
 
-Novice developers can filter tasks with `doris-future` tag on the [Github Issue](https://github.com/apache/doris/issues) interface of the doris community. Each task has required skills. For example, c++ or java, as well as difficulty distinctions, new developers can comment below the tasks they are interested in and communicate with the instructor about the task details, and the developer community with difficult machine resources will also provide development machines.
+Novice developers can filter tasks with `doris-future` tag on the [Github Issue](https://github.com/apache/doris/issues) interface of the doris community. Each task has required skills. For example, c++ or java, as well as difficulty distinctions, new developers can comment below the tasks they are interested in and communicate with the instructor about the task details, and for developers who have difficulty with machine resources, the community will also provide development machines.
 
 If you have any difficulty or encounter a problem, you can send an email to `dev@doris.apache.org` to describe the difficulty or problem, and we will try our best to help you solve it.
 
