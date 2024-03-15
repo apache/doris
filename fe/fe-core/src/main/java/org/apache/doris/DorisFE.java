@@ -32,6 +32,7 @@ import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.persist.meta.MetaReader;
+import org.apache.doris.persist.meta.MetaWriter;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.service.ExecuteEnv;
@@ -251,6 +252,8 @@ public class DorisFE {
      *      Specify the helper node when joining a bdb je replication group
      * -i --image
      *      Check if the specified image is valid
+     *      -dp --dump
+     *          Dump the image to the specified path
      * -b --bdb
      *      Run bdbje debug tools
      *
@@ -275,6 +278,7 @@ public class DorisFE {
         options.addOption("v", "version", false, "Print the version of Doris Frontend");
         options.addOption("h", "helper", true, "Specify the helper node when joining a bdb je replication group");
         options.addOption("i", "image", true, "Check if the specified image is valid");
+        options.addOption("dp", "dump", true, "Dump the image to the specified path");
         options.addOption("b", "bdb", false, "Run bdbje debug tools");
         options.addOption("l", "listdb", false, "List databases in bdbje");
         options.addOption("d", "db", true, "Specify a database in bdbje");
@@ -296,7 +300,7 @@ public class DorisFE {
 
         // version
         if (cmd.hasOption('v') || cmd.hasOption("version")) {
-            return new CommandLineOptions(true, "", null, "");
+            return new CommandLineOptions(true, "", null, null);
         }
         // helper
         if (cmd.hasOption('h') || cmd.hasOption("helper")) {
@@ -305,7 +309,7 @@ public class DorisFE {
                 System.err.println("Missing helper node");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, helperNode, null, "");
+            return new CommandLineOptions(false, helperNode, null, null);
         }
         // image
         if (cmd.hasOption('i') || cmd.hasOption("image")) {
@@ -315,7 +319,16 @@ public class DorisFE {
                 System.err.println("imagePath is not set");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, "", null, imagePath);
+            String dumpPath = "";
+            if (cmd.hasOption("dp") || cmd.hasOption("dump")) {
+                dumpPath = cmd.getOptionValue("dump");
+                if (Strings.isNullOrEmpty(imagePath)) {
+                    System.err.println("dumpPath is not set");
+                    System.exit(-1);
+                }
+            }
+            return new CommandLineOptions(false, "", null,
+                    new CommandLineOptions.ImageToolOptions(imagePath, dumpPath));
         }
         if (cmd.hasOption('r') || cmd.hasOption(FeConstants.METADATA_FAILURE_RECOVERY_KEY)) {
             System.setProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY, "true");
@@ -324,7 +337,7 @@ public class DorisFE {
             if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
                 // list bdb je databases
                 BDBToolOptions bdbOpts = new BDBToolOptions(true, "", false, "", "", 0);
-                return new CommandLineOptions(false, "", bdbOpts, "");
+                return new CommandLineOptions(false, "", bdbOpts, null);
             }
             if (cmd.hasOption('d') || cmd.hasOption("db")) {
                 // specify a database
@@ -335,7 +348,7 @@ public class DorisFE {
                 }
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
-                    return new CommandLineOptions(false, "", bdbOpts, "");
+                    return new CommandLineOptions(false, "", bdbOpts, null);
                 }
                 String fromKey = "";
                 String endKey = "";
@@ -364,7 +377,7 @@ public class DorisFE {
                 }
 
                 BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
-                return new CommandLineOptions(false, "", bdbOpts, "");
+                return new CommandLineOptions(false, "", bdbOpts, null);
 
             } else {
                 System.err.println("Invalid options when running bdb je tools");
@@ -373,7 +386,7 @@ public class DorisFE {
         }
 
         // helper node is null, means no helper node is specified
-        return new CommandLineOptions(false, null, null, "");
+        return new CommandLineOptions(false, null, null, null);
     }
 
     private static void printVersion() {
@@ -396,23 +409,43 @@ public class DorisFE {
                 System.exit(-1);
             }
         } else if (cmdLineOpts.runImageTool()) {
-            File imageFile = new File(cmdLineOpts.getImagePath());
+            CommandLineOptions.ImageToolOptions imageTool = cmdLineOpts.getImageToolOpts();
+            File imageFile = new File(imageTool.getImagePath());
             if (!imageFile.exists()) {
                 System.out.println("image does not exist: " + imageFile.getAbsolutePath()
                         + " . Please put an absolute path instead");
                 System.exit(-1);
-            } else {
-                System.out.println("Start to load image: ");
+            }
+
+            System.out.println("Start to load image: ");
+            try {
+                MetaReader.read(imageFile, Env.getCurrentEnv());
+                System.out.println("Load image success. Image file " + imageTool.getImagePath() + " is valid");
+            } catch (Exception e) {
+                System.out.println("Load image failed. Image file " + imageTool.getImagePath() + " is invalid");
+                LOG.warn("", e);
+            }
+            if (imageTool.dumpImage()) {
+                System.out.println("Start to dump image to " + imageTool.getDumpPath());
+                imageFile = new File(imageTool.getDumpPath());
                 try {
-                    MetaReader.read(imageFile, Env.getCurrentEnv());
-                    System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
+                    if (imageFile.exists() && !imageFile.delete()) {
+                        System.out.println(imageTool.getDumpPath() + " can not be deleted.");
+                        System.exit(-1);
+                    }
+                    imageFile.getParentFile().mkdirs();
+                    if (!imageFile.createNewFile()) {
+                        System.out.println(imageTool.getDumpPath() + " can not be created.");
+                        System.exit(-1);
+                    }
+                    MetaWriter.write(imageFile, Env.getCurrentEnv());
+                    System.out.println("Dump image success. Image file " + imageTool.getDumpPath());
                 } catch (Exception e) {
-                    System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
+                    System.out.println("Dump image failed. Image file " + imageTool.getDumpPath());
                     LOG.warn("", e);
-                } finally {
-                    System.exit(0);
                 }
             }
+            System.exit(0);
         }
 
         // go on

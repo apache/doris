@@ -19,29 +19,26 @@ package org.apache.doris.common;
 
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 
+import com.google.common.base.Strings;
+
 public class CommandLineOptions {
 
     private boolean isVersion;
     private String helperNode;
     private boolean runBdbTools;
     private BDBToolOptions bdbToolOpts = null;
-    private boolean runImageTool;
-    private String imagePath;
+    private ImageToolOptions imageToolOpts = null;
 
-    public CommandLineOptions(boolean isVersion, String helperNode, BDBToolOptions bdbToolOptions, String imagePath) {
+    public CommandLineOptions(boolean isVersion, String helperNode, BDBToolOptions bdbToolOptions,
+            ImageToolOptions imageToolOpts) {
         this.isVersion = isVersion;
         this.helperNode = helperNode;
         this.bdbToolOpts = bdbToolOptions;
-        this.imagePath = imagePath;
+        this.imageToolOpts = imageToolOpts;
         if (this.bdbToolOpts != null) {
             runBdbTools = true;
         } else {
             runBdbTools = false;
-        }
-        if (!imagePath.isEmpty()) {
-            runImageTool = true;
-        } else {
-            runImageTool = false;
         }
     }
 
@@ -62,11 +59,11 @@ public class CommandLineOptions {
     }
 
     public boolean runImageTool() {
-        return runImageTool;
+        return imageToolOpts != null;
     }
 
-    public String getImagePath() {
-        return imagePath;
+    public ImageToolOptions getImageToolOpts() {
+        return imageToolOpts;
     }
 
     @Override
@@ -75,8 +72,37 @@ public class CommandLineOptions {
         sb.append("print version: " + isVersion).append("\n");
         sb.append("helper node: " + helperNode).append("\n");
         sb.append("bdb tool options: \n(\n" + bdbToolOpts).append("\n)\n");
-        sb.append("image tool options:  \n(\n" + imagePath).append("\n)\n");
+        sb.append("image tool options:  \n(\n" + imageToolOpts).append("\n)\n");
         return sb.toString();
     }
 
+    public static class ImageToolOptions {
+        private final String imagePath;
+        private final String dumpPath;
+
+        public ImageToolOptions(String imagePath, String dumpPath) {
+            this.imagePath = imagePath;
+            this.dumpPath = dumpPath;
+        }
+
+        public String getImagePath() {
+            return imagePath;
+        }
+
+        public boolean dumpImage() {
+            return !Strings.isNullOrEmpty(dumpPath);
+        }
+
+        public String getDumpPath() {
+            return dumpPath;
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("image path: " + imagePath).append("\n");
+            sb.append("dump path: " + dumpPath).append("\n");
+            return sb.toString();
+        }
+    }
 }

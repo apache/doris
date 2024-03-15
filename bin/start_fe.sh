@@ -31,6 +31,7 @@ OPTS="$(getopt \
     -l 'daemon' \
     -l 'helper:' \
     -l 'image:' \
+    -l 'dump:' \
     -l 'version' \
     -l 'metadata_failure_recovery' \
     -l 'console' \
@@ -43,6 +44,7 @@ RUN_CONSOLE=0
 HELPER=''
 IMAGE_PATH=''
 IMAGE_TOOL=''
+DUMP_PATH=''
 OPT_VERSION=''
 METADATA_FAILURE_RECOVERY=''
 while true; do
@@ -70,6 +72,10 @@ while true; do
     --image)
         IMAGE_TOOL=1
         IMAGE_PATH="$2"
+        shift 2
+        ;;
+    --dump)
+        DUMP_PATH="$2"
         shift 2
         ;;
     --)
@@ -247,7 +253,11 @@ fi
 
 if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
     if [[ -n "${IMAGE_PATH}" ]]; then
-        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE -i "${IMAGE_PATH}"
+        if [[ -n "${DUMP_PATH}" ]]; then
+            ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE -i "${IMAGE_PATH}" -dp "${DUMP_PATH}"
+        else
+            ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE -i "${IMAGE_PATH}"
+        fi
     else
         echo "Internal Error. USE IMAGE_TOOL like : ./start_fe.sh --image image_path"
     fi
