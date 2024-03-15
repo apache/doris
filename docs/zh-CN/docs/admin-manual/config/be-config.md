@@ -1535,3 +1535,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述：是否直接使用 Doris 自带的时区数据库。开启后不再尝试查找系统目录。
 * 默认值：false
+
+#### `be_thrift_max_pkg_bytes`
+
+* 描述: be节点thrift端口最大接收包大小(字节)
+* 默认值: 20000000

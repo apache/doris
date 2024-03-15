@@ -2531,6 +2531,12 @@ public class Config extends ConfigBase {
             "Default storage format of inverted index, the default value is V1."
     })
     public static String inverted_index_storage_format = "V1";
+  
+    @ConfField(description = {
+            "限制fe节点thrift server可以接收的最大包大小,默认20M,设置为-1表示不限制",
+            "the max package size fe thrift server can receive,avoid accepting error"
+            + "or too large package causing OOM,default 20000000(20M),set -1 for unlimited. "})
+    public static int fe_thrift_max_pkg_bytes = 20000000;
 
     //==========================================================================
     //                    begin of cloud config

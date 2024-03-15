@@ -1277,6 +1277,10 @@ DECLARE_String(tmp_file_dir);
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
 
+// the max package bytes be thrift server can receive
+// avoid accepting error or too large package causing OOM,default 20000000(20M)
+DECLARE_Int32(be_thrift_max_pkg_bytes);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

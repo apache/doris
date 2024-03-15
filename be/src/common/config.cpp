@@ -1199,6 +1199,10 @@ DEFINE_mInt32(max_s3_client_retry, "10");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
 
+// the max package bytes be thrift server can receive
+// avoid accepting error or too large package causing OOM,default 20000000(20M)
+DEFINE_Int32(be_thrift_max_pkg_bytes, "20000000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
