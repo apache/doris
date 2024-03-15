@@ -72,6 +72,9 @@ public abstract class RoutineLoadTaskInfo {
 
     protected boolean isMultiTable = false;
 
+    protected static final int MAX_TIMEOUT_COUNT = 3;
+    protected int timeoutCount = 0;
+
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
@@ -130,6 +133,10 @@ public abstract class RoutineLoadTaskInfo {
         this.lastScheduledTime = lastScheduledTime;
     }
 
+    public void setTimeoutMs(long timeoutMs) {
+        this.timeoutMs = timeoutMs;
+    }
+
     public long getTimeoutMs() {
         return timeoutMs;
     }
@@ -140,6 +147,14 @@ public abstract class RoutineLoadTaskInfo {
 
     public TransactionStatus getTxnStatus() {
         return txnStatus;
+    }
+
+    public void setTimeoutCount(int timeoutCount) {
+        this.timeoutCount = timeoutCount;
+    }
+
+    public int getTimeoutCount() {
+        return timeoutCount;
     }
 
     public boolean isTimeout() {
@@ -154,6 +169,26 @@ public abstract class RoutineLoadTaskInfo {
             return true;
         }
         return false;
+    }
+
+    public void selfAdaptTimeout(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        int count = 0;
+        long leftInterval = this.timeoutMs >> 1;
+        long rightInterval = this.timeoutMs;
+        long taskExecutionTime = rlTaskTxnCommitAttachment.getTaskExecutionTimeMs();
+
+        while (count < timeoutCount) {
+            if (leftInterval <= taskExecutionTime && taskExecutionTime <= rightInterval) {
+                this.timeoutMs = rightInterval;
+                this.timeoutCount = 0;
+                return;
+            }
+            leftInterval = leftInterval >> 1;
+            rightInterval = rightInterval >> 1;
+            count++;
+        }
+        this.timeoutMs = rightInterval;
+        this.timeoutCount = 0;
     }
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;

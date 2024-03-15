@@ -63,7 +63,9 @@ public class ScheduleRule {
                     jobRoutine.id, jobRoutine.firstResumeTimestamp, jobRoutine.autoResumeCount,
                     jobRoutine.pauseReason == null ? "null" : jobRoutine.pauseReason.getCode().name());
         }
-        if (jobRoutine.pauseReason != null && jobRoutine.pauseReason.getCode() == InternalErrorCode.REPLICA_FEW_ERR) {
+        if (jobRoutine.pauseReason != null
+                && (jobRoutine.pauseReason.getCode() == InternalErrorCode.REPLICA_FEW_ERR
+                || jobRoutine.pauseReason.getCode() == InternalErrorCode.TOO_MANY_TIMEOUT)) {
             int dead = deadBeCount();
             if (dead > Config.max_tolerable_backend_down_num) {
                 if (LOG.isDebugEnabled()) {
