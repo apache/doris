@@ -99,28 +99,30 @@ void DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const NullM
                              array_builder->type()->name());
         } else {
             std::string ipv4_str = IPv4Value::to_string(col_data[i]);
-            checkArrowStatus(string_builder.Append(ipv4_str.c_str(), ipv4_str.size()), column.get_name(),
-                             array_builder->type()->name());
+            checkArrowStatus(string_builder.Append(ipv4_str.c_str(), ipv4_str.size()),
+                             column.get_name(), array_builder->type()->name());
         }
     }
 }
 
-void DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                int end, const cctz::time_zone& ctz) const {
+void DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                               int start, int end,
+                                               const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnIPv4&>(column).get_data();
     auto concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
     for (size_t offset_i = start; offset_i < end; ++offset_i) {
         if (!concrete_array->IsNull(offset_i)) {
-            const char* raw_data = reinterpret_cast<const char*>(buffer->data() + concrete_array->value_offset(offset_i));
+            const char* raw_data = reinterpret_cast<const char*>(
+                    buffer->data() + concrete_array->value_offset(offset_i));
             const auto raw_data_len = concrete_array->value_length(offset_i);
 
             IPv4 ipv4_val;
             if (!IPv4Value::from_string(ipv4_val, raw_data, raw_data_len)) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                        "parse number fail, string: '{}'",
-                                        std::string(raw_data, raw_data_len).c_str());
+                                       "parse number fail, string: '{}'",
+                                       std::string(raw_data, raw_data_len).c_str());
             }
             col_data.emplace_back(ipv4_val);
         }
@@ -128,10 +130,9 @@ void DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
 }
 
 Status DataTypeIPv4SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                                const NullMap* null_map,
-                                                orc::ColumnVectorBatch* orc_col_batch, int start,
-                                                int end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                              const NullMap* null_map,
+                                              orc::ColumnVectorBatch* orc_col_batch, int start,
+                                              int end, std::vector<StringRef>& buffer_list) const {
     auto& col_data = static_cast<const ColumnIPv4&>(column).get_data();
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);

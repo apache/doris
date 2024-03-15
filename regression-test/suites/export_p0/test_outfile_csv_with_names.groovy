@@ -141,7 +141,7 @@ suite("test_outfile_csv_with_names") {
             `double_col` double COMMENT "",
             `char_col` CHAR(10) COMMENT "",
             `decimal_col` decimal COMMENT "",
-            `json_col` json COMMENT ""
+            `json_col` json COMMENT "",
             `ipv4_col` ipv4 COMMENT "",
             `ipv6_col` ipv6 COMMENT ""
             )
