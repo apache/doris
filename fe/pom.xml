@@ -254,7 +254,7 @@ under the License.
         <druid.version>1.2.5</druid.version>
         <clickhouse.version>0.4.6</clickhouse.version>
         <thrift.version>0.16.0</thrift.version>
-        <tomcat-embed-core.version>8.5.86</tomcat-embed-core.version>
+        <tomcat-embed-core.version>8.5.99</tomcat-embed-core.version>
         <log4j2.version>2.18.0</log4j2.version>
         <log4j-1.2.version>2.18.0</log4j-1.2.version>
         <slf4j.version>2.0.6</slf4j.version>
