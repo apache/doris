@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
 /**
  * Rule for pushdown project through left-semi/anti join
  * Just push down project inside join to avoid to push the top of Join-Cluster.
+ * Note this rule is only used to push down project between join for join ordering.
  * <pre>
  *     Join                     Join
  *      |                        |
