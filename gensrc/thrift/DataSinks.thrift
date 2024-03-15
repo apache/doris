@@ -302,17 +302,6 @@ struct THiveBucket {
     4: optional list<TSortedColumn> sorted_by
 }
 
-enum THiveCompressionType {
-    NO_COMPRESSION = 0,
-    SNAPPY = 1,
-    LZ4 = 2,
-    LZ4F = 3,
-    ZLIB = 4,
-    ZSTD = 5,
-    LZ4HC = 6,
-    LZO = 7
-}
-
 enum THiveColumnType {
     PARTITION_KEY = 0,
     REGULAR = 1,
@@ -337,7 +326,7 @@ struct THiveTableSink {
     4: optional list<THivePartition> partitions
     5: optional THiveBucket bucket_info
     6: optional PlanNodes.TFileFormatType file_format
-    7: optional THiveCompressionType compression_type
+    7: optional PlanNodes.TFileCompressType compression_type
     8: optional THiveLocationParams location
     9: optional map<string, string> hadoop_config
     10: optional bool overwrite

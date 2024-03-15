@@ -30,16 +30,15 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.THiveBucket;
 import org.apache.doris.thrift.THiveColumn;
 import org.apache.doris.thrift.THiveColumnType;
-import org.apache.doris.thrift.THiveCompressionType;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveTableSink;
 
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 
 import java.util.ArrayList;
@@ -164,17 +163,17 @@ public class HiveTableSink extends DataSink {
         }
 
         if ("snappy".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(THiveCompressionType.SNAPPY);
+            tSink.setCompressionType(TFileCompressType.SNAPPYBLOCK);
         } else if ("lz4".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(THiveCompressionType.LZ4);
+            tSink.setCompressionType(TFileCompressType.LZ4BLOCK);
         } else if ("lzo".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(THiveCompressionType.LZO);
+            tSink.setCompressionType(TFileCompressType.LZO);
         } else if ("zlib".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(THiveCompressionType.ZLIB);
+            tSink.setCompressionType(TFileCompressType.ZLIB);
         } else if ("zstd".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(THiveCompressionType.ZSTD);
+            tSink.setCompressionType(TFileCompressType.ZSTD);
         } else {
-            tSink.setCompressionType(THiveCompressionType.NO_COMPRESSION);
+            tSink.setCompressionType(TFileCompressType.PLAIN);
         }
     }
 
