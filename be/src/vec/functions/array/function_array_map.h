@@ -18,6 +18,7 @@
 #pragma once
 
 #include <type_traits>
+#include <unordered_map>
 
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
@@ -30,14 +31,14 @@
 #define FILL_MAP_DATA_INTO_DEFAULT_COLUMN()                                \
     ++dst_off;                                                             \
     auto& dst_data = static_cast<ColumnType&>(*dst.nested_col).get_data(); \
-    dst_data.push_back(entry.get_first());                                 \
+    dst_data.push_back(entry.first);                                       \
     if (dst.nested_nullmap_data) {                                         \
         dst.nested_nullmap_data->push_back(0);                             \
     }
 
 #define FILL_MAP_DATA_INTO_STRING_COLUMN()                       \
     auto& dst_col = static_cast<ColumnString&>(*dst.nested_col); \
-    StringRef key = entry.get_first();                           \
+    StringRef key = entry.first;                                 \
     ++dst_off;                                                   \
     dst_col.insert_data(key.data, key.size);                     \
     if (dst.nested_nullmap_data) {                               \
@@ -71,8 +72,7 @@ template <MapOperation operation, typename ColumnType>
 struct OpenMapImpl {
     using Element = typename ColumnType::value_type;
     using ElementNativeType = typename NativeType<Element>::Type;
-    using Map =
-            HashMapWithStackMemory<ElementNativeType, size_t, DefaultHash<ElementNativeType>, 6>;
+    using Map = std::unordered_map<ElementNativeType, size_t, DefaultHash<ElementNativeType>>;
     using Action = typename MapActionImpl<Map, ColumnType, operation>::Action;
 
     Action action;
@@ -102,7 +102,7 @@ struct OpenMapImpl {
             // make map result to dst
             for (const auto& entry : map) {
                 if constexpr (operation == MapOperation::INTERSECT) {
-                    if (entry.get_mapped() == params.size()) {
+                    if (entry.second == params.size()) {
                         FILL_MAP_DATA_INTO_DEFAULT_COLUMN()
                     }
                 } else if constexpr (operation == MapOperation::UNION) {
@@ -117,7 +117,7 @@ struct OpenMapImpl {
 
 template <MapOperation operation>
 struct OpenMapImpl<operation, ColumnString> {
-    using Map = HashMapWithStackMemory<StringRef, size_t, StringRefHash, 6>;
+    using Map = std::unordered_map<StringRef, size_t, StringRefHash>;
     using Action = typename MapActionImpl<Map, ColumnString, operation>::Action;
 
     Action action;
@@ -147,7 +147,7 @@ struct OpenMapImpl<operation, ColumnString> {
             // make map result to dst
             for (const auto& entry : map) {
                 if constexpr (operation == MapOperation::INTERSECT) {
-                    if (entry.get_mapped() == params.size()) {
+                    if (entry.second == params.size()) {
                         FILL_MAP_DATA_INTO_STRING_COLUMN()
                     }
                 } else if constexpr (operation == MapOperation::UNION) {
