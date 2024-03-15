@@ -29,6 +29,10 @@
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
+namespace segment_v2 {
+class InvertedIndexFileWriter;
+class InvertedIndexFileReader;
+} // namespace segment_v2
 
 class RowsetWriter;
 
@@ -75,6 +79,11 @@ private:
     std::unordered_map<std::pair<int64_t, int64_t>,
                        std::unique_ptr<segment_v2::InvertedIndexColumnWriter>>
             _inverted_index_builders;
+    std::unordered_map<int64_t, std::unique_ptr<InvertedIndexFileWriter>>
+            _inverted_index_file_writers;
+    // <rowset_id, segment_id>
+    std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<InvertedIndexFileReader>>
+            _inverted_index_file_readers;
 };
 
 using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;

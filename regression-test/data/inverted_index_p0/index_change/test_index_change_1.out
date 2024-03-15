@@ -24,3 +24,28 @@
 -- !select6 --
 3	2017-10-01	Shanghai China	10	1	electrical engineer
 
+-- !select1_v1 --
+1	2017-10-01	Beijing China	10	1	Software Developer
+2	2017-10-01	Beijing China	10	1	Communication Engineer
+3	2017-10-01	Shanghai China	10	1	electrical engineer
+4	2017-10-02	Beijing China	10	0	Both a teacher and a scientist
+5	2017-10-02	Shenzhen China	10	1	teacher
+6	2017-10-03	Hongkong China	10	1	Architectural designer
+
+-- !select2_v1 --
+1	2017-10-01	Beijing China	10	1	Software Developer
+2	2017-10-01	Beijing China	10	1	Communication Engineer
+4	2017-10-02	Beijing China	10	0	Both a teacher and a scientist
+
+-- !select3_v1 --
+1	2017-10-01	Beijing China	10	1	Software Developer
+2	2017-10-01	Beijing China	10	1	Communication Engineer
+
+-- !select4_v1 --
+
+-- !select5_v1 --
+3	2017-10-01	Shanghai China	10	1	electrical engineer
+
+-- !select6_v1 --
+3	2017-10-01	Shanghai China	10	1	electrical engineer
+
