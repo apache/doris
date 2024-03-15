@@ -150,8 +150,10 @@ suite("test_load") {
     qt_decimalv3_underflow3 """
         select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
     """
+    // need to use "1.001"(quoted) because non-nereids dml seems treat 1.001 as double,
+    // which will cause wrong result of decimal comparision
     sql """
-        UPDATE test_sys_update_basic_test_update_decimal_tb SET v1="0.00000001" WHERE k1 = 1.001;
+        UPDATE test_sys_update_basic_test_update_decimal_tb SET v1="0.00000001" WHERE k1 = "1.001";
     """
     qt_decimalv3_underflow4 """
         select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
