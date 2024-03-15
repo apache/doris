@@ -24,6 +24,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -98,8 +99,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         }
 
         TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
-        if (!(targetTableIf instanceof OlapTable)) {
-            throw new AnalysisException("insert into overwrite only support OLAP table."
+        if (!(targetTableIf instanceof OlapTable || targetTableIf instanceof HMSExternalTable)) {
+            throw new AnalysisException("insert into overwrite only support OLAP and HMS table."
                     + " But current table type is " + targetTableIf.getType());
         }
         this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
