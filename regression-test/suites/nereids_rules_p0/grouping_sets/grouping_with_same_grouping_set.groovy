@@ -26,6 +26,6 @@ suite("grouping_with_same_grouping_set") {
     sql """
         insert into t1 values (1), (2), (3);
     """
-    qt_test "select max(a) from t1 group by grouping sets ((a), (a)) order by 1"
+    qt_test "select a from t1 group by grouping sets ((a), (a)) order by 1"
 
 }
