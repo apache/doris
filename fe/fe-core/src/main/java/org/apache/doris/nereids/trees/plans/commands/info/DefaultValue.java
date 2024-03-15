@@ -24,8 +24,10 @@ import org.apache.doris.catalog.ScalarType;
  * default value of a column.
  */
 public class DefaultValue {
+    public static String CURRENT_DATE = "CURRENT_DATE";
     public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
     public static String NOW = "now";
+    public static DefaultValue CURRENT_DATE_DEFAULT_VALUE = new DefaultValue(CURRENT_DATE, CURRENT_DATE.toLowerCase());
     public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(CURRENT_TIMESTAMP, NOW);
     // default null
     public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(null);
