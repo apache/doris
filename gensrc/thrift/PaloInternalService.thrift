@@ -359,6 +359,7 @@ struct TPlanFragmentExecParams {
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
   13: optional bool group_commit // deprecated
+  14: optional list<i32> topn_filter_source_node_ids
 }
 
 // Global query parameters assigned by the coordinator.
