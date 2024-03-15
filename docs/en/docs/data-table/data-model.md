@@ -376,7 +376,7 @@ mysql> select group_concat_merge(k3) from aggstate;
 If you do not want the final aggregation result, you can use 'union' to combine multiple intermediate aggregation results and generate a new intermediate result.
 
 ```sql
-insert into aggstate select 3,sum_union(k2),group_concat_union(k3) from aggstate ;
+insert into aggstate select 3,sum_union(k2),group_concat_union(k3) from aggstate;
 ```
 
 The table's structure at this moment is...
