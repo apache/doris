@@ -1267,6 +1267,9 @@ DECLARE_mInt32(max_s3_client_retry);
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
 
+// the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
+DECLARE_mString(ca_cert_file_paths);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
