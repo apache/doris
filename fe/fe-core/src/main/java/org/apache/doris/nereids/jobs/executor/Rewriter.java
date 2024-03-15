@@ -219,7 +219,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topDown(
                     new NormalizeAggregate(),
                     new CountLiteralRewrite(),
-                    new SumLiteralRewrite(),
                     new NormalizeSort()
             ),
             topic("Window analysis",
@@ -391,7 +390,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
                     bottomUp(new EliminateEmptyRelation())
             ),
-
+            topic("agg rewrite",
+                // these rules should be put after mv optimization to avoid mv matching fail
+                topDown(new SumLiteralRewrite())
+            ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
                     custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),

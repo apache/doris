@@ -39,12 +39,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.collect.ImmutableList;
 import org.apache.thrift.annotation.Nullable;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * sum(expr +/- literal) ==> sum(expr) +/- literal * count(expr)
@@ -55,59 +55,83 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
         return logicalAggregate()
                 .whenNot(agg -> agg.getSourceRepeat().isPresent())
                 .then(agg -> {
-                    Map<NamedExpression, Pair<Expression, Literal>> funcMap = agg.getOutputs().stream()
-                            .map(this::extractSumLiteral)
-                            .filter(Objects::nonNull)
-                            .collect(Collectors.toMap(item -> item.first, item -> item.second));
-                    if (funcMap.isEmpty()) {
+                    Map<NamedExpression, Pair<Expression, Literal>> sumLiteralMap = new HashMap<>();
+                    for (NamedExpression namedExpression : agg.getOutputs()) {
+                        Pair<NamedExpression, Pair<Expression, Literal>> pel = extractSumLiteral(namedExpression);
+                        if (pel == null) {
+                            continue;
+                        }
+                        sumLiteralMap.put(pel.first, pel.second);
+                    }
+                    if (sumLiteralMap.isEmpty()) {
                         return null;
                     }
-                    return rewriteSumLiteral(agg, funcMap);
-                }
-        ).toRule(RuleType.COUNT_LITERAL_REWRITE);
+                    return rewriteSumLiteral(agg, sumLiteralMap);
+                }).toRule(RuleType.SUM_LITERAL_REWRITE);
     }
 
-    private Plan rewriteSumLiteral(LogicalAggregate<?> agg, Map<NamedExpression, Pair<Expression, Literal>> funcMap) {
-        Set<NamedExpression> newAggOutput = agg.getOutputExpressions().stream()
-                .filter(expr -> !funcMap.containsKey(expr))
-                .collect(Collectors.toSet());
+    private Plan rewriteSumLiteral(
+            LogicalAggregate<?> agg, Map<NamedExpression, Pair<Expression, Literal>> sumLiteralMap) {
+        Set<NamedExpression> newAggOutput = new HashSet<>();
+        for (NamedExpression expr : agg.getOutputExpressions()) {
+            if (!sumLiteralMap.containsKey(expr)) {
+                newAggOutput.add(expr);
+            }
+        }
+
         Map<Expression, Slot> exprToSum = new HashMap<>();
         Map<Expression, Slot> exprToCount = new HashMap<>();
-        Map<AggregateFunction, NamedExpression> existedAggFunc = agg.getOutputExpressions().stream()
-                .filter(e -> e.children().size() == 1 && e.child(0) instanceof AggregateFunction)
-                .map(e -> Pair.of(e.child(0), e))
-                .collect(Collectors.toMap(item -> (AggregateFunction) item.first, item -> item.second));
-        funcMap.values().stream()
-                .map(expressionLiteralPair -> expressionLiteralPair.first)
-                .distinct()
-                .forEach(e -> {
-                    NamedExpression namedSum = constructSum(e, existedAggFunc);
-                    NamedExpression namedCount = constructCount(e, existedAggFunc);
-                    exprToSum.put(e, namedSum.toSlot());
-                    exprToCount.put(e, namedCount.toSlot());
-                    newAggOutput.add(namedSum);
-                    newAggOutput.add(namedCount);
-                });
+
+        Map<AggregateFunction, NamedExpression> existedAggFunc = new HashMap<>();
+        for (NamedExpression e : agg.getOutputExpressions()) {
+            if (e.children().size() == 1 && e.child(0) instanceof AggregateFunction) {
+                existedAggFunc.put((AggregateFunction) e.child(0), e);
+            }
+        }
+
+        Set<Expression> countSumExpr = new HashSet<>();
+        for (Pair<Expression, Literal> pair : sumLiteralMap.values()) {
+            countSumExpr.add(pair.first);
+        }
+
+        for (Expression e : countSumExpr) {
+            NamedExpression namedSum = constructSum(e, existedAggFunc);
+            NamedExpression namedCount = constructCount(e, existedAggFunc);
+            exprToSum.put(e, namedSum.toSlot());
+            exprToCount.put(e, namedCount.toSlot());
+            newAggOutput.add(namedSum);
+            newAggOutput.add(namedCount);
+        }
+
         LogicalAggregate<?> newAgg = agg.withAggOutput(ImmutableList.copyOf(newAggOutput));
-        List<NamedExpression> newProjects = agg.getOutputExpressions().stream()
-                .map(namedExpr -> {
-                    if (!funcMap.containsKey(namedExpr)) {
-                        return namedExpr.toSlot();
-                    }
-                    Expression originExpr = funcMap.get(namedExpr).first;
-                    Literal literal = funcMap.get(namedExpr).second;
-                    if (namedExpr.child(0).child(0) instanceof Add) {
-                        Expression newExpr = new Add(exprToSum.get(originExpr),
-                                new Multiply(literal, exprToCount.get(originExpr)));
-                        return new Alias(namedExpr.getExprId(), newExpr, namedExpr.getName());
-                    } else {
-                        Expression newExpr = new Subtract(exprToSum.get(originExpr),
-                                new Multiply(literal, exprToCount.get(originExpr)));
-                        return new Alias(namedExpr.getExprId(), newExpr, namedExpr.getName());
-                    }
-                }).collect(Collectors.toList());
+
+        List<NamedExpression> newProjects = constructProjectExpression(agg, sumLiteralMap, exprToSum, exprToCount);
 
         return new LogicalProject<>(newProjects, newAgg);
+    }
+
+    private List<NamedExpression> constructProjectExpression(
+            LogicalAggregate<?> agg, Map<NamedExpression, Pair<Expression, Literal>> sumLiteralMap,
+            Map<Expression, Slot> exprToSum, Map<Expression, Slot> exprToCount) {
+        List<NamedExpression> newProjects = new ArrayList<>();
+        for (NamedExpression namedExpr : agg.getOutputExpressions()) {
+            if (!sumLiteralMap.containsKey(namedExpr)) {
+                newProjects.add(namedExpr.toSlot());
+                continue;
+            }
+            Expression originExpr = sumLiteralMap.get(namedExpr).first;
+            Literal literal = sumLiteralMap.get(namedExpr).second;
+            Expression newExpr;
+            if (namedExpr.child(0).child(0) instanceof Add) {
+                newExpr = new Add(exprToSum.get(originExpr),
+                        new Multiply(literal, exprToCount.get(originExpr)));
+            } else {
+                newExpr = new Subtract(exprToSum.get(originExpr),
+                        new Multiply(literal, exprToCount.get(originExpr)));
+            }
+            newProjects.add(new Alias(namedExpr.getExprId(), newExpr, namedExpr.getName()));
+        }
+        return newProjects;
     }
 
     private NamedExpression constructSum(Expression child, Map<AggregateFunction, NamedExpression> existedAggFunc) {
@@ -148,8 +172,12 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
 
         Expression left = ((BinaryArithmetic) child).left();
         Expression right = ((BinaryArithmetic) child).right();
-        if (!right.isLiteral() && !(left instanceof Slot)) {
+        if (!(right.isLiteral() && left instanceof Slot)) {
             // right now, only support slot +/- literal
+            return null;
+        }
+        if (!(right.getDataType().isIntegerLikeType() || right.getDataType().isFloatLikeType())) {
+            // only support integer or float types
             return null;
         }
         return Pair.of(namedExpression, Pair.of(left, (Literal) right));
