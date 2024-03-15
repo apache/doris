@@ -1294,9 +1294,17 @@ public class TypeCoercionUtils {
 
         // variant type
         if ((leftType.isVariantType() && (rightType.isStringLikeType() || rightType.isNumericType()))) {
+            if (rightType.isDecimalLikeType()) {
+                // TODO support decimal
+                return Optional.of(DoubleType.INSTANCE);
+            }
             return Optional.of(rightType);
         }
         if ((rightType.isVariantType() && (leftType.isStringLikeType() || leftType.isNumericType()))) {
+            if (leftType.isDecimalLikeType()) {
+                // TODO support decimal
+                return Optional.of(DoubleType.INSTANCE);
+            }
             return Optional.of(leftType);
         }
         return Optional.of(DoubleType.INSTANCE);
