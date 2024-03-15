@@ -262,7 +262,7 @@ public:
                                 std::shared_ptr<lucene::util::bkd::bkd_reader> r, uint32_t* count);
     Status invoke_bkd_query(const void* query_value, InvertedIndexQueryType query_type,
                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
-                            std::shared_ptr<roaring::Roaring> bit_map);
+                            std::shared_ptr<roaring::Roaring>& bit_map);
     template <InvertedIndexQueryType QT>
     Status construct_bkd_query_value(const void* query_value,
                                      std::shared_ptr<lucene::util::bkd::bkd_reader> r,

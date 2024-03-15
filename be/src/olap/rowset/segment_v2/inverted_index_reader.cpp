@@ -588,7 +588,7 @@ Status BkdIndexReader::invoke_bkd_try_query(const void* query_value,
 
 Status BkdIndexReader::invoke_bkd_query(const void* query_value, InvertedIndexQueryType query_type,
                                         std::shared_ptr<lucene::util::bkd::bkd_reader> r,
-                                        std::shared_ptr<roaring::Roaring> bit_map) {
+                                        std::shared_ptr<roaring::Roaring>& bit_map) {
     switch (query_type) {
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
         auto visitor =
