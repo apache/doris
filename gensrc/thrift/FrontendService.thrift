@@ -29,6 +29,7 @@ include "Exprs.thrift"
 include "RuntimeProfile.thrift"
 include "MasterService.thrift"
 include "AgentService.thrift"
+include "DataSinks.thrift"
 
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
@@ -481,6 +482,8 @@ struct TReportExecStatusParams {
   24: optional TQueryStatistics query_statistics // deprecated
 
   25: optional TReportWorkloadRuntimeStatusParams report_workload_runtime_status
+
+  26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 }
 
 struct TFeResult {
