@@ -222,7 +222,10 @@ Status VParquetTransformer::_parse_properties() {
             builder.enable_dictionary();
         }
         _parquet_writer_properties = builder.build();
-        _arrow_properties = parquet::ArrowWriterProperties::Builder().store_schema()->build();
+        _arrow_properties = parquet::ArrowWriterProperties::Builder()
+                                    .enable_deprecated_int96_timestamps()
+                                    ->store_schema()
+                                    ->build();
     } catch (const parquet::ParquetException& e) {
         return Status::InternalError("parquet writer parse properties error: {}", e.what());
     }
