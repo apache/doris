@@ -86,7 +86,8 @@ public:
                                 std::unique_ptr<InvertedIndexIterator>* iterator) = 0;
     virtual Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                          const std::string& column_name, const void* query_value,
-                         InvertedIndexQueryType query_type, roaring::Roaring* bit_map) = 0;
+                         InvertedIndexQueryType query_type,
+                         std::shared_ptr<roaring::Roaring>& bit_map) = 0;
     virtual Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
                              uint32_t* count) = 0;
@@ -119,11 +120,12 @@ public:
     virtual Status handle_query_cache(InvertedIndexQueryCache* cache,
                                       const InvertedIndexQueryCache::CacheKey& cache_key,
                                       InvertedIndexQueryCacheHandle* cache_handler,
-                                      OlapReaderStatistics* stats, roaring::Roaring* bit_map) {
+                                      OlapReaderStatistics* stats,
+                                      std::shared_ptr<roaring::Roaring>& bit_map) {
         if (cache->lookup(cache_key, cache_handler)) {
             stats->inverted_index_query_cache_hit++;
             SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_copy_timer);
-            *bit_map = *cache_handler->get_bitmap();
+            bit_map = cache_handler->get_bitmap();
             return Status::OK();
         }
         stats->inverted_index_query_cache_miss++;
@@ -158,7 +160,8 @@ public:
                         std::unique_ptr<InvertedIndexIterator>* iterator) override;
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type, roaring::Roaring* bit_map) override;
+                 InvertedIndexQueryType query_type,
+                 std::shared_ptr<roaring::Roaring>& bit_map) override;
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override {
@@ -190,7 +193,8 @@ public:
                         std::unique_ptr<InvertedIndexIterator>* iterator) override;
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type, roaring::Roaring* bit_map) override;
+                 InvertedIndexQueryType query_type,
+                 std::shared_ptr<roaring::Roaring>& bit_map) override;
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override {
@@ -249,7 +253,8 @@ public:
 
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type, roaring::Roaring* bit_map) override;
+                 InvertedIndexQueryType query_type,
+                 std::shared_ptr<roaring::Roaring>& bit_map) override;
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override;
@@ -257,7 +262,7 @@ public:
                                 std::shared_ptr<lucene::util::bkd::bkd_reader> r, uint32_t* count);
     Status invoke_bkd_query(const void* query_value, InvertedIndexQueryType query_type,
                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
-                            roaring::Roaring* bit_map);
+                            std::shared_ptr<roaring::Roaring> bit_map);
     template <InvertedIndexQueryType QT>
     Status construct_bkd_query_value(const void* query_value,
                                      std::shared_ptr<lucene::util::bkd::bkd_reader> r,
@@ -281,7 +286,8 @@ public:
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                     InvertedIndexQueryType query_type, uint32_t segment_num_rows,
-                                    roaring::Roaring* bit_map, bool skip_try = false);
+                                    std::shared_ptr<roaring::Roaring>& bit_map,
+                                    bool skip_try = false);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 
