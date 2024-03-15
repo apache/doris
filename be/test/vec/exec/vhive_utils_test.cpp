@@ -65,11 +65,6 @@ TEST_F(VHiveUtilsTest, test_make_partition_name) {
                   VHiveUtils::make_partition_name(columns, partition_columns_input_index,
                                                   {"qqq", "rrr", "sss"}));
     }
-
-    //        EXPECT_EQ("abc%3Aqqq=xyz%2Fyyy%3Dzzz",
-    //                  VHiveUtils::make_partition_name({"abc:qqq"}, {"xyz/yyy=zzz"}));
-    //        EXPECT_EQ("abc=qqq/def=rrr/xyz=sss",
-    //                  VHiveUtils::make_partition_name({"abc", "def", "xyz"}, {"qqq", "rrr", "sss"}));
 }
 
 } // namespace doris::vectorized

@@ -44,8 +44,6 @@ public:
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 
-    size_t get_partition_count() { return _partition_count; }
-
 protected:
     const size_t _partition_count;
 };
@@ -61,7 +59,6 @@ public:
     }
 
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc) override {
-        //        fprintf(stderr, "VExpr::prepare(_partition_expr_ctxs, state, row_desc)\n");
         return VExpr::prepare(_partition_expr_ctxs, state, row_desc);
     }
 

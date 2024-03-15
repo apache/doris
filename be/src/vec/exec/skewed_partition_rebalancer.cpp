@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is porting from
+// https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/operator/output/SkewedPartitionRebalancer.java
+// to cpp and modified by Doris
 
 #include "vec/exec/skewed_partition_rebalancer.h"
 
@@ -25,7 +28,7 @@ namespace doris::vectorized {
 SkewedPartitionRebalancer::SkewedPartitionRebalancer(
         int partition_count, int task_count, int task_bucket_count,
         long min_partition_data_processed_rebalance_threshold,
-        long max_data_processed_rebalance_threshold)
+        long min_data_processed_rebalance_threshold)
         : _partition_count(partition_count),
           _task_count(task_count),
           _task_bucket_count(task_bucket_count),
@@ -33,7 +36,7 @@ SkewedPartitionRebalancer::SkewedPartitionRebalancer(
                   min_partition_data_processed_rebalance_threshold),
           _min_data_processed_rebalance_threshold(
                   std::max(min_partition_data_processed_rebalance_threshold,
-                           max_data_processed_rebalance_threshold)),
+                           min_data_processed_rebalance_threshold)),
           _partition_row_count(partition_count, 0),
           _data_processed(0),
           _data_processed_at_last_rebalance(0),
@@ -88,12 +91,12 @@ void SkewedPartitionRebalancer::add_partition_row_count(int partition, long row_
 
 void SkewedPartitionRebalancer::rebalance() {
     long current_data_processed = _data_processed;
-    if (should_rebalance(current_data_processed)) {
-        rebalance_partitions(current_data_processed);
+    if (_should_rebalance(current_data_processed)) {
+        _rebalance_partitions(current_data_processed);
     }
 }
 
-void SkewedPartitionRebalancer::calculate_partition_data_size(long data_processed) {
+void SkewedPartitionRebalancer::_calculate_partition_data_size(long data_processed) {
     long total_partition_row_count = 0;
     for (int partition = 0; partition < _partition_count; partition++) {
         total_partition_row_count += _partition_row_count[partition];
@@ -106,7 +109,7 @@ void SkewedPartitionRebalancer::calculate_partition_data_size(long data_processe
     }
 }
 
-long SkewedPartitionRebalancer::calculate_task_bucket_data_size_since_last_rebalance(
+long SkewedPartitionRebalancer::_calculate_task_bucket_data_size_since_last_rebalance(
         IndexedPriorityQueue<int, IndexedPriorityQueuePriorityOrdering::HIGH_TO_LOW>&
                 max_partitions) {
     long estimated_data_size_since_last_rebalance = 0;
@@ -117,7 +120,7 @@ long SkewedPartitionRebalancer::calculate_task_bucket_data_size_since_last_rebal
     return estimated_data_size_since_last_rebalance;
 }
 
-void SkewedPartitionRebalancer::rebalance_based_on_task_bucket_skewness(
+void SkewedPartitionRebalancer::_rebalance_based_on_task_bucket_skewness(
         IndexedPriorityQueue<TaskBucket, IndexedPriorityQueuePriorityOrdering::HIGH_TO_LOW>&
                 max_task_buckets,
         IndexedPriorityQueue<TaskBucket, IndexedPriorityQueuePriorityOrdering::LOW_TO_HIGH>&
@@ -138,7 +141,7 @@ void SkewedPartitionRebalancer::rebalance_based_on_task_bucket_skewness(
         }
 
         std::vector<TaskBucket> min_skewed_task_buckets =
-                find_skewed_min_task_buckets(max_task_bucket.value(), min_task_buckets);
+                _find_skewed_min_task_buckets(max_task_bucket.value(), min_task_buckets);
         if (min_skewed_task_buckets.empty()) {
             break;
         }
@@ -159,8 +162,8 @@ void SkewedPartitionRebalancer::rebalance_based_on_task_bucket_skewness(
             if (_partition_data_size[max_partition_value] >=
                 (_min_partition_data_processed_rebalance_threshold * total_assigned_tasks)) {
                 for (const TaskBucket& min_task_bucket : min_skewed_task_buckets) {
-                    if (rebalance_partition(max_partition_value, min_task_bucket, max_task_buckets,
-                                            min_task_buckets)) {
+                    if (_rebalance_partition(max_partition_value, min_task_bucket, max_task_buckets,
+                                             min_task_buckets)) {
                         scaled_partitions.push_back(max_partition_value);
                         break;
                     }
@@ -173,7 +176,7 @@ void SkewedPartitionRebalancer::rebalance_based_on_task_bucket_skewness(
 }
 
 std::vector<SkewedPartitionRebalancer::TaskBucket>
-SkewedPartitionRebalancer::find_skewed_min_task_buckets(
+SkewedPartitionRebalancer::_find_skewed_min_task_buckets(
         const TaskBucket& max_task_bucket,
         const IndexedPriorityQueue<TaskBucket, IndexedPriorityQueuePriorityOrdering::LOW_TO_HIGH>&
                 min_task_buckets) {
@@ -195,7 +198,7 @@ SkewedPartitionRebalancer::find_skewed_min_task_buckets(
     return min_skewed_task_buckets;
 }
 
-bool SkewedPartitionRebalancer::rebalance_partition(
+bool SkewedPartitionRebalancer::_rebalance_partition(
         int partition_id, const TaskBucket& to_task_bucket,
         IndexedPriorityQueue<TaskBucket, IndexedPriorityQueuePriorityOrdering::HIGH_TO_LOW>&
                 max_task_buckets,
@@ -230,22 +233,20 @@ bool SkewedPartitionRebalancer::rebalance_partition(
                 task_bucket, _estimated_task_bucket_data_size_since_last_rebalance[task_bucket.id]);
     }
 
-    fprintf(stderr, "Rebalanced partition %d to task %d with _task_count %ld\n", partition_id,
-            to_task_bucket.task_id, assignments.size());
     return true;
 }
 
-bool SkewedPartitionRebalancer::should_rebalance(long data_processed) {
+bool SkewedPartitionRebalancer::_should_rebalance(long data_processed) {
     return (data_processed - _data_processed_at_last_rebalance) >=
            _min_data_processed_rebalance_threshold;
 }
 
-void SkewedPartitionRebalancer::rebalance_partitions(long data_processed) {
-    if (!should_rebalance(data_processed)) {
+void SkewedPartitionRebalancer::_rebalance_partitions(long data_processed) {
+    if (!_should_rebalance(data_processed)) {
         return;
     }
 
-    calculate_partition_data_size(data_processed);
+    _calculate_partition_data_size(data_processed);
 
     for (int partition = 0; partition < _partition_count; partition++) {
         int total_assigned_tasks = _partition_assignments[partition].size();
@@ -283,7 +284,7 @@ void SkewedPartitionRebalancer::rebalance_partitions(long data_processed) {
             TaskBucket task_bucket1(taskId, bucketId, _task_bucket_count);
             TaskBucket task_bucket2(taskId, bucketId, _task_bucket_count);
             _estimated_task_bucket_data_size_since_last_rebalance[task_bucket1.id] =
-                    calculate_task_bucket_data_size_since_last_rebalance(
+                    _calculate_task_bucket_data_size_since_last_rebalance(
                             task_bucket_max_partitions[task_bucket1.id]);
             max_task_buckets.add_or_update(
                     std::move(task_bucket1),
@@ -294,8 +295,8 @@ void SkewedPartitionRebalancer::rebalance_partitions(long data_processed) {
         }
     }
 
-    rebalance_based_on_task_bucket_skewness(max_task_buckets, min_task_buckets,
-                                            task_bucket_max_partitions);
+    _rebalance_based_on_task_bucket_skewness(max_task_buckets, min_task_buckets,
+                                             task_bucket_max_partitions);
     _data_processed_at_last_rebalance = data_processed;
 }
 } // namespace doris::vectorized

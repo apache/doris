@@ -250,8 +250,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                  .schema = _schema,
                  .caller = (void*)this,
                  .create_partition_callback = &ExchangeSinkLocalState::empty_callback_function});
-    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
-        _partition_count = channels.size() * 128; // SCALE_WRITERS_MAX_PARTITIONS_PER_WRITER;
+    } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
+        _partition_count =
+                channels.size() * config::table_sink_partition_write_max_partition_nums_per_writer;
         _partitioner.reset(
                 new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_partition_count));
         _partition_function.reset(new HashPartitionFunction(_partitioner.get()));
@@ -259,16 +260,13 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         //        const long MIN_PARTITION_DATA_PROCESSED_REBALANCE_THRESHOLD = 10000 * MEGABYTE; // 1MB
         //        const long MIN_DATA_PROCESSED_REBALANCE_THRESHOLD = 50000 * MEGABYTE;           // 50MB
 
-        const long MIN_PARTITION_DATA_PROCESSED_REBALANCE_THRESHOLD = 1; // 1MB
-        const long MIN_DATA_PROCESSED_REBALANCE_THRESHOLD = 1;           // 50MB
-        _rebalancer.reset(new vectorized::SkewedPartitionRebalancer(
-                _partition_count, channels.size(), 1,
-                MIN_PARTITION_DATA_PROCESSED_REBALANCE_THRESHOLD,
-                MIN_DATA_PROCESSED_REBALANCE_THRESHOLD));
-
-        scale_writer_partitioning_exchanger.reset(
-                new vectorized::ScaleWriterPartitioningExchanger<HashPartitionFunction>(
-                        channels.size(), *_partition_function, *_rebalancer, _partition_count));
+        //        const long MIN_PARTITION_DATA_PROCESSED_REBALANCE_THRESHOLD = 1; // 1MB
+        //        const long MIN_DATA_PROCESSED_REBALANCE_THRESHOLD = 1;           // 50MB
+        scale_writer_partitioning_exchanger.reset(new vectorized::ScaleWriterPartitioningExchanger<
+                                                  HashPartitionFunction>(
+                channels.size(), *_partition_function, _partition_count, channels.size(), 1,
+                config::table_sink_partition_write_data_processed_threshold,
+                config::table_sink_partition_write_skewed_data_processed_rebalance_threshold));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
@@ -381,7 +379,6 @@ void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrT
 }
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
-    fprintf(stderr, "ExchangeSinkOperatorX::sink\n");
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     COUNTER_UPDATE(local_state.rows_sent_counter(), (int64_t)block->rows());
@@ -551,27 +548,16 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 current_channel->ch_roll_pb_block();
             }
             _data_processed += block->bytes();
-            //                _memory_manager.update_memory_usage(block->bytes());
         }
 
-        //                    if (_writer_count < local_state.channels.size() && _memory_manager.get_buffered_bytes() >= _max_buffered_bytes / 2) {
-        //                        if (_data_processed.load() >= _writer_count * _writer_scaling_min_data_processed
-        //                            && _total_memory_used() < _max_memory_per_node * 0.5) {
-        //                            _writer_count++;
-        //                            std::cout << "Increased task writer count: " << _writer_count << std::endl;
-        //                        }
-        //                    }
-
-        const long writer_scaling_min_data_processed = 128L * 1024L * 1024L;
         if (_writer_count < local_state.channels.size()) {
-            if (_data_processed >= _writer_count * writer_scaling_min_data_processed) {
+            if (_data_processed >=
+                _writer_count *
+                        config::table_sink_non_partition_write_scaling_data_processed_threshold) {
                 _writer_count++;
-                std::cout << "Increased task writer count: " << _writer_count << std::endl;
             }
         }
         local_state.current_channel_idx = (local_state.current_channel_idx + 1) % _writer_count;
-        //            local_state.current_channel_idx =
-        //                    (local_state.current_channel_idx + 1) % local_state.channels.size();
     } else {
         // Range partition
         // 1. calculate range

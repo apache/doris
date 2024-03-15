@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/DataSinks_types.h>
 
 #include "io/fs/file_writer.h"
 #include "vec/columns/column.h"

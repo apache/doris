@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 namespace doris {
-        namespace vectorized {
 
 class IndexedPriorityQueueTest : public testing::Test {
 public:
@@ -102,5 +101,4 @@ TEST_F(IndexedPriorityQueueTest, test_low_to_high) {
     EXPECT_EQ(expected_elements, actual_elements);
 }
 
-} // namespace vectorized
 } // namespace doris

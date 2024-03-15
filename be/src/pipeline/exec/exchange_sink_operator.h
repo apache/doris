@@ -74,9 +74,8 @@ private:
     public:
         HashPartitionFunction(vectorized::PartitionerBase* partitioner)
                 : _partitioner(partitioner) {}
-        int partition_count() { return _partitioner->get_partition_count(); }
 
-        int getPartition(vectorized::Block* block, int position) {
+        int get_partition(vectorized::Block* block, int position) {
             uint32_t* partition_ids = (uint32_t*)_partitioner->get_channel_ids();
             return partition_ids[position];
         }
@@ -233,7 +232,6 @@ private:
 
     // for external table sink hash partition
     std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
-    std::unique_ptr<vectorized::SkewedPartitionRebalancer> _rebalancer = nullptr;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {

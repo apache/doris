@@ -29,21 +29,16 @@ namespace doris::vectorized {
 
 template <typename PartitionFunction>
 class ScaleWriterPartitioningExchanger {
-private:
-    int _channel_size;
-    PartitionFunction& _partition_function;
-    SkewedPartitionRebalancer& _partition_rebalancer;
-    std::vector<int> _partition_row_counts;
-    std::vector<int> _partition_writer_ids;
-    std::vector<int> _partition_writer_indexes;
-
 public:
     ScaleWriterPartitioningExchanger(int channel_size, PartitionFunction& partition_function,
-                                     SkewedPartitionRebalancer& partition_rebalancer,
-                                     int partition_count)
+                                     int partition_count, int task_count, int task_bucket_count,
+                                     long min_partition_data_processed_rebalance_threshold,
+                                     long min_data_processed_rebalance_threshold)
             : _channel_size(channel_size),
               _partition_function(partition_function),
-              _partition_rebalancer(partition_rebalancer),
+              _partition_rebalancer(partition_count, task_count, task_bucket_count,
+                                    min_partition_data_processed_rebalance_threshold,
+                                    min_data_processed_rebalance_threshold),
               _partition_row_counts(partition_count, 0),
               _partition_writer_ids(partition_count, -1),
               _partition_writer_indexes(partition_count, 0) {}
@@ -59,7 +54,7 @@ public:
         _partition_rebalancer.rebalance();
 
         for (int position = 0; position < block->rows(); position++) {
-            int partition_id = _partition_function.getPartition(block, position);
+            int partition_id = _partition_function.get_partition(block, position);
             _partition_row_counts[partition_id] += 1;
 
             // Get writer id for this partition by looking at the scaling state
@@ -84,6 +79,14 @@ public:
         return _partition_rebalancer.get_task_id(partition_id,
                                                  _partition_writer_indexes[partition_id]++);
     }
+
+private:
+    int _channel_size;
+    PartitionFunction& _partition_function;
+    SkewedPartitionRebalancer _partition_rebalancer;
+    std::vector<int> _partition_row_counts;
+    std::vector<int> _partition_writer_ids;
+    std::vector<int> _partition_writer_indexes;
 };
 
 } // namespace doris::vectorized
