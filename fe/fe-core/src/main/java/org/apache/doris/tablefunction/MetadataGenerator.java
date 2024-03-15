@@ -57,9 +57,9 @@ import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
-import org.apache.doris.thrift.TQueriesMetadataParams;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TRow;
+import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTasksMetadataParams;
@@ -100,12 +100,35 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> ACTIVE_QUERIES_COLUMN_TO_INDEX;
 
+
+    private static final ImmutableList<Column> WORKLOAD_GROUPS_SCHEMA = ImmutableList.of(
+            new Column("ID", ScalarType.BIGINT),
+            new Column("NAME", ScalarType.createStringType()),
+            new Column("CPU_SHARE", PrimitiveType.BIGINT),
+            new Column("MEMORY_LIMIT", ScalarType.createStringType()),
+            new Column("ENABLE_MEMORY_OVERCOMMIT", ScalarType.createStringType()),
+            new Column("MAX_CONCURRENCY", PrimitiveType.BIGINT),
+            new Column("MAX_QUEUE_SIZE", PrimitiveType.BIGINT),
+            new Column("QUEUE_TIMEOUT", PrimitiveType.BIGINT),
+            new Column("CPU_HARD_LIMIT", PrimitiveType.BIGINT),
+            new Column("SCAN_THREAD_NUM", PrimitiveType.BIGINT),
+            new Column("MAX_REMOTE_SCAN_THREAD_NUM", PrimitiveType.BIGINT),
+            new Column("MIN_REMOTE_SCAN_THREAD_NUM", PrimitiveType.BIGINT));
+
+    private static final ImmutableMap<String, Integer> WORKLOAD_GROUPS_COLUMN_TO_INDEX;
+
     static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
         for (int i = 0; i < ACTIVE_QUERIES_SCHEMA.size(); i++) {
-            builder.put(ACTIVE_QUERIES_SCHEMA.get(i).getName().toLowerCase(), i);
+            activeQueriesbuilder.put(ACTIVE_QUERIES_SCHEMA.get(i).getName().toLowerCase(), i);
         }
-        ACTIVE_QUERIES_COLUMN_TO_INDEX = builder.build();
+        ACTIVE_QUERIES_COLUMN_TO_INDEX = activeQueriesbuilder.build();
+
+        ImmutableMap.Builder<String, Integer> workloadGroupsBuilder = new ImmutableMap.Builder();
+        for (int i = 0; i < WORKLOAD_GROUPS_SCHEMA.size(); i++) {
+            workloadGroupsBuilder.put(WORKLOAD_GROUPS_SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        WORKLOAD_GROUPS_COLUMN_TO_INDEX = workloadGroupsBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -126,9 +149,6 @@ public class MetadataGenerator {
                 break;
             case FRONTENDS_DISKS:
                 result = frontendsDisksMetadataResult(params);
-                break;
-            case WORKLOAD_GROUPS:
-                result = workloadGroupsMetadataResult(params);
                 break;
             case CATALOGS:
                 result = catalogsMetadataResult(params);
@@ -156,23 +176,26 @@ public class MetadataGenerator {
 
     public static TFetchSchemaTableDataResult getSchemaTableData(TFetchSchemaTableDataRequest request)
             throws TException {
-        if (!request.isSetMetadaTableParams() || !request.getMetadaTableParams().isSetMetadataType()) {
-            return errorResult("Metadata table params is not set. ");
+        if (!request.isSetSchemaTableParams()) {
+            return errorResult("schema table params is not set.");
         }
         TFetchSchemaTableDataResult result;
-        TMetadataTableRequestParams params = request.getMetadaTableParams();
+        TSchemaTableRequestParams schemaTableParams = request.getSchemaTableParams();
         ImmutableMap<String, Integer> columnIndex;
-        // todo(wb) move workload group/workload scheduler policy here
-        switch (request.getMetadaTableParams().getMetadataType()) {
-            case QUERIES:
-                result = queriesMetadataResult(params, request);
+        switch (request.getSchemaTableName()) {
+            case ACTIVE_QUERIES:
+                result = queriesMetadataResult(schemaTableParams, request);
                 columnIndex = ACTIVE_QUERIES_COLUMN_TO_INDEX;
                 break;
+            case WORKLOAD_GROUPS:
+                result = workloadGroupsMetadataResult(schemaTableParams);
+                columnIndex = WORKLOAD_GROUPS_COLUMN_TO_INDEX;
+                break;
             default:
-                return errorResult("schema table params is not set.");
+                return errorResult("invalid schema table name.");
         }
-        if (result.getStatus().getStatusCode() == TStatusCode.OK) {
-            filterColumns(result, params.getColumnsName(), columnIndex);
+        if (schemaTableParams.isSetColumnsName() && result.getStatus().getStatusCode() == TStatusCode.OK) {
+            filterColumns(result, schemaTableParams.getColumnsName(), columnIndex);
         }
         return result;
     }
@@ -406,7 +429,7 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult workloadGroupsMetadataResult(TMetadataTableRequestParams params) {
+    private static TFetchSchemaTableDataResult workloadGroupsMetadataResult(TSchemaTableRequestParams params) {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
@@ -427,13 +450,11 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(6)))); // max queue size
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // queue timeout
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(8)));             // cpu hard limit
-            trow.addToColumnValue(new TCell().setIntVal(Integer.parseInt(rGroupsInfo.get(9)))); // scan thread num
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // scan thread num
             // max remote scan thread num
-            trow.addToColumnValue(new TCell().setIntVal(Integer.parseInt(rGroupsInfo.get(10))));
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(10))));
             // min remote scan thread num
-            trow.addToColumnValue(new TCell().setIntVal(Integer.parseInt(rGroupsInfo.get(11))));
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(12)))); // running query num
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(13)))); // waiting query num
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(11))));
             dataBatch.add(trow);
         }
 
@@ -516,13 +537,8 @@ public class MetadataGenerator {
         return trow;
     }
 
-    private static TFetchSchemaTableDataResult queriesMetadataResult(TMetadataTableRequestParams params,
+    private static TFetchSchemaTableDataResult queriesMetadataResult(TSchemaTableRequestParams tSchemaTableParams,
             TFetchSchemaTableDataRequest parentRequest) {
-        if (!params.isSetQueriesMetadataParams()) {
-            return errorResult("queries metadata param is not set.");
-        }
-
-        TQueriesMetadataParams queriesMetadataParams = params.getQueriesMetadataParams();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
@@ -563,16 +579,14 @@ public class MetadataGenerator {
         }
 
         /* Get the query results from other FE also */
-        if (queriesMetadataParams.isRelayToOtherFe()) {
-            TFetchSchemaTableDataRequest relayRequest = new TFetchSchemaTableDataRequest(parentRequest);
-            TMetadataTableRequestParams relayParams = new TMetadataTableRequestParams(params);
-            TQueriesMetadataParams relayQueryParams = new TQueriesMetadataParams(queriesMetadataParams);
+        if (tSchemaTableParams.isReplayToOtherFe()) {
+            TSchemaTableRequestParams replaySchemaTableParams = new TSchemaTableRequestParams(tSchemaTableParams);
+            replaySchemaTableParams.setReplayToOtherFe(false);
 
-            relayQueryParams.setRelayToOtherFe(false);
-            relayParams.setQueriesMetadataParams(relayQueryParams);
-            relayRequest.setMetadaTableParams(relayParams);
+            TFetchSchemaTableDataRequest replayFetchSchemaTableReq = new TFetchSchemaTableDataRequest(parentRequest);
+            replayFetchSchemaTableReq.setSchemaTableParams(replaySchemaTableParams);
 
-            List<TFetchSchemaTableDataResult> relayResults = forwardToOtherFrontends(relayRequest);
+            List<TFetchSchemaTableDataResult> relayResults = forwardToOtherFrontends(replayFetchSchemaTableReq);
             relayResults
                     .forEach(rs -> rs.getDataBatch()
                         .forEach(row -> dataBatch.add(row)));
