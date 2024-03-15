@@ -42,7 +42,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.THashJoinNode;
 import org.apache.doris.thrift.TJoinDistributionType;
 import org.apache.doris.thrift.TPlanNode;
