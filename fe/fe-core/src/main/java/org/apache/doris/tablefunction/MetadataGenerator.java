@@ -42,6 +42,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
+import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
@@ -57,7 +58,6 @@ import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
-import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TStatus;
@@ -91,11 +91,14 @@ public class MetadataGenerator {
 
     private static final ImmutableList<Column> ACTIVE_QUERIES_SCHEMA = ImmutableList.of(
             new Column("QUERY_ID", ScalarType.createStringType()),
-            new Column("START_TIME", ScalarType.createStringType()),
+            new Column("QUERY_START_TIME", ScalarType.createStringType()),
             new Column("QUERY_TIME_MS", PrimitiveType.BIGINT),
             new Column("WORKLOAD_GROUP_ID", PrimitiveType.BIGINT),
             new Column("DATABASE", ScalarType.createStringType()),
             new Column("FRONTEND_INSTANCE", ScalarType.createStringType()),
+            new Column("QUEUE_START_TIME", ScalarType.createStringType()),
+            new Column("QUEUE_END_TIME", ScalarType.createStringType()),
+            new Column("QUERY_STATUS", ScalarType.createStringType()),
             new Column("SQL", ScalarType.createStringType()));
 
     private static final ImmutableMap<String, Integer> ACTIVE_QUERIES_COLUMN_TO_INDEX;
@@ -490,53 +493,6 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TRow makeQueryStatisticsTRow(SimpleDateFormat sdf, String queryId, Backend be,
-            String selfNode, QueryInfo queryInfo, TQueryStatistics qs) {
-        TRow trow = new TRow();
-        if (be != null) {
-            trow.addToColumnValue(new TCell().setStringVal(be.getHost()));
-            trow.addToColumnValue(new TCell().setLongVal(be.getBePort()));
-        } else {
-            trow.addToColumnValue(new TCell().setStringVal("invalid host"));
-            trow.addToColumnValue(new TCell().setLongVal(-1));
-        }
-        trow.addToColumnValue(new TCell().setStringVal(queryId));
-
-        String strDate = sdf.format(new Date(queryInfo.getStartExecTime()));
-        trow.addToColumnValue(new TCell().setStringVal(strDate));
-        trow.addToColumnValue(new TCell().setLongVal(System.currentTimeMillis() - queryInfo.getStartExecTime()));
-
-        if (qs != null) {
-            trow.addToColumnValue(new TCell().setLongVal(qs.workload_group_id));
-            trow.addToColumnValue(new TCell().setLongVal(qs.cpu_ms));
-            trow.addToColumnValue(new TCell().setLongVal(qs.scan_rows));
-            trow.addToColumnValue(new TCell().setLongVal(qs.scan_bytes));
-            trow.addToColumnValue(new TCell().setLongVal(qs.max_peak_memory_bytes));
-            trow.addToColumnValue(new TCell().setLongVal(qs.current_used_memory_bytes));
-            trow.addToColumnValue(new TCell().setLongVal(qs.shuffle_send_bytes));
-            trow.addToColumnValue(new TCell().setLongVal(qs.shuffle_send_rows));
-        } else {
-            trow.addToColumnValue(new TCell().setLongVal(0L));
-            trow.addToColumnValue(new TCell().setLongVal(0L));
-            trow.addToColumnValue(new TCell().setLongVal(0L));
-            trow.addToColumnValue(new TCell().setLongVal(0L));
-            trow.addToColumnValue(new TCell().setLongVal(0L));
-            trow.addToColumnValue(new TCell().setLongVal(0L));
-            trow.addToColumnValue(new TCell().setLongVal(0L));
-            trow.addToColumnValue(new TCell().setLongVal(0L));
-        }
-
-        if (queryInfo.getConnectContext() != null) {
-            trow.addToColumnValue(new TCell().setStringVal(queryInfo.getConnectContext().getDatabase()));
-        } else {
-            trow.addToColumnValue(new TCell().setStringVal(""));
-        }
-        trow.addToColumnValue(new TCell().setStringVal(selfNode));
-        trow.addToColumnValue(new TCell().setStringVal(queryInfo.getSql()));
-
-        return trow;
-    }
-
     private static TFetchSchemaTableDataResult queriesMetadataResult(TSchemaTableRequestParams tSchemaTableParams,
             TFetchSchemaTableDataRequest parentRequest) {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
@@ -557,9 +513,15 @@ public class MetadataGenerator {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(queryId));
 
-            String strDate = sdf.format(new Date(queryInfo.getStartExecTime()));
-            trow.addToColumnValue(new TCell().setStringVal(strDate));
-            trow.addToColumnValue(new TCell().setLongVal(System.currentTimeMillis() - queryInfo.getStartExecTime()));
+            long queryStartTime = queryInfo.getStartExecTime();
+            if (queryStartTime > 0) {
+                trow.addToColumnValue(new TCell().setStringVal(sdf.format(new Date(queryStartTime))));
+                trow.addToColumnValue(
+                        new TCell().setLongVal(System.currentTimeMillis() - queryInfo.getStartExecTime()));
+            } else {
+                trow.addToColumnValue(new TCell());
+                trow.addToColumnValue(new TCell().setLongVal(-1));
+            }
 
             List<TPipelineWorkloadGroup> tgroupList = queryInfo.getCoord().gettWorkloadGroups();
             if (tgroupList != null && tgroupList.size() == 1) {
@@ -574,6 +536,30 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(""));
             }
             trow.addToColumnValue(new TCell().setStringVal(selfNode));
+
+            long queueStartTime = queryInfo.getQueueStartTime();
+            if (queueStartTime > 0) {
+                trow.addToColumnValue(new TCell().setStringVal(sdf.format(new Date(queueStartTime))));
+            } else {
+                trow.addToColumnValue(new TCell());
+            }
+
+            long queueEndTime = queryInfo.getQueueEndTime();
+            if (queueEndTime > 0) {
+                trow.addToColumnValue(new TCell().setStringVal(sdf.format(new Date(queueEndTime))));
+            } else {
+                trow.addToColumnValue(new TCell());
+            }
+
+            TokenState tokenState = queryInfo.getQueueStatus();
+            if (tokenState == null) {
+                trow.addToColumnValue(new TCell());
+            } else if (tokenState == TokenState.READY_TO_RUN) {
+                trow.addToColumnValue(new TCell().setStringVal("RUNNING"));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal("QUEUED"));
+            }
+
             trow.addToColumnValue(new TCell().setStringVal(queryInfo.getSql()));
             dataBatch.add(trow);
         }
