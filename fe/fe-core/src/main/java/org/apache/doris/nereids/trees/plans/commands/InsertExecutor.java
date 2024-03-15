@@ -222,7 +222,7 @@ public class InsertExecutor {
         try {
             coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
             coordinator.setQueryType(TQueryType.LOAD);
-            executor.getProfile().setExecutionProfile(coordinator.getExecutionProfile());
+            executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
             QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
             QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
             coordinator.exec();
