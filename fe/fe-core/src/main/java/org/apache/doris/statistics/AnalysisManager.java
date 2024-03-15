@@ -111,7 +111,7 @@ public class AnalysisManager implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
-    private static final int COLUMN_QUEUE_SIZE = 1000;
+    public static final int COLUMN_QUEUE_SIZE = 1000;
     public final Queue<QueryColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Queue<QueryColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Map<TableName, Set<String>> highPriorityJobs = new LinkedHashMap<>();
@@ -1152,11 +1152,11 @@ public class AnalysisManager implements Writable {
     }
 
 
-    public void updateColumnUsedInPredicate(Set<Slot> slotReferences) {
+    public void updateHighPriorityColumn(Set<Slot> slotReferences) {
         updateColumn(slotReferences, highPriorityColumns);
     }
 
-    public void updateQueriedColumn(Collection<Slot> slotReferences) {
+    public void updateMidPriorityColumn(Collection<Slot> slotReferences) {
         updateColumn(slotReferences, midPriorityColumns);
     }
 
