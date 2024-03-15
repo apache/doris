@@ -114,6 +114,13 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
+    // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
+    // interface
+    virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
+                                          int* result_column_id, std::vector<size_t>& args) {
+        return execute(context, block, result_column_id);
+    };
+
     /// Subclasses overriding this function should call VExpr::Close().
     //
     /// If scope if FRAGMENT_LOCAL, both fragment- and thread-local state should be torn

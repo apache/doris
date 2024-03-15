@@ -2075,13 +2075,12 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             // VdirectInPredicate assume is_nullable = false.
             node.__set_is_nullable(false);
 
-            root = vectorized::VDirectInPredicate::create_shared(node);
             std::shared_ptr<HybridSetBase> hybrid_set(
                     create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }
-            static_cast<vectorized::VDirectInPredicate*>(root.get())->set_filter(hybrid_set);
+            root = vectorized::VDirectInPredicate::create_shared(node, hybrid_set);
         }
         {
             SlotDescriptor* slot = nullptr;
