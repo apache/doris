@@ -32,7 +32,6 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
@@ -47,6 +46,7 @@
 #include "util/binary_cast.hpp"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -70,6 +70,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
 
     TQueryGlobals query_globals = params.query_globals;
     _query_id = params.query_id;
+    LOG(INFO) << "fold_query_id: " << print_id(_query_id);
     // init
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
@@ -108,8 +109,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                 if (!ctx->root()->type().is_complex_type()) {
                     string_ref = column_ptr->get_data_at(0);
                 }
-                result = _get_result((void*)string_ref.data, string_ref.size, ctx->root()->type(),
-                                     column_ptr, column_type);
+                RETURN_IF_ERROR(_get_result((void*)string_ref.data, string_ref.size,
+                                            ctx->root()->type(), column_ptr, column_type, result));
             }
 
             expr_result.set_content(std::move(result));
@@ -121,7 +122,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
         }
         expr_result_map->insert({m.first, pexpr_result_map});
     }
-
+    //TODO: will be delete the debug log after find problem of timeout.
+    LOG(INFO) << "finish fold_query_id: " << query_id_string();
     return Status::OK();
 }
 
@@ -135,7 +137,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     fragment_params.params = params;
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     _runtime_state = RuntimeState::create_unique(fragment_params.params, query_options,
-                                                 query_globals, ExecEnv::GetInstance());
+                                                 query_globals, ExecEnv::GetInstance(), nullptr);
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);
@@ -159,55 +161,72 @@ Status FoldConstantExecutor::_prepare_and_open(Context* ctx) {
     return ctx->open(_runtime_state.get());
 }
 
-string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescriptor& type,
+Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescriptor& type,
                                          const vectorized::ColumnPtr column_ptr,
-                                         const vectorized::DataTypePtr column_type) {
+                                         const vectorized::DataTypePtr column_type,
+                                         std::string& result) {
     switch (type.type) {
     case TYPE_BOOLEAN: {
         bool val = *reinterpret_cast<const bool*>(src);
-        return val ? "true" : "false";
+        result = val ? "true" : "false";
+        break;
     }
     case TYPE_TINYINT: {
         int8_t val = *reinterpret_cast<const int8_t*>(src);
-        return fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
+        break;
     }
     case TYPE_SMALLINT: {
         int16_t val = *reinterpret_cast<const int16_t*>(src);
-        return fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
+        break;
     }
     case TYPE_INT: {
         int32_t val = *reinterpret_cast<const int32_t*>(src);
-        return fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
+        break;
     }
     case TYPE_BIGINT: {
         int64_t val = *reinterpret_cast<const int64_t*>(src);
-        return fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
+        break;
     }
     case TYPE_LARGEINT: {
-        return LargeIntValue::to_string(*reinterpret_cast<__int128*>(src));
+        result = LargeIntValue::to_string(*reinterpret_cast<__int128*>(src));
+        break;
     }
     case TYPE_FLOAT: {
         float val = *reinterpret_cast<const float*>(src);
-        return fmt::format("{}", val);
+        result = fmt::format(FMT_COMPILE("{}"), val);
+        break;
     }
     case TYPE_TIME:
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
-        return fmt::format("{}", val);
+        result = fmt::format(FMT_COMPILE("{}"), val);
+        break;
+    }
+    case TYPE_TIMEV2: {
+        constexpr static auto ratio_to_time = (1000 * 1000);
+        double val = *reinterpret_cast<double*>(src);
+        result = fmt::format(FMT_COMPILE("{}"), val / ratio_to_time);
+        break;
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING:
     case TYPE_HLL:
     case TYPE_OBJECT: {
-        return std::string((char*)src, size);
+        result = std::string((char*)src, size);
+        break;
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        auto date_value = reinterpret_cast<VecDateTimeValue*>(src);
+        auto* date_value = reinterpret_cast<VecDateTimeValue*>(src);
         char str[MAX_DTVALUE_STR_LEN];
         date_value->to_string(str);
-        return str;
+        result = std::string(str);
+        break;
     }
     case TYPE_DATEV2: {
         DateV2Value<DateV2ValueType> value =
@@ -215,7 +234,8 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
 
         char buf[64];
         char* pos = value.to_string(buf);
-        return std::string(buf, pos - buf - 1);
+        result = std::string(buf, pos - buf - 1);
+        break;
     }
     case TYPE_DATETIMEV2: {
         DateV2Value<DateTimeV2ValueType> value =
@@ -223,27 +243,43 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
 
         char buf[64];
         char* pos = value.to_string(buf, type.scale);
-        return std::string(buf, pos - buf - 1);
+        result = std::string(buf, pos - buf - 1);
+        break;
     }
     case TYPE_DECIMALV2: {
-        return reinterpret_cast<DecimalV2Value*>(src)->to_string(type.scale);
+        result = reinterpret_cast<DecimalV2Value*>(src)->to_string(type.scale);
+        break;
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
     case TYPE_DECIMAL256: {
-        return column_type->to_string(*column_ptr, 0);
+        result = column_type->to_string(*column_ptr, 0);
+        break;
     }
     case TYPE_ARRAY:
     case TYPE_JSONB:
     case TYPE_MAP:
     case TYPE_STRUCT: {
-        return column_type->to_string(*column_ptr, 0);
+        result = column_type->to_string(*column_ptr, 0);
+        break;
+    }
+    case TYPE_QUANTILE_STATE: {
+        result = column_type->to_string(*column_ptr, 0);
+        break;
+    }
+    case TYPE_IPV4:
+    case TYPE_IPV6: {
+        result = column_type->to_string(*column_ptr, 0);
+        break;
     }
     default:
-        DCHECK(false) << "Type not implemented: " << type.debug_string();
-        return "";
+        auto error_msg =
+                fmt::format("Type not implemented:{} need check it, and exec_query_id is: {}.",
+                            type.debug_string(), query_id_string());
+        return Status::InternalError(error_msg);
     }
+    return Status::OK();
 }
 
 } // namespace doris

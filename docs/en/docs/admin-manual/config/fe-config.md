@@ -48,9 +48,9 @@ There are two ways to view the configuration items of FE:
 
 2. View by command
 
-    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command,Concrete language law reference [ADMIN-SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG.md):
+    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command,Concrete language law reference [SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/SHOW-CONFIG.md):
 
-    `ADMIN SHOW FRONTEND CONFIG;`
+    `SHOW FRONTEND CONFIG;`
 
     The meanings of the columns in the results are as follows:
 
@@ -75,7 +75,7 @@ There are two ways to configure FE configuration items:
 
     `ADMIN SET FRONTEND CONFIG (" fe_config_name "=" fe_config_value ");`
 
-    Not all configuration items support dynamic configuration. You can check whether the dynamic configuration is supported by the `IsMutable` column in the` ADMIN SHOW FRONTEND CONFIG; `command result.
+    Not all configuration items support dynamic configuration. You can check whether the dynamic configuration is supported by the `IsMutable` column in the` SHOW FRONTEND CONFIG; `command result.
 
     If the configuration item of `MasterOnly` is modified, the command will be directly forwarded to the Master FE and only the corresponding configuration item in the Master FE will be modified.
 
@@ -93,7 +93,7 @@ There are two ways to configure FE configuration items:
 
 1. Modify `async_pending_load_task_pool_size`
 
-    Through `ADMIN SHOW FRONTEND CONFIG;` you can see that this configuration item cannot be dynamically configured (`IsMutable` is false). You need to add in `fe.conf`:
+    Through `SHOW FRONTEND CONFIG;` you can see that this configuration item cannot be dynamically configured (`IsMutable` is false). You need to add in `fe.conf`:
 
     `async_pending_load_task_pool_size = 20`
 
@@ -101,7 +101,7 @@ There are two ways to configure FE configuration items:
 
 2. Modify `dynamic_partition_enable`
 
-    Through `ADMIN SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). And it is the unique configuration of Master FE. Then first we can connect to any FE and execute the following command to modify the configuration:
+    Through `SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). And it is the unique configuration of Master FE. Then first we can connect to any FE and execute the following command to modify the configuration:
 
     ```
     ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true"); `
@@ -111,14 +111,14 @@ There are two ways to configure FE configuration items:
 
     ```
     set forward_to_master = true;
-    ADMIN SHOW FRONTEND CONFIG;
+    SHOW FRONTEND CONFIG;
     ```
 
     After modification in the above manner, if the Master FE restarts or a Master election is performed, the configuration will be invalid. You can add the configuration item directly in `fe.conf` and restart the FE to make the configuration item permanent.
 
 3. Modify `max_distribution_pruner_recursion_depth`
 
-    Through `ADMIN SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). It is not unique to Master FE.
+    Through `SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). It is not unique to Master FE.
 
     Similarly, we can modify the configuration by dynamically modifying the configuration command. Because this configuration is not unique to the Master FE, user need to connect to different FEs separately to modify the configuration dynamically, so that all FEs use the modified configuration values.
 
@@ -167,7 +167,7 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
-### `grpc_threadmgr_threads_nums`
+#### `grpc_threadmgr_threads_nums`
 
 Default: 4096
 
@@ -376,6 +376,18 @@ Is it a configuration item unique to the Master FE node: true
 
 Whether to enable the multi-tags function of a single BE
 
+#### `initial_root_password`
+
+Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. Subsequent `set password` operations for root user will overwrite the initial root password.
+
+Example: If you want to configure a plaintext password `root@123`. You can execute Doris SQL `select password('root@123')` to generate encrypted password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`.
+
+Default: empty string
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
+
 ### Service
 
 #### `query_port`
@@ -429,7 +441,7 @@ If enable_https is true, you need to configure ssl certificate information in fe
 
 Default：true
 
-If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
+If set to true, doris will establish an encrypted channel based on the SSL protocol with mysql.
 
 #### `qe_max_connection`
 
@@ -575,6 +587,16 @@ Is it possible to configure dynamically: true
 
 Whether it is a configuration item unique to the Master FE node: true
 
+### `abort_txn_after_lost_heartbeat_time_second`
+
+Abort transaction time after lost heartbeat. The default value is 300, which means transactions of be will be aborted after lost heartbeat 300s.
+
+Default: 300(s)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
 #### `enable_access_file_without_broker`
 
 Default：false
@@ -627,7 +649,7 @@ Cluster token used for internal authentication.
 
 Default：The default is true after the official 0.14.0 version is released, and the default is false before
 
-HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when httpv2 is enabled can users use the new front-end UI interface.
+HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when HTTPv2 is enabled can users use the new front-end UI interface.
 
 #### `http_api_extra_base_path`
 
@@ -666,42 +688,17 @@ Default：1048576  （1M）
 
 http header size configuration parameter, the default value is 1M.
 
-#### `enable_tracing`
+#### `http_sql_submitter_max_worker_threads`
 
-Default：false
+Default：2
 
-IsMutable：false
+The max number work threads of http sql submitter
 
-MasterOnly：false
+#### `http_load_submitter_max_worker_threads`
 
-Whether to enable tracking
+Default：2
 
-If this configuration is enabled, you should also specify the trace_export_url.
-
-#### `trace_exporter`
-
-Default：zipkin
-
-IsMutable：false
-
-MasterOnly：false
-
-Current support for exporting traces:
-  zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-  collector: The collector can be used to receive and process traces and support export to a variety of third-party systems.
-If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-
-#### `trace_export_url`
-
-Default：`http://127.0.0.1:9411/api/v2/spans`
-
-IsMutable：false
-
-MasterOnly：false
-
-trace export to zipkin like: `http://127.0.0.1:9411/api/v2/spans`
-
-trace export to collector like: `http://127.0.0.1:4318/v1/traces`
+The max number work threads of http upload submitter
 
 ### Query Engine
 
@@ -866,7 +863,7 @@ In order to avoid occupying too much memory, the maximum data size of rows that 
 
 #### `cache_last_version_interval_second`
 
-Default：900
+Default：30
 
 IsMutable：true
 
@@ -931,9 +928,9 @@ This may reduce network transmission in following case:
 
 -  The data has N replicas.
 
--  High concurrency queries are syyuyuient to all Frontends evenly
+-  High concurrency queries are evenly sent to all Frontends evenly
 
-In this case, all Frontends can only use local replicas to do the query. If you want to allow fallback to nonlocal replicas when no local replicas available, set enable_local_replica_selection_fallback to true.
+In this case, all Frontends can only use local replicas to do the query. If you want to allow fallback to non-local replicas when no local replicas available, set enable_local_replica_selection_fallback to true.
 
 #### `enable_local_replica_selection_fallback`
 
@@ -941,7 +938,7 @@ Default：false
 
 IsMutable：true
 
-Used with enable_local_replica_selection. If the local replicas is not available, fallback to the nonlocal replicas.
+Used with enable_local_replica_selection. If the local replicas is not available, fallback to the non-local replicas.
 
 #### `expr_depth_limit`
 
@@ -1012,7 +1009,7 @@ Default：1
 
 IsMutable：true
 
-colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
+Colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
 
 #### `rewrite_count_distinct_to_bitmap_hll`
 
@@ -1021,7 +1018,7 @@ Default: true
 This variable is a session variable, and the session level takes effect.
 
 - Type: boolean
-- Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distnct will be rewritten It is bitmap_union_count(c1). When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1) If the variable is false, no overwriting occurs..
+- Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distinct will be rewritten It is bitmap_union_count(c1). When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1) If the variable is false, no overwriting occurs..
 
 ### Load And Export
 
@@ -1168,7 +1165,7 @@ Max bytes a broker scanner can process in one broker load job. Commonly, each Ba
 
 #### `default_load_parallelism`
 
-Default: 1
+Default: 8
 
 IsMutable：true
 
@@ -1377,6 +1374,17 @@ IsMutable：true
 MasterOnly：true
 
 Default stream load pre-submission timeout
+
+#### `stream_load_default_memtable_on_sink_node`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：true
+
+Enable memtable on sink node for stream load by default.
+When HTTP header `memtable_on_sink_node` is not set.
 
 #### `insert_load_default_timeout_second`
 
@@ -1651,7 +1659,7 @@ fe.warn.log  all WARNING and ERROR log of FE process.
 
 Default：INFO
 
-log level：INFO, WARNING, ERROR, FATAL
+log level：INFO, WARN, ERROR, FATAL
 
 #### `sys_log_roll_num`
 
@@ -1754,6 +1762,12 @@ Default: false
 
 If true, will compress fe.audit.log by gzip
 
+#### `nereids_trace_log_dir`
+
+Default: DorisFE.DORIS_HOME_DIR + "/log/nereids_trace"
+
+Used to specify the directory of the nereids trace log
+
 ### Storage
 
 #### `min_replication_num_per_tablet`
@@ -1813,20 +1827,6 @@ MasterOnly：true
 In some very special circumstances, such as code bugs, or human misoperation, etc., all replicas of some tablets may be lost. In this case, the data has been substantially lost. However, in some scenarios, the business still hopes to ensure that the query will not report errors even if there is data loss, and reduce the perception of the user layer. At this point, we can use the blank Tablet to fill the missing replica to ensure that the query can be executed normally.
 
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing
-
-#### `recover_with_skip_missing_version`
-
-Default：disable
-
-IsMutable：true
-
-MasterOnly：true
-
-In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be. In this case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
-This configuration has three values:
-* disable : If an exception occurs, an error will be reported normally.
-* ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
-* ignore_all: In addition to ignore_version, when encountering no queryable replica, skip it directly instead of throwing an exception
 
 #### `min_clone_task_timeout_sec` `And max_clone_task_timeout_sec`
 
@@ -2034,7 +2034,7 @@ Dynamically configured: true
 Only for Master FE: true
 
 The relocation of a colocation group may involve a large number of tablets moving within the cluster. Therefore, we should use a more conservative strategy to avoid relocation of colocation groups as much as possible.
-Reloaction usually occurs after a BE node goes offline or goes down. This parameter is used to delay the determination of BE node unavailability. The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group will not be triggered.
+Relocation usually occurs after a BE node goes offline or goes down. This parameter is used to delay the determination of BE node unavailability. The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group will not be triggered.
 
 ####` allow_replica_on_same_host`
 
@@ -2096,11 +2096,17 @@ Only for Master FE: true
 
 The data size threshold used to judge whether replica is too large
 
-#### `schedule_slot_num_per_path`
+#### `schedule_slot_num_per_hdd_path`
 
-Default：2
+Default：4
 
-the default slot number per path in tablet scheduler , remove this config and dynamically adjust it by clone task statistic
+the default slot number per path in tablet scheduler for hdd , remove this config and dynamically adjust it by clone task statistic
+
+#### `schedule_slot_num_per_ssd_path`
+
+Default：8
+
+the default slot number per path in tablet scheduler for ssd , remove this config and dynamically adjust it by clone task statistic
 
 #### `tablet_repair_delay_factor_second`
 
@@ -2134,7 +2140,7 @@ MasterOnly：true
 
 ##### `storage_flood_stage_left_capacity_bytes`
 
-Default：1 * 1024 * 1024 * 1024 (1GB)
+Default：`1 * 1024 * 1024 * 1024` (1GB)
 
 IsMutable：true
 
@@ -2185,7 +2191,7 @@ When create a table(or partition), you can specify its storage medium(HDD or SSD
 
 Default：HDD
 
-When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when creat.
+When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when create.
 
 #### `enable_storage_policy`
 
@@ -2268,6 +2274,16 @@ MasterOnly：true
 
 Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
 
+#### `delete_job_max_timeout_second`
+
+Default: 300(s)
+
+Mutable: true
+
+Master only: true
+
+Maximal timeout for delete job, in seconds.
+
 #### `alter_table_timeout_second`
 
 Default：86400 * 30（1 month）
@@ -2322,7 +2338,7 @@ multi catalog concurrent file scanning threads
 
 #### `file_scan_node_split_size`
 
-Default：256 * 1024 * 1024
+Default：`256 * 1024 * 1024`
 
 IsMutable：true
 
@@ -2330,60 +2346,15 @@ MasterOnly：false
 
 multi catalog concurrent file scan size
 
-#### `enable_odbc_table`
+#### `enable_odbc_mysql_broker_table`
 
 Default：false
 
 IsMutable：true
 
-MasterOnly：true
-
-Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it.
-
-This parameter can be set by: ADMIN SET FRONTEND CONFIG("key"="value")
-
-**Note:** This parameter has been deleted in version 1.2. The ODBC External Table is enabled by default, and the ODBC External Table will be deleted in a later version. It is recommended to use the JDBC External Table
-
-#### `disable_iceberg_hudi_table`
-
-Default：true
-
-IsMutable：true
-
 MasterOnly：false
 
-Starting from version 1.2, we no longer support create hudi and iceberg External Table. Please use the multi catalog.
-
-#### `iceberg_table_creation_interval_second`
-
-Default：10 (s)
-
-IsMutable：true
-
-MasterOnly：false
-
-fe will create iceberg table every iceberg_table_creation_interval_second
-
-#### `iceberg_table_creation_strict_mode`
-
-Default：true
-
-IsMutable：true
-
-MasterOnly：true
-
-If set to TRUE, the column definitions of iceberg table and the doris table must be consistent
-If set to FALSE, Doris only creates columns of supported data types.
-
-#### `max_iceberg_table_creation_record_size`
-
-Default max number of recent iceberg database table creation record that can be stored in memory.
-
-Default：2000
-
-IsMutable：true
-
-MasterOnly：true
+Starting from version 2.1, we no longer support create ODBC, JDBC and broker external table. For odbc and mysql external table, use JDBC table or JDBC catalog instead. For broker table, use table valued function instead.
 
 #### `max_hive_partition_cache_num`
 
@@ -2608,6 +2579,26 @@ MasterOnly：true
 
 default timeout of backup job
 
+#### `backup_upload_task_num_per_be`
+
+Default：3
+
+IsMutable：true
+
+MasterOnly：true
+
+The max number of upload tasks assigned to each be during the backup process, the default value is 3.
+
+#### `restore_download_task_num_per_be`
+
+Default：3
+
+IsMutable：true
+
+MasterOnly：true
+
+The max number of download tasks assigned to each be during the restore process, the default value is 3.
+
 #### `max_backup_restore_job_num_per_db`
 
 Default: 10
@@ -2660,7 +2651,7 @@ IsMutable：true
 
 MasterOnly：false
 
-Whether to push the filter conditions with functions down to MYSQL, when exectue query of ODBC、JDBC external tables
+Whether to push the filter conditions with functions down to MYSQL, when execute query of ODBC、JDBC external tables
 
 #### `jdbc_drivers_dir`
 
@@ -2777,3 +2768,9 @@ Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file 
 Default: mysql
 
 To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. If this database conflicts with a user's own database, please modify this field to replace the name of the Doris built-in MySQL database with a different name.
+
+#### `max_auto_partition_num`
+
+Default value: 2000
+
+For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000.

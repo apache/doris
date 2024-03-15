@@ -36,8 +36,9 @@ enum TDataSinkType {
     RESULT_FILE_SINK,
     JDBC_TABLE_SINK,
     MULTI_CAST_DATA_STREAM_SINK,
-    GROUP_COMMIT_OLAP_TABLE_SINK,
+    GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
     GROUP_COMMIT_BLOCK_SINK,
+    HIVE_TABLE_SINK,
 }
 
 enum TResultSinkType {
@@ -101,7 +102,7 @@ enum TParquetRepetitionType {
 struct TParquetSchema {
     1: optional TParquetRepetitionType schema_repetition_type
     2: optional TParquetDataType schema_data_type
-    3: optional string schema_column_name    
+    3: optional string schema_column_name
     4: optional TParquetDataLogicalType schema_data_logical_type
 }
 
@@ -128,6 +129,7 @@ struct TResultFileSinkOptions {
 
     16: optional bool delete_existing_files;
     17: optional string file_suffix;
+    18: optional bool with_bom;
 }
 
 struct TMemoryScratchSink {
@@ -158,17 +160,24 @@ struct TDataStreamSink {
 
   3: optional bool ignore_not_found
 
-    // per-destination projections
-    4: optional list<Exprs.TExpr> output_exprs
+  // per-destination projections
+  4: optional list<Exprs.TExpr> output_exprs
 
-    // project output tuple id
-    5: optional Types.TTupleId output_tuple_id
+  // project output tuple id
+  5: optional Types.TTupleId output_tuple_id
 
-    // per-destination filters
-    6: optional list<Exprs.TExpr> conjuncts
+  // per-destination filters
+  6: optional list<Exprs.TExpr> conjuncts
 
-    // per-destination runtime filters
-    7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
+  // per-destination runtime filters
+  7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
+
+  // used for partition_type = TABLET_SINK_SHUFFLE_PARTITIONED
+  8: optional Descriptors.TOlapTableSchemaParam tablet_sink_schema
+  9: optional Descriptors.TOlapTablePartitionParam tablet_sink_partition
+  10: optional Descriptors.TOlapTableLocationParam tablet_sink_location
+  11: optional i64 tablet_sink_txn_id
+  12: optional Types.TTupleId tablet_sink_tuple_id
 }
 
 struct TMultiCastDataStreamSink {
@@ -235,6 +244,12 @@ struct TExportSink {
     7: optional string header
 }
 
+enum TGroupCommitMode {
+    SYNC_MODE,
+    ASYNC_MODE,
+    OFF_MODE
+}
+
 struct TOlapTableSink {
     1: required Types.TUniqueId load_id
     2: required i64 txn_id
@@ -256,7 +271,81 @@ struct TOlapTableSink {
     18: optional Descriptors.TOlapTableLocationParam slave_location
     19: optional i64 txn_timeout_s // timeout of load txn in second
     20: optional bool write_file_cache
+
+    // used by GroupCommitBlockSink
     21: optional i64 base_schema_version
+    22: optional TGroupCommitMode group_commit_mode
+    23: optional double max_filter_ratio
+
+    24: optional string storage_vault_id
+}
+
+struct THiveLocationParams {
+  1: optional string write_path
+  2: optional string target_path
+  3: optional Types.TFileType file_type
+}
+
+struct TSortedColumn {
+    1: optional string sort_column_name
+    2: optional i32 order // asc(1) or desc(0)
+}
+
+struct TBucketingMode {
+    1: optional i32 bucket_version
+}
+
+struct THiveBucket {
+    1: optional list<string> bucketed_by
+    2: optional TBucketingMode bucket_mode
+    3: optional i32 bucket_count
+    4: optional list<TSortedColumn> sorted_by
+}
+
+enum THiveColumnType {
+    PARTITION_KEY = 0,
+    REGULAR = 1,
+    SYNTHESIZED = 2
+}
+
+struct THiveColumn {
+  1: optional string name
+  2: optional Types.TTypeDesc data_type
+  3: optional THiveColumnType column_type
+}
+
+struct THivePartition {
+  1: optional list<string> values
+  2: optional THiveLocationParams location
+  3: optional PlanNodes.TFileFormatType file_format
+}
+
+struct THiveTableSink {
+    1: optional string db_name
+    2: optional string table_name
+    3: optional list<THiveColumn> columns
+    4: optional list<THivePartition> partitions
+    5: optional THiveBucket bucket_info
+    6: optional PlanNodes.TFileFormatType file_format
+    7: optional PlanNodes.TFileCompressType compression_type
+    8: optional THiveLocationParams location
+    9: optional map<string, string> hadoop_config
+    10: optional bool overwrite
+}
+
+enum TUpdateMode {
+    NEW = 0, // add partition
+    APPEND = 1, // alter partition
+    OVERWRITE = 2 // insert overwrite
+}
+
+struct THivePartitionUpdate {
+    1: optional string name
+    2: optional TUpdateMode update_mode
+    3: optional THiveLocationParams location
+    4: optional list<string> file_names
+    5: optional i64 row_count
+    6: optional i64 file_size
 }
 
 struct TDataSink {
@@ -271,5 +360,5 @@ struct TDataSink {
   10: optional TResultFileSink result_file_sink
   11: optional TJdbcTableSink jdbc_table_sink
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
+  13: optional THiveTableSink hive_table_sink
 }
-

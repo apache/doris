@@ -24,9 +24,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -200,8 +200,8 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                                       boolean expectedPreFilter) throws AnalysisException {
         Assertions.assertTrue(statements.get(0).first instanceof LoadCommand);
         List<LogicalPlan> plans = ((LoadCommand) statements.get(0).first).parseToInsertIntoPlan(connectContext);
-        Assertions.assertTrue(plans.get(0) instanceof UnboundOlapTableSink);
-        List<String> colNames = ((UnboundOlapTableSink<?>) plans.get(0)).getColNames();
+        Assertions.assertTrue(plans.get(0) instanceof UnboundTableSink);
+        List<String> colNames = ((UnboundTableSink<?>) plans.get(0)).getColNames();
         Assertions.assertEquals(colNames.size(), expectedSinkColumns.size());
         for (String sinkCol : expectedSinkColumns) {
             Assertions.assertTrue(colNames.contains(sinkCol));

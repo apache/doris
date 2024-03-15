@@ -27,9 +27,28 @@ suite("query3") {
     sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
+    sql 'set dump_nereids_memo=false'
+    def ds = """select  dt.d_year 
+       ,item.i_brand_id brand_id 
+       ,item.i_brand brand
+       ,sum(ss_sales_price) sum_agg
+ from  date_dim dt 
+      ,store_sales
+      ,item
+ where dt.d_date_sk = store_sales.ss_sold_date_sk
+   and store_sales.ss_item_sk = item.i_item_sk
+   and item.i_manufact_id = 816
+   and dt.d_moy=11
+ group by dt.d_year
+      ,item.i_brand
+      ,item.i_brand_id
+ order by dt.d_year
+         ,sum_agg desc
+         ,brand_id
+ limit 100"""
     qt_ds_shape_3 '''
     explain shape plan
     select  dt.d_year 
@@ -49,7 +68,6 @@ suite("query3") {
  order by dt.d_year
          ,sum_agg desc
          ,brand_id
- limit 100;
-
+ limit 100
     '''
 }

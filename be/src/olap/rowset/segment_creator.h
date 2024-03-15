@@ -20,13 +20,16 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/tablet_fwd.h"
 #include "util/spinlock.h"
+#include "vec/core/block.h"
 
 namespace doris {
 namespace vectorized {
@@ -35,10 +38,12 @@ class Block;
 
 namespace segment_v2 {
 class SegmentWriter;
+class VerticalSegmentWriter;
 } // namespace segment_v2
 
 struct SegmentStatistics;
 class BetaRowsetWriter;
+class SegmentFileCollection;
 
 class FileWriterCreator {
 public:
@@ -57,14 +62,15 @@ public:
     }
 
 private:
-    T* _t;
+    T* _t = nullptr;
 };
 
 class SegmentCollector {
 public:
     virtual ~SegmentCollector() = default;
 
-    virtual Status add(uint32_t segment_id, SegmentStatistics& segstat) = 0;
+    virtual Status add(uint32_t segment_id, SegmentStatistics& segstat,
+                       TabletSchemaSPtr flush_chema) = 0;
 };
 
 template <class T>
@@ -72,27 +78,25 @@ class SegmentCollectorT : public SegmentCollector {
 public:
     explicit SegmentCollectorT(T* t) : _t(t) {}
 
-    Status add(uint32_t segment_id, SegmentStatistics& segstat) override {
-        return _t->add_segment(segment_id, segstat);
+    Status add(uint32_t segment_id, SegmentStatistics& segstat,
+               TabletSchemaSPtr flush_chema) override {
+        return _t->add_segment(segment_id, segstat, flush_chema);
     }
 
 private:
-    T* _t;
+    T* _t = nullptr;
 };
 
 class SegmentFlusher {
 public:
-    SegmentFlusher();
+    SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files);
 
     ~SegmentFlusher();
-
-    Status init(const RowsetWriterContext& rowset_writer_context);
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_block(const vectorized::Block* block, int32_t segment_id,
-                              int64_t* flush_size = nullptr,
-                              TabletSchemaSPtr flush_schema = nullptr);
+                              int64_t* flush_size = nullptr);
 
     int64_t num_rows_written() const { return _num_rows_written; }
 
@@ -118,26 +122,36 @@ public:
     private:
         Writer(SegmentFlusher* flusher, std::unique_ptr<segment_v2::SegmentWriter>& segment_writer);
 
-        SegmentFlusher* _flusher;
+        SegmentFlusher* _flusher = nullptr;
         std::unique_ptr<segment_v2::SegmentWriter> _writer;
     };
 
     Status create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer, uint32_t segment_id);
 
+    bool need_buffering();
+
 private:
+    Status _expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
+                     const vectorized::Block* block, size_t row_offset, size_t row_num);
+    Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false,
                                   TabletSchemaSPtr flush_schema = nullptr);
+    Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
+                                  int32_t segment_id, bool no_compression = false,
+                                  TabletSchemaSPtr flush_schema = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
+                                 TabletSchemaSPtr flush_schema = nullptr,
+                                 int64_t* flush_size = nullptr);
+    Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
+                                 TabletSchemaSPtr flush_schema = nullptr,
                                  int64_t* flush_size = nullptr);
 
 private:
-    RowsetWriterContext _context;
-
-    mutable SpinLock _lock; // protect following vectors.
-    std::vector<io::FileWriterPtr> _file_writers;
+    RowsetWriterContext& _context;
+    SegmentFileCollection& _seg_files;
 
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
@@ -146,11 +160,9 @@ private:
 
 class SegmentCreator {
 public:
-    SegmentCreator() = default;
+    SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files);
 
     ~SegmentCreator() = default;
-
-    Status init(const RowsetWriterContext& rowset_writer_context);
 
     void set_segment_start_id(uint32_t start_id) { _next_segment_id = start_id; }
 
@@ -170,8 +182,7 @@ public:
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_block(const vectorized::Block* block, int32_t segment_id,
-                              int64_t* flush_size = nullptr,
-                              TabletSchemaSPtr flush_schema = nullptr);
+                              int64_t* flush_size = nullptr);
 
     // Flush a block into a single segment, without pre-allocated segment_id.
     // This method is thread-safe.
@@ -185,6 +196,8 @@ private:
     std::atomic<int32_t> _next_segment_id = 0;
     SegmentFlusher _segment_flusher;
     std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
+    // Buffer block to num bytes before flushing
+    vectorized::MutableBlock _buffer_block;
 };
 
 } // namespace doris

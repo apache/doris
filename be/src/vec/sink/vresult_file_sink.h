@@ -34,7 +34,6 @@
 namespace doris {
 class BufferControlBlock;
 class ObjectPool;
-class QueryStatistics;
 class RuntimeProfile;
 class RuntimeState;
 class TDataSink;
@@ -54,7 +53,6 @@ public:
     VResultFileSink(RuntimeState* state, ObjectPool* pool, int sender_id,
                     const RowDescriptor& row_desc, const TResultFileSink& sink,
                     const std::vector<TPlanFragmentDestination>& destinations,
-                    bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
 
     Status init(const TDataSink& thrift_sink) override;
@@ -65,8 +63,6 @@ public:
     // hosts. Further send() calls are illegal after calling close().
     Status close(RuntimeState* state, Status exec_status) override;
 
-    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
-
 private:
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts;
@@ -75,7 +71,7 @@ private:
     // Owned by the RuntimeState.
     RowDescriptor _output_row_descriptor;
 
-    std::unique_ptr<Block> _output_block = nullptr;
+    std::unique_ptr<Block> _output_block;
     std::shared_ptr<BufferControlBlock> _sender;
     std::unique_ptr<VDataStreamSender> _stream_sender;
     int _buf_size = 1024; // Allocated from _pool

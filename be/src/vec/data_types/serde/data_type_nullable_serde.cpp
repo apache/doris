@@ -60,9 +60,10 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, 
          * for null values in nested types, we use null to represent them, just like the json format.
          */
         if (_nesting_level >= 2) {
-            bw.write(NULL_IN_CSV_FOR_NESTED_TYPE.c_str(), 4);
+            bw.write(NULL_IN_COMPLEX_TYPE.c_str(), strlen(NULL_IN_COMPLEX_TYPE.c_str()));
         } else {
-            bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
+            bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
         }
     } else {
         RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(),
@@ -285,7 +286,7 @@ template <bool is_binary_format>
 Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
                                                      MysqlRowBuffer<is_binary_format>& result,
                                                      int row_idx, bool col_const) const {
-    auto& col = static_cast<const ColumnNullable&>(column);
+    auto& col = assert_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
     col_const = col_const || is_column_const(nested_col);
     const auto col_index = index_check_const(row_idx, col_const);
@@ -319,7 +320,6 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   std::vector<StringRef>& buffer_list) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
-
     auto& null_map_tmp = column_nullable.get_null_map_data();
     auto orc_null_map = revert_null_map(&null_map_tmp, start, end);
     // orc_col_batch->notNull.data() must add 'start' (+ start),
@@ -328,14 +328,36 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     // because orc_null_map begins at start and only has (end - start) elements
     memcpy(orc_col_batch->notNull.data() + start, orc_null_map.data(), end - start);
 
-    static_cast<void>(nested_serde->write_column_to_orc(
-            timezone, column_nullable.get_nested_column(), &column_nullable.get_null_map_data(),
-            orc_col_batch, start, end, buffer_list));
+    RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
+                                                      &column_nullable.get_null_map_data(),
+                                                      orc_col_batch, start, end, buffer_list));
     return Status::OK();
 }
 
-const std::string DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
-const std::string DataTypeNullableSerDe::NULL_IN_CSV_FOR_NESTED_TYPE = "null";
+void DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                   rapidjson::Document::AllocatorType& allocator,
+                                                   int row_num) const {
+    auto& col = static_cast<const ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    if (col.is_null_at(row_num)) {
+        result.SetNull();
+    } else {
+        nested_serde->write_one_cell_to_json(nested_col, result, allocator, row_num);
+    }
+}
+
+void DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
+                                                    const rapidjson::Value& result) const {
+    auto& col = static_cast<ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    if (result.IsNull()) {
+        col.insert_default();
+    } else {
+        // TODO sanitize data
+        nested_serde->read_one_cell_from_json(nested_col, result);
+        col.get_null_map_column().get_data().push_back(0);
+    }
+}
 
 } // namespace vectorized
 } // namespace doris

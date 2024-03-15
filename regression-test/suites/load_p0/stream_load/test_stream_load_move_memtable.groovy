@@ -685,8 +685,8 @@ suite("test_stream_load_move_memtable", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(9, json.NumberTotalRows)
-            assertEquals(9, json.NumberLoadedRows)
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(10, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -791,8 +791,8 @@ suite("test_stream_load_move_memtable", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(13, json.NumberTotalRows)
-            assertEquals(13, json.NumberLoadedRows)
+            assertEquals(14, json.NumberTotalRows)
+            assertEquals(14, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -877,8 +877,8 @@ suite("test_stream_load_move_memtable", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    sql """create USER common_user1@'%' IDENTIFIED BY '123456'"""
-    sql """GRANT LOAD_PRIV ON *.* TO 'common_user1'@'%';"""
+    sql """create USER ddd IDENTIFIED BY '123456test!'"""
+    sql """GRANT LOAD_PRIV ON *.* TO 'ddd';"""
 
     streamLoad {
         table "${tableName13}"
@@ -886,7 +886,7 @@ suite("test_stream_load_move_memtable", "p0") {
         set 'column_separator', '|'
         set 'columns', 'k1, k2, v1, v2, v3'
         set 'strict_mode', 'true'
-        set 'Authorization', 'Basic  Y29tbW9uX3VzZXIxOjEyMzQ1Ng=='
+        set 'Authorization', 'Basic ZGRkOjEyMzQ1NnRlc3Qh'
         set 'memtable_on_sink_node', 'true'
 
         file 'test_auth.csv'
@@ -906,7 +906,7 @@ suite("test_stream_load_move_memtable", "p0") {
     }
 
     sql "sync"
-    sql """DROP USER 'common_user1'@'%'"""
+    sql """DROP USER 'ddd'"""
 
     // test default value
     def tableName14 = "test_default_value_mm"

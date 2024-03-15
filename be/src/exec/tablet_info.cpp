@@ -17,15 +17,16 @@
 
 #include "exec/tablet_info.h"
 
-#include <butil/fast_rand.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/descriptors.pb.h>
 #include <glog/logging.h>
 #include <stddef.h>
 
 #include <algorithm>
+#include <memory>
 #include <ostream>
 #include <tuple>
 
@@ -126,6 +127,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     _is_partial_update = pschema.partial_update();
     _is_strict_mode = pschema.is_strict_mode();
+    if (_is_partial_update) {
+        _auto_increment_column = pschema.auto_increment_column();
+    }
 
     for (auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
@@ -186,6 +190,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     if (tschema.__isset.is_strict_mode) {
         _is_strict_mode = tschema.is_strict_mode;
     }
+    if (_is_partial_update) {
+        _auto_increment_column = tschema.auto_increment_column;
+    }
 
     for (auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
@@ -200,23 +207,24 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     }
 
     for (auto& t_index : tschema.indexes) {
-        std::unordered_map<std::string, SlotDescriptor*> index_slots_map;
+        std::unordered_map<std::string, int32_t> index_slots_map;
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (auto& tcolumn_desc : t_index.columns_desc) {
-            auto it = slots_map.find(std::make_pair(to_lower(tcolumn_desc.column_name),
-                                                    thrift_to_type(tcolumn_desc.column_type.type)));
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(tcolumn_desc.column_name) > 0) {
+                auto it = slots_map.find(
+                        std::make_pair(to_lower(tcolumn_desc.column_name),
+                                       thrift_to_type(tcolumn_desc.column_type.type)));
                 if (it == slots_map.end()) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  tcolumn_desc.column_name,
                                                  tcolumn_desc.column_type.type);
                 }
-                index_slots_map.emplace(to_lower(tcolumn_desc.column_name), it->second);
                 index->slots.emplace_back(it->second);
             }
+            index_slots_map.emplace(to_lower(tcolumn_desc.column_name), tcolumn_desc.col_unique_id);
             TabletColumn* tc = _obj_pool.add(new TabletColumn());
             tc->init_from_thrift(tcolumn_desc);
             index->columns.emplace_back(tc);
@@ -227,7 +235,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 for (size_t i = 0; i < tindex_desc.columns.size(); i++) {
                     auto it = index_slots_map.find(to_lower(tindex_desc.columns[i]));
                     if (it != index_slots_map.end()) {
-                        column_unique_ids[i] = it->second->col_unique_id();
+                        column_unique_ids[i] = it->second;
                     }
                 }
                 TabletIndex* ti = _obj_pool.add(new TabletIndex());
@@ -255,6 +263,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_version(_version);
     pschema->set_partial_update(_is_partial_update);
     pschema->set_is_strict_mode(_is_strict_mode);
+    pschema->set_auto_increment_column(_auto_increment_column);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }
@@ -286,14 +295,23 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
     }
 
     if (t_param.__isset.enable_automatic_partition && t_param.enable_automatic_partition) {
-        _is_auto_partiton = true;
-        Status st = vectorized::VExpr::create_expr_tree(t_param.partition_function_exprs[0],
-                                                        _part_func_ctx);
-        if (!st.ok()) {
-            throw Exception(Status::InternalError("Partition function expr is not valid"),
-                            "Partition function expr is not valid");
+        _is_auto_partition = true;
+        auto size = t_param.partition_function_exprs.size();
+        _part_func_ctx.resize(size);
+        _partition_function.resize(size);
+        DCHECK((t_param.partition_type == TPartitionType::RANGE_PARTITIONED && size == 1) ||
+               (t_param.partition_type == TPartitionType::LIST_PARTITIONED && size >= 1))
+                << "now support only 1 partition column for auto range partitions. "
+                << t_param.partition_type << " " << size;
+        for (int i = 0; i < size; ++i) {
+            Status st = vectorized::VExpr::create_expr_tree(t_param.partition_function_exprs[i],
+                                                            _part_func_ctx[i]);
+            if (!st.ok()) {
+                throw Exception(Status::InternalError("Partition function expr is not valid"),
+                                "Partition function expr is not valid");
+            }
+            _partition_function[i] = _part_func_ctx[i]->root();
         }
-        _partition_function = _part_func_ctx->root();
     }
 }
 
@@ -324,49 +342,20 @@ Status VOlapTablePartitionParam::init() {
         }
     }
 
-    _partitions_map.reset(
-            new std::map<BlockRowWithIndicator, VOlapTablePartition*, VOlapTablePartKeyComparator>(
-                    VOlapTablePartKeyComparator(_partition_slot_locs, _transformed_slot_locs)));
+    _partitions_map = std::make_unique<
+            std::map<BlockRowWithIndicator, VOlapTablePartition*, VOlapTablePartKeyComparator>>(
+            VOlapTablePartKeyComparator(_partition_slot_locs, _transformed_slot_locs));
     if (_t_param.__isset.distributed_columns) {
         for (auto& col : _t_param.distributed_columns) {
             RETURN_IF_ERROR(find_slot_locs(col, _distributed_slot_locs, "distributed"));
         }
-    }
-    if (_distributed_slot_locs.empty()) {
-        _compute_tablet_index = [](BlockRow* key,
-                                   const VOlapTablePartition& partition) -> uint32_t {
-            if (partition.load_tablet_idx == -1) {
-                // load_to_single_tablet = false, just do random
-                return butil::fast_rand() % partition.num_buckets;
-            }
-            // load_to_single_tablet = ture, do round-robin
-            return partition.load_tablet_idx % partition.num_buckets;
-        };
-    } else {
-        _compute_tablet_index = [this](BlockRow* key,
-                                       const VOlapTablePartition& partition) -> uint32_t {
-            uint32_t hash_val = 0;
-            for (int i = 0; i < _distributed_slot_locs.size(); ++i) {
-                auto slot_desc = _slots[_distributed_slot_locs[i]];
-                auto& column = key->first->get_by_position(_distributed_slot_locs[i]).column;
-                auto val = column->get_data_at(key->second);
-                if (val.data != nullptr) {
-                    hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type,
-                                                    hash_val);
-                } else {
-                    hash_val = HashUtil::zlib_crc_hash_null(hash_val);
-                }
-            }
-            return hash_val % partition.num_buckets;
-        };
     }
 
     // for both auto/non-auto partition table.
     _is_in_partition = _part_type == TPartitionType::type::LIST_PARTITIONED;
 
     // initial partitions
-    for (int i = 0; i < _t_param.partitions.size(); ++i) {
-        const TOlapTablePartition& t_part = _t_param.partitions[i];
+    for (const auto& t_part : _t_param.partitions) {
         VOlapTablePartition* part = nullptr;
         RETURN_IF_ERROR(generate_partition_from(t_part, part));
         _partitions.emplace_back(part);
@@ -385,37 +374,12 @@ Status VOlapTablePartitionParam::init() {
     return Status::OK();
 }
 
-bool VOlapTablePartitionParam::find_partition(BlockRow* block_row,
-                                              const VOlapTablePartition** partition) const {
-    // block_row is gave by inserting process. So try to use transformed index.
-    auto it =
-            _is_in_partition
-                    ? _partitions_map->find(std::tuple {block_row->first, block_row->second, true})
-                    : _partitions_map->upper_bound(
-                              std::tuple {block_row->first, block_row->second, true});
-    // for list partition it might result in default partition
-    if (_is_in_partition) {
-        *partition = (it != _partitions_map->end()) ? it->second : _default_partition;
-        it = _partitions_map->end();
-    }
-    if (it != _partitions_map->end() &&
-        _part_contains(it->second, std::tuple {block_row->first, block_row->second, true})) {
-        *partition = it->second;
-    }
-    return (*partition != nullptr);
-}
-
 bool VOlapTablePartitionParam::_part_contains(VOlapTablePartition* part,
                                               BlockRowWithIndicator key) const {
     // start_key.second == -1 means only single partition
     VOlapTablePartKeyComparator comparator(_partition_slot_locs, _transformed_slot_locs);
     return part->start_key.second == -1 ||
            !comparator(key, std::tuple {part->start_key.first, part->start_key.second, false});
-}
-
-uint32_t VOlapTablePartitionParam::find_tablet(BlockRow* block_row,
-                                               const VOlapTablePartition& partition) const {
-    return _compute_tablet_index(block_row, partition);
 }
 
 Status VOlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs,
@@ -562,6 +526,11 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
     }
     case TExprNodeType::BOOL_LITERAL: {
         column->insert_data(reinterpret_cast<const char*>(&t_expr.bool_literal.value), 0);
+        break;
+    }
+    case TExprNodeType::NULL_LITERAL: {
+        // insert a null literal
+        column->insert_data(nullptr, 0);
         break;
     }
     default: {

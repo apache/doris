@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap;
 import org.apache.doris.nereids.trees.plans.RelationId;
 
 import java.util.BitSet;
+import java.util.Collection;
 import java.util.Set;
 
 /**
@@ -47,6 +48,14 @@ public class LongBitmap {
 
     public static long newBitmap() {
         return 0;
+    }
+
+    public static long newBitmap(Collection<Integer> values) {
+        long res = 0;
+        for (int v : values) {
+            res = LongBitmap.set(res, v);
+        }
+        return res;
     }
 
     public static long clone(long bitmap) {
@@ -150,9 +159,17 @@ public class LongBitmap {
         return Long.numberOfTrailingZeros(bitmap);
     }
 
+    /**
+     * use to calculate table bitmap
+     * @param relationIdSet relationIds
+     * @return bitmap
+     */
     public static Long computeTableBitmap(Set<RelationId> relationIdSet) {
         Long totalBitmap = 0L;
         for (RelationId id : relationIdSet) {
+            if (id == null) {
+                continue;
+            }
             totalBitmap = LongBitmap.set(totalBitmap, (id.asInt()));
         }
         return totalBitmap;
@@ -164,4 +181,3 @@ public class LongBitmap {
         return bitSet.toString();
     }
 }
-

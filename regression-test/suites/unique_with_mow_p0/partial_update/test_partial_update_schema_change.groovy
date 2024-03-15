@@ -17,7 +17,10 @@
 // under the License.
 
 suite("test_partial_update_schema_change", "p0") {
-     // test add value column
+
+    /* ============================================== light schema change cases: ============================================== */
+
+    // test add value column
     def tableName = "test_partial_update_light_schema_change_add_column"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -587,7 +590,9 @@ suite("test_partial_update_schema_change", "p0") {
 
     qt_sql12 " select * from ${tableName} order by c0 "
     
-    sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    if (!isCloudMode()) {
+        sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    }
 
     streamLoad {
         table "${tableName}"
@@ -617,6 +622,8 @@ suite("test_partial_update_schema_change", "p0") {
     qt_sql13 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    /* ============================================== schema change cases: ============================================== */
 
     // test add value column
     tableName = "test_partial_update_schema_change_add_column"
@@ -1173,7 +1180,9 @@ suite("test_partial_update_schema_change", "p0") {
 
     qt_sql25 " select * from ${tableName} order by c0 "
     
-    sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    if (!isCloudMode()) {
+        sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    }
 
     streamLoad {
         table "${tableName}"

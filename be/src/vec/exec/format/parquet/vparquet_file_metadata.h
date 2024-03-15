@@ -32,6 +32,9 @@ public:
     Status init_schema();
     const FieldDescriptor& schema() const { return _schema; }
     const tparquet::FileMetaData& to_thrift();
+    void iceberg_sanitize(const std::vector<std::string>& read_columns) {
+        _schema.iceberg_sanitize(read_columns);
+    }
     std::string debug_string() const;
 
 private:

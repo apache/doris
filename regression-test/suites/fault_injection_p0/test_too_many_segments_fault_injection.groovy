@@ -37,7 +37,7 @@ def create_table_sql = """
         """
 def columns = "col_0, col_1, col_2, col_3, col_4, col_5, col_6, col_7, col_8, col_9, col_10, col_11, col_12, col_13, col_14, col_15, col_16, col_17, col_18, col_19, col_20, col_21, col_22, col_23, col_24, col_25, col_26, col_27, col_28, col_29, col_30, col_31, col_32, col_33, col_34, col_35, col_36, col_37, col_38, col_39, col_40, col_41, col_42, col_43, col_44, col_45, col_46, col_47, col_48, col_49"
 
-suite("test_too_many_segments") { // the epic -238 case
+suite("test_too_many_segments", "nonConcurrent,p2") { // the epic -238 case
     def runLoadWithTooManySegments = {
         String ak = getS3AK()
         String sk = getS3SK()
@@ -110,6 +110,7 @@ suite("test_too_many_segments") { // the epic -238 case
                     assertTrue(1 == 2, "load Timeout: $uuid")
                 }
             }
+            logger.info(result[0][7].toString())
             assertTrue(result[0][7].contains("-238")) // EPIC!
 
             result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
@@ -120,5 +121,9 @@ suite("test_too_many_segments") { // the epic -238 case
             GetDebugPoint().disableDebugPointForAllBEs("BetaRowsetWriter._check_segment_number_limit_too_many_segments")
         }
     }
+    
+    sql """ set enable_memtable_on_sink_node=true """
+    runLoadWithTooManySegments()
+    sql """ set enable_memtable_on_sink_node=false """
     runLoadWithTooManySegments()
 }

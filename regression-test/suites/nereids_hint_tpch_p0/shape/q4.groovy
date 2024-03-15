@@ -22,11 +22,11 @@ suite("q4") {
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    sql "set runtime_filter_mode='GLOBAL'"
 
     sql 'set exec_mem_limit=21G' 
     sql 'SET enable_pipeline_engine = true'
     sql 'set parallel_pipeline_task_num=8'
+    sql 'set runtime_filter_mode=OFF'
 
 
     

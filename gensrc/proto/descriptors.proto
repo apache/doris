@@ -38,6 +38,7 @@ message PSlotDescriptor {
     optional bool is_key = 12;
     optional bool is_auto_increment = 13;
     optional int32 col_type = 14 [default = 0];
+    repeated string column_paths = 15;
 };
 
 message PTupleDescriptor {
@@ -68,5 +69,6 @@ message POlapTableSchemaParam {
     optional bool partial_update = 7 [default = false];
     repeated string partial_update_input_columns = 8;
     optional bool is_strict_mode = 9 [default = false];
+    optional string auto_increment_column = 10;
 };
 

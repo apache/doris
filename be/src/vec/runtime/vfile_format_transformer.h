@@ -53,7 +53,7 @@ public:
     virtual int64_t written_len() = 0;
 
 protected:
-    RuntimeState* _state; // not owned, set when init
+    RuntimeState* _state = nullptr; // not owned, set when init
     const VExprContextSPtrs& _output_vexpr_ctxs;
     int64_t _cur_written_rows;
     bool _output_object_data;

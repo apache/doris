@@ -38,6 +38,10 @@ suite ("sub_query_diff_old_optimize") {
     """
 
     sql """
+        DROP TABLE IF EXISTS `sub_query_diff_old_optimize_subquery5`
+    """
+
+    sql """
         create table if not exists sub_query_diff_old_optimize_subquery1
         (k1 bigint, k2 bigint)
         duplicate key(k1)
@@ -70,6 +74,14 @@ suite ("sub_query_diff_old_optimize") {
     """
 
     sql """
+        create table if not exists sub_query_diff_old_optimize_subquery5
+        (tm varchar(20))
+        duplicate key(tm)
+        distributed by hash(tm) buckets 1
+        properties('replication_num' = '1')
+    """
+
+    sql """
         insert into sub_query_diff_old_optimize_subquery1 values (1,2), (1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4)
     """
 
@@ -84,6 +96,10 @@ suite ("sub_query_diff_old_optimize") {
 
     sql """
         insert into sub_query_diff_old_optimize_subquery4 values (5,4), (5,2), (8,3), (5,4), (6,7), (8,9)
+    """
+
+    sql """
+        insert into sub_query_diff_old_optimize_subquery5 values ('a')
     """
 
     sql "SET enable_fallback_to_original_planner=false"
@@ -148,6 +164,10 @@ suite ("sub_query_diff_old_optimize") {
         select * from sub_query_diff_old_optimize_subquery1
             where not exists (select aa from
                 (select k1 as aa from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery1.k2 = sub_query_diff_old_optimize_subquery3.v2) sub_query_diff_old_optimize_subquery3) order by k1, k2
+    """
+
+    qt_alias_issue30264 """
+        with cte1 as (select * from sub_query_diff_old_optimize_subquery5) select tm from cte1 group by tm having tm > (select 'Apple');
     """
 
     //----------subquery with limit----------

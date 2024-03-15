@@ -101,6 +101,11 @@ public class NullLiteral extends LiteralExpr {
         return "NULL";
     }
 
+    @Override
+    public String getStringValueInFe() {
+        return null;
+    }
+
     // the null value inside an array is represented as "null", for exampe:
     // [null, null]. Not same as other primitive type to represent as \N.
     @Override

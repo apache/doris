@@ -1107,7 +1107,7 @@ suite("test_join", "query,p0") {
     qt_join_on_predicate7"""SELECT t2.k1,t2.k2,t3.k1,t3.k2 FROM baseall t2 LEFT JOIN test t3 ON t2.k2=t3.k2 WHERE t2.k1 = 4 OR (t2.k1 > 4 AND t3.k1 IS NULL) order by 1, 2, 3, 4"""
 
     test {
-        sql "select a.k1 from baseall a join test b on b.k2 in (select 49) and a.k1 = b.k1 order by k1;"
+        sql "select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from baseall a join test b on b.k2 in (select 49) and a.k1 = b.k1 order by k1;"
         exception "Not support OnClause contain Subquery"
     }
 
@@ -1160,6 +1160,25 @@ suite("test_join", "query,p0") {
         qt_cross_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k1 > b.k1
             order by a.k1, b.k1"""
     }
+    
+    // test null <=> runtime filter
+    sql"set enable_runtime_filter_prune = false"
+    for (index in range(1, 7)) {
+        qt_left_join"""select * from ${null_table_1} a join ${null_table_1} b on  a.k${index}<=>b.k${index} 
+            order by a.k1, b.k1"""
+        qt_left_join"""select * from ${null_table_1} a left join ${null_table_1} b on  a.k${index}<=>b.k${index} 
+            order by a.k1, b.k1"""
+        qt_right_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index}
+            order by a.k1, b.k1"""
+        qt_hash_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k2=b.k2
+            order by a.k1, b.k1"""
+        qt_cross_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k2 !=b.k2
+            order by a.k1, b.k1"""
+        qt_cross_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k1 > b.k1
+            order by a.k1, b.k1"""
+    }
+    sql"set enable_runtime_filter_prune = true"
+    
     //  windows
     def res97 = sql"""select * from (select k1, k2, sum(k2) over (partition by k1) as ss from ${null_table_2})a
        left join ${null_table_1} b on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""

@@ -97,7 +97,7 @@ suite("test_csv_split_line", "p0") {
         a int ,
         b varchar(30),
         c int ,
-        d varchar(30),
+        d varchar(30)
     )
     DUPLICATE KEY(`a`)
     DISTRIBUTED BY HASH(`a`) BUCKETS 10

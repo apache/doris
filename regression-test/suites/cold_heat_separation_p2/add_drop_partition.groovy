@@ -251,7 +251,7 @@ suite("add_drop_partition") {
     
     sql """
         alter table ${tableName} ADD PARTITION np
-        VALUES LESS THAN ("2016-01-01");
+        VALUES LESS THAN ("2017-01-01");
     """
 
     sql """
@@ -264,7 +264,7 @@ suite("add_drop_partition") {
     }
 
     sql """
-    sql * from ${tableName}
+    select * from ${tableName}
     """
 
     sql """

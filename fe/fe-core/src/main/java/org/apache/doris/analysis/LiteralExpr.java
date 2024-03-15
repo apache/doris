@@ -34,8 +34,11 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
     private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
@@ -106,6 +109,33 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
         Preconditions.checkNotNull(literalExpr);
         return literalExpr;
+    }
+
+
+    public static String getStringLiteralForComplexType(Expr v) {
+        if (!(v instanceof NullLiteral) && v.getType().isScalarType()
+                && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
+                || v.getType() == Type.BOOLEAN)) {
+            return v.getStringValueInFe();
+        } else if (v.getType().isComplexType()) {
+            // these type should also call getStringValueInFe which should handle special case for itself
+            return v.getStringValueInFe();
+        } else {
+            return v.getStringValueForArray();
+        }
+    }
+
+    public static String getStringLiteralForStreamLoad(Expr v) {
+        if (!(v instanceof NullLiteral) && v.getType().isScalarType()
+                && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
+                || v.getType() == Type.BOOLEAN)) {
+            return v.getStringValueInFe();
+        } else if (v.getType().isComplexType()) {
+            // these type should also call getStringValueInFe which should handle special case for itself
+            return v.getStringValueForStreamLoad();
+        } else {
+            return v.getStringValueForArray();
+        }
     }
 
     /**
@@ -232,6 +262,10 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     // method unescapes string values.
     @Override
     public abstract String getStringValue();
+
+    public String getStringValueInFe() {
+        return getStringValue();
+    }
 
     @Override
     public abstract String getStringValueForArray();
@@ -365,8 +399,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     }
 
     @Override
-    protected String getExprName() {
-        return "literal";
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of("literal");
+        }
+        return this.exprName.get();
     }
 
     // Port from mysql get_param_length
@@ -413,5 +450,32 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple) {
         return true;
+    }
+
+    /** whether is ZERO value **/
+    public boolean isZero() {
+        boolean isZero = false;
+        switch (type.getPrimitiveType()) {
+            case TINYINT:
+            case SMALLINT:
+            case INT:
+            case BIGINT:
+            case LARGEINT:
+                isZero = this.getLongValue() == 0;
+                break;
+            case FLOAT:
+            case DOUBLE:
+                isZero = this.getDoubleValue() == 0.0f;
+                break;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+            case DECIMAL256:
+                isZero = Objects.equals(((DecimalLiteral) this).getValue(), BigDecimal.ZERO);
+                break;
+            default:
+        }
+        return isZero;
     }
 }

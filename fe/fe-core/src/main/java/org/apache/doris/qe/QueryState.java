@@ -25,6 +25,7 @@ import org.apache.doris.mysql.MysqlPacket;
 
 // query state used to record state of query, maybe query status is better
 public class QueryState {
+    // Reused by arrow flight protocol
     public enum MysqlStateType {
         NOOP,   // send nothing to remote
         OK,     // send OK packet to remote
@@ -92,8 +93,7 @@ public class QueryState {
     }
 
     public void setError(String errorMsg) {
-        this.stateType = MysqlStateType.ERR;
-        this.errorMessage = errorMsg;
+        this.setError(ErrorCode.ERR_UNKNOWN_ERROR, errorMsg);
     }
 
     public void setError(ErrorCode code, String msg) {

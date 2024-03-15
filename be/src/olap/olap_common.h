@@ -20,6 +20,7 @@
 #include <gen_cpp/Types_types.h>
 #include <netinet/in.h>
 
+#include <charconv>
 #include <cstdint>
 #include <functional>
 #include <list>
@@ -324,6 +325,7 @@ struct OlapReaderStatistics {
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
+    int64_t rows_stats_rp_filtered = 0;
     int64_t rows_bf_filtered = 0;
     int64_t rows_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
@@ -336,6 +338,10 @@ struct OlapReaderStatistics {
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
     int64_t block_conditions_filtered_ns = 0;
+    int64_t block_conditions_filtered_bf_ns = 0;
+    int64_t block_conditions_filtered_zonemap_ns = 0;
+    int64_t block_conditions_filtered_zonemap_rp_ns = 0;
+    int64_t block_conditions_filtered_dict_ns = 0;
 
     int64_t index_load_ns = 0;
 
@@ -380,11 +386,16 @@ struct RowsetId {
     int64_t mi = 0;
     int64_t lo = 0;
 
-    void init(const std::string& rowset_id_str) {
+    void init(std::string_view rowset_id_str) {
         // for new rowsetid its a 48 hex string
         // if the len < 48, then it is an old format rowset id
-        if (rowset_id_str.length() < 48) {
-            int64_t high = std::stol(rowset_id_str, nullptr, 10);
+        if (rowset_id_str.length() < 48) [[unlikely]] {
+            int64_t high;
+            auto [_, ec] = std::from_chars(rowset_id_str.data(),
+                                           rowset_id_str.data() + rowset_id_str.length(), high);
+            if (ec != std::errc {}) [[unlikely]] {
+                LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
+            }
             init(1, high, 0, 0);
         } else {
             int64_t high = 0;
@@ -447,18 +458,31 @@ struct RowsetId {
     }
 };
 
-// used for hash-struct of hash_map<RowsetId, Rowset*>.
-struct HashOfRowsetId {
-    size_t operator()(const RowsetId& rowset_id) const {
-        size_t seed = 0;
-        seed = HashUtil::hash64(&rowset_id.hi, sizeof(rowset_id.hi), seed);
-        seed = HashUtil::hash64(&rowset_id.mi, sizeof(rowset_id.mi), seed);
-        seed = HashUtil::hash64(&rowset_id.lo, sizeof(rowset_id.lo), seed);
-        return seed;
-    }
-};
+using RowsetIdUnorderedSet = std::unordered_set<RowsetId>;
 
-using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+// Extract rowset id from filename, return uninitialized rowset id if filename is invalid
+inline RowsetId extract_rowset_id(std::string_view filename) {
+    RowsetId rowset_id;
+    if (filename.ends_with(".dat")) {
+        // filename format: {rowset_id}_{segment_num}.dat
+        auto end = filename.find('_');
+        if (end == std::string::npos) {
+            return rowset_id;
+        }
+        rowset_id.init(filename.substr(0, end));
+        return rowset_id;
+    }
+    if (filename.ends_with(".idx")) {
+        // filename format: {rowset_id}_{segment_num}_{index_id}.idx
+        auto end = filename.find('_');
+        if (end == std::string::npos) {
+            return rowset_id;
+        }
+        rowset_id.init(filename.substr(0, end));
+        return rowset_id;
+    }
+    return rowset_id;
+}
 
 class DeleteBitmap;
 // merge on write context
@@ -482,3 +506,18 @@ struct RidAndPos {
 using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
 } // namespace doris
+
+// This intended to be a "good" hash function.  It may change from time to time.
+template <>
+struct std::hash<doris::RowsetId> {
+    size_t operator()(const doris::RowsetId& rowset_id) const {
+        size_t seed = 0;
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.hi, sizeof(rowset_id.hi),
+                                                 seed);
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.mi, sizeof(rowset_id.mi),
+                                                 seed);
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.lo, sizeof(rowset_id.lo),
+                                                 seed);
+        return seed;
+    }
+};

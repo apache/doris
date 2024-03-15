@@ -69,9 +69,14 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());
     }
-
-    _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
-                                                               argument_template, _data_type);
+    // result column always not null
+    if (_data_type->is_nullable()) {
+        _function = SimpleFunctionFactory::instance().get_function(
+                _fn.name.function_name, argument_template, remove_nullable(_data_type));
+    } else {
+        _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
+                                                                   argument_template, _data_type);
+    }
     if (_function == nullptr) {
         std::string type_str;
         for (auto arg : argument_template) {
@@ -86,12 +91,13 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
     _function_name = _fn.name.function_name;
-
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->open(state, context, scope));
     }
@@ -102,6 +108,7 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -111,6 +118,7 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 }
 
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     // TODO: not execute const expr again, but use the const column in function context
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
@@ -125,6 +133,11 @@ Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
+    if (_data_type->is_nullable()) {
+        auto nested = block->get_by_position(num_columns_without_result).column;
+        auto nullable = ColumnNullable::create(nested, ColumnUInt8::create(block->rows(), 0));
+        block->replace_by_position(num_columns_without_result, nullable);
+    }
     return Status::OK();
 }
 

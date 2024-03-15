@@ -34,7 +34,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -70,13 +69,13 @@ public class PolicyTest extends TestWithFeService {
                 + "properties(\"replication_num\" = \"1\");");
         // create user
         UserIdentity user = new UserIdentity("test_policy", "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
         List<AccessPrivilegeWithCols> privileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
-        tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        tablePattern.analyze();
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
         Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         grantStmt.analyze(analyzer);
@@ -110,13 +109,13 @@ public class PolicyTest extends TestWithFeService {
         String queryStr = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("`k1` = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
         // test role
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO ROLE role1 USING (k1 = 2)");
         queryStr = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("`k1` = 2"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1 for role role1");
     }
 
     @Test
@@ -126,13 +125,13 @@ public class PolicyTest extends TestWithFeService {
         String queryStr = "EXPLAIN select * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("k1[#0] = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
         //test role
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO ROLE role1 USING (k1 = 2)");
         queryStr = "EXPLAIN select * from test.table1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("k1[#0] = 2"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
     }
 
     @Test
@@ -142,7 +141,7 @@ public class PolicyTest extends TestWithFeService {
         String queryStr = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table3";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("`k1` = 1"));
-        dropPolicy("DROP ROW POLICY test_unique_policy");
+        dropPolicy("DROP ROW POLICY test_unique_policy ON test.table3");
     }
 
     @Test
@@ -152,7 +151,7 @@ public class PolicyTest extends TestWithFeService {
         String queryStr = "EXPLAIN select * from test.table3";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("k1[#0] = 1"));
-        dropPolicy("DROP ROW POLICY test_unique_policy");
+        dropPolicy("DROP ROW POLICY test_unique_policy ON test.table3");
     }
 
     @Test
@@ -164,7 +163,7 @@ public class PolicyTest extends TestWithFeService {
         queryStr = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1 b";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("`b`.`k1` = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
     }
 
     @Test
@@ -178,7 +177,7 @@ public class PolicyTest extends TestWithFeService {
         queryStr = "EXPLAIN select * from test.table1 b";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("k1[#0] = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
         connectContext.getSessionVariable().setEnableNereidsPlanner(beforeConfig);
     }
 
@@ -189,7 +188,7 @@ public class PolicyTest extends TestWithFeService {
                 = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1 union all select * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("`k1` = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
     }
 
     @Test
@@ -198,7 +197,7 @@ public class PolicyTest extends TestWithFeService {
         String queryStr = "EXPLAIN select * from test.table1 union all select * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("k1[#0] = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
     }
 
     @Test
@@ -208,7 +207,7 @@ public class PolicyTest extends TestWithFeService {
                 = "EXPLAIN insert into test.table1 select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("`k1` = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
     }
 
     @Test
@@ -217,7 +216,7 @@ public class PolicyTest extends TestWithFeService {
         String queryStr = "EXPLAIN insert into test.table1 select * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("k1[#0] = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
     }
 
     @Test
@@ -228,7 +227,7 @@ public class PolicyTest extends TestWithFeService {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the policy test_row_policy1 already create",
                 () -> createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS PERMISSIVE"
                         + " TO test_policy USING (k1 = 1)"));
-        dropPolicy("DROP ROW POLICY test_row_policy1");
+        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
     }
 
     @Test
@@ -247,8 +246,8 @@ public class PolicyTest extends TestWithFeService {
                 (ShowPolicyStmt) parseAndAnalyzeStmt("SHOW ROW POLICY");
         int firstSize = Env.getCurrentEnv().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
         Assertions.assertTrue(firstSize > 0);
-        dropPolicy("DROP ROW POLICY test_row_policy1");
-        dropPolicy("DROP ROW POLICY test_row_policy2");
+        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
+        dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
         int secondSize = Env.getCurrentEnv().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
         Assertions.assertEquals(2, firstSize - secondSize);
     }
@@ -256,10 +255,10 @@ public class PolicyTest extends TestWithFeService {
     @Test
     public void testDropPolicy() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS PERMISSIVE TO test_policy USING (k2 = 1)");
-        dropPolicy("DROP ROW POLICY test_row_policy1");
-        dropPolicy("DROP ROW POLICY IF EXISTS test_row_policy5");
+        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
+        dropPolicy("DROP ROW POLICY IF EXISTS test_row_policy5 ON test.table1");
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the policy test_row_policy1 not exist",
-                () -> dropPolicy("DROP ROW POLICY test_row_policy1"));
+                () -> dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1"));
     }
 
     @Test
@@ -270,11 +269,11 @@ public class PolicyTest extends TestWithFeService {
         createPolicy("CREATE ROW POLICY test_row_policy4 ON test.table1 AS PERMISSIVE TO test_policy USING (k2 = 1)");
         String queryStr = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assertions.assertTrue(explainString.contains("`k1` = 1 AND `k2` = 1 AND `k2` = 2 OR `k2` = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy1");
-        dropPolicy("DROP ROW POLICY test_row_policy2");
-        dropPolicy("DROP ROW POLICY test_row_policy3");
-        dropPolicy("DROP ROW POLICY test_row_policy4");
+        Assertions.assertTrue(explainString.contains("(`k1` = 1) AND (`k2` = 1) AND (`k2` = 2) OR (`k2` = 1)"));
+        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
+        dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
+        dropPolicy("DROP ROW POLICY test_row_policy3 ON test.table1");
+        dropPolicy("DROP ROW POLICY test_row_policy4 ON test.table1");
     }
 
     @Test
@@ -284,10 +283,10 @@ public class PolicyTest extends TestWithFeService {
         createPolicy("CREATE ROW POLICY test_row_policy4 ON test.table1 AS PERMISSIVE TO test_policy USING (k2 = 1)");
         String queryStr = "EXPLAIN select * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assertions.assertTrue(explainString.contains("k2[#1] IN (1, 2) AND k1[#0] = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy1");
-        dropPolicy("DROP ROW POLICY test_row_policy3");
-        dropPolicy("DROP ROW POLICY test_row_policy4");
+        Assertions.assertTrue(explainString.contains("k2[#1] IN (1, 2) AND (k1[#0] = 1)"));
+        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
+        dropPolicy("DROP ROW POLICY test_row_policy3 ON test.table1");
+        dropPolicy("DROP ROW POLICY test_row_policy4 ON test.table1");
     }
 
     @Test
@@ -296,18 +295,18 @@ public class PolicyTest extends TestWithFeService {
         createPolicy("CREATE ROW POLICY test_row_policy2 ON test.table1 AS RESTRICTIVE TO test_policy USING (k2 = 1)");
         String joinSql
                 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 join table2 on table1.k1=table2.k1";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(joinSql).contains("PREDICATES: `k1` = 1 AND `k2` = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(joinSql).contains("(`k1` = 1) AND (`k2` = 1)"));
         String unionSql
                 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 union select * from table2";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(unionSql).contains("PREDICATES: `k1` = 1 AND `k2` = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(unionSql).contains("(`k1` = 1) AND (`k2` = 1)"));
         String subQuerySql
                 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table2 where k1 in (select k1 from table1)";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(subQuerySql).contains("PREDICATES: `k1` = 1 AND `k2` = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(subQuerySql).contains("(`k1` = 1) AND (`k2` = 1)"));
         String aliasSql
                 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 t1 join table2 t2 on t1.k1=t2.k1";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(aliasSql).contains("PREDICATES: `t1`.`k1` = 1 AND `t1`.`k2` = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy1");
-        dropPolicy("DROP ROW POLICY test_row_policy2");
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(aliasSql).contains("(`t1`.`k1` = 1) AND (`t1`.`k2` = 1)"));
+        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
+        dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
     }
 
     @Test
@@ -315,15 +314,15 @@ public class PolicyTest extends TestWithFeService {
         createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS RESTRICTIVE TO test_policy USING (k1 = 1)");
         createPolicy("CREATE ROW POLICY test_row_policy2 ON test.table1 AS RESTRICTIVE TO test_policy USING (k2 = 1)");
         String joinSql = "select * from table1 join table2 on table1.k1=table2.k1";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(joinSql).contains("PREDICATES: k1 = 1 AND k2 = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(joinSql).contains("PREDICATES: (k1 = 1) AND (k2 = 1)"));
         String unionSql = "select * from table1 union select * from table2";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(unionSql).contains("PREDICATES: k1 = 1 AND k2 = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(unionSql).contains("PREDICATES: (k1 = 1) AND (k2 = 1)"));
         String subQuerySql = "select * from table2 where k1 in (select k1 from table1)";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(subQuerySql).contains("PREDICATES: k1 = 1 AND k2 = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(subQuerySql).contains("PREDICATES: (k1 = 1) AND (k2 = 1)"));
         String aliasSql = "select * from table1 t1 join table2 t2 on t1.k1=t2.k1";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(aliasSql).contains("PREDICATES: k1 = 1 AND k2 = 1"));
-        dropPolicy("DROP ROW POLICY test_row_policy1");
-        dropPolicy("DROP ROW POLICY test_row_policy2");
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(aliasSql).contains("PREDICATES: (k1 = 1) AND (k2 = 1)"));
+        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
+        dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
     }
 
     @Test
@@ -332,7 +331,7 @@ public class PolicyTest extends TestWithFeService {
         String policyName = "policy_name";
         long dbId = 10;
         UserIdentity user = new UserIdentity("test_policy", "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         String originStmt = "CREATE ROW POLICY test_row_policy ON test.table1"
                 + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
         long tableId = 100;
@@ -355,8 +354,8 @@ public class PolicyTest extends TestWithFeService {
         Assertions.assertEquals(type, newRowPolicy.getType());
         Assertions.assertEquals(policyName, newRowPolicy.getPolicyName());
         Assertions.assertEquals(dbId, newRowPolicy.getDbId());
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
-        newRowPolicy.getUser().analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
+        newRowPolicy.getUser().analyze();
         Assertions.assertEquals(user.getQualifiedUser(), newRowPolicy.getUser().getQualifiedUser());
         Assertions.assertEquals(originStmt, newRowPolicy.getOriginStmt());
         Assertions.assertEquals(tableId, newRowPolicy.getTableId());

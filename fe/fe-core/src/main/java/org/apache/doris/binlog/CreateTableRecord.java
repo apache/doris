@@ -37,17 +37,24 @@ public class CreateTableRecord {
     private long commitSeq;
     @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "dbName")
+    private String dbName;
     @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "tableName")
+    private String tableName;
     @SerializedName(value = "sql")
     private String sql;
 
     public CreateTableRecord(long commitSeq, CreateTableInfo info) {
-        Table table = info.getTable();
-
         this.commitSeq = commitSeq;
+
+        Table table = info.getTable();
+        this.tableName = table.getName();
+
         this.tableId = table.getId();
         String dbName = info.getDbName();
+        this.dbName = dbName;
 
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         if (db == null) {

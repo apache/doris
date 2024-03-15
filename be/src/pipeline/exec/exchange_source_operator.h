@@ -43,56 +43,38 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ExchangeSourceOperator final : public SourceOperator<ExchangeSourceOperatorBuilder> {
+class ExchangeSourceOperator final : public SourceOperator<vectorized::VExchangeNode> {
 public:
     ExchangeSourceOperator(OperatorBuilderBase*, ExecNode*);
     bool can_read() override;
     bool is_pending_finish() const override;
 };
 
-struct ExchangeDataDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
-    ExchangeDataDependency(int id, vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
-            : Dependency(id, "DataDependency"), _always_done(false) {}
-    void* shared_state() override { return nullptr; }
-
-    void set_always_done() {
-        _always_done = true;
-        if (_ready_for_read) {
-            return;
-        }
-        _read_dependency_watcher.stop();
-        _ready_for_read = true;
-    }
-
-    void block_reading() override {
-        if (_always_done) {
-            return;
-        }
-        _ready_for_read = false;
-    }
-
-private:
-    std::atomic<bool> _always_done;
-};
-
 class ExchangeSourceOperatorX;
 class ExchangeLocalState final : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
+
+public:
+    using Base = PipelineXLocalState<>;
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Dependency* dependency() override { return source_dependency.get(); }
+    std::string debug_string(int indentation_level) const override;
+
+    std::vector<Dependency*> dependencies() const override {
+        std::vector<Dependency*> dep_vec;
+        std::for_each(deps.begin(), deps.end(),
+                      [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
+        return dep_vec;
+    }
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
     bool is_ready;
 
-    std::shared_ptr<AndDependency> source_dependency;
-    std::vector<std::shared_ptr<ExchangeDataDependency>> deps;
+    std::vector<std::shared_ptr<Dependency>> deps;
 
     std::vector<RuntimeProfile::Counter*> metrics;
 };
@@ -105,8 +87,9 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+
+    std::string debug_string(int indentation_level = 0) const override;
 
     Status close(RuntimeState* state) override;
     [[nodiscard]] bool is_source() const override { return true; }
@@ -116,16 +99,23 @@ public:
     [[nodiscard]] int num_senders() const { return _num_senders; }
     [[nodiscard]] bool is_merging() const { return _is_merging; }
 
-    std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr() {
-        return _sub_plan_query_statistics_recvr;
+    DataDistribution required_data_distribution() const override {
+        if (OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
+            return {ExchangeType::NOOP};
+        }
+        return _partition_type == TPartitionType::HASH_PARTITIONED
+                       ? DataDistribution(ExchangeType::HASH_SHUFFLE)
+               : _partition_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE)
+                       : DataDistribution(ExchangeType::NOOP);
     }
 
 private:
     friend class ExchangeLocalState;
     const int _num_senders;
     const bool _is_merging;
+    const TPartitionType::type _partition_type;
     RowDescriptor _input_row_desc;
-    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     // use in merge sort
     size_t _offset;

@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.qe.ConnectContext;
-
 /**
  * Nondeterministic functions.
  *
@@ -26,10 +24,4 @@ import org.apache.doris.qe.ConnectContext;
  *
  */
 public interface Nondeterministic extends ExpressionTrait {
-    @Override
-    default boolean foldable() {
-        return ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable() == null
-                || ConnectContext.get().getSessionVariable().isEnableFoldNondeterministicFn();
-    }
 }

@@ -31,9 +31,12 @@ public class EliminateNullAwareLeftAntiJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return nullAwareLeftAntiLogicalJoin().then(antiJoin -> {
-            if (Stream.concat(antiJoin.getHashJoinConjuncts().stream(), antiJoin.getOtherJoinConjuncts().stream())
+            if (Stream.concat(Stream.concat(
+                            antiJoin.getHashJoinConjuncts().stream(),
+                            antiJoin.getOtherJoinConjuncts().stream()),
+                            antiJoin.getMarkJoinConjuncts().stream())
                     .noneMatch(expression -> expression.nullable())) {
-                return antiJoin.withJoinType(JoinType.LEFT_ANTI_JOIN);
+                return antiJoin.withJoinTypeAndContext(JoinType.LEFT_ANTI_JOIN, antiJoin.getJoinReorderContext());
             } else {
                 return null;
             }

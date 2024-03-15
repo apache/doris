@@ -25,17 +25,17 @@
 #include <vector>
 
 #include "common/status.h"
+#include "util/spinlock.h"
 #include "vec/core/block.h"
 
-namespace doris {
-namespace pipeline {
+namespace doris::pipeline {
 
-class WriteDependency;
+class Dependency;
 
 class DataQueue {
 public:
     //always one is enough, but in union node it's has more children
-    DataQueue(int child_count = 1, WriteDependency* dependency = nullptr);
+    DataQueue(int child_count = 1);
     ~DataQueue() = default;
 
     Status get_block_from_queue(std::unique_ptr<vectorized::Block>* block,
@@ -52,7 +52,7 @@ public:
     bool is_finish(int child_idx = 0);
     bool is_all_finish();
 
-    bool has_enough_space_to_push(int child_idx = 0);
+    bool has_enough_space_to_push();
     bool has_data_or_finished(int child_idx = 0);
     bool remaining_has_data();
 
@@ -60,12 +60,17 @@ public:
     int64_t max_size_of_queue() const { return _max_size_of_queue; }
 
     bool data_exhausted() const { return _data_exhausted; }
-    void set_dependency(WriteDependency* dependency) { _dependency = dependency; }
+    void set_source_dependency(std::shared_ptr<Dependency> source_dependency) {
+        _source_dependency = source_dependency;
+    }
+    void set_sink_dependency(Dependency* sink_dependency, int child_idx) {
+        _sink_dependencies[child_idx] = sink_dependency;
+    }
+
+    void set_source_ready();
+    void set_source_block();
 
 private:
-    friend class AggDependency;
-    friend class UnionDependency;
-
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
     std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _queue_blocks;
 
@@ -75,10 +80,13 @@ private:
     //how many deque will be init, always will be one
     int _child_count = 0;
     std::vector<std::atomic_bool> _is_finished;
+    std::atomic_uint32_t _un_finished_counter;
+    std::atomic_bool _is_all_finished = false;
     std::vector<std::atomic_bool> _is_canceled;
     // int64_t just for counter of profile
     std::vector<std::atomic_int64_t> _cur_bytes_in_queue;
     std::vector<std::atomic_uint32_t> _cur_blocks_nums_in_queue;
+    std::atomic_uint32_t _cur_blocks_total_nums = 0;
 
     //this will be indicate which queue has data, it's useful when have many queues
     std::atomic_int _flag_queue_idx = 0;
@@ -90,8 +98,10 @@ private:
     int64_t _max_size_of_queue = 0;
     static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
 
-    WriteDependency* _dependency = nullptr;
+    // data queue is multi sink one source
+    std::shared_ptr<Dependency> _source_dependency = nullptr;
+    std::vector<Dependency*> _sink_dependencies;
+    SpinLock _source_lock;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

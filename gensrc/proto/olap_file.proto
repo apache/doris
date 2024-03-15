@@ -44,6 +44,8 @@ enum RowsetStatePB {
     COMMITTED = 1;
     // Rowset is already visible to the user
     VISIBLE = 2;
+    // Rowset is partial updated, the recycler should use list+delete to recycle segments.
+    BEGIN_PARTIAL_UPDATE = 10000;
 }
 
 // indicate whether date between segments of a rowset is overlappinng
@@ -58,6 +60,8 @@ message KeyBoundsPB {
     required bytes max_key = 2;
 }
 
+// ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
+// simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
     required int64 rowset_id = 1; // Deprecated. Use rowset_id_v2 instead.
     optional int64 partition_id = 2;
@@ -113,6 +117,90 @@ message RowsetMetaPB {
     reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
+    optional int64 compaction_level = 52 [default = 0];
+
+    // For cloud
+    // for data recycling
+    optional int64 txn_expiration = 1000;
+    // the field is a vector, rename it
+    repeated int64 segments_file_size = 1001;
+    // index_id, schema_version -> schema
+    optional int64 index_id = 1002;
+    optional int32 schema_version = 1003;
+    // If enable_segments_file_size is false,
+    // the segments_file_size maybe is empty or error
+    optional bool enable_segments_file_size = 1004;
+    optional bool has_variant_type_in_schema = 1005;
+}
+
+message RowsetMetaCloudPB {
+    required int64 rowset_id = 1; // Deprecated. Use rowset_id_v2 instead.
+    optional int64 partition_id = 2;
+    optional int64 tablet_id = 3;
+    // only for pending rowset
+    optional int64 txn_id = 4;
+    // tablet id and schema hash could find tablet
+    optional int32 tablet_schema_hash = 5;
+    optional RowsetTypePB rowset_type = 6;
+    optional RowsetStatePB rowset_state = 7;
+    // only for visible rowset. For alpha rowset, it's the same as PDelta.start_version
+    optional int64 start_version = 8;
+    // only for visible rowset. For alpha rowset, it's the same as PDelta.end_version
+    optional int64 end_version = 9;
+    // only for visible rowset. For alpha rowset, it's the same as PDelta.version_hash
+    optional int64 version_hash = 10;
+    // total number of rows. For alpha rowset, it's calculated from segment group
+    optional int64 num_rows = 11;
+    // calculated by index + data
+    optional int64 total_disk_size = 12;
+    // calculated sum(segmentgroup.data_size)
+    optional int64 data_disk_size = 13;
+    // calculated sum(segmentgroup.index_size)
+    optional int64 index_disk_size = 14;
+    // rowset level column min/max/null statistics, not not used currently
+    repeated ZoneMap zone_maps = 15;
+    optional DeletePredicatePB delete_predicate = 16;
+    // calculated from segment group
+    optional bool empty = 17;
+    // only for pending rowset
+    optional PUniqueId load_id = 18;
+    // not set, get from olap index header msg?
+    optional bool delete_flag = 19;
+    // For alpha rowset, it's the same as PDelta.creation_time
+    optional int64 creation_time = 20;
+    optional PUniqueId tablet_uid = 21;
+    // total number of segments
+    optional int64 num_segments = 22;
+    // rowset id definition, it will replace required rowset id
+    optional string rowset_id_v2 = 23;
+    // resource id
+    optional string resource_id = 24;
+    // used to be oldest write time: earliest write time
+    reserved 25;
+    // latest write time
+    optional int64 newest_write_timestamp = 26 [default = -1];
+    // the encoded segment min/max key of segments in this rowset,
+    // only used in unique key data model with primary_key_index support.
+    repeated KeyBoundsPB segments_key_bounds = 27;
+    // tablet meta pb, for compaction
+    optional TabletSchemaCloudPB tablet_schema = 28;
+    // for data recycling in CLOUD_MODE
+    optional int64 txn_expiration = 29;
+    // alpha_rowset_extra_meta_pb is deleted
+    reserved 50;
+    // to indicate whether the data between the segments overlap
+    optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
+
+    // cloud
+    // the field is a vector, rename it
+    repeated int64 segments_file_size = 100;
+    // index_id, schema_version -> schema
+    optional int64 index_id = 101;
+    optional int32 schema_version = 102;
+    // If enable_segments_file_size is false,
+    // the segments_file_size maybe is empty or error
+    optional bool enable_segments_file_size = 103;
+    optional bool has_variant_type_in_schema = 104;
 }
 
 message SegmentStatisticsPB {
@@ -208,6 +296,9 @@ message ColumnPB {
     optional bool result_is_nullable = 19;
     // persist info for PathInData that represents path in document, e.g. JSON.
     optional segment_v2.ColumnPathInfo column_path_info = 20;
+    // sparse column within a variant column
+    repeated ColumnPB sparse_columns = 21;
+    optional bool is_auto_increment = 22;
 }
 
 enum IndexType {
@@ -217,12 +308,18 @@ enum IndexType {
     NGRAM_BF = 3;
 }
 
+enum InvertedIndexStorageFormatPB {
+    V1 = 0;
+    V2 = 1;
+}
+
 message TabletIndexPB {
     optional int64 index_id = 1;
     optional string index_name = 2;
     optional IndexType index_type = 3;
     repeated int32 col_unique_id = 4;
     map<string, string> properties = 5;
+    optional string index_suffix_name = 6;
 }
 
 enum SortType {
@@ -230,6 +327,8 @@ enum SortType {
     ZORDER  = 1;
 }
 
+// ATTN: When adding or deleting fields, please update `message TabletSchemaCloudPB`
+// simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message TabletSchemaPB {
     optional KeysType keys_type = 1;    // OLAPHeaderMessage.keys_type
     repeated ColumnPB column = 2;   // OLAPHeaderMessage.column
@@ -254,6 +353,36 @@ message TabletSchemaPB {
     repeated string partial_update_input_columns = 21; // deprecated
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
+    repeated int32 cluster_key_idxes = 24;
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
+}
+
+message TabletSchemaCloudPB {
+    optional KeysType keys_type = 1;    // OLAPHeaderMessage.keys_type
+    repeated ColumnPB column = 2;   // OLAPHeaderMessage.column
+    optional int32 num_short_key_columns = 3;   // OLAPHeaderMessage.num_short_key_fields
+    optional int32 num_rows_per_row_block = 4;  // OLAPHeaderMessage.num_rows_per_data_block
+    optional CompressKind compress_kind = 5; // OLAPHeaderMessage.compress_kind
+    optional double bf_fpp = 6; // OLAPHeaderMessage.bf_fpp
+    optional uint32 next_column_unique_id = 7; // OLAPHeaderMessage.next_column_unique_id
+    optional int32 delete_sign_idx = 8 [default = -1];
+    optional int32 sequence_col_idx = 9 [default= -1];
+    optional SortType sort_type = 10;
+    optional int32 sort_col_num = 11;
+    optional segment_v2.CompressionTypePB compression_type = 12 [default=LZ4F];
+    optional int32 schema_version = 13;
+    optional bool disable_auto_compaction = 14 [default=false];
+    repeated TabletIndexPB index = 15;
+    optional int32 version_col_idx = 16 [default = -1];
+    optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
+    reserved 20; // deprecated is_partial_update
+    reserved 21; // deprecated partial_update_input_columns
+    optional bool enable_single_replica_compaction = 22 [default=false];
+    optional bool skip_write_index_on_load = 23 [default=false];
+    repeated int32 cluster_key_idxes = 24;
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
+
+    optional bool is_dynamic_schema = 100 [default=false];
 }
 
 enum TabletStatePB {
@@ -294,6 +423,8 @@ message BinlogConfigPB {
     optional int64 max_history_nums = 4;
 }
 
+// ATTN: When adding or deleting fields, please update `message TabletMetaCloudPB`
+// simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message TabletMetaPB {
     optional int64 table_id = 1;    // ?
     optional int64 partition_id = 2;    // ?
@@ -333,6 +464,69 @@ message TabletMetaPB {
     optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
+    optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
+    optional int64 time_series_compaction_level_threshold = 33 [default = 1];
+
+    // For cloud
+    optional int64 index_id = 1000;
+    optional bool is_in_memory = 1001;
+    optional bool is_persistent = 1002;
+    optional string table_name = 1003;
+    optional int64 ttl_seconds = 1004;
+    optional int32 schema_version = 1005; // index_id, schema_version -> schema
+}
+
+message TabletMetaCloudPB {
+    optional int64 table_id = 1;    // ?
+    optional int64 partition_id = 2;    // ?
+    optional int64 tablet_id = 3;   // OlapHeaderMessage.tablet_id
+    optional int32 schema_hash = 4; // OlapHeaderMessage.schema_hash
+    optional int32 shard_id = 5;    // OlapHeaderMessage.shard
+    optional int64 creation_time = 6;   // OlapHeaderMessage.creation_time
+    optional int64 cumulative_layer_point = 7;  // OlapHeaderMessage.cumulative_layer_point
+
+    optional TabletStatePB tablet_state = 8;
+    optional TabletSchemaCloudPB schema = 9;
+    repeated RowsetMetaCloudPB rs_metas = 10;
+    // @Deprecated
+    repeated RowsetMetaCloudPB inc_rs_metas = 11;
+    optional AlterTabletPB alter_task = 12;
+    // if true, this tablet will not do compaction,
+    // and does not create init version
+    optional bool in_restore_mode = 13 [default = false];   // OlapHeaderMessage.in_restore_mode
+    // a uniqued id to identified tablet with same tablet_id and schema hash
+    optional PUniqueId tablet_uid = 14;
+    optional int64 end_rowset_id = 15;
+    optional RowsetTypePB preferred_rowset_type = 16;
+    optional TabletTypePB tablet_type = 17;
+    repeated RowsetMetaCloudPB stale_rs_metas = 18;
+    // optional StorageMediumPB storage_medium = 19 [default = HDD];
+    // optional string remote_storage_name = 20;
+    optional int64 replica_id = 21 [default = 0];
+    // 22 used to be string storage_policy = 22;
+    reserved 22;
+    optional DeleteBitmapPB delete_bitmap = 23;
+    // Use primary key index to speed up tabel unique key model
+    optional bool enable_unique_key_merge_on_write = 24 [default = false];
+    optional int64 index_id = 25;
+    optional bool is_in_memory = 26 [default=false];
+    optional bool is_persistent = 27 [default=false];
+    optional int64 storage_policy_id = 28;
+    optional PUniqueId cooldown_meta_id = 29;
+    optional BinlogConfigPB binlog_config = 30;
+    optional string compaction_policy = 31 [default = "size_based"];
+    optional int64 time_series_compaction_goal_size_mbytes = 32 [default = 1024];
+    optional int64 time_series_compaction_file_count_threshold = 33 [default = 2000];
+    optional int64 time_series_compaction_time_threshold_seconds = 34 [default = 3600];
+    optional int64 group_commit_interval_ms = 35 [default = 10000];
+    optional int64 group_commit_data_bytes = 36 [default = 134217728];
+    optional int64 time_series_compaction_empty_rowsets_threshold = 37 [default = 5];
+    optional int64 time_series_compaction_level_threshold = 38 [default = 1];
+
+    // Use for selectdb-cloud
+    optional string table_name = 101;
+    optional int64 ttl_seconds = 102;
+    optional int32 schema_version = 103; // index_id, schema_version -> schema
 }
 
 message OLAPRawDeltaHeaderMessage {

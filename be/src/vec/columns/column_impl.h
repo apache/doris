@@ -86,4 +86,33 @@ void IColumn::get_indices_of_non_default_rows_impl(IColumn::Offsets64& indices, 
     }
 }
 
+template <typename Derived>
+double IColumn::get_ratio_of_default_rows_impl(double sample_ratio) const {
+    if (sample_ratio <= 0.0 || sample_ratio > 1.0) {
+        LOG(FATAL) << "Value of 'sample_ratio' must be in interval (0.0; 1.0], but got: "
+                   << sample_ratio;
+    }
+    static constexpr auto max_number_of_rows_for_full_search = 1000;
+    size_t num_rows = size();
+    size_t num_sampled_rows = std::min(static_cast<size_t>(num_rows * sample_ratio), num_rows);
+    size_t num_checked_rows = 0;
+    size_t res = 0;
+    if (num_sampled_rows == num_rows || num_rows <= max_number_of_rows_for_full_search) {
+        for (size_t i = 0; i < num_rows; ++i)
+            res += static_cast<const Derived&>(*this).is_default_at(i);
+        num_checked_rows = num_rows;
+    } else if (num_sampled_rows != 0) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (num_checked_rows * num_rows <= i * num_sampled_rows) {
+                res += static_cast<const Derived&>(*this).is_default_at(i);
+                ++num_checked_rows;
+            }
+        }
+    }
+    if (num_checked_rows == 0) {
+        return 0.0;
+    }
+    return static_cast<double>(res) / num_checked_rows;
+}
+
 } // namespace doris::vectorized

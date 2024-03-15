@@ -83,6 +83,7 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
         }
         RETURN_ERROR_IF_EXC(env);
         RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_ctx->executor, &jni_ctx->executor));
+        jni_ctx->open_successes = true;
     }
     return Status::OK();
 }
@@ -126,7 +127,7 @@ Status JavaFunctionCall::close(FunctionContext* context,
     // JNIContext own some resource and its release method depend on JavaFunctionCall
     // has to release the resource before JavaFunctionCall is deconstructed.
     if (jni_ctx) {
-        jni_ctx->close();
+        RETURN_IF_ERROR(jni_ctx->close());
     }
     return Status::OK();
 }

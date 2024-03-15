@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@Deprecated
 public class LoadJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(LoadJob.class);
 

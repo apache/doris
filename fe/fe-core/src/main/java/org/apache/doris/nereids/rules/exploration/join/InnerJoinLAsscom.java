@@ -36,7 +36,13 @@ import java.util.stream.Collectors;
  * Rule for change inner join LAsscom (associative and commutive).
  */
 public class InnerJoinLAsscom extends OneExplorationRuleFactory {
-    public static final InnerJoinLAsscom INSTANCE = new InnerJoinLAsscom();
+    public static final InnerJoinLAsscom INSTANCE = new InnerJoinLAsscom(false);
+    public static final InnerJoinLAsscom LEFT_ZIG_ZAG = new InnerJoinLAsscom(true);
+    private boolean leftZigZag = false;
+
+    public InnerJoinLAsscom(boolean leftZigZag) {
+        this.leftZigZag = leftZigZag;
+    }
 
     /*
      *      topJoin                newTopJoin
@@ -48,9 +54,8 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), group())
-                .when(topJoin -> checkReorder(topJoin, topJoin.left()))
-                .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin())
+                .when(topJoin -> checkReorder(topJoin, topJoin.left(), leftZigZag))
+                .whenNot(join -> join.hasDistributeHint() || join.left().hasDistributeHint())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -64,20 +69,20 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                     List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
 
                     // split OtherJoinConjuncts.
-                    Map<Boolean, List<Expression>> splitOtherConjunts = splitConjuncts(topJoin.getOtherJoinConjuncts(),
+                    Map<Boolean, List<Expression>> splitOtherConjuncts = splitConjuncts(topJoin.getOtherJoinConjuncts(),
                             bottomJoin, bottomJoin.getOtherJoinConjuncts());
-                    List<Expression> newTopOtherConjuncts = splitOtherConjunts.get(true);
-                    List<Expression> newBottomOtherConjuncts = splitOtherConjunts.get(false);
+                    List<Expression> newTopOtherConjuncts = splitOtherConjuncts.get(true);
+                    List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
 
                     if (newBottomHashConjuncts.isEmpty() && newBottomOtherConjuncts.isEmpty()) {
                         return null;
                     }
 
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,
-                            newBottomOtherConjuncts, a, c);
+                            newBottomOtherConjuncts, a, c, null);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(newTopHashConjuncts,
-                            newTopOtherConjuncts, newBottomJoin, b);
+                            newTopOtherConjuncts, newBottomJoin, b, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
@@ -85,11 +90,24 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_LASSCOM);
     }
 
+    /**
+     * trigger rule condition
+     */
     public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin,
-            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
-        return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
-                && !topJoin.getJoinReorderContext().hasLAsscom()
-                && (!bottomJoin.isMarkJoin() && !topJoin.isMarkJoin());
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin, boolean leftZigZag) {
+        if (topJoin.isLeadingJoin()
+                || bottomJoin.isLeadingJoin()) {
+            return false;
+        }
+        if (leftZigZag) {
+            double bRows = bottomJoin.right().getGroup().getStatistics().getRowCount();
+            double cRows = topJoin.right().getGroup().getStatistics().getRowCount();
+            return bRows < cRows && !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
+                    && !topJoin.getJoinReorderContext().hasLAsscom();
+        } else {
+            return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
+                    && !topJoin.getJoinReorderContext().hasLAsscom();
+        }
     }
 
     /**

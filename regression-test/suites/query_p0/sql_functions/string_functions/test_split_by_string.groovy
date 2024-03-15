@@ -102,4 +102,64 @@ suite("test_split_by_string") {
 
 
     qt_sql "SELECT *, split_by_string(v1, v2) FROM ${tableName2} ORDER BY k1"
+
+    // Case where both of operator are column string is covered by above test. 
+    sql """DROP TABLE IF EXISTS test_split_by_string_2"""
+    sql """
+            CREATE TABLE IF NOT EXISTS test_split_by_string_2 (
+              `rid` INT NULL,
+              `str` TEXT NULL,
+              `vc`  VARCHAR(5) NULL,
+              `chr`   CHAR(5) NULL,
+              `txt` TEXT NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`rid`)
+            DISTRIBUTED BY HASH(`rid`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            )
+        """
+    sql """ INSERT INTO test_split_by_string_2 
+            VALUES (1, "", "", "", ""),
+                   (2, "", "", "", ""),
+                   (3, "a,b,c", "a,b,c", "a,b,c", "a,b,c"),
+                   (4, "a,b,c", "a,b,c", "a,b,c", "a,b,c")
+        """
+    // Left operator is const, right operator is column string
+    qt_sql_1 """ 
+                SELECT rid, 
+                      split_by_string("abc", str),
+                      split_by_string("abc", vc),
+                      split_by_string("abc", chr),
+                      split_by_string("abc", txt)
+                FROM test_split_by_string_2 WHERE rid=1 OR rid=2 ORDER BY rid;
+              """
+    // Left operator is column string, right operator is const
+    qt_sql_2 """
+                SELECT rid, 
+                      split_by_string(str, ","),
+                      split_by_string(vc, ","),
+                      split_by_string(chr, ","),
+                      split_by_string(txt, ",")
+                FROM test_split_by_string_2 WHERE rid=3 OR rid=4 ORDER BY rid;
+             """
+
+    // Empty string
+    qt_sql_3 """
+                SELECT rid, 
+                      split_by_string(str, ""),
+                      split_by_string(vc, ""),
+                      split_by_string(chr, ""),
+                      split_by_string(txt, "")
+                FROM test_split_by_string_2 ORDER BY rid;
+             """
+    qt_sql_4 """
+                SELECT rid, 
+                      split_by_string("", str),
+                      split_by_string("", vc),
+                      split_by_string("", chr),
+                      split_by_string("", txt)
+                FROM test_split_by_string_2 ORDER BY rid;
+             """
 }

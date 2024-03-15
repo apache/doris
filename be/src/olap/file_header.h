@@ -139,13 +139,11 @@ Status FileHeader<MessageType, ExtraType>::serialize() {
     // write to file
     io::FileWriterPtr file_writer;
     RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_file_path, &file_writer));
-    RETURN_IF_ERROR(file_writer->write_at(
-            0, {(const uint8_t*)&_fixed_file_header, _fixed_file_header_size}));
-    RETURN_IF_ERROR(file_writer->write_at(
-            _fixed_file_header_size,
+    RETURN_IF_ERROR(
+            file_writer->append({(const uint8_t*)&_fixed_file_header, _fixed_file_header_size}));
+    RETURN_IF_ERROR(file_writer->append(
             {(const uint8_t*)&_extra_fixed_header, sizeof(_extra_fixed_header)}));
-    RETURN_IF_ERROR(file_writer->write_at(_fixed_file_header_size + sizeof(_extra_fixed_header),
-                                          {_proto_string}));
+    RETURN_IF_ERROR(file_writer->append({_proto_string}));
     return file_writer->close();
 }
 

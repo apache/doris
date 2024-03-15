@@ -27,9 +27,35 @@ suite("query32") {
     sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
+    sql 'set dump_nereids_memo=false'
+    def ds = """select  sum(cs_ext_discount_amt)  as "excess discount amount" 
+from 
+   catalog_sales 
+   ,item 
+   ,date_dim
+where
+i_manufact_id = 722
+and i_item_sk = cs_item_sk 
+and d_date between '2001-03-09' and 
+        (cast('2001-03-09' as date) + interval 90 day)
+and d_date_sk = cs_sold_date_sk 
+and cs_ext_discount_amt  
+     > ( 
+         select 
+            1.3 * avg(cs_ext_discount_amt) 
+         from 
+            catalog_sales 
+           ,date_dim
+         where 
+              cs_item_sk = i_item_sk 
+          and d_date between '2001-03-09' and
+                             (cast('2001-03-09' as date) + interval 90 day)
+          and d_date_sk = cs_sold_date_sk 
+      ) 
+limit 100"""
     qt_ds_shape_32 '''
     explain shape plan
     select  sum(cs_ext_discount_amt)  as "excess discount amount" 
@@ -56,7 +82,6 @@ and cs_ext_discount_amt
                              (cast('2001-03-09' as date) + interval 90 day)
           and d_date_sk = cs_sold_date_sk 
       ) 
-limit 100;
-
+limit 100
     '''
 }

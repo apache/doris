@@ -51,7 +51,7 @@ public:
     // connect to mysql server
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status append_block(vectorized::Block& block) override;
+    Status write(vectorized::Block& block) override;
 
     Status close(Status) override;
 
@@ -59,7 +59,7 @@ private:
     Status _insert_row(vectorized::Block& block, size_t row);
     MysqlConnInfo _conn_info;
     fmt::memory_buffer _insert_stmt_buffer;
-    MYSQL* _mysql_conn;
+    MYSQL* _mysql_conn = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

@@ -46,19 +46,6 @@
 
 class SipHash;
 
-#define SIP_HASHES_FUNCTION_COLUMN_IMPL()                                \
-    auto s = hashes.size();                                              \
-    DCHECK(s == size());                                                 \
-    if (null_data == nullptr) {                                          \
-        for (size_t i = 0; i < s; i++) {                                 \
-            update_hash_with_value(i, hashes[i]);                        \
-        }                                                                \
-    } else {                                                             \
-        for (size_t i = 0; i < s; i++) {                                 \
-            if (null_data[i] == 0) update_hash_with_value(i, hashes[i]); \
-        }                                                                \
-    }
-
 #define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
     if (null_data == nullptr) {                                                      \
         for (size_t i = 0; i < s; i++) {                                             \
@@ -143,6 +130,9 @@ public:
         LOG(FATAL) << "Cannot clone_resized() column " << get_name();
         return nullptr;
     }
+
+    /// Some columns may require finalization before using of other operations.
+    virtual void finalize() {}
 
     // Only used on ColumnDictionary
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
@@ -237,10 +227,8 @@ public:
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
-    /// Warning:
-    ///       if *indices == -1 means the row is null, only use in outer join, do not use in any other place
-    virtual void insert_indices_from(const IColumn& src, const int* indices_begin,
-                                     const int* indices_end) = 0;
+    virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                     const uint32_t* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
     /// Is used to optimize some computations (in aggregation, for example).
@@ -364,15 +352,6 @@ public:
     /// Update state of hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
-    /// do xxHash here, faster than other hash method
-    virtual void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                          const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << get_name() << " update_hashes_with_value siphash not supported";
-    }
-
-    /// Update state of hash function with value of n elements to avoid the virtual function call
-    /// null_data to mark whether need to do hash compute, null_data == nullptr
-    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
     /// do xxHash here, faster than other sip hash
     virtual void update_hashes_with_value(uint64_t* __restrict hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
@@ -452,6 +431,7 @@ public:
       * For example, if nan_direction_hint == -1 is used by descending sorting, NaNs will be at the end.
       *
       * For non Nullable and non floating point types, nan_direction_hint is ignored.
+      * For array/map/struct types, we compare with nested column element and offsets size
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
                            int nan_direction_hint) const = 0;
@@ -480,13 +460,6 @@ public:
       * It is necessary in ARRAY JOIN operation.
       */
     virtual Ptr replicate(const Offsets& offsets) const = 0;
-
-    /** Copies each element according offsets parameter.
-      * (i-th element should be copied counts[i] times.)
-      * If `begin` and `count_sz` specified, it means elements in range [`begin`, `begin` + `count_sz`) will be replicated.
-      * If `count_sz` is -1, `begin` must be 0.
-      */
-    virtual void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const = 0;
 
     /// Appends one field multiple times. Can be optimized in inherited classes.
     virtual void insert_many(const Field& field, size_t length) {
@@ -549,6 +522,7 @@ public:
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
     using ColumnCallback = std::function<void(WrappedPtr&)>;
+    using ImutableColumnCallback = std::function<void(const IColumn&)>;
     virtual void for_each_subcolumn(ColumnCallback) {}
 
     /// Columns have equal structure.
@@ -590,6 +564,8 @@ public:
 
     virtual bool is_hll() const { return false; }
 
+    virtual bool is_variant() const { return false; }
+
     virtual bool is_quantile_state() const { return false; }
 
     // true if column has null element
@@ -598,13 +574,10 @@ public:
     // true if column has null element [0,size)
     virtual bool has_null(size_t size) const { return false; }
 
-    /// It's a special kind of column, that contain single value, but is not a ColumnConst.
-    virtual bool is_dummy() const { return false; }
-
     virtual bool is_exclusive() const { return use_count() == 1; }
 
     /// Clear data of column, just like vector clear
-    virtual void clear() {}
+    virtual void clear() = 0;
 
     /** Memory layout properties.
       *
@@ -641,6 +614,18 @@ public:
         return 0;
     }
 
+    /// Returns ratio of values in column, that are equal to default value of column.
+    /// Checks only @sample_ratio ratio of rows.
+    virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const {
+        LOG(FATAL) << fmt::format("get_ratio_of_default_rows of column {} are not implemented.",
+                                  get_name());
+        return 0.0;
+    }
+
+    /// Template is to devirtualize calls to 'isDefaultAt' method.
+    template <typename Derived>
+    double get_ratio_of_default_rows_impl(double sample_ratio) const;
+
     /// Column is ColumnVector of numbers or ColumnConst of it. Note that Nullable columns are not numeric.
     /// Implies is_fixed_and_contiguous.
     virtual bool is_numeric() const { return false; }
@@ -648,8 +633,6 @@ public:
     virtual bool is_column_string() const { return false; }
 
     virtual bool is_column_decimal() const { return false; }
-
-    virtual bool is_predicate_column() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
 
@@ -661,9 +644,6 @@ public:
 
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
-
-    /// Can be inside ColumnNullable.
-    virtual bool can_be_inside_nullable() const { return false; }
 
     virtual bool low_cardinality() const { return false; }
 
@@ -685,6 +665,8 @@ public:
 
     // only used in ColumnNullable replace_column_data
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
+
+    virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
@@ -719,7 +701,7 @@ using ColumnPtr = IColumn::Ptr;
 using MutableColumnPtr = IColumn::MutablePtr;
 using Columns = std::vector<ColumnPtr>;
 using MutableColumns = std::vector<MutableColumnPtr>;
-
+using ColumnPtrs = std::vector<ColumnPtr>;
 using ColumnRawPtrs = std::vector<const IColumn*>;
 
 template <typename... Args>

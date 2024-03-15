@@ -18,9 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.HMSExternalCatalog;
 
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
@@ -63,7 +61,7 @@ public class HiveTransaction {
         return isFullAcid;
     }
 
-    public ValidWriteIdList getValidWriteIds(PooledHiveMetaStoreClient client) {
+    public ValidWriteIdList getValidWriteIds(HMSCachedClient client) {
         if (validWriteIdList == null) {
             TableName tableName = new TableName(hiveTable.getCatalog().getName(), hiveTable.getDbName(),
                     hiveTable.getName());
@@ -89,4 +87,3 @@ public class HiveTransaction {
         }
     }
 }
-

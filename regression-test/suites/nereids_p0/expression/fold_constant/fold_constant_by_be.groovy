@@ -31,4 +31,13 @@ suite("fold_constant_by_be") {
         '''
         result([['9999-07-31']])
     }
+
+    sql """ 
+        CREATE TABLE IF NOT EXISTS str_tb (k1 VARCHAR(10) NULL, v1 STRING NULL) 
+        UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
+    """
+
+    sql """ INSERT INTO str_tb VALUES (2, repeat("test1111", 10000)); """
+
+    qt_sql_1 """ select length(v1) from str_tb; """
 }

@@ -18,16 +18,17 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.EsExternalTable;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.es.EsExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Unbound;
@@ -47,15 +48,19 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
@@ -89,7 +94,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
             Plan plan = doBindRelation(ctx);
-            if (!(plan instanceof Unbound)) {
+            if (!(plan instanceof Unbound) && plan instanceof Relation) {
                 // init output and allocate slot id immediately, so that the slot id increase
                 // in the order in which the table appears.
                 LogicalProperties logicalProperties = plan.getLogicalProperties();
@@ -128,9 +133,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             if (analyzedCte.isPresent()) {
                 LogicalCTEConsumer consumer = new LogicalCTEConsumer(unboundRelation.getRelationId(),
                         cteContext.getCteId(), tableName, analyzedCte.get());
-                if (cascadesContext.getStatementContext().isLeadingJoin()) {
-                    LeadingHint leading = (LeadingHint) cascadesContext.getStatementContext()
-                            .getHintMap().get("Leading");
+                if (cascadesContext.isLeadingJoin()) {
+                    LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
                     leading.putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
                     leading.getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
                 }
@@ -156,8 +160,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         // TODO: should generate different Scan sub class according to table's type
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
-        if (cascadesContext.getStatementContext().isLeadingJoin()) {
-            LeadingHint leading = (LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading");
+        if (cascadesContext.isLeadingJoin()) {
+            LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
             leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
             leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), scan);
         }
@@ -188,13 +192,31 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds,
                     tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
         } else {
-            scan = new LogicalOlapScan(unboundRelation.getRelationId(),
+            Optional<String> indexName = unboundRelation.getIndexName();
+            if (indexName.isPresent()) {
+                OlapTable olapTable = (OlapTable) table;
+                Long indexId = olapTable.getIndexIdByName(indexName.get());
+                if (indexId == null) {
+                    throw new AnalysisException("Table " + olapTable.getName()
+                        + " doesn't have materialized view " + indexName.get());
+                }
+                PreAggStatus preAggStatus
+                        = olapTable.getIndexMetaByIndexId(indexId).getKeysType().equals(KeysType.DUP_KEYS)
+                        ? PreAggStatus.on()
+                        : PreAggStatus.off("For direct index scan.");
+
+                scan = new LogicalOlapScan(unboundRelation.getRelationId(),
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, indexId,
+                    preAggStatus, unboundRelation.getHints(), unboundRelation.getTableSample());
+            } else {
+                scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample());
+            }
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
-                && !ConnectContext.get().getSessionVariable()
-                .skipDeleteSign()) {
+                && !ConnectContext.get().getSessionVariable().skipDeleteSign()
+                && !scan.isDirectMvScan()) {
             // table qualifier is catalog.db.table, we make db.table.column
             Slot deleteSlot = null;
             for (Slot slot : scan.getOutput()) {
@@ -214,27 +236,33 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return scan;
     }
 
-    private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier,
-                                       CascadesContext cascadesContext) {
+    private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
+                                               List<String> tableQualifier, CascadesContext cascadesContext) {
         switch (table.getType()) {
             case OLAP:
             case MATERIALIZED_VIEW:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
-                Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
-                return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
+                View view = (View) table;
+                String inlineViewDef = view.getInlineViewDef();
+                Plan viewBody = parseAndAnalyzeView(inlineViewDef, cascadesContext);
+                LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
+                return new LogicalSubQueryAlias<>(tableQualifier, logicalView);
             case HMS_EXTERNAL_TABLE:
-                if (Config.enable_query_hive_views && ((HMSExternalTable) table).isView()) {
-                    String hiveCatalog = ((HMSExternalTable) table).getCatalog().getName();
-                    String ddlSql = ((HMSExternalTable) table).getViewText();
+                HMSExternalTable hmsTable = (HMSExternalTable) table;
+                if (Config.enable_query_hive_views && hmsTable.isView()) {
+                    String hiveCatalog = hmsTable.getCatalog().getName();
+                    String ddlSql = hmsTable.getViewText();
                     Plan hiveViewPlan = parseAndAnalyzeHiveView(hiveCatalog, ddlSql, cascadesContext);
                     return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                 }
+                hmsTable.setScanParams(unboundRelation.getScanParams());
                 return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table, tableQualifier,
                     unboundRelation.getTableSample());
             case ICEBERG_EXTERNAL_TABLE:
             case PAIMON_EXTERNAL_TABLE:
             case MAX_COMPUTE_EXTERNAL_TABLE:
+            case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table, tableQualifier,
                     unboundRelation.getTableSample());
             case SCHEMA:
@@ -242,8 +270,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case JDBC_EXTERNAL_TABLE:
             case JDBC:
                 return new LogicalJdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
+            case ODBC:
+                return new LogicalOdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
             case ES_EXTERNAL_TABLE:
                 return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
+            case TEST_EXTERNAL_TABLE:
+                return new LogicalTestScan(unboundRelation.getRelationId(), table, tableQualifier);
             default:
                 throw new AnalysisException("Unsupported tableType " + table.getType());
         }
@@ -269,7 +301,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
-        viewContext.newAnalyzer().analyze();
+        viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(), () -> {
+            viewContext.newAnalyzer(true, customTableResolver).analyze();
+        });
+        parentContext.addPlanProcesses(viewContext.getPlanProcesses());
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getRewritePlan();
     }

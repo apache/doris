@@ -89,9 +89,10 @@ public:
         nested_serde->set_return_object_as_string(value);
     }
 
-    static const std::string NULL_IN_CSV_FOR_ORDINARY_TYPE;
-
-    static const std::string NULL_IN_CSV_FOR_NESTED_TYPE;
+    void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                rapidjson::Document::AllocatorType& allocator,
+                                int row_num) const override;
+    void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
     template <bool is_binary_format>

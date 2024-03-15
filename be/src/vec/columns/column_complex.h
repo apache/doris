@@ -123,6 +123,7 @@ public:
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
+        __builtin_unreachable();
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
@@ -131,6 +132,7 @@ public:
     }
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
+        __builtin_unreachable();
     }
 
     void reserve(size_t n) override { data.reserve(n); }
@@ -158,22 +160,27 @@ public:
 
     [[noreturn]] UInt64 get64(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] Float64 get_float64(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] UInt64 get_uint(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] Int64 get_int(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
@@ -184,18 +191,14 @@ public:
         data.insert(data.end(), st, ed);
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         const Self& src_vec = assert_cast<const Self&>(src);
         auto new_size = indices_end - indices_begin;
 
-        for (int i = 0; i < new_size; ++i) {
+        for (uint32_t i = 0; i < new_size; ++i) {
             auto offset = *(indices_begin + i);
-            if (offset == -1) {
-                data.emplace_back(T {});
-            } else {
-                data.emplace_back(src_vec.get_element(offset));
-            }
+            data.emplace_back(src_vec.get_element(offset));
         }
     }
 
@@ -204,10 +207,12 @@ public:
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
+        __builtin_unreachable();
     }
 
     // maybe we do not need to impl the function
@@ -215,15 +220,8 @@ public:
         // TODO add hash function
     }
 
-    virtual void update_hashes_with_value(
-            std::vector<SipHash>& hashes,
-            const uint8_t* __restrict null_data = nullptr) const override {
-        // TODO add hash function
-    }
-
-    virtual void update_hashes_with_value(
-            uint64_t* __restrict hashes,
-            const uint8_t* __restrict null_data = nullptr) const override {
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override {
         // TODO add hash function
     }
 
@@ -232,8 +230,6 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "compare_at for " + std::string(get_family_name()));
     }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
@@ -262,11 +258,10 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
-
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
         LOG(FATAL) << "scatter not implemented";
+        __builtin_unreachable();
     }
 
     void append_data_by_selector(MutableColumnPtr& res,
@@ -397,18 +392,6 @@ ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const
     }
 
     return res;
-}
-
-template <typename T>
-void ColumnComplexType<T>::replicate(const uint32_t* indexs, size_t target_size,
-                                     IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnComplexType<T>&>(column);
-    typename Self::Container& res_data = res.get_data();
-    res_data.resize(target_size);
-
-    for (size_t i = 0; i < target_size; ++i) {
-        res_data[i] = data[indexs[i]];
-    }
 }
 
 using ColumnBitmap = ColumnComplexType<BitmapValue>;

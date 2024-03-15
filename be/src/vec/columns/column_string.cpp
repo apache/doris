@@ -99,7 +99,9 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     const ColumnString& src_concrete = assert_cast<const ColumnString&>(src);
 
     if (start + length > src_concrete.offsets.size()) {
-        LOG(FATAL) << "Parameter out of bound in IColumnString::insert_range_from method.";
+        throw doris::Exception(
+                doris::ErrorCode::INTERNAL_ERROR,
+                "Parameter out of bound in IColumnString::insert_range_from method.");
     }
 
     size_t nested_offset = src_concrete.offset_at(start);
@@ -124,10 +126,10 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     }
 }
 
-void ColumnString::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                       const int* indices_end) {
-    const ColumnString& src_str = assert_cast<const ColumnString&>(src);
-    auto src_offset_data = src_str.offsets.data();
+void ColumnString::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                       const uint32_t* indices_end) {
+    const auto& src_str = assert_cast<const ColumnString&>(src);
+    const auto* src_offset_data = src_str.offsets.data();
 
     auto old_char_size = chars.size();
     size_t total_chars_size = old_char_size;
@@ -136,28 +138,24 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     offsets.resize(offsets.size() + indices_end - indices_begin);
     auto* dst_offsets_data = offsets.data();
 
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x != -1) {
-            total_chars_size += src_offset_data[*x] - src_offset_data[*x - 1];
-        }
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        total_chars_size += src_offset_data[*x] - src_offset_data[int(*x) - 1];
         dst_offsets_data[dst_offsets_pos++] = total_chars_size;
     }
     check_chars_length(total_chars_size, offsets.size());
 
     chars.resize(total_chars_size);
 
-    auto* src_data_ptr = src_str.chars.data();
+    const auto* src_data_ptr = src_str.chars.data();
     auto* dst_data_ptr = chars.data();
 
     size_t dst_chars_pos = old_char_size;
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x != -1) {
-            const size_t size_to_append = src_offset_data[*x] - src_offset_data[*x - 1];
-            const size_t offset = src_offset_data[*x - 1];
-            memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
-                                                     src_data_ptr + offset, size_to_append);
-            dst_chars_pos += size_to_append;
-        }
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        const size_t size_to_append = src_offset_data[*x] - src_offset_data[int(*x) - 1];
+        const size_t offset = src_offset_data[int(*x) - 1];
+        memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
+                                                 src_data_ptr + offset, size_to_append);
+        dst_chars_pos += size_to_append;
     }
 }
 
@@ -205,6 +203,19 @@ size_t ColumnString::filter(const Filter& filter) {
     }
 
     return filter_arrays_impl<UInt8, Offset>(chars, offsets, filter);
+}
+
+Status ColumnString::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    auto* col = static_cast<ColumnString*>(col_ptr);
+    Chars& res_chars = col->chars;
+    Offsets& res_offsets = col->offsets;
+    Filter filter;
+    filter.resize_fill(offsets.size(), 0);
+    for (size_t i = 0; i < sel_size; i++) {
+        filter[sel[i]] = 1;
+    }
+    filter_arrays_impl<UInt8, Offset>(chars, offsets, res_chars, res_offsets, filter, sel_size);
+    return Status::OK();
 }
 
 ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
@@ -304,7 +315,7 @@ void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
         uint32_t string_size(size_at(i));
 
         auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-        memcpy(ptr, &string_size, sizeof(string_size));
+        memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
         memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
         keys[i].size += sizeof(string_size) + string_size;
     }
@@ -318,7 +329,7 @@ void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
             uint32_t string_size(size_at(i));
 
             auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-            memcpy(ptr, &string_size, sizeof(string_size));
+            memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
             memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
             keys[i].size += sizeof(string_size) + string_size;
         }
@@ -461,34 +472,6 @@ ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
 
     check_chars_length(res_chars.size(), res_offsets.size());
     return res;
-}
-
-void ColumnString::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnString&>(column);
-
-    Chars& res_chars = res.chars;
-    Offsets& res_offsets = res.offsets;
-
-    size_t byte_size = 0;
-    res_offsets.resize(target_size);
-    for (size_t i = 0; i < target_size; ++i) {
-        long row_idx = indexs[i];
-        auto str_size = offsets[row_idx] - offsets[row_idx - 1];
-        res_offsets[i] = res_offsets[i - 1] + str_size;
-        byte_size += str_size;
-    }
-
-    res_chars.resize(byte_size);
-    auto* __restrict dest = res.chars.data();
-    auto* __restrict src = chars.data();
-    for (size_t i = 0; i < target_size; ++i) {
-        long row_idx = indexs[i];
-        auto str_size = offsets[row_idx] - offsets[row_idx - 1];
-        memcpy_small_allow_read_write_overflow15(dest + res_offsets[i - 1],
-                                                 src + offsets[row_idx - 1], str_size);
-    }
-
-    check_chars_length(res_chars.size(), res_offsets.size());
 }
 
 void ColumnString::reserve(size_t n) {

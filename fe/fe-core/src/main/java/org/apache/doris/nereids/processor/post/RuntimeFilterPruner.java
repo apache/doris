@@ -22,19 +22,26 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
@@ -54,24 +61,70 @@ import java.util.Set;
 public class RuntimeFilterPruner extends PlanPostProcessor {
 
     @Override
-    public PhysicalQuickSort visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, CascadesContext context) {
-        sort.child().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(sort.child())) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(sort);
+    public Plan visit(Plan plan, CascadesContext context) {
+        if (!plan.children().isEmpty()) {
+            Preconditions.checkArgument(plan.children().size() == 1,
+                    plan.getClass().getSimpleName()
+                    + " has more than one child, needs its own visitor implementation");
+            plan.child(0).accept(this, context);
+            if (context.getRuntimeFilterContext().isEffectiveSrcNode(plan.child(0))) {
+                RuntimeFilterContext.EffectiveSrcType childType = context.getRuntimeFilterContext()
+                        .getEffectiveSrcType(plan.child(0));
+                context.getRuntimeFilterContext().addEffectiveSrcNode(plan, childType);
+            }
         }
-        return sort;
+        return plan;
+    }
+
+    @Override
+    public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
+        for (Plan child : setOperation.children()) {
+            child.accept(this, context);
+        }
+        return setOperation;
+    }
+
+    @Override
+    public PhysicalIntersect visitPhysicalIntersect(PhysicalIntersect intersect, CascadesContext context) {
+        for (Plan child : intersect.children()) {
+            child.accept(this, context);
+        }
+        context.getRuntimeFilterContext().addEffectiveSrcNode(intersect, RuntimeFilterContext.EffectiveSrcType.NATIVE);
+        return intersect;
+    }
+
+    @Override
+    public PhysicalNestedLoopJoin visitPhysicalNestedLoopJoin(
+            PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
+            CascadesContext context) {
+        join.right().accept(this, context);
+        join.left().accept(this, context);
+        if (context.getRuntimeFilterContext().isEffectiveSrcNode(join.child(0))) {
+            RuntimeFilterContext.EffectiveSrcType childType = context.getRuntimeFilterContext()
+                    .getEffectiveSrcType(join.child(0));
+            context.getRuntimeFilterContext().addEffectiveSrcNode(join, childType);
+        }
+        return join;
+    }
+
+    @Override
+    public PhysicalCTEAnchor visitPhysicalCTEAnchor(PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+                                                    CascadesContext context) {
+        cteAnchor.child(0).accept(this, context);
+        cteAnchor.child(1).accept(this, context);
+        return cteAnchor;
     }
 
     @Override
     public PhysicalTopN visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
         topN.child().accept(this, context);
-        context.getRuntimeFilterContext().addEffectiveSrcNode(topN);
+        context.getRuntimeFilterContext().addEffectiveSrcNode(topN, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return topN;
     }
 
     public PhysicalLimit visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, CascadesContext context) {
         limit.child().accept(this, context);
-        context.getRuntimeFilterContext().addEffectiveSrcNode(limit);
+        context.getRuntimeFilterContext().addEffectiveSrcNode(limit, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return limit;
     }
 
@@ -79,75 +132,116 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     public PhysicalHashJoin visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         join.right().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(join.right())) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(join);
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        if (rfContext.isEffectiveSrcNode(join.right())) {
+            boolean enableExpand = false;
+            if (ConnectContext.get() != null) {
+                enableExpand = ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin;
+            }
+            if (enableExpand && rfContext.getEffectiveSrcType(join.right())
+                    == RuntimeFilterContext.EffectiveSrcType.REF) {
+                RuntimeFilterContext.ExpandRF expand = rfContext.getExpandRfByJoin(join);
+                if (expand != null) {
+                    Set<ExprId> outputExprIdOfExpandTargets = Sets.newHashSet();
+                    outputExprIdOfExpandTargets.addAll(expand.target1.getOutputExprIds());
+                    outputExprIdOfExpandTargets.addAll(expand.target2.getOutputExprIds());
+                    rfContext.getTargetExprIdByFilterJoin(join)
+                            .stream().filter(exprId -> outputExprIdOfExpandTargets.contains(exprId))
+                            .forEach(exprId -> rfContext.removeFilters(exprId, join));
+                }
+            }
+            RuntimeFilterContext.EffectiveSrcType childType =
+                    rfContext.getEffectiveSrcType(join.right());
+            context.getRuntimeFilterContext().addEffectiveSrcNode(join, childType);
         } else {
-            RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-            List<ExprId> exprIds = ctx.getTargetExprIdByFilterJoin(join);
+            List<ExprId> exprIds = rfContext.getTargetExprIdByFilterJoin(join);
             if (exprIds != null && !exprIds.isEmpty()) {
                 boolean isEffective = false;
-                for (Expression expr : join.getHashJoinConjuncts()) {
+                for (Expression expr : join.getEqualToConjuncts()) {
                     if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
                         isEffective = true;
                     }
                 }
                 if (!isEffective) {
-                    exprIds.stream().forEach(exprId -> context.getRuntimeFilterContext().removeFilter(exprId, join));
+                    exprIds.stream().forEach(exprId -> rfContext.removeFilters(exprId, join));
                 }
             }
         }
         join.left().accept(this, context);
+        if (rfContext.isEffectiveSrcNode(join.left())) {
+            RuntimeFilterContext.EffectiveSrcType leftType =
+                    rfContext.getEffectiveSrcType(join.left());
+            RuntimeFilterContext.EffectiveSrcType rightType =
+                    rfContext.getEffectiveSrcType(join.right());
+            if (rightType == null
+                    || (rightType == RuntimeFilterContext.EffectiveSrcType.REF
+                        && leftType == RuntimeFilterContext.EffectiveSrcType.NATIVE)) {
+                rfContext.addEffectiveSrcNode(join, leftType);
+            }
+        }
         return join;
     }
 
-    @Override
-    public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
-        project.child().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(project.child())) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(project);
+    private boolean isVisibleColumn(Slot slot) {
+        if (slot instanceof SlotReference) {
+            SlotReference slotReference = (SlotReference) slot;
+            if (slotReference.getColumn().isPresent()) {
+                return slotReference.getColumn().get().isVisible();
+            }
         }
-        return project;
+        return true;
     }
 
     @Override
     public PhysicalFilter visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         filter.child().accept(this, context);
-        context.getRuntimeFilterContext().addEffectiveSrcNode(filter);
+        boolean visibleFilter = filter.getExpressions().stream()
+                .flatMap(expression -> expression.getInputSlots().stream())
+                .anyMatch(slot -> isVisibleColumn(slot));
+        if (visibleFilter) {
+            // skip filters like: __DORIS_DELETE_SIGN__ = 0
+            context.getRuntimeFilterContext().addEffectiveSrcNode(filter, RuntimeFilterContext.EffectiveSrcType.NATIVE);
+        }
         return filter;
     }
 
     @Override
     public PhysicalRelation visitPhysicalRelation(PhysicalRelation scan, CascadesContext context) {
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
-        List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(scan.getRelationId());
-        if (slots != null) {
-            for (Slot slot : slots) {
-                //if this scan node is the target of any effective RF, it is effective source
-                if (!rfCtx.getTargetExprIdToFilter().get(slot.getExprId()).isEmpty()) {
-                    context.getRuntimeFilterContext().addEffectiveSrcNode(scan);
-                    break;
-                }
+        List<Slot> slots = rfCtx.getTargetListByScan(scan);
+        for (Slot slot : slots) {
+            //if this scan node is the target of any effective RF, it is effective source
+            if (!rfCtx.getTargetExprIdToFilter().get(slot.getExprId()).isEmpty()) {
+                context.getRuntimeFilterContext().addEffectiveSrcNode(scan, RuntimeFilterContext.EffectiveSrcType.REF);
+                break;
             }
         }
         return scan;
     }
 
-    // *******************************
-    // Physical enforcer
-    // *******************************
-    public PhysicalDistribute visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
-            CascadesContext context) {
-        distribute.child().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(distribute.child())) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(distribute);
-        }
-        return distribute;
-    }
-
+    @Override
     public PhysicalAssertNumRows visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             CascadesContext context) {
         assertNumRows.child().accept(this, context);
+        context.getRuntimeFilterContext().addEffectiveSrcNode(assertNumRows,
+                RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return assertNumRows;
+    }
+
+    @Override
+    public PhysicalHashAggregate visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate,
+                                                            CascadesContext context) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        aggregate.child().accept(this, context);
+        // q1: A join (select x, sum(y) as z from B group by x) T on A.a = T.x
+        // q2: A join (select x, sum(y) as z from B group by x) T on A.a = T.z
+        // RF on q1 is not effective, but RF on q2 is. But q1 is a more generous pattern, and hence agg is not
+        // regarded as an effective source. Let this RF judge by ndv.
+        if (ctx.isEffectiveSrcNode(aggregate.child(0))) {
+            RuntimeFilterContext.EffectiveSrcType childType = ctx.getEffectiveSrcType(aggregate.child());
+            ctx.addEffectiveSrcNode(aggregate, childType);
+        }
+        return aggregate;
     }
 
     /**
@@ -185,10 +279,11 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                 return false;
             }
         }
-        //without column statistics, we can not judge if the rf is effective.
+
         if (probeColumnStat.isUnKnown || buildColumnStat.isUnKnown) {
-            return true;
+            return false;
         }
+
         double buildNdvInProbeRange = buildColumnStat.ndvIntersection(probeColumnStat);
         return probeColumnStat.ndv > buildNdvInProbeRange * (1 + ColumnStatistic.STATS_ERROR);
     }

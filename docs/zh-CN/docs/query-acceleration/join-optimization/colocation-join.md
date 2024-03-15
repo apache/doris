@@ -356,7 +356,7 @@ HASH JOIN 节点会显示对应原因：`colocate: false, reason: group is not s
 
   是否关闭 Doris 的自动 Colocation 副本均衡。默认为 false，即不关闭。该参数只影响 Colocation 表的副本均衡，不影响普通表。
 
-以上参数可以动态修改，设置方式请参阅 `HELP ADMIN SHOW CONFIG;` 和 `HELP ADMIN SET CONFIG;`。
+以上参数可以动态修改，设置方式请参阅 `HELP SHOW CONFIG;` 和 `HELP ADMIN SET CONFIG;`。
 
 - disable_colocate_join
 
@@ -401,7 +401,7 @@ Doris 提供了几个和 Colocation Join 有关的 HTTP Restful API，用于查�
    - 标记为 Stable
 
      ```text
-     POST /api/colocate/group_stable?db_id=10005&group_id=10008
+     DELETE /api/colocate/group_stable?db_id=10005&group_id=10008
      
      返回：200
      ```
@@ -409,7 +409,7 @@ Doris 提供了几个和 Colocation Join 有关的 HTTP Restful API，用于查�
    - 标记为 Unstable
 
      ```text
-     DELETE /api/colocate/group_stable?db_id=10005&group_id=10008
+     POST /api/colocate/group_stable?db_id=10005&group_id=10008
      
      返回：200
      ```

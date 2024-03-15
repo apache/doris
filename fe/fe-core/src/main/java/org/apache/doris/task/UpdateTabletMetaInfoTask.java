@@ -53,6 +53,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     // < 0 means not to update property, > 0 means true, == 0 means false
     private int enableSingleReplicaCompaction = -1;
     private int skipWriteIndexOnLoad = -1;
+    private int disableAutoCompaction = -1;
 
     public UpdateTabletMetaInfoTask(long backendId, Set<Pair<Long, Integer>> tableIdWithSchemaHash) {
         super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
@@ -87,19 +88,23 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                                     String compactionPolicy,
                                     Map<String, Long> timeSeriesCompactionConfig,
                                     int enableSingleReplicaCompaction,
-                                    int skipWriteIndexOnLoad) {
+                                    int skipWriteIndexOnLoad,
+                                    int disableAutoCompaction) {
         this(backendId, tableIdWithSchemaHash, inMemory, storagePolicyId, binlogConfig, latch);
         this.compactionPolicy = compactionPolicy;
         this.timeSeriesCompactionConfig = timeSeriesCompactionConfig;
         this.enableSingleReplicaCompaction = enableSingleReplicaCompaction;
         this.skipWriteIndexOnLoad = skipWriteIndexOnLoad;
+        this.disableAutoCompaction = disableAutoCompaction;
     }
 
     public void countDownLatch(long backendId, Set<Pair<Long, Integer>> tablets) {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tablets)) {
-                LOG.debug("UpdateTabletMetaInfoTask current latch count: {}, backend: {}, tablets:{}",
-                        latch.getCount(), backendId, tablets);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("UpdateTabletMetaInfoTask current latch count: {}, backend: {}, tablets:{}",
+                            latch.getCount(), backendId, tablets);
+                }
             }
         }
     }
@@ -108,7 +113,9 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public void countDownToZero(String errMsg) {
         if (this.latch != null) {
             latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
-            LOG.debug("UpdateTabletMetaInfoTask count down to zero. error msg: {}", errMsg);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("UpdateTabletMetaInfoTask count down to zero. error msg: {}", errMsg);
+            }
         }
     }
 
@@ -152,12 +159,25 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                         metaInfo.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionConfig
                                     .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
                     }
+                    if (timeSeriesCompactionConfig
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+                        metaInfo.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionConfig
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD));
+                    }
+                    if (timeSeriesCompactionConfig
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
+                        metaInfo.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionConfig
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD));
+                    }
                 }
                 if (enableSingleReplicaCompaction >= 0) {
                     metaInfo.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction > 0);
                 }
                 if (skipWriteIndexOnLoad >= 0) {
                     metaInfo.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad > 0);
+                }
+                if (disableAutoCompaction >= 0) {
+                    metaInfo.setDisableAutoCompaction(disableAutoCompaction > 0);
                 }
                 updateTabletMetaInfoReq.addToTabletMetaInfos(metaInfo);
             }

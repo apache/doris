@@ -28,4 +28,12 @@ suite("nereids_tvf") {
     sql """
         select * from numbers("number"="10") a right join numbers("number"="10") b on true;
     """
+
+    sql """
+        select query_id from information_schema.active_queries where `sql` like "%test_queries_tvf%";
+    """
+
+    sql """
+        select * from numbers("number" = "1") union all select * from numbers("number" = "1");
+    """
 }

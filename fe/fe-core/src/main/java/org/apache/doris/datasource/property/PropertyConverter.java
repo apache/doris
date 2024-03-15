@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property;
 
-import org.apache.doris.common.util.S3Util;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InitCatalogLog.Type;
@@ -263,9 +263,7 @@ public class PropertyConverter {
         s3Properties.put(Constants.MAX_ERROR_RETRIES, "2");
         s3Properties.put("fs.s3.impl.disable.cache", "true");
         s3Properties.putIfAbsent("fs.s3.impl", S3AFileSystem.class.getName());
-        String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
-        String credentialsProviders = s3Properties
-                .getOrDefault(S3Properties.CREDENTIALS_PROVIDER, defaultProviderList);
+        String credentialsProviders = getAWSCredentialsProviders(properties);
         s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, credentialsProviders);
         if (credential.isWhole()) {
             s3Properties.put(Constants.ACCESS_KEY, credential.getAccessKey());
@@ -285,6 +283,18 @@ public class PropertyConverter {
         }
     }
 
+    public static String getAWSCredentialsProviders(Map<String, String> properties) {
+        String credentialsProviders;
+        String hadoopCredProviders = properties.get(Constants.AWS_CREDENTIALS_PROVIDER);
+        if (hadoopCredProviders != null) {
+            credentialsProviders = hadoopCredProviders;
+        } else {
+            String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
+            credentialsProviders = properties.getOrDefault(S3Properties.CREDENTIALS_PROVIDER, defaultProviderList);
+        }
+        return credentialsProviders;
+    }
+
     private static Map<String, String> convertToGCSProperties(Map<String, String> props, CloudCredential credential) {
         // Now we use s3 client to access
         return convertToS3Properties(S3Properties.prefixToS3(props), credential);
@@ -301,7 +311,7 @@ public class PropertyConverter {
         ossProperties.put("fs.oss.impl.disable.cache", "true");
         ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
         boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
-        if (S3Util.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
+        if (LocationPath.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
             // use endpoint or enable hdfs
             rewriteHdfsOnOssProperties(ossProperties, endpoint);
         }
@@ -321,7 +331,7 @@ public class PropertyConverter {
     }
 
     private static void rewriteHdfsOnOssProperties(Map<String, String> ossProperties, String endpoint) {
-        if (!S3Util.isHdfsOnOssEndpoint(endpoint)) {
+        if (!LocationPath.isHdfsOnOssEndpoint(endpoint)) {
             // just for robustness here, avoid wrong endpoint when oss-hdfs is enabled.
             // convert "oss-cn-beijing.aliyuncs.com" to "cn-beijing.oss-dls.aliyuncs.com"
             // reference link: https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
@@ -550,7 +560,11 @@ public class PropertyConverter {
         String region = S3Properties.getRegionOfEndpoint(endpoint);
         if (!Strings.isNullOrEmpty(region)) {
             props.put(S3Properties.REGION, region);
-            String s3Endpoint = "s3." + region + ".amazonaws.com";
+            String suffix = ".amazonaws.com";
+            if (endpoint.endsWith(".amazonaws.com.cn")) {
+                suffix = ".amazonaws.com.cn";
+            }
+            String s3Endpoint = "s3." + region + suffix;
             if (isGlueIceberg) {
                 s3Endpoint = "https://" + s3Endpoint;
             }
@@ -566,4 +580,3 @@ public class PropertyConverter {
         return props;
     }
 }
-

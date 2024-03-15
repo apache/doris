@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -43,20 +44,21 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                         .when(topJoin -> (topJoin.left().child().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isLeftOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint()
-                                || topJoin.left().child().hasJoinHint()
-                                || topJoin.left().child().isMarkJoin())
-                        .whenNot(LogicalJoin::isMarkJoin)
+                        .whenNot(topJoin -> topJoin.hasDistributeHint()
+                                || topJoin.left().child().hasDistributeHint())
                         .when(join -> join.left().isAllSlots())
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
+                            if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
+                                return null;
+                            }
                             GroupPlan a = bottomJoin.left();
                             GroupPlan b = bottomJoin.right();
                             GroupPlan c = topJoin.right();
 
                             // Discard this project, because it is useless.
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c);
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b, null);
                             return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
                                     newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_LEFT_PROJECT),
@@ -65,19 +67,21 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                         .when(topJoin -> (topJoin.right().child().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isRightOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint()
-                                || topJoin.right().child().hasJoinHint()
-                                || topJoin.right().child().isMarkJoin())
+                        .whenNot(topJoin -> topJoin.hasDistributeHint()
+                                || topJoin.right().child().hasDistributeHint())
                         .when(join -> join.right().isAllSlots())
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
+                            if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
+                                return null;
+                            }
                             GroupPlan a = topJoin.left();
                             GroupPlan b = bottomJoin.left();
                             GroupPlan c = bottomJoin.right();
 
                             // Discard this project, because it is useless.
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b);
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, c);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b, null);
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, c, null);
                             return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
                                     newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_RIGHT_PROJECT)

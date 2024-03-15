@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
@@ -46,7 +46,8 @@ public class SimpleSchedulerTest {
 
     @BeforeClass
     public static void setUp() {
-        FeConstants.heartbeat_interval_second = 2;
+        SimpleScheduler.init();
+        Config.heartbeat_interval_second = 2;
         be1 = new Backend(1000L, "192.168.100.0", 9050);
         be2 = new Backend(1001L, "192.168.100.1", 9050);
         be3 = new Backend(1002L, "192.168.100.2", 9050);
@@ -138,7 +139,7 @@ public class SimpleSchedulerTest {
         t3.join();
 
         Assert.assertFalse(SimpleScheduler.isAvailable(be1));
-        Thread.sleep((FeConstants.heartbeat_interval_second + 5) * 1000);
+        Thread.sleep((Config.heartbeat_interval_second + 5) * 1000);
         Assert.assertTrue(SimpleScheduler.isAvailable(be1));
     }
 
@@ -193,7 +194,7 @@ public class SimpleSchedulerTest {
             System.out.println(e.getMessage());
         }
 
-        Thread.sleep((FeConstants.heartbeat_interval_second + 5) * 1000);
+        Thread.sleep((Config.heartbeat_interval_second + 5) * 1000);
         Assert.assertNotNull(SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
     }
 }

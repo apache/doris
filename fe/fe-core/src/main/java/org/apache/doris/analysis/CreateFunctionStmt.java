@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
@@ -262,6 +263,8 @@ public class CreateFunctionStmt extends DdlStmt {
             }
         }
         if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+            FunctionUtil.checkEnableJavaUdf();
+
             String returnNullModeStr = properties.get(IS_RETURN_NULL);
             if (returnNullModeStr == null) {
                 return;

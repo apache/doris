@@ -48,7 +48,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class UnionSourceOperator final : public SourceOperator<UnionSourceOperatorBuilder> {
+class UnionSourceOperator final : public SourceOperator<vectorized::VUnionNode> {
 public:
     UnionSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* node,
                         std::shared_ptr<DataQueue>);
@@ -70,15 +70,16 @@ private:
 };
 
 class UnionSourceOperatorX;
-class UnionSourceLocalState final : public PipelineXLocalState<UnionDependency> {
+class UnionSourceLocalState final : public PipelineXLocalState<UnionSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSourceLocalState);
-    using Base = PipelineXLocalState<UnionDependency>;
+    using Base = PipelineXLocalState<UnionSharedState>;
     using Parent = UnionSourceOperatorX;
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    std::shared_ptr<UnionSharedState> create_shared_state();
+
+    [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
 private:
     friend class UnionSourceOperatorX;
@@ -86,6 +87,10 @@ private:
     bool _need_read_for_const_expr {true};
     int _const_expr_list_idx {0};
     std::vector<vectorized::VExprContextSPtrs> _const_expr_lists;
+
+    // If this operator has no children, there is no shared state which owns dependency. So we
+    // use this local state to hold this dependency.
+    DependencySPtr _only_const_dependency = nullptr;
 };
 
 class UnionSourceOperatorX final : public OperatorX<UnionSourceLocalState> {
@@ -95,8 +100,7 @@ public:
                          const DescriptorTbl& descs)
             : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {};
     ~UnionSourceOperatorX() override = default;
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -114,7 +118,7 @@ public:
     }
 
     Status prepare(RuntimeState* state) override {
-        static_cast<void>(Base::prepare(state));
+        RETURN_IF_ERROR(Base::prepare(state));
         // Prepare const expr lists.
         for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
             RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
@@ -132,15 +136,15 @@ public:
     [[nodiscard]] int get_child_count() const { return _child_size; }
 
 private:
-    bool _has_data(RuntimeState* state) {
-        auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
+    bool _has_data(RuntimeState* state) const {
+        auto& local_state = get_local_state(state);
         if (_child_size == 0) {
             return local_state._need_read_for_const_expr;
         }
         return local_state._shared_state->data_queue.remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {
-        auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
+        auto& local_state = get_local_state(state);
         return state->per_fragment_instance_idx() == 0 &&
                local_state._const_expr_list_idx < local_state._const_expr_lists.size();
     }

@@ -34,7 +34,7 @@ enum class FieldType;
 
 class WrapperField {
 public:
-    static WrapperField* create(const TabletColumn& column, uint32_t len = 0);
+    static Result<WrapperField*> create(const TabletColumn& column, uint32_t len = 0);
     static WrapperField* create_by_type(const FieldType& type) { return create_by_type(type, 0); }
     static WrapperField* create_by_type(const FieldType& type, int32_t var_length);
 

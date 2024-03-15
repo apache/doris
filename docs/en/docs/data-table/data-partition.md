@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS example_db.example_list_tbl
     `user_id` LARGEINT NOT NULL COMMENT "User ID",
     `date` DATE NOT NULL COMMENT "Date when the data are imported",
     `timestamp` DATETIME NOT NULL COMMENT "Timestamp when the data are imported",
-    `city` VARCHAR(20) COMMENT "User location city",
+    `city` VARCHAR(20) NOT NULL COMMENT "User location city",
     `age` SMALLINT COMMENT "User Age",
     `sex` TINYINT COMMENT "User gender",
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "User last visit time",
@@ -146,6 +146,7 @@ It is also possible to use one layer of data partitioning, If you do not write t
 1. Partition
 
    * You can specify one or more columns as the partitioning columns, but they have to be KEY columns. The usage of multi-column partitions is described further below. 
+   * Range Partition supports the use of NULL partition columns when `allowPartitionColumnNullable` is `true`. List Partition never supports NULL partition columns.
    * Regardless of the type of the partitioning columns, double quotes are required for partition values.
    * There is no theoretical limit on the number of partitions.
    * If users create a table without specifying the partitions, the system will automatically generate a Partition with the same name as the table. This Partition contains all data in the table and is neither visible to users nor modifiable.

@@ -104,11 +104,15 @@ suite("test_aggregate_all_functions") {
     sql "insert into ${tableName_03} select dt,page,to_bitmap(user_id_int) user_id from ${tableName_04}"
     sql "insert into ${tableName_03} select dt,page,bitmap_hash(user_id_str) user_id from ${tableName_04}"
 
+    qt_select_all1 "select *, bitmap_to_string(user_id) from pv_bitmap order by 1,2;"
+    qt_select_all2 "select *, bitmap_to_string(user_id) from pv_bitmap where dt = 20220202 order by 1,2;"
+
     qt_bitmap_intersect "select dt, bitmap_to_string(bitmap_intersect(user_id_bitmap)) from ${tableName_04} group by dt order by dt"
 
     qt_select4 "select bitmap_union_count(user_id) from  ${tableName_03}"
     qt_select5 "select bitmap_count(bitmap_union(user_id)) FROM ${tableName_03}"
-
+    qt_select6 "select bitmap_union_count(user_id) from  ${tableName_03} group by page order by 1;"
+    qt_select7 "select bitmap_to_string(bitmap_union(user_id)) FROM ${tableName_03} group by page order by 1;"
     qt_group_bitmap_xor "select dt, bitmap_to_string(group_bitmap_xor(user_id_bitmap)) from ${tableName_04} group by dt order by dt"
 
     sql "DROP TABLE IF EXISTS ${tableName_03}"

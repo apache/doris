@@ -35,13 +35,13 @@
 #include <queue>
 #include <shared_mutex>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -95,8 +95,7 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->tablet_id();
             tablet_info.schema_hash = tablet->schema_hash();
-            RETURN_IF_ERROR(
-                    StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info));
+            RETURN_IF_ERROR(_engine.tablet_manager()->report_tablet_info(&tablet_info));
             tablet_info_vec->push_back(tablet_info);
         }
         LOG(INFO) << "process realtime push successfully. "
@@ -127,8 +126,8 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     load_id.set_lo(0);
     {
         std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
-        RETURN_IF_ERROR(StorageEngine::instance()->txn_manager()->prepare_txn(
-                request.partition_id, *tablet, request.transaction_id, load_id));
+        RETURN_IF_ERROR(_engine.txn_manager()->prepare_txn(request.partition_id, *tablet,
+                                                           request.transaction_id, load_id));
     }
 
     // not call validate request here, because realtime load does not
@@ -167,6 +166,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     tablet_schema->copy_from(*tablet->tablet_schema());
     if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
         tablet_schema->clear_columns();
+        // TODO(lhy) handle variant
         for (const auto& column_desc : request.columns_desc) {
             tablet_schema->append_column(TabletColumn(column_desc));
         }
@@ -180,11 +180,11 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                      << ", tablet=" << tablet->tablet_id()
                      << ", transaction_id=" << request.transaction_id;
 
-        Status rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
-                request.partition_id, *tablet, request.transaction_id);
+        Status rollback_status = _engine.txn_manager()->rollback_txn(request.partition_id, *tablet,
+                                                                     request.transaction_id);
         // has to check rollback status to ensure not delete a committed rowset
         if (rollback_status.ok()) {
-            StorageEngine::instance()->add_unused_rowset(rowset_to_add);
+            _engine.add_unused_rowset(rowset_to_add);
         }
         return res;
     }
@@ -195,8 +195,10 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         rowset_to_add->rowset_meta()->set_delete_predicate(std::move(del_preds.front()));
         del_preds.pop();
     }
-    Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
-            request.partition_id, *tablet, request.transaction_id, load_id, rowset_to_add, false);
+    // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
+    Status commit_status = _engine.txn_manager()->commit_txn(
+            request.partition_id, *tablet, request.transaction_id, load_id, rowset_to_add,
+            std::move(_pending_rs_guard), false);
     if (!commit_status.ok() && !commit_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         res = std::move(commit_status);
     }
@@ -220,20 +222,16 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         // although the spark load output files are fully sorted,
         // but it depends on thirparty implementation, so we conservatively
         // set this value to OVERLAP_UNKNOWN
-        std::unique_ptr<RowsetWriter> rowset_writer;
         RowsetWriterContext context;
         context.txn_id = _request.transaction_id;
         context.load_id = load_id;
         context.rowset_state = PREPARED;
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema;
+        context.original_tablet_schema = tablet_schema;
         context.newest_write_timestamp = UnixSeconds();
-        res = cur_tablet->create_rowset_writer(context, &rowset_writer);
-        if (!res.ok()) {
-            LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->tablet_id()
-                         << ", txn_id=" << _request.transaction_id << ", res=" << res;
-            break;
-        }
+        auto rowset_writer = DORIS_TRY(cur_tablet->create_rowset_writer(context, false));
+        _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 
         // 2. Init PushBrokerReader to read broker file if exist,
         //    in case of empty push this will be skipped.
@@ -326,7 +324,7 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
           _params(t_scan_range.params),
           _ranges(t_scan_range.ranges) {
     // change broker params to file params
-    if (0 == _ranges.size()) {
+    if (_ranges.empty()) {
         return;
     }
     _file_params.format_type = _ranges[0].format_type;
@@ -340,7 +338,7 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
     _file_params.__isset.broker_addresses = true;
     _file_params.broker_addresses = t_scan_range.broker_addresses;
 
-    for (int i = 0; i < _ranges.size(); ++i) {
+    for (const auto& range : _ranges) {
         TFileRangeDesc file_range;
         // TODO(cmy): in previous implementation, the file_type is set in _file_params
         // and it use _ranges[0].file_type.
@@ -348,12 +346,12 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
         // file_type.
         // Because I don't know if other range has this field, so just keep it same as before.
         file_range.__set_file_type(_ranges[0].file_type);
-        file_range.__set_load_id(_ranges[i].load_id);
-        file_range.__set_path(_ranges[i].path);
-        file_range.__set_start_offset(_ranges[i].start_offset);
-        file_range.__set_size(_ranges[i].size);
-        file_range.__set_file_size(_ranges[i].file_size);
-        file_range.__set_columns_from_path(_ranges[i].columns_from_path);
+        file_range.__set_load_id(range.load_id);
+        file_range.__set_path(range.path);
+        file_range.__set_start_offset(range.start_offset);
+        file_range.__set_size(range.size);
+        file_range.__set_file_size(range.file_size);
+        file_range.__set_columns_from_path(range.columns_from_path);
 
         _file_ranges.push_back(file_range);
     }
@@ -373,7 +371,7 @@ Status PushBrokerReader::init() {
     TQueryOptions query_options;
     TQueryGlobals query_globals;
     _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
-                                                 ExecEnv::GetInstance());
+                                                 ExecEnv::GetInstance(), nullptr);
     DescriptorTbl* desc_tbl = nullptr;
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), _t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
@@ -390,8 +388,8 @@ Status PushBrokerReader::init() {
     _io_ctx->query_id = &_runtime_state->query_id();
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
-    for (int i = 0; i < slot_descs.size(); i++) {
-        _all_col_names.push_back(to_lower((slot_descs[i]->col_name())));
+    for (auto& slot_desc : slot_descs) {
+        _all_col_names.push_back(to_lower((slot_desc->col_name())));
     }
 
     RETURN_IF_ERROR(_init_expr_ctxes());
@@ -648,17 +646,6 @@ Status PushBrokerReader::_get_next_reader() {
     _cur_reader_eof = false;
 
     return Status::OK();
-}
-
-std::string PushHandler::_debug_version_list(const Versions& versions) const {
-    std::ostringstream txt;
-    txt << "Versions: ";
-
-    for (Versions::const_iterator it = versions.begin(); it != versions.end(); ++it) {
-        txt << "[" << it->first << "~" << it->second << "],";
-    }
-
-    return txt.str();
 }
 
 } // namespace doris

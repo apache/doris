@@ -22,16 +22,20 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.SlotBinder;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -41,10 +45,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -88,22 +94,33 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), false).run(ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
+                executor);
     }
 
     /**
      * add LogicalOlapTableSink node, public for test.
      */
-    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) throws AnalysisException {
+    @VisibleForTesting
+    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) {
         checkTable(ctx);
 
-        Map<String, Expression> colNameToExpression = Maps.newHashMap();
+        Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        Map<String, Expression> partialUpdateColNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo equalTo : assignments) {
             List<String> nameParts = ((UnboundSlot) equalTo.left()).getNameParts();
+            checkAssignmentColumn(ctx, nameParts);
             colNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
+            partialUpdateColNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
+        }
+        // check if any key in update clause
+        if (targetTable.getFullSchema().stream().filter(Column::isKey)
+                .anyMatch(column -> partialUpdateColNameToExpression.containsKey(column.getName()))) {
+            throw new AnalysisException("Only value columns of unique table could be updated");
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
             if (!column.isVisible() && !column.isSequenceColumn()) {
@@ -111,28 +128,97 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             }
             if (colNameToExpression.containsKey(column.getName())) {
                 Expression expr = colNameToExpression.get(column.getName());
+                // when updating the sequence map column, the real sequence column need to set with the same value.
+                boolean isSequenceMapColumn = targetTable.hasSequenceCol()
+                        && targetTable.getSequenceMapCol() != null
+                        && column.getName().equalsIgnoreCase(targetTable.getSequenceMapCol());
+                if (setExpr == null && isSequenceMapColumn) {
+                    setExpr = expr;
+                }
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
-                        : new Alias(expr));
+                        : new UnboundAlias(expr));
+                colNameToExpression.remove(column.getName());
             } else {
-                selectItems.add(new UnboundSlot(tableName, column.getName()));
+                if (column.isSequenceColumn() && setExpr != null) {
+                    selectItems.add(new UnboundAlias(setExpr, column.getName()));
+                } else if (column.hasOnUpdateDefaultValue()) {
+                    Expression defualtValueExpression =
+                            new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
+                                    .toSqlWithoutTbl());
+                    selectItems.add(new UnboundAlias(defualtValueExpression, column.getName()));
+                } else {
+                    selectItems.add(new UnboundSlot(tableName, column.getName()));
+                }
             }
         }
-
-        logicalQuery = new LogicalProject<>(selectItems, logicalQuery);
-        if (cte.isPresent()) {
-            logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+        if (!colNameToExpression.isEmpty()) {
+            throw new AnalysisException("unknown column in assignment list: "
+                    + String.join(", ", colNameToExpression.keySet()));
         }
 
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
-                && selectItems.size() < targetTable.getColumns().size();
+                && selectItems.size() < targetTable.getColumns().size()
+                && !targetTable.hasVariantColumns() && targetTable.getSequenceCol() == null
+                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10;
 
+        List<String> partialUpdateColNames = new ArrayList<>();
+        List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
+        if (isPartialUpdate) {
+            for (Column column : targetTable.getFullSchema()) {
+                Expression expr = new NereidsParser().parseExpression(tableName + "." + column.getName());
+                boolean existInExpr = false;
+                for (String colName : partialUpdateColNameToExpression.keySet()) {
+                    if (colName.equalsIgnoreCase(column.getName())) {
+                        expr = partialUpdateColNameToExpression.get(column.getName());
+                        existInExpr = true;
+                        break;
+                    }
+                }
+                if (column.isKey() || existInExpr) {
+                    partialUpdateSelectItems.add(expr instanceof UnboundSlot
+                            ? ((NamedExpression) expr)
+                            : new UnboundAlias(expr));
+                    partialUpdateColNames.add(column.getName());
+                }
+            }
+        }
+
+        logicalQuery = new LogicalProject<>(isPartialUpdate ? partialUpdateSelectItems : selectItems, logicalQuery);
+        if (cte.isPresent()) {
+            logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+        }
         // make UnboundTableSink
-        return new UnboundOlapTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), isPartialUpdate, logicalQuery);
+        return new UnboundTableSink<>(nameParts, isPartialUpdate ? partialUpdateColNames : ImmutableList.of(),
+                ImmutableList.of(),
+                false, ImmutableList.of(), isPartialUpdate, DMLCommandType.UPDATE, logicalQuery);
     }
 
-    private void checkTable(ConnectContext ctx) throws AnalysisException {
+    private void checkAssignmentColumn(ConnectContext ctx, List<String> columnNameParts) {
+        if (columnNameParts.size() <= 1) {
+            return;
+        }
+        String dbName = null;
+        String tableName = null;
+        if (columnNameParts.size() == 3) {
+            dbName = columnNameParts.get(0);
+            tableName = columnNameParts.get(1);
+        } else if (columnNameParts.size() == 2) {
+            tableName = columnNameParts.get(0);
+        } else {
+            throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
+        }
+        if (dbName != null && this.tableAlias != null) {
+            throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
+        }
+        List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
+        if (!SlotBinder.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
+                || (dbName != null && SlotBinder.compareDbName(tableQualifier.get(1), dbName))) {
+            throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
+        }
+    }
+
+    private void checkTable(ConnectContext ctx) {
         if (ctx.getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Update is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
@@ -151,7 +237,15 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     }
 
     @Override
-    public Plan getExplainPlan(ConnectContext ctx) throws AnalysisException {
+    public Plan getExplainPlan(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 

@@ -23,9 +23,13 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <stdlib.h>
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
@@ -48,29 +52,30 @@
 namespace doris {
 
 Reusable::~Reusable() {}
-constexpr static int s_preallocted_blocks_num = 64;
+constexpr static int s_preallocted_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       size_t block_size) {
-    SCOPED_MEM_COUNT(&_mem_size);
+    SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _runtime_state = RuntimeState::create_unique();
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
-    for (int i = 0; i < _block_pool.size(); ++i) {
-        _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
+    for (auto& i : _block_pool) {
+        i = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
         // Name is useless but cost space
-        _block_pool[i]->clear_names();
+        i->clear_names();
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
     RowDescriptor row_desc(tuple_desc(), false);
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
+    RETURN_IF_ERROR(vectorized::VExpr::open(_output_exprs_ctxs, _runtime_state.get()));
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
-        auto slot = tuple_desc()->slots()[i];
+        auto* slot = tuple_desc()->slots()[i];
         _col_uid_to_idx[slot->col_unique_id()] = i;
         _col_default_values[i] = slot->col_default_value();
     }
@@ -107,20 +112,19 @@ int64_t Reusable::mem_size() const {
 
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
     DCHECK(ExecEnv::GetInstance()->get_lookup_connection_cache() == nullptr);
-    LookupConnectionCache* res = new LookupConnectionCache(capacity);
+    auto* res = new LookupConnectionCache(capacity);
     return res;
 }
 
-RowCache::RowCache(int64_t capacity, int num_shards) {
-    // Create Row Cache
-    _cache = std::unique_ptr<Cache>(
-            new_lru_cache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
-}
+RowCache::RowCache(int64_t capacity, int num_shards)
+        : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
+                         LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
+                         num_shards) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
     DCHECK(ExecEnv::GetInstance()->get_row_cache() == nullptr);
-    RowCache* res = new RowCache(capacity, num_shards);
+    auto* res = new RowCache(capacity, num_shards);
     return res;
 }
 
@@ -130,29 +134,30 @@ RowCache* RowCache::instance() {
 
 bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {
     const std::string& encoded_key = key.encode();
-    auto lru_handle = _cache->lookup(encoded_key);
+    auto* lru_handle = LRUCachePolicy::lookup(encoded_key);
     if (!lru_handle) {
         // cache miss
         return false;
     }
-    *handle = CacheHandle(_cache.get(), lru_handle);
+    *handle = CacheHandle(this, lru_handle);
     return true;
 }
 
 void RowCache::insert(const RowCacheKey& key, const Slice& value) {
-    auto deleter = [](const doris::CacheKey& key, void* value) { free(value); };
     char* cache_value = static_cast<char*>(malloc(value.size));
     memcpy(cache_value, value.data, value.size);
+    auto* row_cache_value = new RowCacheValue;
+    row_cache_value->cache_value = cache_value;
     const std::string& encoded_key = key.encode();
-    auto handle =
-            _cache->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
+    auto* handle = LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, value.size,
+                                          CachePriority::NORMAL);
     // handle will released
-    auto tmp = CacheHandle {_cache.get(), handle};
+    auto tmp = CacheHandle {this, handle};
 }
 
 void RowCache::erase(const RowCacheKey& key) {
     const std::string& encoded_key = key.encode();
-    _cache->erase(encoded_key);
+    LRUCachePolicy::erase(encoded_key);
 }
 
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
@@ -190,11 +195,9 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
         }
     }
-    _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request->tablet_id());
-    if (_tablet == nullptr) {
-        LOG(WARNING) << "failed to do tablet_fetch_data. tablet [" << request->tablet_id()
-                     << "] is not exist";
-        return Status::NotFound(fmt::format("tablet {} not exist", request->tablet_id()));
+    _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
+    if (request->has_version() && request->version() >= 0) {
+        _version = request->version();
     }
     RETURN_IF_ERROR(_init_keys(request));
     _result_block = _reusable->get_block();
@@ -254,9 +257,8 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
         RowCursor cursor;
         RETURN_IF_ERROR(cursor.init_scan_key(_tablet->tablet_schema(), olap_tuples[i].values()));
         RETURN_IF_ERROR(cursor.from_tuple(olap_tuples[i]));
-        encode_key_with_padding<RowCursor, true, true>(&_row_read_ctxs[i]._primary_key, cursor,
-                                                       _tablet->tablet_schema()->num_key_columns(),
-                                                       true);
+        encode_key_with_padding<RowCursor, true>(&_row_read_ctxs[i]._primary_key, cursor,
+                                                 _tablet->tablet_schema()->num_key_columns(), true);
     }
     return Status::OK();
 }
@@ -265,6 +267,10 @@ Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
     // 2. lookup row location
     Status st;
+    if (_version >= 0) {
+        CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(_version));
+    }
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
@@ -287,7 +293,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
         st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
                                       &location, INT32_MAX /*rethink?*/, segment_caches,
-                                      rowset_ptr.get()));
+                                      rowset_ptr.get(), false));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
@@ -335,7 +341,8 @@ Status PointQueryExecutor::_lookup_row_data() {
 template <typename MysqlWriter>
 Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
                         PTabletKeyLookupResponse* response) {
-    RETURN_IF_ERROR(mysql_writer.append_block(block));
+    block.clear_names();
+    RETURN_IF_ERROR(mysql_writer.write(block));
     assert(mysql_writer.results().size() == 1);
     uint8_t* buf = nullptr;
     uint32_t len = 0;

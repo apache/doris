@@ -29,8 +29,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -69,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -126,12 +130,24 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(collectSet, context);
     }
 
+    default R visitCorr(Corr corr, C context) {
+        return visitAggregateFunction(corr, context);
+    }
+
     default R visitCount(Count count, C context) {
         return visitAggregateFunction(count, context);
     }
 
     default R visitCountByEnum(CountByEnum count, C context) {
         return visitAggregateFunction(count, context);
+    }
+
+    default R visitCovar(Covar covar, C context) {
+        return visitAggregateFunction(covar, context);
+    }
+
+    default R visitCovarSamp(CovarSamp covarSamp, C context) {
+        return visitAggregateFunction(covarSamp, context);
     }
 
     default R visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, C context) {
@@ -287,6 +303,10 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitUnionCombinator(UnionCombinator combinator, C context) {
+        return visitAggregateFunction(combinator, context);
+    }
+
+    default R visitForEachCombinator(ForEachCombinator combinator, C context) {
         return visitAggregateFunction(combinator, context);
     }
 

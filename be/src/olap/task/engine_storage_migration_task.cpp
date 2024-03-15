@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <ctime>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <ostream>
 #include <set>
@@ -48,13 +49,13 @@ namespace doris {
 
 using std::stringstream;
 
-const int CHECK_TXNS_MAX_WAIT_TIME_SECS = 60;
-
-EngineStorageMigrationTask::EngineStorageMigrationTask(const TabletSharedPtr& tablet,
-                                                       DataDir* dest_store)
-        : _tablet(tablet), _dest_store(dest_store) {
+EngineStorageMigrationTask::EngineStorageMigrationTask(StorageEngine& engine,
+                                                       TabletSharedPtr tablet, DataDir* dest_store)
+        : _engine(engine), _tablet(std::move(tablet)), _dest_store(dest_store) {
     _task_start_time = time(nullptr);
 }
+
+EngineStorageMigrationTask::~EngineStorageMigrationTask() = default;
 
 Status EngineStorageMigrationTask::execute() {
     return _migrate();
@@ -70,7 +71,7 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
         return Status::NotSupported(
                 "currently not support migrate tablet with cooldowned remote data");
     }
-    const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
+    const RowsetSharedPtr last_version = _tablet->get_rowset_with_max_version();
     if (last_version == nullptr) {
         return Status::InternalError("failed to get rowset with max version, tablet={}",
                                      _tablet->tablet_id());
@@ -83,14 +84,16 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
                    << ", start_version=" << start_version << ", end_version=" << *end_version;
         return Status::OK();
     }
-    return _tablet->capture_consistent_rowsets(Version(start_version, *end_version),
-                                               consistent_rowsets);
+    return _tablet->capture_consistent_rowsets_unlocked(Version(start_version, *end_version),
+                                                        consistent_rowsets);
 }
 
 bool EngineStorageMigrationTask::_is_timeout() {
     int64_t time_elapsed = time(nullptr) - _task_start_time;
-    if (time_elapsed > config::migration_task_timeout_secs) {
-        LOG(WARNING) << "migration failed due to timeout, time_eplapsed=" << time_elapsed
+    int64_t timeout = std::max<int64_t>(config::migration_task_timeout_secs,
+                                        _tablet->tablet_local_size() >> 20);
+    if (time_elapsed > timeout) {
+        LOG(WARNING) << "migration failed due to timeout, time_elapsed=" << time_elapsed
                      << ", tablet=" << _tablet->tablet_id();
         return true;
     }
@@ -102,9 +105,9 @@ Status EngineStorageMigrationTask::_check_running_txns() {
     int64_t partition_id;
     std::set<int64_t> transaction_ids;
     // check if this tablet has related running txns. if yes, can not do migration.
-    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
-            _tablet->tablet_id(), _tablet->tablet_uid(), &partition_id, &transaction_ids);
-    if (transaction_ids.size() > 0) {
+    _engine.txn_manager()->get_tablet_related_txns(_tablet->tablet_id(), _tablet->tablet_uid(),
+                                                   &partition_id, &transaction_ids);
+    if (!transaction_ids.empty()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has unfinished txns",
                                                                _tablet->tablet_id());
     }
@@ -112,16 +115,19 @@ Status EngineStorageMigrationTask::_check_running_txns() {
 }
 
 Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
-        std::unique_lock<std::shared_mutex>* migration_wlock) {
+        std::unique_lock<std::shared_timed_mutex>* migration_wlock) {
     // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
     // ownership of the migration_wlock is transferred to the caller if check succ
     DCHECK_NE(migration_wlock, nullptr);
     Status res = Status::OK();
-    int try_times = 1;
     do {
         // to avoid invalid loops, the lock is guaranteed to be acquired here
         {
-            std::unique_lock<std::shared_mutex> wlock(_tablet->get_migration_lock());
+            std::unique_lock<std::shared_timed_mutex> wlock(_tablet->get_migration_lock());
+            if (_tablet->tablet_state() == TABLET_SHUTDOWN) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has deleted",
+                                                                       _tablet->tablet_id());
+            }
             res = _check_running_txns();
             if (res.ok()) {
                 // transfer the lock to the caller
@@ -129,8 +135,7 @@ Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
                 return res;
             }
         }
-        sleep(std::min(config::sleep_one_second * try_times, CHECK_TXNS_MAX_WAIT_TIME_SECS));
-        ++try_times;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     } while (!_is_timeout());
     return res;
 }
@@ -151,20 +156,25 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
 
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
-    return SnapshotManager::instance()->convert_rowset_ids(
-            full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash);
+    _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
+            full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash));
+    return Status::OK();
 }
 
 Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) {
+    if (_tablet->tablet_state() == TABLET_SHUTDOWN) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has deleted",
+                                                               _tablet->tablet_id());
+    }
     // need hold migration lock and push lock outside
     int64_t tablet_id = _tablet->tablet_id();
     int32_t schema_hash = _tablet->schema_hash();
-    RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
-            _dest_store, tablet_id, schema_hash, full_path, false));
+    RETURN_IF_ERROR(_engine.tablet_manager()->load_tablet_from_dir(_dest_store, tablet_id,
+                                                                   schema_hash, full_path, false));
 
     // if old tablet finished schema change, then the schema change status of the new tablet is DONE
     // else the schema change status of the new tablet is FAILED
-    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    TabletSharedPtr new_tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (new_tablet == nullptr) {
         return Status::NotFound("could not find tablet {}", tablet_id);
     }
@@ -194,13 +204,26 @@ Status EngineStorageMigrationTask::_migrate() {
     int32_t end_version = 0;
     std::vector<RowsetSharedPtr> consistent_rowsets;
 
+    // During migration, if the rowsets being migrated undergoes a compaction operation,
+    // that will result in incorrect delete bitmaps after migration for mow table. Therefore,
+    // compaction will be prohibited for the mow table when migration. Moreover, it is useless
+    // to perform a compaction operation on the migration data, as the migration still migrates
+    // the data of rowsets before the compaction operation.
+    std::unique_lock base_compaction_lock(_tablet->get_base_compaction_lock(), std::defer_lock);
+    std::unique_lock cumu_compaction_lock(_tablet->get_cumulative_compaction_lock(),
+                                          std::defer_lock);
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        base_compaction_lock.lock();
+        cumu_compaction_lock.lock();
+    }
+
     // try hold migration lock first
     Status res;
     uint64_t shard = 0;
     std::string full_path;
     {
-        std::unique_lock<std::shared_mutex> migration_wlock(_tablet->get_migration_lock(),
-                                                            std::try_to_lock);
+        std::unique_lock<std::shared_timed_mutex> migration_wlock(_tablet->get_migration_lock(),
+                                                                  std::chrono::seconds(1));
         if (!migration_wlock.owns_lock()) {
             return Status::InternalError("could not own migration_wlock");
         }
@@ -213,7 +236,7 @@ Status EngineStorageMigrationTask::_migrate() {
         RETURN_IF_ERROR(_get_versions(start_version, &end_version, &consistent_rowsets));
 
         // TODO(ygl): the tablet should not under schema change or rollup or load
-        RETURN_IF_ERROR(_dest_store->get_shard(&shard));
+        shard = _dest_store->get_shard();
 
         auto shard_path = fmt::format("{}/{}/{}", _dest_store->path(), DATA_PREFIX, shard);
         full_path = SnapshotManager::get_schema_hash_full_path(_tablet, shard_path);
@@ -235,7 +258,7 @@ Status EngineStorageMigrationTask::_migrate() {
         if (!res.ok()) {
             break;
         }
-        std::unique_lock<std::shared_mutex> migration_wlock;
+        std::unique_lock<std::shared_timed_mutex> migration_wlock;
         res = _check_running_txns_until_timeout(&migration_wlock);
         if (!res.ok()) {
             break;
@@ -289,7 +312,7 @@ Status EngineStorageMigrationTask::_migrate() {
 
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
-        static_cast<void>(io::global_local_filesystem()->delete_directory(full_path));
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(full_path));
     }
     return res;
 }
@@ -298,7 +321,7 @@ Status EngineStorageMigrationTask::_migrate() {
 void EngineStorageMigrationTask::_generate_new_header(
         uint64_t new_shard, const std::vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMetaSharedPtr new_tablet_meta, int64_t end_version) {
-    _tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
+    _tablet->generate_tablet_meta_copy_unlocked(*new_tablet_meta);
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {

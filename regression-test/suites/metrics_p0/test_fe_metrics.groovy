@@ -24,6 +24,19 @@ suite("test_fe_metrics") {
             logger.debug("code:${code} body:${body}");
             assertEquals(200, code)
             assertTrue(body.contains("jvm_heap_size_bytes"))
+            assertTrue(body.contains("jvm_gc"))
+        }
+    }
+
+    httpTest {
+        endpoint context.config.feHttpAddress
+        uri "/metrics?type=json"
+        op "get"
+        check { code, body ->
+            logger.debug("code:${code} body:${body}");
+            assertEquals(200, code)
+            assertTrue(body.contains("jvm_heap_size_bytes"))
+            assertTrue(body.contains("jvm_gc"))
         }
     }
 }

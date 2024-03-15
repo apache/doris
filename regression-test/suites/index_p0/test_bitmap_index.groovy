@@ -79,7 +79,24 @@ suite("test_bitmap_index") {
 
     sql "insert into ${tbName1} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111');"
     qt_sql "desc ${tbName1};"
-    qt_sql "SHOW INDEX FROM ${tbName1};"
+    def show_result = sql "show index from ${tbName1}"
+    logger.info("show index from " + tbName1 + " result: " + show_result)
+    assertEquals(show_result.size(), 15)
+    assertEquals(show_result[0][2], "index1")
+    assertEquals(show_result[1][2], "index2")
+    assertEquals(show_result[2][2], "index3")
+    assertEquals(show_result[3][2], "index4")
+    assertEquals(show_result[4][2], "index5")
+    assertEquals(show_result[5][2], "index6")
+    assertEquals(show_result[6][2], "index7")
+    assertEquals(show_result[7][2], "index8")
+    assertEquals(show_result[8][2], "index9")
+    assertEquals(show_result[9][2], "index10")
+    assertEquals(show_result[10][2], "index11")
+    assertEquals(show_result[11][2], "index12")
+    assertEquals(show_result[12][2], "index13")
+    assertEquals(show_result[13][2], "index14")
+    assertEquals(show_result[14][2], "index15")
     qt_sql "select * from ${tbName1};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName1};"
@@ -161,12 +178,29 @@ suite("test_bitmap_index") {
     }
     test{
         sql "ALTER TABLE ${tbName2} ADD INDEX index16 (v1) USING BITMAP;"
-        exception "errCode = 2, detailMessage = BITMAP index only used in columns of DUP_KEYS/UNIQUE_KEYS table"
+        exception "errCode = 2, detailMessage = index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of AGG_KEYS table. invalid index: index16"
     }
 
     sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111',1);"
     qt_sql "desc ${tbName2};"
-    qt_sql "SHOW INDEX FROM ${tbName2};"
+    show_result = sql "show index from ${tbName2}"
+    logger.info("show index from " + tbName2 + " result: " + show_result)
+    assertEquals(show_result.size(), 15)
+    assertEquals(show_result[0][2], "index1")
+    assertEquals(show_result[1][2], "index2")
+    assertEquals(show_result[2][2], "index3")
+    assertEquals(show_result[3][2], "index4")
+    assertEquals(show_result[4][2], "index5")
+    assertEquals(show_result[5][2], "index6")
+    assertEquals(show_result[6][2], "index7")
+    assertEquals(show_result[7][2], "index8")
+    assertEquals(show_result[8][2], "index9")
+    assertEquals(show_result[9][2], "index10")
+    assertEquals(show_result[10][2], "index11")
+    assertEquals(show_result[11][2], "index12")
+    assertEquals(show_result[12][2], "index13")
+    assertEquals(show_result[13][2], "index14")
+    assertEquals(show_result[14][2], "index15")
     qt_sql "select * from ${tbName2};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName2};"
@@ -249,7 +283,25 @@ suite("test_bitmap_index") {
 
     sql "insert into ${tbName3} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111',1);"
     qt_sql "desc ${tbName3};"
-    qt_sql "SHOW INDEX FROM ${tbName3};"
+    show_result = sql "show index from ${tbName3}"
+    logger.info("show index from " + tbName3 + " result: " + show_result)
+    assertEquals(show_result.size(), 16)
+    assertEquals(show_result[0][2], "index1")
+    assertEquals(show_result[1][2], "index2")
+    assertEquals(show_result[2][2], "index3")
+    assertEquals(show_result[3][2], "index4")
+    assertEquals(show_result[4][2], "index5")
+    assertEquals(show_result[5][2], "index6")
+    assertEquals(show_result[6][2], "index7")
+    assertEquals(show_result[7][2], "index8")
+    assertEquals(show_result[8][2], "index9")
+    assertEquals(show_result[9][2], "index10")
+    assertEquals(show_result[10][2], "index11")
+    assertEquals(show_result[11][2], "index12")
+    assertEquals(show_result[12][2], "index13")
+    assertEquals(show_result[13][2], "index14")
+    assertEquals(show_result[14][2], "index15")
+    assertEquals(show_result[15][2], "index16")
     qt_sql "select * from ${tbName3};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName3};"
@@ -283,48 +335,25 @@ suite("test_bitmap_index") {
                     usage_mode int(11) NULL COMMENT ''
                 ) ENGINE=OLAP
                 UNIQUE KEY(create_time, vid, report_time)
-                COMMENT 'OLAP'
-                PARTITION BY RANGE(create_time)
-                (PARTITION p20230820 VALUES [('2023-08-20 00:00:00'), ('2023-08-21 00:00:00')),
-                PARTITION p20230821 VALUES [('2023-08-21 00:00:00'), ('2023-08-22 00:00:00')),
-                PARTITION p20230822 VALUES [('2023-08-22 00:00:00'), ('2023-08-23 00:00:00')),
-                PARTITION p20230823 VALUES [('2023-08-23 00:00:00'), ('2023-08-24 00:00:00')),
-                PARTITION p20230824 VALUES [('2023-08-24 00:00:00'), ('2023-08-25 00:00:00')),
-                PARTITION p20230825 VALUES [('2023-08-25 00:00:00'), ('2023-08-26 00:00:00')),
-                PARTITION p20230826 VALUES [('2023-08-26 00:00:00'), ('2023-08-27 00:00:00')),
-                PARTITION p20230827 VALUES [('2023-08-27 00:00:00'), ('2023-08-28 00:00:00')),
-                PARTITION p20230828 VALUES [('2023-08-28 00:00:00'), ('2023-08-29 00:00:00')),
-                PARTITION p20230829 VALUES [('2023-08-29 00:00:00'), ('2023-08-30 00:00:00')))
                 DISTRIBUTED BY HASH(vid) BUCKETS AUTO
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
                 "is_being_synced" = "false",
-                "dynamic_partition.enable" = "true",
-                "dynamic_partition.time_unit" = "MONTH",
-                "dynamic_partition.time_zone" = "Asia/Shanghai",
-                "dynamic_partition.start" = "-30",
-                "dynamic_partition.end" = "1",
-                "dynamic_partition.prefix" = "p",
-                "dynamic_partition.replication_allocation" = "tag.location.default: 1",
-                "dynamic_partition.buckets" = "10",
-                "dynamic_partition.create_history_partition" = "true",
-                "dynamic_partition.history_partition_num" = "-1",
-                "dynamic_partition.hot_partition_num" = "0",
-                "dynamic_partition.reserved_history_periods" = "NULL",
-                "dynamic_partition.storage_policy" = "",
                 "storage_format" = "V2",
+                "enable_unique_key_merge_on_write" = "false",
                 "light_schema_change" = "true",
                 "disable_auto_compaction" = "false",
                 "enable_single_replica_compaction" = "false"
                 );
             """
+            // test mor table
 
         sql """
                 ALTER TABLE ${tbName4} ADD INDEX vid_bitmap_index (vid) USING BITMAP;
             """
         max_try_secs = 60
         while (max_try_secs--) {
-            String res = getJobState(tbName3)
+            String res = getJobState(tbName4)
             if (res == "FINISHED" || res == "CANCELLED") {
                 assertEquals("FINISHED", res)
                 sleep(3000)
@@ -342,7 +371,10 @@ suite("test_bitmap_index") {
         sql "insert into ${tbName4}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 11:00:00','123','2023-08-25 11:00:00',2,2,2);"
         sql "insert into ${tbName4}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 12:00:00','123','2023-08-25 12:00:00',3,3,3);"
         qt_sql "desc ${tbName4};"
-        qt_sql "SHOW INDEX FROM ${tbName4};"
+        show_result = sql "show index from ${tbName4}"
+        logger.info("show index from " + tbName4 + " result: " + show_result)
+        assertEquals(show_result.size(), 1)
+        assertEquals(show_result[0][2], "vid_bitmap_index")
         sql "delete from ${tbName4} where vid='123' and report_time='2023-08-25 12:00:00' and create_time='2023-08-25 12:00:00';"
         qt_sql "select count(*) from ${tbName4}; "
         qt_sql "select count(*) from ${tbName4} where vid='123'; "
@@ -382,34 +414,10 @@ suite("test_bitmap_index") {
                 ) ENGINE=OLAP
                 UNIQUE KEY(create_time, vid, report_time)
                 COMMENT 'OLAP'
-                PARTITION BY RANGE(create_time)
-                (PARTITION p20230820 VALUES [('2023-08-20 00:00:00'), ('2023-08-21 00:00:00')),
-                PARTITION p20230821 VALUES [('2023-08-21 00:00:00'), ('2023-08-22 00:00:00')),
-                PARTITION p20230822 VALUES [('2023-08-22 00:00:00'), ('2023-08-23 00:00:00')),
-                PARTITION p20230823 VALUES [('2023-08-23 00:00:00'), ('2023-08-24 00:00:00')),
-                PARTITION p20230824 VALUES [('2023-08-24 00:00:00'), ('2023-08-25 00:00:00')),
-                PARTITION p20230825 VALUES [('2023-08-25 00:00:00'), ('2023-08-26 00:00:00')),
-                PARTITION p20230826 VALUES [('2023-08-26 00:00:00'), ('2023-08-27 00:00:00')),
-                PARTITION p20230827 VALUES [('2023-08-27 00:00:00'), ('2023-08-28 00:00:00')),
-                PARTITION p20230828 VALUES [('2023-08-28 00:00:00'), ('2023-08-29 00:00:00')),
-                PARTITION p20230829 VALUES [('2023-08-29 00:00:00'), ('2023-08-30 00:00:00')))
                 DISTRIBUTED BY HASH(vid) BUCKETS AUTO
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
                 "is_being_synced" = "false",
-                "dynamic_partition.enable" = "true",
-                "dynamic_partition.time_unit" = "MONTH",
-                "dynamic_partition.time_zone" = "Asia/Shanghai",
-                "dynamic_partition.start" = "-30",
-                "dynamic_partition.end" = "1",
-                "dynamic_partition.prefix" = "p",
-                "dynamic_partition.replication_allocation" = "tag.location.default: 1",
-                "dynamic_partition.buckets" = "10",
-                "dynamic_partition.create_history_partition" = "true",
-                "dynamic_partition.history_partition_num" = "-1",
-                "dynamic_partition.hot_partition_num" = "0",
-                "dynamic_partition.reserved_history_periods" = "NULL",
-                "dynamic_partition.storage_policy" = "",
                 "storage_format" = "V2",
                 "light_schema_change" = "true",
                 "disable_auto_compaction" = "false",
@@ -423,7 +431,7 @@ suite("test_bitmap_index") {
             """
         max_try_secs = 60
         while (max_try_secs--) {
-            String res = getJobState(tbName3)
+            String res = getJobState(tbName5)
             if (res == "FINISHED" || res == "CANCELLED") {
                 assertEquals("FINISHED", res)
                 sleep(3000)
@@ -441,7 +449,10 @@ suite("test_bitmap_index") {
         sql "insert into ${tbName5}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 11:00:00','123','2023-08-25 11:00:00',2,2,2);"
         sql "insert into ${tbName5}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 12:00:00','123','2023-08-25 12:00:00',3,3,3);"
         qt_sql "desc ${tbName5};"
-        qt_sql "SHOW INDEX FROM ${tbName5};"
+        show_result = sql "show index from ${tbName5}"
+        logger.info("show index from " + tbName5 + " result: " + show_result)
+        assertEquals(show_result.size(), 1)
+        assertEquals(show_result[0][2], "vid_bitmap_index")
         sql "delete from ${tbName5} where vid='123' and report_time='2023-08-25 12:00:00' and create_time='2023-08-25 12:00:00';"
         qt_sql "select count(*) from ${tbName5}; "
         qt_sql "select count(*) from ${tbName5} where vid='123'; "

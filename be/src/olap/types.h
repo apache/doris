@@ -55,6 +55,8 @@
 #include "util/types.h"
 #include "vec/common/arena.h"
 #include "vec/core/wide_integer.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -83,7 +85,7 @@ public:
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
-    // Use only in zone map to cut data.StringParser::string_to_unsigned_int<uint32_t>
+    // Use only in zone map to cut data.
     virtual void direct_copy_may_cut(void* dest, const void* src) const = 0;
 
     virtual Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
@@ -693,7 +695,7 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
-    using CppType = Int256;
+    using CppType = wide::Int256;
     using UnsignedCppType = wide::UInt256;
 };
 template <>
@@ -728,7 +730,7 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
-    using CppType = uint128_t;
+    using CppType = int128_t;
     using UnsignedCppType = uint128_t;
 };
 template <>
@@ -782,14 +784,12 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_MAP> {
     using CppType = MapValue;
 };
 template <FieldType field_type>
-struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
+struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     static inline CppType get_cpp_type_value(const void* address) {
         if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
             return get_int128_from_unalign(address);
-        } else if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_IPV6) {
-            return get_uint128_from_unalign(address);
         }
         return *reinterpret_cast<const CppType*>(address);
     }
@@ -846,7 +846,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 // Using NumericFieldtypeTraits to Derived code for FieldType::OLAP_FIELD_TYPE_XXXINT, FieldType::OLAP_FIELD_TYPE_FLOAT,
 // FieldType::OLAP_FIELD_TYPE_DOUBLE, to reduce redundant code
 template <FieldType fieldType, bool isArithmetic>
-struct NumericFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
+struct NumericFieldTypeTraits : public BaseFieldTypeTraits<fieldType> {
     using CppType = typename CppTypeTraits<fieldType>::CppType;
 
     static std::string to_string(const void* src) {
@@ -855,19 +855,18 @@ struct NumericFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
 };
 
 template <FieldType fieldType>
-struct NumericFieldtypeTraits<fieldType, false> : public BaseFieldtypeTraits<fieldType> {};
+struct NumericFieldTypeTraits<fieldType, false> : public BaseFieldTypeTraits<fieldType> {};
 
 template <FieldType fieldType>
 struct FieldTypeTraits
-        : public NumericFieldtypeTraits<
+        : public NumericFieldTypeTraits<
                   fieldType,
-                  std::is_arithmetic<typename BaseFieldtypeTraits<fieldType>::CppType>::value &&
-                          std::is_signed<typename BaseFieldtypeTraits<fieldType>::CppType>::value> {
-};
+                  std::is_arithmetic_v<typename BaseFieldTypeTraits<fieldType>::CppType> &&
+                          std::is_signed_v<typename BaseFieldTypeTraits<fieldType>::CppType>> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const bool*>(src));
@@ -879,7 +878,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
-        : public NumericFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT, true> {
+        : public NumericFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT, true> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         int128_t value = 0;
@@ -978,14 +977,11 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
-        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        uint32_t value = StringParser::string_to_unsigned_int<uint32_t>(scan_key.c_str(),
-                                                                        scan_key.size(), &result);
-
-        if (result == StringParser::PARSE_FAILURE) {
+        uint32_t value;
+        if (!IPv4Value::from_string(value, scan_key)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_IPV4>::from_string meet PARSE_FAILURE");
         }
@@ -995,85 +991,51 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
 
     static std::string to_string(const void* src) {
         uint32_t value = *reinterpret_cast<const uint32_t*>(src);
-        std::stringstream ss;
-        ss << ((value >> 24) & 0xFF) << '.' << ((value >> 16) & 0xFF) << '.'
-           << ((value >> 8) & 0xFF) << '.' << (value & 0xFF);
-        return ss.str();
+        IPv4Value ipv4_value(value);
+        return ipv4_value.to_string();
+    }
+
+    static void set_to_max(void* buf) {
+        *reinterpret_cast<uint32_t*>(buf) = 0xFFFFFFFF; // 255.255.255.255
+    }
+
+    static void set_to_min(void* buf) {
+        *reinterpret_cast<uint32_t*>(buf) = 0; // 0.0.0.0
     }
 };
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
-        std::istringstream iss(scan_key);
-        std::string token;
-        uint128_t result = 0;
-        int count = 0;
-
-        while (std::getline(iss, token, ':')) {
-            if (token.empty()) {
-                count += 8 - count;
-                break;
-            }
-
-            if (count > 8) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                        "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
-            }
-
-            uint16_t value = 0;
-            std::istringstream ss(token);
-            if (!(ss >> std::hex >> value)) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                        "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
-            }
-
-            result = (result << 16) | value;
-            count++;
-        }
-
-        if (count < 8) {
+        uint128_t value;
+        if (!IPv6Value::from_string(value, scan_key)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
         }
-
-        *reinterpret_cast<uint128_t*>(buf) = result;
+        memcpy(buf, &value, sizeof(uint128_t));
         return Status::OK();
     }
 
     static std::string to_string(const void* src) {
-        std::stringstream result;
-        uint128_t ipv6 = *reinterpret_cast<const uint128_t*>(src);
-
-        for (int i = 0; i < 8; i++) {
-            uint16_t part = static_cast<uint16_t>((ipv6 >> (112 - i * 16)) & 0xFFFF);
-            result << std::to_string(part);
-            if (i != 7) {
-                result << ":";
-            }
-        }
-
-        return result.str();
+        uint128_t value = *reinterpret_cast<const uint128_t*>(src);
+        IPv6Value ipv6_value(value);
+        return ipv6_value.to_string();
     }
 
     static void set_to_max(void* buf) {
-        *reinterpret_cast<PackedInt128*>(buf) =
-                static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
+        *reinterpret_cast<int128_t*>(buf) = -1; // ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
     }
 
     static void set_to_min(void* buf) {
-        *reinterpret_cast<PackedInt128*>(buf) =
-                -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-                  static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
+        *reinterpret_cast<uint128_t*>(buf) = 0; // ::
     }
 };
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
-        : public NumericFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT, true> {
+        : public NumericFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT, true> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         CppType value = 0.0f;
@@ -1095,7 +1057,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
-        : public NumericFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE, true> {
+        : public NumericFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE, true> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         CppType value = 0.0;
@@ -1117,7 +1079,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         CppType* data_ptr = reinterpret_cast<CppType*>(buf);
@@ -1141,7 +1103,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
@@ -1159,7 +1121,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
@@ -1176,7 +1138,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
@@ -1199,7 +1161,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
@@ -1210,23 +1172,18 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256>
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL256>::from_string meet PARSE_FAILURE");
         }
-        *reinterpret_cast<Int256*>(buf) = value;
+        *reinterpret_cast<wide::Int256*>(buf) = value;
         return Status::OK();
     }
     static std::string to_string(const void* src) {
-        // TODO: support decimal256
-        DCHECK(false);
-        return "";
-        // auto value = reinterpret_cast<const wide::Int256*>(src);
-        // fmt::memory_buffer buffer;
-        // fmt::format_to(buffer, "{}", *value);
-        // return std::string(buffer.data(), buffer.size());
+        const auto* value = reinterpret_cast<const wide::Int256*>(src);
+        return wide::to_string(*value);
     }
 };
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         tm time_tm;
@@ -1259,7 +1216,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         tm time_tm;
@@ -1299,7 +1256,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         DateV2Value<DateTimeV2ValueType> datetimev2_value;
@@ -1338,7 +1295,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         tm time_tm;
@@ -1385,7 +1342,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
-        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
     static int cmp(const void* left, const void* right) {
         auto l_slice = reinterpret_cast<const Slice*>(left);
         auto r_slice = reinterpret_cast<const Slice*>(right);

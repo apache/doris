@@ -32,7 +32,7 @@ SHOW CREATE DATABASE
 
 ### Description
 
-This statement checks the creation of the doris database.
+This statement checks the creation of the doris database, support database from both internal catalog and hms catalog
 
 grammar:
 
@@ -42,11 +42,12 @@ SHOW CREATE DATABASE db_name;
 
 illustrate:
 
-- `db_name`: The name of the database where doris exists.
+- `db_name`: The name of the database
+- if specific a database from hms catalog, will return same with this stmt in hive
 
 ### Example
 
-1. View the creation of the test database in doris
+1. View the creation of the test database in doris internal catalog
 
     ```sql
     mysql> SHOW CREATE DATABASE test;
@@ -58,6 +59,18 @@ illustrate:
     1 row in set (0.00 sec)
     ````
 
+2. view a database named `hdfs_text` from a hms catalog
+
+    ```sql
+    mysql> show create database hdfs_text;                                                                                     
+    +-----------+------------------------------------------------------------------------------------+                         
+    | Database  | Create Database                                                                    |                         
+    +-----------+------------------------------------------------------------------------------------+                         
+    | hdfs_text | CREATE DATABASE `hdfs_text` LOCATION 'hdfs://HDFS1009138/hive/warehouse/hdfs_text' |                         
+    +-----------+------------------------------------------------------------------------------------+                         
+    1 row in set (0.01 sec)  
+    ```
+   
 ### Keywords
 
      SHOW, CREATE, DATABASE

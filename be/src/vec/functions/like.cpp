@@ -21,7 +21,6 @@
 #include <hs/hs_compile.h>
 #include <re2/stringpiece.h>
 
-#include <algorithm>
 #include <cstddef>
 #include <ostream>
 #include <utility>
@@ -39,26 +38,25 @@
 
 namespace doris::vectorized {
 // A regex to match any regex pattern is equivalent to a substring search.
-static const RE2 SUBSTRING_RE(
-        "(?:\\.\\*)*([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\\\]*)(?:\\.\\*)*");
+static const RE2 SUBSTRING_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
 
 // A regex to match any regex pattern which is equivalent to matching a constant string
 // at the end of the string values.
-static const RE2 ENDS_WITH_RE("(?:\\.\\*)*([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\\\]*)\\$");
+static const RE2 ENDS_WITH_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)\$)");
 
 // A regex to match any regex pattern which is equivalent to matching a constant string
 // at the end of the string values.
-static const RE2 STARTS_WITH_RE("\\^([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\\\]*)(?:\\.\\*)*");
+static const RE2 STARTS_WITH_RE(R"(\^([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
 
 // A regex to match any regex pattern which is equivalent to a constant string match.
-static const RE2 EQUALS_RE("\\^([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\\\]*)\\$");
+static const RE2 EQUALS_RE(R"(\^([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)\$)");
 // A regex to match .*
-static const RE2 ALLPASS_RE("(\\\\.\\*)+");
+static const RE2 ALLPASS_RE(R"((\\.\*)+)");
 
 // Like patterns
-static const re2::RE2 LIKE_SUBSTRING_RE("(?:%+)(((\\\\_)|([^%_\\\\]))+)(?:%+)");
+static const re2::RE2 LIKE_SUBSTRING_RE(R"((?:%+)(((\\_)|([^%_\\]))+)(?:%+))");
 static const re2::RE2 LIKE_ENDS_WITH_RE("(?:%+)(((\\\\_)|([^%_]))+)");
-static const re2::RE2 LIKE_STARTS_WITH_RE("(((\\\\%)|(\\\\_)|([^%_\\\\]))+)(?:%+)");
+static const re2::RE2 LIKE_STARTS_WITH_RE(R"((((\\%)|(\\_)|([^%_\\]))+)(?:%+))");
 static const re2::RE2 LIKE_EQUALS_RE("(((\\\\_)|([^%_]))+)");
 static const re2::RE2 LIKE_ALLPASS_RE("%+");
 
@@ -200,7 +198,7 @@ Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const 
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
     } else { // fallback to re2
-        *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), *state->regex.get());
+        *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), *state->regex);
     }
 
     return Status::OK();
@@ -208,12 +206,10 @@ Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const 
 
 Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRef& val,
                                           const StringRef& pattern, unsigned char* result) {
-    std::string re_pattern(pattern.data, pattern.size);
-
     RE2::Options opts;
     opts.set_never_nl(false);
     opts.set_dot_nl(true);
-    re2::RE2 re(re_pattern, opts);
+    re2::RE2 re(re2::StringPiece(pattern.data, pattern.size), opts);
     if (re.ok()) {
         *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), re);
     } else {
@@ -241,8 +237,8 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
     } else { // fallback to re2
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
-            *(result.data() + i) = RE2::PartialMatch(re2::StringPiece(str_ref.data, str_ref.size),
-                                                     *state->regex.get());
+            *(result.data() + i) =
+                    RE2::PartialMatch(re2::StringPiece(str_ref.data, str_ref.size), *state->regex);
         }
     }
 
@@ -350,7 +346,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
             for (int i = 0; i < input_rows_count; i++) {
                 const auto pattern_val = str_patterns->get_data_at(i);
                 const auto value_val = values->get_data_at(i);
-                static_cast<void>((state->scalar_function)(
+                RETURN_IF_ERROR((state->scalar_function)(
                         const_cast<vectorized::LikeSearchState*>(&state->search_state), value_val,
                         pattern_val, &vec_res[i]));
             }
@@ -447,37 +443,49 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
     }
 
     // add ^ to pattern head to match line head
-    if (pattern.size() > 0 && pattern[0] != '%') {
+    if (!pattern.empty() && pattern[0] != '%') {
         re_pattern->append("^");
     }
 
     bool is_escaped = false;
-    for (size_t i = 0; i < pattern.size(); ++i) {
-        if (!is_escaped && pattern[i] == '%') {
-            re_pattern->append(".*");
-        } else if (!is_escaped && pattern[i] == '_') {
-            re_pattern->append(".");
-            // check for escape char before checking for regex special chars, they might overlap
-        } else if (!is_escaped && pattern[i] == state->escape_char) {
-            is_escaped = true;
-        } else if (pattern[i] == '.' || pattern[i] == '[' || pattern[i] == ']' ||
-                   pattern[i] == '{' || pattern[i] == '}' || pattern[i] == '(' ||
-                   pattern[i] == ')' || pattern[i] == '\\' || pattern[i] == '*' ||
-                   pattern[i] == '+' || pattern[i] == '?' || pattern[i] == '|' ||
-                   pattern[i] == '^' || pattern[i] == '$') {
-            // escape all regex special characters; see list at
-            re_pattern->append("\\");
-            re_pattern->append(1, pattern[i]);
+    // expect % and _, all chars should keep it literal means.
+    for (char i : pattern) {
+        if (is_escaped) { // last is \, this should be escape
+            if (i == '[' || i == ']' || i == '(' || i == ')' || i == '{' || i == '}' || i == '-' ||
+                i == '*' || i == '+' || i == '\\' || i == '|' || i == '/' || i == ':' || i == '^' ||
+                i == '.' || i == '$' || i == '?') {
+                re_pattern->append(1, '\\');
+            } else if (i != '%' && i != '_') {
+                re_pattern->append(2, '\\');
+            }
+            re_pattern->append(1, i);
             is_escaped = false;
         } else {
-            // regular character or escaped special character
-            re_pattern->append(1, pattern[i]);
-            is_escaped = false;
+            switch (i) {
+            case '%':
+                re_pattern->append(".*");
+                break;
+            case '_':
+                re_pattern->append(".");
+                break;
+            default:
+                is_escaped = i == state->escape_char;
+                if (!is_escaped) {
+                    // special for hyperscan: [, ], (, ), {, }, -, *, +, \, |, /, :, ^, ., $, ?
+                    if (i == '[' || i == ']' || i == '(' || i == ')' || i == '{' || i == '}' ||
+                        i == '-' || i == '*' || i == '+' || i == '\\' || i == '|' || i == '/' ||
+                        i == ':' || i == '^' || i == '.' || i == '$' || i == '?') {
+                        re_pattern->append(1, '\\');
+                    }
+                    re_pattern->append(1, i);
+                }
+                break;
+            }
         }
     }
 
     // add $ to pattern tail to match line tail
-    if (pattern.size() > 0 && re_pattern->back() != '*') {
+    if (!pattern.empty() && re_pattern->back() != '*') {
         re_pattern->append("$");
     }
 }
@@ -634,7 +642,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
                 opts.set_dot_nl(true);
                 state->search_state.regex = std::make_unique<RE2>(re_pattern, opts);
                 if (!state->search_state.regex->ok()) {
-                    return Status::InternalError("Invalid regex expression: {}", pattern_str);
+                    return Status::InternalError("Invalid regex expression: {}(origin: {})",
+                                                 re_pattern, pattern_str);
                 }
             }
 

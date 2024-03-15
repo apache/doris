@@ -244,7 +244,7 @@ inline void STLAssignToVectorChar(vector<char>* vec, const char* ptr, size_t n) 
 // A struct that mirrors the GCC4 implementation of a string. See:
 // /usr/crosstool/v8/gcc-4.1.0-glibc-2.2.2/i686-unknown-linux-gnu/include/c++/4.1.0/ext/sso_string_base.h
 struct InternalStringRepGCC4 {
-    char* _M_data;
+    char* _M_data = nullptr;
     size_t _M_string_length;
 
     enum { _S_local_capacity = 15 };
@@ -437,7 +437,7 @@ public:
     virtual ~TemplatedElementDeleter() { STLDeleteElements(container_ptr_); }
 
 private:
-    STLContainer* container_ptr_;
+    STLContainer* container_ptr_ = nullptr;
 
     DISALLOW_EVIL_CONSTRUCTORS(TemplatedElementDeleter);
 };
@@ -454,7 +454,7 @@ public:
     ~ElementDeleter() { delete deleter_; }
 
 private:
-    BaseDeleter* deleter_;
+    BaseDeleter* deleter_ = nullptr;
 
     DISALLOW_EVIL_CONSTRUCTORS(ElementDeleter);
 };
@@ -470,7 +470,7 @@ public:
     virtual ~TemplatedValueDeleter() { STLDeleteValues(container_ptr_); }
 
 private:
-    STLContainer* container_ptr_;
+    STLContainer* container_ptr_ = nullptr;
 
     DISALLOW_EVIL_CONSTRUCTORS(TemplatedValueDeleter);
 };
@@ -486,7 +486,7 @@ public:
     ~ValueDeleter() { delete deleter_; }
 
 private:
-    BaseDeleter* deleter_;
+    BaseDeleter* deleter_ = nullptr;
 
     DISALLOW_EVIL_CONSTRUCTORS(ValueDeleter);
 };
@@ -505,7 +505,7 @@ public:
     ~STLElementDeleter() { STLDeleteElements(container_ptr_); }
 
 private:
-    STLContainer* container_ptr_;
+    STLContainer* container_ptr_ = nullptr;
 };
 
 template <class STLContainer>
@@ -515,7 +515,7 @@ public:
     ~STLValueDeleter() { STLDeleteValues(container_ptr_); }
 
 private:
-    STLContainer* container_ptr_;
+    STLContainer* container_ptr_ = nullptr;
 };
 
 // STLSet{Difference,SymmetricDifference,Union,Intersection}(A a, B b, C *c)

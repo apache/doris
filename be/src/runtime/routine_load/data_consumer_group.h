@@ -45,8 +45,10 @@ class DataConsumerGroup {
 public:
     typedef std::function<void(const Status&)> ConsumeFinishCallback;
 
-    DataConsumerGroup()
-            : _grp_id(UniqueId::gen_uid()), _thread_pool(3, 10, "data_consumer"), _counter(0) {}
+    DataConsumerGroup(size_t consumer_num)
+            : _grp_id(UniqueId::gen_uid()),
+              _thread_pool(consumer_num, consumer_num, "data_consumer"),
+              _counter(0) {}
 
     virtual ~DataConsumerGroup() { _consumers.clear(); }
 
@@ -59,10 +61,6 @@ public:
         _consumers.push_back(consumer);
         ++_counter;
     }
-
-    int64_t get_consumer_rows() const { return _rows; }
-
-    void set_consumer_rows(int64_t rows) { _rows = rows; }
 
     // start all consumers
     virtual Status start_all(std::shared_ptr<StreamLoadContext> ctx,
@@ -81,14 +79,12 @@ protected:
     // when the counter becomes zero, shutdown the queue to finish
     std::mutex _mutex;
     int _counter;
-    // received total rows
-    int64_t _rows {0};
 };
 
 // for kafka
 class KafkaDataConsumerGroup : public DataConsumerGroup {
 public:
-    KafkaDataConsumerGroup() : DataConsumerGroup(), _queue(500) {}
+    KafkaDataConsumerGroup(size_t consumer_num) : DataConsumerGroup(consumer_num), _queue(500) {}
 
     virtual ~KafkaDataConsumerGroup();
 

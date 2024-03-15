@@ -17,40 +17,56 @@
 
 #include "vec/sink/load_stream_stub_pool.h"
 
+#include "util/debug_points.h"
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 class TExpr;
 
-namespace stream_load {
+LoadStreams::LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStreamStubPool* pool)
+        : _load_id(load_id), _dst_id(dst_id), _use_cnt(num_use), _pool(pool) {}
+
+void LoadStreams::release() {
+    int num_use = --_use_cnt;
+    DBUG_EXECUTE_IF("LoadStreams.release.keeping_streams", { num_use = 1; });
+    if (num_use == 0) {
+        LOG(INFO) << "releasing streams, load_id=" << _load_id << ", dst_id=" << _dst_id;
+        _pool->erase(_load_id, _dst_id);
+    } else {
+        LOG(INFO) << "keeping streams, load_id=" << _load_id << ", dst_id=" << _dst_id
+                  << ", use_cnt=" << num_use;
+    }
+}
 
 LoadStreamStubPool::LoadStreamStubPool() = default;
 
 LoadStreamStubPool::~LoadStreamStubPool() = default;
-std::shared_ptr<Streams> LoadStreamStubPool::get_or_create(PUniqueId load_id, int64_t src_id,
-                                                           int64_t dst_id) {
+
+std::shared_ptr<LoadStreams> LoadStreamStubPool::get_or_create(PUniqueId load_id, int64_t src_id,
+                                                               int64_t dst_id, int num_streams,
+                                                               int num_sink) {
     auto key = std::make_pair(UniqueId(load_id), dst_id);
     std::lock_guard<std::mutex> lock(_mutex);
-    std::shared_ptr<Streams> streams = _pool[key].lock();
+    std::shared_ptr<LoadStreams> streams = _pool[key];
     if (streams) {
         return streams;
     }
-    int32_t num_streams = std::max(1, config::num_streams_per_load);
-    auto [it, _] = _template_stubs.emplace(load_id, new LoadStreamStub {load_id, src_id});
-    auto deleter = [this, key](Streams* s) {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _pool.erase(key);
-        _template_stubs.erase(key.first);
-        delete s;
-    };
-    streams = std::shared_ptr<Streams>(new Streams(), deleter);
+    DCHECK(num_streams > 0) << "stream num should be greater than 0";
+    DCHECK(num_sink > 0) << "sink num should be greater than 0";
+    auto [it, _] = _template_stubs.emplace(load_id, new LoadStreamStub {load_id, src_id, num_sink});
+    streams = std::make_shared<LoadStreams>(load_id, dst_id, num_sink, this);
     for (int32_t i = 0; i < num_streams; i++) {
         // copy construct, internal tablet schema map will be shared among all stubs
-        streams->emplace_back(new LoadStreamStub {*it->second});
+        streams->streams().emplace_back(new LoadStreamStub {*it->second});
     }
     _pool[key] = streams;
     return streams;
 }
 
-} // namespace stream_load
+void LoadStreamStubPool::erase(UniqueId load_id, int64_t dst_id) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    _pool.erase(std::make_pair(load_id, dst_id));
+    _template_stubs.erase(load_id);
+}
+
 } // namespace doris

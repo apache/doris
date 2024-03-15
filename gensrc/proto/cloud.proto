@@ -1,0 +1,1354 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax="proto2";
+
+package doris.cloud;
+option java_package = "org.apache.doris.cloud.proto";
+
+import "olap_file.proto";
+
+option cc_generic_services = true;
+
+//==============================================================================
+// Resources
+//==============================================================================
+
+message EncryptionInfoPB {
+    optional string encryption_method = 1;
+    optional int64 key_id = 2;
+}
+
+message EncryptionKeyInfoPB {
+    message KMSInfo {
+        optional string endpoint = 1;
+        optional string region = 2;
+        optional string cmk = 3;
+    }
+    message Item {
+        optional int64 key_id = 1;
+        optional string key = 2;
+        optional KMSInfo kms_info = 3;
+    }
+    repeated Item items = 1;
+}
+message RamUserPB {
+    optional string user_id = 1;
+    optional string ak = 2;
+    optional string sk = 3;
+    optional string external_id = 4;
+    optional EncryptionInfoPB encryption_info = 6;
+}
+
+message InstanceInfoPB {
+    enum Status {
+        NORMAL = 0;
+        DELETED = 1;
+        OVERDUE = 2;
+    }
+    optional string user_id = 1;
+    optional string instance_id = 2;
+    optional string name = 3;
+    repeated string lb_ip = 4;
+    optional int64 ctime = 5;
+    optional int64 mtime = 6;
+    repeated ClusterPB clusters = 7;
+    repeated ObjectStoreInfoPB obj_info = 8;
+    repeated StagePB stages = 9;
+    optional Status status = 10;
+    optional RamUserPB ram_user = 11;
+    optional RamUserPB iam_user = 12;
+    optional bool sse_enabled = 13;
+
+    repeated string resource_ids = 100;
+    repeated string storage_vault_names = 101;
+}
+
+message StagePB {
+    enum StageType {
+        INTERNAL = 0;
+        EXTERNAL = 1;
+    }
+    optional StageType type = 1;
+    // mysql user name and id only used for internal stage
+    repeated string mysql_user_name = 2;
+    // external stage name
+    optional string name = 3;
+    optional ObjectStoreInfoPB obj_info = 6;
+    optional string stage_id = 7;
+    // file and copy properties
+    map<string, string> properties = 8;
+    repeated string mysql_user_id = 9;
+    optional string comment = 10;
+    optional int64 create_time = 11;
+    enum StageAccessType {
+        UNKNOWN = 0;
+        AKSK = 1;
+        IAM = 2;
+        BUCKET_ACL = 3;
+    }
+    optional StageAccessType access_type = 12 [default = AKSK];
+    // used when access_type is IAM
+    // In OBS, role name is agency name, arn is domain name.
+    optional string role_name = 13;
+    optional string arn = 14;
+    // only used for aws
+    optional string external_id = 15;
+}
+
+enum ClusterStatus {
+    UNKNOWN = 0;
+    NORMAL = 1;
+    SUSPENDED = 2;
+    TO_RESUME = 3;
+}
+
+message ClusterPB {
+    enum Type {
+        SQL = 0;
+        COMPUTE = 1;
+    }
+    optional string cluster_id = 1;
+    optional string cluster_name = 2;
+    optional Type type = 3;
+    optional string desc = 4;
+    repeated NodeInfoPB nodes = 5;
+    repeated string mysql_user_name = 6;
+    optional string public_endpoint = 7;
+    optional string private_endpoint = 8;
+    optional ClusterStatus cluster_status = 9;
+}
+
+message NodeInfoPB {
+    enum NodeType {
+        UNKNOWN = 0;
+        FE_MASTER = 1;
+        FE_OBSERVER = 2;
+    }
+    optional string cloud_unique_id = 1;
+    optional string name = 2;
+    optional string ip = 3;
+    optional string vpc_name = 4;
+    optional int64 ctime = 5;
+    optional int64 mtime = 6;
+    optional NodeStatusPB status = 7;
+    // There may be other ports, just add new fields in need
+    optional int32 heartbeat_port = 8;
+    optional string desc = 9;
+    optional int32 edit_log_port = 10;
+    optional NodeType node_type = 11;
+    optional bool is_smooth_upgrade = 12;
+    // fqdn
+    optional string host = 13;
+}
+
+enum NodeStatusPB {
+    NODE_STATUS_UNKNOWN = 0;
+    NODE_STATUS_RUNNING = 1;
+    NODE_STATUS_SHUTDOWN = 2;
+    NODE_STATUS_DECOMMISSIONING = 3;
+    NODE_STATUS_DECOMMISSIONED = 4;
+}
+
+message ObjectStoreInfoPB {
+    // presigned url use
+    // oss,aws,cos,obs,bos
+    enum Provider {
+        OSS = 0;
+        S3 =  1;
+        COS = 2;
+        OBS = 3;
+        BOS = 4;
+    }
+    optional int64 ctime = 1;
+    optional int64 mtime = 2;
+    optional string id = 3;
+    optional string ak = 4;
+    optional string sk = 5;
+    optional string bucket = 6;
+    optional string prefix = 7;
+    optional string endpoint = 8;
+    optional string region = 9;
+    optional Provider provider = 10;
+    optional string external_endpoint = 11;
+    optional string user_id = 13;
+    optional EncryptionInfoPB encryption_info = 14;
+    optional bool sse_enabled = 15;
+}
+
+message StorageVaultPB {
+    optional string id = 1;
+    optional string name = 2;
+    optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
+}
+
+message HdfsBuildConf {
+    message HdfsConfKVPair {
+        required string key = 1;
+        required string value = 2;
+    }
+    optional string fs_name = 1; // name_node
+    optional string user = 2;
+    optional string hdfs_kerberos_principal = 3;
+    optional string hdfs_kerberos_keytab = 4;
+    repeated HdfsConfKVPair hdfs_confs = 5;
+}
+
+message HdfsVaultInfo {
+    optional HdfsBuildConf build_conf = 1;
+    optional string prefix = 2;
+}
+
+//==============================================================================
+// Transaction persistence
+//==============================================================================
+
+// Wire format for UniqueId
+message UniqueIdPB {
+  optional int64 hi = 1;
+  optional int64 lo = 2;
+}
+
+// ATTN: keep the values the same as
+//       org.apache.doris.transaction.TransactionState.TxnSourceType
+enum TxnSourceTypePB {
+    UKNOWN_TXN_SOURCE_TYPE = 0;
+    TXN_SOURCE_TYPE_FE     = 1;
+    TXN_SOURCE_TYPE_BE     = 2;
+}
+
+// ATTN: keep the same values as
+//       org.apache.doris.transaction.TransactionState.LoadJobSourceType
+enum LoadJobSourceTypePB {
+    LOAD_JOB_SRC_TYPE_UNKNOWN           = 0;
+    LOAD_JOB_SRC_TYPE_FRONTEND          = 1;
+    LOAD_JOB_SRC_TYPE_BACKEND_STREAMING = 2; // streaming load use this type
+    LOAD_JOB_SRC_TYPE_INSERT_STREAMING  = 3; // insert stmt (streaming type), update stmt use this type
+    LOAD_JOB_SRC_TYPE_ROUTINE_LOAD_TASK = 4; // routine load task use this type
+    LOAD_JOB_SRC_TYPE_BATCH_LOAD_JOB    = 5; // load job v2 for broker load
+}
+
+enum TxnStatusPB {
+    TXN_STATUS_UNKNOWN      = 0;
+    TXN_STATUS_PREPARED     = 1;
+    TXN_STATUS_COMMITTED    = 2;
+    TXN_STATUS_VISIBLE      = 3;
+    TXN_STATUS_ABORTED      = 4;
+    TXN_STATUS_PRECOMMITTED = 5;
+}
+
+message TxnCoordinatorPB {
+    optional TxnSourceTypePB sourceType = 1;
+    optional string ip = 2;
+}
+
+message RoutineLoadProgressPB {
+    map<int32, int64> partition_to_offset = 1;
+}
+
+message RLTaskTxnCommitAttachmentPB {
+    optional int64 job_id = 1;
+    optional UniqueIdPB task_id = 2;
+    optional int64 filtered_rows = 3;
+    optional int64 loaded_rows = 4;
+    optional int64 unselected_rows = 5;
+    optional int64 received_bytes = 6;
+    optional int64 task_execution_time_ms = 7;
+    optional RoutineLoadProgressPB progress = 8;
+    optional string error_log_url = 9;
+}
+
+message TxnCommitAttachmentPB {
+    enum Type {
+        LODD_JOB_FINAL_OPERATION = 0;
+        RT_TASK_TXN_COMMIT_ATTACHMENT = 1;
+    }
+    message LoadJobFinalOperationPB {
+        message EtlStatusPB {
+            enum EtlStatePB {
+                RUNNING = 0;
+                FINISHED = 1;
+                CANCELLED = 2;
+                UNKNOWN = 3;
+            }
+
+            optional EtlStatePB state = 1;
+            optional string tracking_url = 2;
+            map<string, string> stats = 3;
+            map<string, string> counters = 4;
+        }
+
+        enum JobStatePB {
+            UNKNOWN = 0;
+            PENDING = 1;
+            ETL = 2;
+            LOADING = 3;
+            COMMITTED = 4;
+            FINISHED = 5;
+            CANCELLED = 6;
+        }
+
+        message FailMsgPB {
+            enum CancelTypePB {
+                USER_CANCEL = 0;
+                ETL_SUBMIT_FAIL = 1;
+                ETL_RUN_FAIL = 2;
+                ETL_QUALITY_UNSATISFIED = 3;
+                LOAD_RUN_FAIL = 4;
+                TIMEOUT = 5;
+                UNKNOWN = 6;
+                TXN_UNKNOWN =7;
+            }
+            optional CancelTypePB cancel_type = 1;
+            optional string msg = 2;
+        }
+
+        optional int64 id = 1;
+        optional EtlStatusPB loading_status = 2;
+        optional int32 progress = 3;
+        optional int64 load_start_timestamp = 4;
+        optional int64 finish_timestamp = 5;
+        optional JobStatePB job_state = 6;
+        optional FailMsgPB fail_msg = 7;
+        optional string copy_id = 8;
+        optional string load_file_paths = 9;
+    }
+
+
+    optional Type type = 1;
+    optional LoadJobFinalOperationPB load_job_final_operation = 2;
+    optional RLTaskTxnCommitAttachmentPB rl_task_txn_commit_attachment = 3;
+}
+
+// For storing label -> txn_ids
+message TxnLabelPB {
+    repeated int64 txn_ids = 1;
+}
+
+// txn_id -> db_id
+message TxnIndexPB {
+    optional TabletIndexPB tablet_index = 1;
+}
+
+message TxnInfoPB {
+    optional int64 db_id = 1;
+    repeated int64 table_ids = 2;
+    optional int64 txn_id = 3;
+    optional string label = 4;
+    optional UniqueIdPB request_id = 5;
+    optional TxnCoordinatorPB coordinator = 6;
+    optional LoadJobSourceTypePB load_job_source_type = 7;
+    optional int64 timeout_ms = 8;
+    optional int64 precommit_timeout_ms = 9;
+    optional int64 prepare_time = 10;
+    optional int64 precommit_time = 11;
+    optional int64 commit_time = 12;
+    optional int64 finish_time = 13;
+    optional string reason = 14;
+    optional TxnStatusPB status = 15;
+    optional TxnCommitAttachmentPB commit_attachment = 16;
+    optional int64 listener_id = 17; //callback id
+    // TODO: There are more fields TBD
+}
+
+// For check txn conflict and txn timeout
+message TxnRunningPB {
+    repeated int64 table_ids = 1;
+    //milliseconds
+    optional int64 timeout_time = 2;
+}
+
+message VersionPB {
+    optional int64 version = 1;
+}
+
+message RecycleTxnPB {
+    optional int64 creation_time = 1;
+    optional string label = 2;
+    optional bool immediate = 3; //recycle immediately
+}
+
+message RecycleIndexPB {
+    enum State {
+        UNKNOWN = 0;
+        PREPARED = 1;
+        DROPPED = 2;
+        RECYCLING = 3;
+    }
+    optional int64 table_id = 1;
+    optional int64 creation_time = 2;
+    optional int64 expiration = 3; // expiration timestamp
+    optional State state = 4;
+}
+
+message RecyclePartitionPB {
+    enum State {
+        UNKNOWN = 0;
+        PREPARED = 1;
+        DROPPED = 2;
+        RECYCLING = 3;
+    }
+    optional int64 table_id = 1;
+    repeated int64 index_id = 2;
+    optional int64 creation_time = 3;
+    optional int64 expiration = 4; // expiration timestamp
+    optional State state = 5;
+    optional int64 db_id = 6; // For version recycling
+}
+
+message RecycleRowsetPB {
+    enum Type {
+        UNKNOWN = 0;
+        PREPARE = 1;
+        COMPACT = 2;
+        DROP = 3;
+    }
+    optional int64 tablet_id = 1; // deprecated
+    optional string resource_id = 2; // deprecated
+    optional int64 creation_time = 3;
+    optional int64 expiration = 4; // expiration timestamp
+    optional Type type = 5;
+    optional doris.RowsetMetaCloudPB rowset_meta = 6;
+}
+
+message RecycleStagePB {
+    optional string instance_id = 1;
+    optional string reason = 2;
+    optional StagePB stage = 3;
+}
+
+message JobRecyclePB {
+    enum Status {
+        IDLE = 0;
+        BUSY = 1;
+    }
+    optional string instance_id = 1;
+    optional string ip_port = 2;
+    optional int64 last_ctime_ms = 3;
+    optional int64 expiration_time_ms = 4;
+    optional int64 last_finish_time_ms = 5;
+    optional Status status = 6;
+    optional int64 last_success_time_ms = 7;
+}
+
+message TabletIndexPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    optional int64 index_id = 3;
+    optional int64 partition_id = 4;
+    optional int64 tablet_id = 5;
+}
+
+message TabletMetaInfoPB { // For update tablet meta
+    optional int64 tablet_id = 1;
+    optional bool is_in_memory = 2; // deprecated
+    optional bool is_persistent = 3; // deprecated
+    optional int64 ttl_seconds = 4;
+    optional int64 group_commit_interval_ms = 5;
+    optional int64 group_commit_data_bytes = 6;
+}
+
+message TabletCompactionJobPB {
+    enum CompactionType {
+        UNKOWN = 0;
+        BASE = 1;
+        CUMULATIVE = 2;
+        EMPTY_CUMULATIVE = 3; // just update cumulative point
+        FULL = 4;
+    }
+    // IP and port of the node which initiates this job
+    optional string initiator = 1; // prepare
+    optional int64 ctime = 2;
+    optional int64 mtime = 3;
+    optional CompactionType type = 4; // prepare
+    optional int64 input_cumulative_point = 5;
+    optional int64 output_cumulative_point = 6;
+    optional int64 num_input_rowsets = 7;
+    optional int64 num_input_segments = 8;
+    optional int64 num_output_rowsets = 9;
+    optional int64 num_output_segments = 10;
+    optional int64 size_input_rowsets = 11;
+    optional int64 size_output_rowsets = 12;
+    optional int64 num_input_rows = 13;
+    optional int64 num_output_rows = 14;
+    repeated int64 input_versions = 15;
+    repeated int64 output_versions = 16;
+    repeated string output_rowset_ids = 17;
+    repeated int64 txn_id = 18;
+    optional int64 base_compaction_cnt = 19;        // prepare
+    optional int64 cumulative_compaction_cnt = 20;  // prepare
+    optional string id = 21; // prepare
+    // Expiration time, unix timestamp, -1 for no expiration
+    optional int64 expiration = 22; // prepare
+    // Lease time, unix timestamp
+    optional int64 lease = 23; // prepare
+    optional int64 delete_bitmap_lock_initiator = 24;
+    optional int64 full_compaction_cnt = 25;  // prepare
+}
+
+message TabletSchemaChangeJobPB {
+    // IP and port of the node which initiates this job
+    optional string initiator = 1; // prepare
+    optional string id = 2; // prepare
+    // Expiration time, unix timestamp, -1 for no expiration
+    optional int64 expiration = 3; // prepare
+    optional TabletIndexPB new_tablet_idx = 4; // prepare
+    repeated int64 txn_ids = 5;
+    optional int64 alter_version = 6;
+    optional int64 num_output_rowsets = 7;
+    optional int64 num_output_segments = 8;
+    optional int64 size_output_rowsets = 9;
+    optional int64 num_output_rows = 10;
+    repeated int64 output_versions = 11;
+    optional int64 output_cumulative_point = 12;
+    optional bool is_inverted_index_change = 13 [default = false];
+    optional int64 delete_bitmap_lock_initiator = 14;
+}
+
+message TabletJobInfoPB {
+    optional TabletIndexPB idx = 1;
+    repeated TabletCompactionJobPB compaction = 4;
+    optional TabletSchemaChangeJobPB schema_change = 5;
+}
+
+//==============================================================================
+// Stats
+//==============================================================================
+message TabletStatsPB {
+    optional TabletIndexPB idx = 1;
+    optional int64 data_size = 2;
+    optional int64 num_rows = 3;
+    optional int64 num_rowsets = 4;
+    optional int64 num_segments = 5;
+    reserved 6;
+    optional int64 base_compaction_cnt = 7;
+    optional int64 cumulative_compaction_cnt = 8;
+    optional int64 cumulative_point = 9;
+    optional int64 last_base_compaction_time_ms = 10;
+    optional int64 last_cumu_compaction_time_ms = 11;
+    optional int64 full_compaction_cnt = 12;
+    optional int64 last_full_compaction_time_ms = 13;
+}
+
+message ObjectFilePB {
+    optional string relative_path = 1;
+    optional string etag = 2;
+    optional int64 size = 3;
+}
+
+message CopyJobPB {
+    enum JobStatus {
+        UNKNOWN = 0;
+        LOADING = 1;
+        FINISH  = 2;
+    }
+    optional StagePB.StageType stage_type = 1;
+    repeated ObjectFilePB object_files = 2;
+    optional JobStatus job_status = 3;
+    optional int64 start_time_ms = 4;
+    optional int64 timeout_time_ms = 5;
+    optional int64 finish_time_ms = 6;
+}
+
+message CopyFilePB {
+    optional string copy_id = 1;
+    optional int32 group_id = 2;
+}
+
+message ServiceRegistryPB {
+    message Item {
+        optional string id = 1;
+        optional string ip = 2;
+        optional int32 port = 3;
+        optional int64 ctime_ms = 4;
+        optional int64 mtime_ms = 5;
+        optional int64 expiration_time_ms = 6;
+
+        // Support FQDN
+        optional string host = 7;
+    }
+    repeated Item items = 1;
+}
+
+//==============================================================================
+// Rpc structures
+//==============================================================================
+
+message BeginTxnRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional TxnInfoPB txn_info = 2;
+}
+
+message BeginTxnResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 txn_id = 2;
+    optional int64 dup_txn_id = 3;
+    // TODO: There may be more fields TBD
+}
+
+message PrecommitTxnRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 txn_id = 3;
+    optional TxnCommitAttachmentPB commit_attachment = 4;
+    optional int64 precommit_timeout_ms = 5;
+}
+
+message PrecommitTxnResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 txn_id = 2;
+    // TODO: There may be more fields TBD
+}
+
+message CommitTxnRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 txn_id = 3;
+    optional bool is_2pc = 4;
+    optional TxnCommitAttachmentPB commit_attachment = 5;
+    // merge-on-write table ids
+    repeated int64 mow_table_ids = 6;
+}
+
+// corresponding to TabletStats in meta_service.h and FrontendServiceImpl.java
+// make sure update all of them when adding new fields
+message TableStatsPB {
+    optional int64 table_id = 1;
+    optional int64 updated_row_count = 2;
+}
+
+message CommitTxnResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional TxnInfoPB txn_info = 2;
+    // <tablet_id, partition_id> --> version
+    repeated int64 table_ids = 3;
+    repeated int64 partition_ids = 4;
+    repeated int64 versions = 5;
+    repeated TableStatsPB table_stats = 6;
+}
+
+message AbortTxnRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 txn_id = 3;
+    optional string label = 4;
+    optional string reason = 5;
+    optional TxnCommitAttachmentPB commit_attachment = 6;
+}
+
+message AbortTxnResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional TxnInfoPB txn_info = 2;
+}
+
+message GetTxnRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 txn_id = 3;
+}
+
+message GetTxnResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional TxnInfoPB txn_info = 2;
+}
+
+message GetCurrentMaxTxnRequest {
+    optional string cloud_unique_id = 1; // For auth
+}
+
+message GetCurrentMaxTxnResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 current_max_txn_id = 2;
+}
+
+message CheckTxnConflictRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 end_txn_id = 3;
+    repeated int64 table_ids = 4;
+    optional bool ignore_timeout_txn = 5;
+}
+
+message CheckTxnConflictResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional bool finished = 2;
+}
+
+message CleanTxnLabelRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    repeated string labels = 3;
+}
+
+message CleanTxnLabelResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message GetVersionRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 table_id = 3;
+    optional int64 partition_id = 4;
+
+    // For batch get version.
+    optional bool batch_mode = 5;
+    repeated int64 db_ids = 6;
+    repeated int64 table_ids = 7;
+    repeated int64 partition_ids = 8;
+};
+
+message GetVersionResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 version = 2;
+
+    // For batch get version.
+    // <db_id, table_id, partition_id> --> version
+    repeated int64 db_ids = 3;
+    repeated int64 table_ids = 4;
+    repeated int64 partition_ids = 5;
+    repeated int64 versions = 6;
+};
+
+message GetObjStoreInfoRequest {
+    optional string cloud_unique_id = 1; // For auth
+};
+
+message AlterObjStoreInfoRequest {
+    enum Operation {
+        UNKNOWN         = 0;
+        UPDATE_AK_SK    = 1;
+        ADD_OBJ_INFO    = 2;
+        LEGACY_UPDATE_AK_SK = 3;
+
+        ADD_HDFS_INFO = 100;
+    }
+    optional string cloud_unique_id = 1; // For auth
+    optional ObjectStoreInfoPB obj = 2;
+    optional Operation op = 3;
+    optional StorageVaultPB hdfs = 4;
+}
+
+message AlterObjStoreInfoResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional string storage_vault_id = 2;
+}
+
+message UpdateAkSkRequest {
+    optional string instance_id = 1;
+    repeated RamUserPB internal_bucket_user = 2;
+    optional RamUserPB ram_user = 3;
+}
+
+message UpdateAkSkResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message GetObjStoreInfoResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated ObjectStoreInfoPB obj_info = 2;
+    repeated StorageVaultPB storage_vault = 3;
+};
+
+message CreateTabletsRequest {
+    optional string cloud_unique_id = 1; // For auth
+    repeated doris.TabletMetaCloudPB tablet_metas = 2;
+    optional string storage_vault_name = 3;
+}
+
+message CreateTabletsResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional string storage_vault_id = 2;
+}
+
+message UpdateTabletRequest {
+    optional string cloud_unique_id = 1; // For auth
+    repeated TabletMetaInfoPB tablet_meta_infos = 2;
+}
+
+message UpdateTabletResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message UpdateTabletSchemaRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 tablet_id = 2;
+    optional doris.TabletSchemaCloudPB tablet_schema = 3;
+}
+
+message UpdateTabletSchemaResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message DropTabletRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 tablet_id = 2;
+    // TODO: There are more fields TBD
+}
+
+message GetTabletRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 tablet_id = 2;
+    // TODO: There are more fields TBD
+}
+
+message GetTabletResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional doris.TabletMetaCloudPB tablet_meta = 2;
+}
+
+message CreateRowsetRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional doris.RowsetMetaCloudPB rowset_meta = 2;
+    optional bool temporary = 3;
+}
+
+message CreateRowsetResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional doris.RowsetMetaCloudPB existed_rowset_meta = 2;
+}
+
+message GetRowsetRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional TabletIndexPB idx = 2;
+    optional int64 start_version = 3;
+    optional int64 end_version = 4;
+    optional int64 base_compaction_cnt = 5;
+    optional int64 cumulative_compaction_cnt = 6;
+    optional int64 cumulative_point = 7;
+    // TODO: There may be more fields TBD
+}
+
+message GetRowsetResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated doris.RowsetMetaCloudPB rowset_meta = 2;
+    optional TabletStatsPB stats = 3;
+}
+
+message IndexRequest {
+    optional string cloud_unique_id = 1; // For auth
+    repeated int64 index_ids = 2;
+    optional int64 table_id = 3;
+    optional int64 expiration = 4;
+}
+
+message IndexResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message PartitionRequest {
+    optional string cloud_unique_id = 1; // For auth
+    repeated int64 partition_ids = 2;
+    optional int64 table_id = 3;
+    repeated int64 index_ids = 4;
+    optional int64 expiration = 5;
+    optional int64 db_id = 6;
+}
+
+message PartitionResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message MetaServiceResponseStatus {
+    optional MetaServiceCode code = 1;
+    optional string msg = 2;
+}
+
+message MetaServiceHttpRequest {
+}
+
+message MetaServiceHttpResponse {
+}
+
+message CreateInstanceRequest {
+    optional string instance_id = 1;
+    optional string user_id = 2;
+    optional string name = 3; // Alias
+    optional ObjectStoreInfoPB obj_info = 4;
+    optional RamUserPB ram_user = 5;
+    optional bool sse_enabled = 6;
+    optional HdfsVaultInfo hdfs_info = 7;
+}
+
+message CreateInstanceResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message AlterInstanceRequest {
+    enum Operation {
+        UNKNOWN        = 0;
+        DROP           = 1;
+        REFRESH        = 2;
+        RENAME         = 3;
+        ENABLE_SSE     = 4;
+        DISABLE_SSE    = 5;
+        SET_OVERDUE    = 6;
+        SET_NORMAL     = 7;
+    }
+    optional string instance_id = 1;
+    optional Operation op = 2;
+    optional string name = 3;
+}
+
+message AlterInstanceResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message GetInstanceRequest {
+    optional string instance_id = 1;
+    optional string cloud_unique_id = 2;
+}
+
+message GetInstanceResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional InstanceInfoPB instance = 2;
+}
+
+message AlterClusterRequest {
+    enum Operation {
+        UNKNOWN        = 0;
+        ADD_CLUSTER    = 1;
+        DROP_CLUSTER   = 2;
+        ADD_NODE       = 3;
+        DROP_NODE      = 4;
+        RENAME_CLUSTER = 5;
+        UPDATE_CLUSTER_MYSQL_USER_NAME = 6; // just for update cluster's mysql_user_name
+        DECOMMISSION_NODE = 7;
+        NOTIFY_DECOMMISSIONED = 8;
+        UPDATE_CLUSTER_ENDPOINT = 9;
+        SET_CLUSTER_STATUS = 10;
+    }
+    optional string instance_id = 1;
+    optional string cloud_unique_id = 2; // For auth
+    optional ClusterPB cluster = 3;
+    optional Operation op = 4;
+}
+
+message AlterClusterResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message GetClusterRequest {
+    optional string instance_id = 1; // Redundant field
+    optional string cloud_unique_id = 2;
+    optional string cluster_id = 3;
+    optional string cluster_name = 4;
+    optional string mysql_user_name = 5;
+}
+
+message GetClusterStatusRequest {
+    repeated string instance_ids = 1; // Redundant field
+    repeated string cloud_unique_ids = 2;
+    optional ClusterStatus status = 3;
+}
+
+message GetClusterStatusResponse {
+    message GetClusterStatusResponseDetail {
+        optional string instance_id = 1;
+        repeated ClusterPB clusters = 2;
+    }
+    optional MetaServiceResponseStatus status = 1;
+    repeated GetClusterStatusResponseDetail details = 2;
+}
+
+message GetClusterResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated ClusterPB cluster = 2;
+}
+
+message GetTabletStatsRequest {
+    optional string cloud_unique_id = 1;
+    repeated TabletIndexPB tablet_idx = 2;
+}
+
+message GetTabletStatsResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated TabletStatsPB tablet_stats = 2;
+}
+
+message CreateStageRequest {
+    optional string cloud_unique_id = 1;
+    optional StagePB stage = 2;
+}
+
+message CreateStageResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message GetStageRequest {
+    optional string cloud_unique_id = 1;
+    optional string stage_name = 2;
+    optional string mysql_user_name = 3;
+    optional StagePB.StageType type = 4;
+    optional string mysql_user_id = 5;
+}
+
+message GetStageResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated StagePB stage = 2;
+}
+
+message DropStageRequest {
+    optional string cloud_unique_id = 1;
+    optional string stage_name = 2;
+    optional string mysql_user_name = 3;
+    optional StagePB.StageType type = 4;
+    optional string mysql_user_id = 5;
+    optional string reason = 6;
+}
+
+message DropStageResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message GetIamRequest {
+    optional string cloud_unique_id = 1;
+}
+
+message GetIamResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional RamUserPB iam_user = 2;
+    optional RamUserPB ram_user = 3;
+}
+
+message AlterIamRequest {
+    optional string account_id = 1;
+    optional string ak = 2;
+    optional string sk = 3;
+}
+
+message AlterIamResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message AlterRamUserRequest {
+    optional string instance_id = 1;
+    optional RamUserPB ram_user = 2;
+}
+
+message AlterRamUserResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message StartTabletJobRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional TabletJobInfoPB job = 2;
+}
+
+message StartTabletJobResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated int64 version_in_compaction = 2;
+}
+
+message FinishTabletJobRequest {
+    enum Action {
+        UNKONWN = 0;
+        COMMIT  = 1;
+        ABORT   = 2;
+        LEASE   = 3;
+    }
+    optional string cloud_unique_id = 1; // For auth
+    optional Action action = 2;
+    optional TabletJobInfoPB job = 3;
+}
+
+message FinishTabletJobResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional TabletStatsPB stats = 2;
+}
+
+message BeginCopyRequest {
+    optional string cloud_unique_id = 1;
+    optional string stage_id = 2;
+    optional StagePB.StageType stage_type = 3;
+    optional int64 table_id = 4;
+    optional string copy_id = 5;
+    optional int32 group_id = 6;
+    optional int64 start_time_ms = 7;
+    optional int64 timeout_time_ms = 8;
+    repeated ObjectFilePB object_files = 9;
+    optional int64 file_num_limit = 10;
+    optional int64 file_size_limit = 11;
+    optional int64 file_meta_size_limit = 12;
+}
+
+message BeginCopyResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated ObjectFilePB filtered_object_files = 2;
+}
+
+message FinishCopyRequest {
+    enum Action {
+        UNKNOWN = 0;
+        COMMIT  = 1;
+        ABORT   = 2;
+        REMOVE  = 3;
+    }
+    optional string cloud_unique_id = 1;
+    optional string stage_id = 2;
+    optional StagePB.StageType stage_type = 3;
+    optional int64 table_id = 4;
+    optional string copy_id = 5;
+    optional int32 group_id = 6;
+    optional Action action = 7;
+    optional int64 finish_time_ms = 8;
+}
+
+message FinishCopyResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message GetCopyJobRequest {
+    optional string cloud_unique_id = 1;
+    optional string stage_id = 2;
+    optional int64 table_id = 3;
+    optional string copy_id = 4;
+    optional int32 group_id = 5;
+}
+
+message GetCopyJobResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional CopyJobPB copy_job = 2;
+}
+
+message GetCopyFilesRequest {
+    optional string cloud_unique_id = 1;
+    optional string stage_id = 2;
+    optional int64 table_id = 3;
+}
+
+message GetCopyFilesResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated ObjectFilePB object_files = 2;
+}
+
+message FilterCopyFilesRequest {
+    optional string cloud_unique_id = 1;
+    optional string stage_id = 2;
+    optional int64 table_id = 3;
+    repeated ObjectFilePB object_files = 4;
+}
+
+message FilterCopyFilesResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated ObjectFilePB object_files = 2;
+}
+
+message RecycleInstanceRequest {
+    repeated string instance_ids = 1;
+}
+
+message RecycleInstanceResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+enum MetaServiceCode {
+    OK = 0;
+
+    //Meta service internal error
+    INVALID_ARGUMENT = 1001;
+    KV_TXN_CREATE_ERR = 1002;
+    KV_TXN_GET_ERR = 1003;
+    KV_TXN_COMMIT_ERR = 1004;
+    KV_TXN_CONFLICT = 1005;
+    PROTOBUF_PARSE_ERR = 1006;
+    PROTOBUF_SERIALIZE_ERR = 1007;
+    // A code indicates that the underlying store returns an error that
+    // needs to be retried. This code is not sent back to the client.
+    // See `selectdb::MetaServiceProxy` for details.
+    KV_TXN_STORE_GET_RETRYABLE = 1008;
+    KV_TXN_STORE_COMMIT_RETRYABLE = 1009;
+    KV_TXN_STORE_CREATE_RETRYABLE = 1010;
+
+    //Doris error
+    TXN_GEN_ID_ERR = 2001;
+    TXN_DUPLICATED_REQ = 2002;
+    TXN_LABEL_ALREADY_USED = 2003;
+    TXN_INVALID_STATUS = 2004;
+    TXN_LABEL_NOT_FOUND = 2005;
+    TXN_ID_NOT_FOUND = 2006;
+    TXN_ALREADY_ABORTED = 2007;
+    TXN_ALREADY_VISIBLE = 2008;
+    TXN_ALREADY_PRECOMMITED = 2009;
+    VERSION_NOT_FOUND = 2010;
+    TABLET_NOT_FOUND = 2011;
+    STALE_TABLET_CACHE = 2012;
+
+    CLUSTER_NOT_FOUND = 3001;
+    ALREADY_EXISTED = 3002;
+    CLUSTER_ENDPOINT_MISSING = 3003;
+
+    // Stage
+    STAGE_NOT_FOUND = 4001;
+    STAGE_GET_ERR = 4002;
+    STATE_ALREADY_EXISTED_FOR_USER = 4003;
+    COPY_JOB_NOT_FOUND = 4004;
+
+    // Job
+    JOB_EXPIRED = 5000;
+    JOB_TABLET_BUSY = 5001;
+    JOB_ALREADY_SUCCESS = 5002;
+    ROUTINE_LOAD_DATA_INCONSISTENT = 5003;
+
+    // Rate limit
+    MAX_QPS_LIMIT = 6001;
+
+    ERR_ENCRYPT = 7001;
+    ERR_DECPYPT = 7002;
+
+    // delete bitmap
+    LOCK_EXPIRED = 8001;
+    LOCK_CONFLICT = 8002;
+    ROWSETS_EXPIRED = 8003;
+
+    // partial update
+    ROWSET_META_NOT_FOUND = 9001;
+
+    UNDEFINED_ERR = 1000000;
+}
+
+message UpdateDeleteBitmapRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 table_id = 2;
+    optional int64 partition_id = 3;
+    optional int64 tablet_id = 4;
+    optional int64 lock_id = 5;
+    optional int64 initiator = 6;
+    repeated string rowset_ids = 7;
+    repeated uint32 segment_ids = 8;
+    repeated int64 versions = 9;
+    // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
+    repeated bytes segment_delete_bitmaps = 10;
+}
+
+message UpdateDeleteBitmapResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message GetDeleteBitmapRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 tablet_id = 2;
+    repeated string rowset_ids = 3;
+    repeated int64 begin_versions = 4;
+    repeated int64 end_versions = 5;
+    optional TabletIndexPB idx = 6;
+    optional int64 base_compaction_cnt = 7;
+    optional int64 cumulative_compaction_cnt = 8;
+    optional int64 cumulative_point = 9;
+}
+
+message GetDeleteBitmapResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated string rowset_ids = 2;
+    repeated uint32 segment_ids = 3;
+    repeated int64 versions = 4;
+    // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
+    repeated bytes segment_delete_bitmaps = 5;
+}
+
+message PendingDeleteBitmapPB {
+    repeated bytes delete_bitmap_keys = 1;
+}
+
+message DeleteBitmapUpdateLockPB {
+    optional int64 lock_id = 1;
+    optional int64 expiration = 2;
+    repeated int64 initiators = 3;
+}
+
+message GetDeleteBitmapUpdateLockRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 table_id = 2;
+    repeated int64 partition_ids = 3;
+    optional int64 lock_id = 4;
+    optional int64 initiator = 5;
+    optional int64 expiration = 6;
+}
+
+message GetDeleteBitmapUpdateLockResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+service MetaService {
+    rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
+    rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
+    rpc commit_txn(CommitTxnRequest) returns (CommitTxnResponse);
+    rpc abort_txn(AbortTxnRequest) returns (AbortTxnResponse);
+    rpc get_txn(GetTxnRequest) returns (GetTxnResponse);
+    rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
+    rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
+    rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
+
+    rpc get_version(GetVersionRequest) returns (GetVersionResponse);
+    rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
+    rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
+    rpc update_tablet_schema(UpdateTabletSchemaRequest) returns (UpdateTabletSchemaResponse);
+
+    rpc get_tablet(GetTabletRequest) returns (GetTabletResponse);
+    rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
+    rpc commit_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
+    rpc update_tmp_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
+    rpc get_rowset(GetRowsetRequest) returns (GetRowsetResponse);
+    rpc prepare_index(IndexRequest) returns (IndexResponse);
+    rpc commit_index(IndexRequest) returns (IndexResponse);
+    rpc drop_index(IndexRequest) returns (IndexResponse);
+    rpc prepare_partition(PartitionRequest) returns (PartitionResponse);
+    rpc commit_partition(PartitionRequest) returns (PartitionResponse);
+    rpc drop_partition(PartitionRequest) returns (PartitionResponse);
+
+    rpc start_tablet_job(StartTabletJobRequest) returns (StartTabletJobResponse);
+    rpc finish_tablet_job(FinishTabletJobRequest) returns (FinishTabletJobResponse);
+
+    rpc http(MetaServiceHttpRequest) returns (MetaServiceHttpResponse);
+
+    rpc get_obj_store_info(GetObjStoreInfoRequest) returns (GetObjStoreInfoResponse);
+    rpc alter_obj_store_info(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
+    rpc update_ak_sk(UpdateAkSkRequest) returns (UpdateAkSkResponse);
+    rpc create_instance(CreateInstanceRequest) returns (CreateInstanceResponse);
+    rpc alter_instance(AlterInstanceRequest) returns (AlterInstanceResponse);
+    rpc get_instance(GetInstanceRequest) returns (GetInstanceResponse);
+    rpc alter_cluster(AlterClusterRequest) returns (AlterClusterResponse);
+    rpc get_cluster(GetClusterRequest) returns (GetClusterResponse);
+    rpc get_cluster_status(GetClusterStatusRequest) returns(GetClusterStatusResponse);
+
+    rpc get_tablet_stats(GetTabletStatsRequest) returns (GetTabletStatsResponse);
+
+    // stage
+    rpc create_stage(CreateStageRequest) returns (CreateStageResponse);
+    rpc get_stage(GetStageRequest) returns (GetStageResponse);
+    rpc drop_stage(DropStageRequest) returns (DropStageResponse);
+    rpc get_iam(GetIamRequest) returns (GetIamResponse);
+    rpc alter_iam(AlterIamRequest) returns (AlterIamResponse);
+    rpc alter_ram_user(AlterRamUserRequest) returns (AlterRamUserResponse);
+    // copy into
+    rpc begin_copy(BeginCopyRequest) returns (BeginCopyResponse);
+    rpc finish_copy(FinishCopyRequest) returns (FinishCopyResponse);
+    rpc get_copy_job(GetCopyJobRequest) returns (GetCopyJobResponse);
+    rpc get_copy_files(GetCopyFilesRequest) returns (GetCopyFilesResponse);
+    rpc filter_copy_files(FilterCopyFilesRequest) returns (FilterCopyFilesResponse);
+
+    // delete bitmap
+    rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
+    rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
+    rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
+};
+
+service RecyclerService {
+    rpc recycle_instance(RecycleInstanceRequest) returns (RecycleInstanceResponse);
+    rpc http(MetaServiceHttpRequest) returns (MetaServiceHttpResponse);
+};
+
+// vim: et ts=4 sw=4:

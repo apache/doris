@@ -23,7 +23,6 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/runtime_filter_consumer.h"
 
@@ -48,7 +47,7 @@ public:
 
     OperatorPtr build_operator() override;
 
-    const RowDescriptor& row_desc() override;
+    const RowDescriptor& row_desc() const override;
 
 private:
     const int _consumer_id;
@@ -94,11 +93,11 @@ private:
 
 class MultiCastDataStreamerSourceOperatorX;
 
-class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastDependency>,
+class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastSharedState>,
                                                   public vectorized::RuntimeFilterConsumer {
 public:
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSourceLocalState);
-    using Base = PipelineXLocalState<MultiCastDependency>;
+    using Base = PipelineXLocalState<MultiCastSharedState>;
     using Parent = MultiCastDataStreamerSourceOperatorX;
     MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& info) override;
@@ -108,11 +107,13 @@ public:
         RETURN_IF_ERROR(_acquire_runtime_filter());
         return Status::OK();
     }
-
     friend class MultiCastDataStreamerSourceOperatorX;
+
+    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); }
 
 private:
     vectorized::VExprContextSPtrs _output_expr_contexts;
+    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
 class MultiCastDataStreamerSourceOperatorX final
@@ -160,8 +161,7 @@ public:
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -436,7 +437,7 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         String plan = planner.getExplainString(new ExplainOptions(false, false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
+        Assertions.assertTrue(plan.contains("`k1` = 1"));
     }
 
     @Test
@@ -458,7 +459,7 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         String plan = planner.getExplainString(new ExplainOptions(false, false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1 AND `k2` = 1\n"));
+        Assertions.assertTrue(plan.contains("(`k1` = 1) AND (`k2` = 1)"));
     }
 
     @Test
@@ -470,7 +471,7 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         String plan = planner.getExplainString(new ExplainOptions(false, false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
+        Assertions.assertTrue(plan.contains("`k1` = 1"));
     }
 
     @Test
@@ -681,5 +682,37 @@ public class PlannerTest extends TestWithFeService {
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertFalse(plan1.contains("order by:"));
             }
+    }
+
+    @Test
+    public void testInsertPlan() throws Exception {
+        FeConstants.runningUnitTest = true;
+        // 1. should not contains exchange node in old planner
+        boolean v = connectContext.getSessionVariable().isEnableNereidsPlanner();
+        try {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+            String sql1 = "explain insert into db1.tbl1 select * from db1.tbl1";
+            StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+            stmtExecutor1.execute();
+            Planner planner1 = stmtExecutor1.planner();
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("VEXCHANGE"));
+        } finally {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(v);
+        }
+
+        // 1. should not contains exchange node in new planner
+        v = connectContext.getSessionVariable().isEnableNereidsPlanner();
+        try {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(true);
+            String sql1 = "explain insert into db1.tbl1 select * from db1.tbl1";
+            StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+            stmtExecutor1.execute();
+            Planner planner1 = stmtExecutor1.planner();
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("VEXCHANGE"));
+        } finally {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(v);
+        }
     }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_aggregate_all_functions") {
+suite("test_aggregate_all_functions", "arrow_flight_sql") {
 
     sql "set batch_size = 4096"
     

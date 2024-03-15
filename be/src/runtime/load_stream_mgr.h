@@ -17,21 +17,20 @@
 
 #pragma once
 
-#include <gen_cpp/internal_service.pb.h>
-#include <stdint.h>
-
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
-#include <runtime/load_stream.h>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/load_stream.h"
+#include "util/threadpool.h"
 
 namespace doris {
+
+class POpenStreamSinkRequest;
 
 class LoadStreamMgr {
 public:
@@ -39,11 +38,14 @@ public:
                   FifoThreadPool* light_work_pool);
     ~LoadStreamMgr();
 
-    Status open_load_stream(const POpenStreamSinkRequest* request,
+    Status open_load_stream(const POpenLoadStreamRequest* request,
                             LoadStreamSharedPtr& load_stream);
     void clear_load(UniqueId loadid);
-    std::unique_ptr<ThreadPoolToken> new_token() {
-        return _file_writer_thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL);
+    void create_tokens(std::vector<std::unique_ptr<ThreadPoolToken>>& tokens) {
+        for (int i = 0; i < _num_threads * 2; i++) {
+            tokens.push_back(
+                    _file_writer_thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL));
+        }
     }
 
     // only used by ut
@@ -57,8 +59,10 @@ private:
     std::unordered_map<UniqueId, LoadStreamSharedPtr> _load_streams_map;
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
-    FifoThreadPool* _heavy_work_pool;
-    FifoThreadPool* _light_work_pool;
+    uint32_t _num_threads = 0;
+
+    FifoThreadPool* _heavy_work_pool = nullptr;
+    FifoThreadPool* _light_work_pool = nullptr;
 };
 
 } // namespace doris

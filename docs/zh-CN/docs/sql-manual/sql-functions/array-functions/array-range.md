@@ -40,19 +40,26 @@ array_range
 ARRAY<Int> array_range(Int end)
 ARRAY<Int> array_range(Int start, Int end)
 ARRAY<Int> array_range(Int start, Int end, Int step)
+ARRAY<Datetime> array_range(Datetime start_datetime, Datetime end_datetime)
+ARRAY<Datetime> array_range(Datetime start_datetime, Datetime end_datetime, INTERVAL Int interval_step UNIT)
 ```
+1. 生成int数组：
 参数均为正整数 start 默认为 0, step 默认为 1。
 最终返回一个数组，从start 到 end - 1, 步长为 step。
+2. 生成日期时间数组：
+至少取两个参数。
+前两个参数都是datetimev2，第三个是正整数。
+如果缺少第三部分，则`INTERVAL 1 DAY`将为默认值。
+UNIT 支持年/月/周/日/小时/分钟/秒。
+返回 start_datetime 和最接近 end_datetime 之间的 datetimev2 数组（按 Interval_step UNIT 计算）。
 
 ### notice
 
-`仅支持向量化引擎中使用`
+`如果第三个参数 step/interval_step 为负数或者零, 函数结果将为NULL`
 
 ### example
 
 ```
-mysql> set enable_vectorized_engine=true;
-
 mysql> select array_range(10);
 +--------------------------------+
 | array_range(10)                |
@@ -73,6 +80,20 @@ mysql> select array_range(0,20,2);
 +-------------------------------------+
 | [0, 2, 4, 6, 8, 10, 12, 14, 16, 18] |
 +-------------------------------------+
+
+mysql> select array_range(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0))) AS array_range_default;
++------------------------------------------------+
+| array_range_default                            |
++------------------------------------------------+
+| ["2022-05-15 12:00:00", "2022-05-16 12:00:00"] |
++------------------------------------------------+
+
+mysql> select array_range(cast('2019-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 2 year) as array_range_2_year;
++------------------------------------------------+
+| array_range_2_year                             |
++------------------------------------------------+
+| ["2019-05-15 12:00:00", "2021-05-15 12:00:00"] |
++------------------------------------------------+
 ```
 
 ### keywords

@@ -33,18 +33,18 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AssertNumRowsOperator final : public StreamingOperator<AssertNumRowsOperatorBuilder> {
+class AssertNumRowsOperator final : public StreamingOperator<vectorized::VAssertNumRowsNode> {
 public:
     AssertNumRowsOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
             : StreamingOperator(operator_builder, node) {}
 };
 
-class AssertNumRowsLocalState final : public PipelineXLocalState<FakeDependency> {
+class AssertNumRowsLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AssertNumRowsLocalState);
 
     AssertNumRowsLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~AssertNumRowsLocalState() = default;
 };
 
@@ -53,9 +53,13 @@ public:
     AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
 
-    Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override;
+    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return false; }
+
+    DataDistribution required_data_distribution() const override {
+        return {ExchangeType::PASSTHROUGH};
+    }
 
 private:
     friend class AssertNumRowsLocalState;
@@ -63,6 +67,7 @@ private:
     int64_t _desired_num_rows;
     const std::string _subquery_string;
     TAssertion::type _assertion;
+    bool _should_convert_output_to_nullable;
 };
 
 } // namespace pipeline

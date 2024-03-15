@@ -26,6 +26,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Map;
 
 /**
  * PersistInfo for Table rename column info
@@ -39,13 +40,16 @@ public class TableRenameColumnInfo implements Writable {
     private String colName;
     @SerializedName(value = "newColName")
     private String newColName;
+    @SerializedName(value = "indexIdToSchemaVersion")
+    private Map<Long, Integer> indexIdToSchemaVersion;
 
     public TableRenameColumnInfo(long dbId, long tableId,
-            String colName, String newColName) {
+            String colName, String newColName, Map<Long, Integer> indexIdToSchemaVersion) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.colName = colName;
         this.newColName = newColName;
+        this.indexIdToSchemaVersion = indexIdToSchemaVersion;
     }
 
     public long getDbId() {
@@ -62,6 +66,10 @@ public class TableRenameColumnInfo implements Writable {
 
     public String getNewColName() {
         return newColName;
+    }
+
+    public Map<Long, Integer> getIndexIdToSchemaVersion() {
+        return indexIdToSchemaVersion;
     }
 
     @Override
@@ -86,7 +94,8 @@ public class TableRenameColumnInfo implements Writable {
         TableRenameColumnInfo info = (TableRenameColumnInfo) obj;
 
         return (dbId == info.dbId && tableId == info.tableId
-                && colName.equals(info.colName) && newColName.equals(info.newColName));
+                && colName.equals(info.colName) && newColName.equals(info.newColName)
+                && indexIdToSchemaVersion.equals(info.indexIdToSchemaVersion));
     }
 
     @Override
@@ -96,6 +105,7 @@ public class TableRenameColumnInfo implements Writable {
         sb.append(" tableId: ").append(tableId);
         sb.append(" colName: ").append(colName);
         sb.append(" newColName: ").append(newColName);
+        sb.append(" indexIdToSchemaVersion: ").append(indexIdToSchemaVersion.toString());
         return sb.toString();
     }
 }

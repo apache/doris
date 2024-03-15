@@ -92,56 +92,53 @@ node_role_conf(){
 }
 
 register_be_to_fe() {
-  set +e
-  # check fe status
-  local is_fe_start=false
-  for i in {1..300}; do
-    docker_process_sql <<<"alter system add backend '${CURRENT_BE_IP}:${CURRENT_BE_PORT}'"
-    register_be_status=$?
-    if [[ $register_be_status == 0 ]]; then
-      doris_note "BE successfully registered to FE！"
-      is_fe_start=true
-      break
-    else
+    set +e
+    # check fe status
+    local is_fe_start=false
+    if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       check_be_status
       if [ -n "$BE_ALREADY_EXISTS" ]; then
         doris_warn "Same backend already exists! No need to register again！"
-        break
+        return
+      fi
+    fi
+    for i in {1..300}; do
+      docker_process_sql <<<"alter system add backend '${CURRENT_BE_IP}:${CURRENT_BE_PORT}'"
+      register_be_status=$?
+      if [[ $register_be_status == 0 ]]; then
+        doris_note "BE successfully registered to FE！"
+        is_fe_start=true
+        return
       fi
       if [[ $(( $i % 20 )) == 1 ]]; then
-          doris_warn "register_be_status: ${register_be_status}"
-          doris_warn "BE failed registered to FE!"
+        doris_note "Register BE to FE is failed. retry."
       fi
+      sleep 1
+    done
+    if ! [[ $is_fe_start ]]; then
+      doris_error "Failed to register BE to FE！Tried 30 times！Maybe FE Start Failed！"
     fi
-    if [[ $(( $i % 20 )) == 1 ]]; then
-      doris_note "Register BE to FE is failed. retry."
-    fi
-    sleep 1
-  done
-  if ! [[ $is_fe_start ]]; then
-    doris_error "Failed to register BE to FE！Tried 30 times！Maybe FE Start Failed！"
-  fi
 }
 
 check_be_status() {
     set +e
     local is_fe_start=false
     for i in {1..300}; do
-        if [[ $(($i % 20)) == 1 ]]; then
-            doris_warn "start check be register status~"
-        fi
-        docker_process_sql <<<"show backends;" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
-        be_join_status=$?
-        if [[ "${be_join_status}" == 0 ]]; then
-            doris_note "Verify that BE is registered to FE successfully"
-            is_fe_start=true
-            return
-        else
-            if [[ $(($i % 20)) == 1 ]]; then
-                doris_note "register is failed, wait next~"
-            fi
-        fi
-        sleep 1
+      if [[ $(($i % 20)) == 1 ]]; then
+        doris_warn "start check be register status~"
+      fi
+      docker_process_sql <<<"show backends;" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
+      be_join_status=$?
+      if [[ "${be_join_status}" == 0 ]]; then
+        doris_note "Verify that BE is registered to FE successfully"
+        is_fe_start=true
+        return
+      else
+      if [[ $(($i % 20)) == 1 ]]; then
+        doris_note "register is failed, wait next~"
+      fi
+      fi
+      sleep 1
     done
     if [[ ! $is_fe_start ]]; then
         doris_error "Failed to register BE to FE！Tried 30 times！Maybe FE Start Failed！"
@@ -155,22 +152,17 @@ cleanup() {
 
 _main() {
     trap 'cleanup' SIGTERM SIGINT
-    if [[ $RUN_TYPE == "K8S" ]]; then
-        start_be.sh &
-        child_pid=$!
-    else
-        docker_setup_env
-        if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
-          add_priority_networks $PRIORITY_NETWORKS
-          node_role_conf
-          show_be_args
-          register_be_to_fe
-        fi
-        check_be_status
-        doris_note "Ready to start BE！"
-        start_be.sh &
-        child_pid=$!
+    docker_setup_env
+    if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
+      add_priority_networks $PRIORITY_NETWORKS
+      node_role_conf
+      show_be_args
+      register_be_to_fe
     fi
+    check_be_status
+    doris_note "Ready to start BE！"
+    start_be.sh --console &
+    child_pid=$!
     wait $child_pid
     exec "$@"
 }

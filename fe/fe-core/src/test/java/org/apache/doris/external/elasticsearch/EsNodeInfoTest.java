@@ -17,6 +17,8 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import org.apache.doris.datasource.es.EsNodeInfo;
+
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Assert;
@@ -42,5 +44,16 @@ public class EsNodeInfoTest  extends EsTestCase {
                 Assert.assertEquals(8200, node.getPublishAddress().port);
             }
         }
+    }
+
+    @Test
+    public void testEsNodeInfo() {
+        EsNodeInfo node = new EsNodeInfo("0", "http://127.0.0.1:9200/");
+        Assert.assertEquals("http://127.0.0.1", node.getHost());
+        Assert.assertEquals(9200, node.getPublishAddress().getPort());
+        node = new EsNodeInfo("0", "http://127.0.0.1:9200");
+        Assert.assertEquals("http://127.0.0.1", node.getHost());
+        Assert.assertEquals(9200, node.getPublishAddress().getPort());
+
     }
 }

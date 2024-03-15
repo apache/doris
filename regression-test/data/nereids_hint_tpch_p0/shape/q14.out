@@ -3,18 +3,19 @@
 PhysicalResultSink
 --PhysicalProject
 ----hashAgg[GLOBAL]
-------PhysicalDistribute
+------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = part.p_partkey))otherCondition=()
+------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=()
 --------------PhysicalProject
 ----------------PhysicalOlapScan[part]
---------------PhysicalDistribute
+--------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
 ------------------filter((lineitem.l_shipdate < '1995-10-01') and (lineitem.l_shipdate >= '1995-09-01'))
 --------------------PhysicalOlapScan[lineitem]
 
-Used: leading(part lineitem)
+Hint log:
+Used: leading(part lineitem )
 UnUsed:
 SyntaxError:
 

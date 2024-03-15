@@ -18,7 +18,6 @@
 #include "vec/exec/vrepeat_node.h"
 
 #include <gen_cpp/PlanNodes_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <string.h>
 
 #include <functional>
@@ -33,7 +32,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -55,7 +53,9 @@ VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const Descrip
           _grouping_list(tnode.repeat_node.grouping_list),
           _output_tuple_id(tnode.repeat_node.output_tuple_id),
           _child_eos(false),
-          _repeat_id_idx(0) {}
+          _repeat_id_idx(0) {
+    _child_block = Block::create_shared();
+}
 
 Status VRepeatNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -151,6 +151,7 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         cur_col++;
     }
 
+    const auto rows = child_block->rows();
     // Fill grouping ID to block
     for (auto slot_idx = 0; slot_idx < _grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, _output_tuple_desc->slots().size());
@@ -162,12 +163,10 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         DCHECK(!_output_slots[cur_col]->is_nullable());
 
         auto* col = assert_cast<ColumnVector<Int64>*>(column_ptr);
-        for (size_t i = 0; i < child_block->rows(); ++i) {
-            col->insert_value(val);
-        }
+        col->insert_raw_integers(val, rows);
         cur_col++;
     }
-
+    output_block->set_columns(std::move(columns));
     DCHECK_EQ(cur_col, column_size);
 
     return Status::OK();
@@ -191,12 +190,16 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
         int size = _repeat_id_list.size();
         if (_repeat_id_idx >= size) {
             _intermediate_block->clear();
-            release_block_memory(_child_block);
+            release_block_memory(*_child_block);
             _repeat_id_idx = 0;
         }
+    } else if (_expr_ctxs.empty()) {
+        DCHECK(!_intermediate_block || (_intermediate_block && _intermediate_block->rows() == 0));
+        output_block->swap(*_child_block);
+        release_block_memory(*_child_block);
     }
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
-    *eos = _child_eos && _child_block.rows() == 0;
+    *eos = _child_eos && _child_block->rows() == 0;
     reached_limit(output_block, eos);
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     return Status::OK();
@@ -206,7 +209,6 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
     SCOPED_TIMER(_exec_timer);
     _child_eos = eos;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
-    DCHECK(!_expr_ctxs.empty());
 
     if (input_block->rows() > 0) {
         _intermediate_block = Block::create_unique();
@@ -227,7 +229,7 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
 }
 
 bool VRepeatNode::need_more_input_data() const {
-    return !_child_block.rows() && !_child_eos;
+    return !_child_block->rows() && !_child_eos;
 }
 
 Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
@@ -245,13 +247,13 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     DCHECK(block->rows() == 0);
     while (need_more_input_data()) {
         RETURN_IF_ERROR(child(0)->get_next_after_projects(
-                state, &_child_block, &_child_eos,
+                state, _child_block.get(), &_child_eos,
                 std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
                                   ExecNode::get_next,
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
 
-        static_cast<void>(push(state, &_child_block, _child_eos));
+        static_cast<void>(push(state, _child_block.get(), _child_eos));
     }
 
     return pull(state, block, eos);

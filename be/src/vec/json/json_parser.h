@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
@@ -63,6 +64,39 @@ Field getValueAsField(const Element& element) {
 }
 
 template <typename Element>
+void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
+    // bool will convert to type FiledType::UInt64
+    if (element.isBool()) {
+        writer.writeBool(element.getBool());
+        return;
+    }
+    if (element.isInt64()) {
+        writer.writeInt64(element.getInt64());
+        return;
+    }
+    // doris only support signed integers at present
+    if (element.isUInt64()) {
+        writer.writeInt64(element.getInt64());
+        return;
+    }
+    if (element.isDouble()) {
+        writer.writeDouble(element.getDouble());
+        return;
+    }
+    if (element.isString()) {
+        writer.writeStartString();
+        std::string_view str = element.getString();
+        writer.writeString(str.data(), str.size());
+        writer.writeEndString();
+        return;
+    }
+    if (element.isNull()) {
+        writer.writeNull();
+        return;
+    }
+}
+
+template <typename Element>
 std::string castValueAsString(const Element& element) {
     if (element.isBool()) {
         return element.getBool() ? "1" : "0";
@@ -86,7 +120,7 @@ enum class ExtractType {
     ToString = 0,
     // ...
 };
-template <typename ParserImpl>
+template <typename ParserImpl, bool parse_nested = false>
 class JSONDataParser {
 public:
     using Element = typename ParserImpl::Element;
@@ -112,7 +146,6 @@ private:
         size_t total_size = 0;
         PathToArray arrays_by_path;
         KeyToSizes nested_sizes_by_key;
-        // Arena strings_pool;
     };
     void traverse(const Element& element, ParseContext& ctx);
     void traverseObject(const JSONObject& object, ParseContext& ctx);
@@ -122,6 +155,12 @@ private:
     static bool tryInsertDefaultFromNested(ParseArrayContext& ctx, const PathInData::Parts& path,
                                            Array& array);
     static StringRef getNameOfNested(const PathInData::Parts& path, const Field& value);
+
+    bool has_nested = false;
+    void checkHasNested(const Element& element);
+    void traverseAsJsonb(const Element& element, JsonbWriter& writer);
+    void traverseObjectAsJsonb(const JSONObject& object, JsonbWriter& writer);
+    void traverseArrayAsJsonb(const JSONArray& array, JsonbWriter& writer);
 
     ParserImpl parser;
 };

@@ -37,6 +37,11 @@ public class JdbcSapHanaClient extends JdbcClient {
     }
 
     @Override
+    public String getTestQuery() {
+        return "SELECT 1 FROM DUMMY";
+    }
+
+    @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         String hanaType = fieldSchema.getDataTypeName();
         switch (hanaType) {

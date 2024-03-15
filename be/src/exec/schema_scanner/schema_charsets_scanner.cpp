@@ -39,7 +39,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaCharsetsScanner::_s_css_columns = {
 };
 
 SchemaCharsetsScanner::CharsetStruct SchemaCharsetsScanner::_s_charsets[] = {
-        {"utf8", "utf8_general_ci", "UTF-8 Unicode", 3},
+        {"utf8mb4", "utf8mb4_0900_bin", "UTF-8 Unicode", 4},
         {nullptr, nullptr, nullptr, 0},
 };
 

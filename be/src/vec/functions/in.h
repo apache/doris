@@ -59,9 +59,6 @@ namespace doris::vectorized {
 
 struct InState {
     bool use_set = true;
-
-    // only use in null in set
-    bool null_in_set = false;
     std::unique_ptr<HybridSetBase> hybrid_set;
 };
 
@@ -125,18 +122,16 @@ public:
             state->hybrid_set.reset(
                     create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
         }
+        state->hybrid_set->set_null_aware(true);
 
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
                 auto const_data = const_column_ptr->column_ptr->get_data_at(0);
-                if (const_data.data == nullptr) {
-                    state->null_in_set = true;
-                } else {
-                    state->hybrid_set->insert((void*)const_data.data, const_data.size);
-                }
+                state->hybrid_set->insert((void*)const_data.data, const_data.size);
             } else {
                 state->use_set = false;
+                state->hybrid_set.reset();
                 break;
             }
         }
@@ -182,7 +177,7 @@ public:
                                                nested_col_ptr);
                 }
 
-                if (!in_state->null_in_set) {
+                if (!in_state->hybrid_set->contain_null()) {
                     for (size_t i = 0; i < input_rows_count; ++i) {
                         vec_null_map_to[i] = null_map[i];
                     }
@@ -193,7 +188,7 @@ public:
                 }
 
             } else { // non-nullable
-                if (materialized_column->is_column_string()) {
+                if (WhichDataType(left_arg.type).is_string()) {
                     const auto* column_string_ptr =
                             assert_cast<const vectorized::ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);
@@ -201,7 +196,7 @@ public:
                     search_hash_set(in_state, input_rows_count, vec_res, materialized_column.get());
                 }
 
-                if (in_state->null_in_set) {
+                if (in_state->hybrid_set->contain_null()) {
                     for (size_t i = 0; i < input_rows_count; ++i) {
                         vec_null_map_to[i] = negative == vec_res[i];
                     }

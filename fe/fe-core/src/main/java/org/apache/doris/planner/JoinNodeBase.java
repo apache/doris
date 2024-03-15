@@ -77,12 +77,12 @@ public abstract class JoinNodeBase extends PlanNode {
 
         joinOp = innerRef.getJoinOp();
         if (joinOp.equals(JoinOperator.FULL_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getTupleIds());
-            nullableTupleIds.addAll(inner.getTupleIds());
+            nullableTupleIds.addAll(outer.getOutputTupleIds());
+            nullableTupleIds.addAll(inner.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.LEFT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(inner.getTupleIds());
+            nullableTupleIds.addAll(inner.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getTupleIds());
+            nullableTupleIds.addAll(outer.getOutputTupleIds());
         }
         this.isMark = this.innerRef != null && innerRef.isMark();
     }

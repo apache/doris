@@ -72,7 +72,11 @@ public:
 
     // The cache value of segment lru cache.
     // Holding all opened segments of a rowset.
-    struct CacheValue : public LRUCacheValueBase {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::SEGMENT_CACHE) {}
+        ~CacheValue() override { segment.reset(); }
+
         segment_v2::SegmentSharedPtr segment;
     };
 
@@ -118,7 +122,7 @@ public:
 
 private:
     SegmentLoader();
-    std::unique_ptr<SegmentCache> _segment_cache = nullptr;
+    std::unique_ptr<SegmentCache> _segment_cache;
 };
 
 // A handle for a single rowset from segment lru cache.
@@ -131,9 +135,8 @@ public:
     SegmentCacheHandle() = default;
     ~SegmentCacheHandle() = default;
 
-    void push_segment(Cache* cache, Cache::Handle* handle) {
+    void push_segment(LRUCachePolicy* cache, Cache::Handle* handle) {
         segments.push_back(((SegmentCache::CacheValue*)cache->value(handle))->segment);
-        ((SegmentCache::CacheValue*)cache->value(handle))->last_visit_time = UnixMillis();
         cache->release(handle);
     }
 

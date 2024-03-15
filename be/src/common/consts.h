@@ -40,8 +40,8 @@ constexpr int MAX_DECIMAL128_PRECISION = 38;
 constexpr int MAX_DECIMAL256_PRECISION = 76;
 
 /// Must be kept in sync with FE's max precision/scale.
-static constexpr int MAX_DECIMALV2_PRECISION = MAX_DECIMAL128_PRECISION;
-static constexpr int MAX_DECIMALV2_SCALE = MAX_DECIMALV2_PRECISION;
+static constexpr int MAX_DECIMALV2_PRECISION = 27;
+static constexpr int MAX_DECIMALV2_SCALE = 9;
 
 static constexpr int MAX_DECIMALV3_PRECISION = MAX_DECIMAL256_PRECISION;
 static constexpr int MAX_DECIMALV3_SCALE = MAX_DECIMALV3_PRECISION;

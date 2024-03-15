@@ -57,7 +57,11 @@ suite("test_analyze") {
             `analyzetestlimitedk8` double null comment "",
             `analyzetestlimitedk9` float null comment "",
             `analyzetestlimitedk12` string  null comment "",
-            `analyzetestlimitedk13` largeint(40)  null comment ""
+            `analyzetestlimitedk13` largeint(40)  null comment "",
+            `analyzetestlimitedk14` ARRAY<int(11)> NULL COMMENT "",
+            `analyzetestlimitedk15` Map<STRING, INT> NULL COMMENT "",
+            `analyzetestlimitedk16` STRUCT<s_id:int(11), s_name:string, s_address:string> NULL,
+            `analyzetestlimitedk17` JSON NULL
         ) engine=olap
         DUPLICATE KEY(`analyzetestlimitedk3`)
         DISTRIBUTED BY HASH(`analyzetestlimitedk3`) BUCKETS 5 properties("replication_num" = "1")
@@ -67,26 +71,39 @@ suite("test_analyze") {
         INSERT INTO `${tbl}` VALUES (-2103297891,1,101,15248,4761818404925265645,939926.283,
         'UTmCFKMbprf0zSVOIlBJRNOl3JcNBdOsnCDt','2022-09-28','2022-10-28 01:56:56','tVvGDSrN6kyn',
         -954349107.187117,-40.46286,'g1ZP9nqVgaGKya3kPERdBofTWJQ4TIJEz972Xvw4hfPpTpWwlmondiLVTCyld7rSBlSWrE7NJRB0pvPGEFQKOx1s3',
-        '-1559301292834325905'),
+        '-1559301292834325905', NULL, NULL, NULL, NULL),
         (-2094982029,0,-81,-14746,-2618177187906633064,121889.100,NULL,'2023-05-01','2022-11-25 00:24:12',
         '36jVI0phYfhFucAOEASbh4OdvUYcI7QZFgQSveNyfGcRRUtQG9HGN1UcCmUH',-82250254.174239,NULL,
-        'bTUHnMC4v7dI8U3TK0z4wZHdytjfHQfF1xKdYAVwPVNMT4fT4F92hj8ENQXmCkWtfp','6971810221218612372'),
+        'bTUHnMC4v7dI8U3TK0z4wZHdytjfHQfF1xKdYAVwPVNMT4fT4F92hj8ENQXmCkWtfp','6971810221218612372', NULL, NULL, NULL, NULL),
         (-1840301109,1,NULL,NULL,7805768460922079440,546556.220,'wC7Pif9SJrg9b0wicGfPz2ezEmEKotmN6AMI',NULL,
         '2023-05-20 18:13:14','NM5SLu62SGeuD',-1555800813.9748349,-11122.953,
-        'NH97wIjXk7dspvvfUUKe41ZetUnDmqLxGg8UYXwOwK3Jlu7dxO2GE9UJjyKW0NBxqUk1DY','-5004534044262380098'),
+        'NH97wIjXk7dspvvfUUKe41ZetUnDmqLxGg8UYXwOwK3Jlu7dxO2GE9UJjyKW0NBxqUk1DY','-5004534044262380098', NULL, NULL, NULL, NULL),
         (-1819679967,0,10,NULL,-5772413527188525359,-532045.626,'kqMe4VYEZAmajLthCLRkl8StDQHKrDWz91AQ','2022-06-30',
         '2023-02-22 15:30:38','wAbeF3p84j5pFJTInQuKZOezFbsy8HIjmuUF',-1766437367.4377379,1791.4128,
-        '6OWmBD04UeKt1xI2XnR8t1kPG7qEYrf4J8RkA8UMs4HF33Yl','-8433424551792664598'),
+        '6OWmBD04UeKt1xI2XnR8t1kPG7qEYrf4J8RkA8UMs4HF33Yl','-8433424551792664598', NULL, NULL, NULL, NULL),
         (-1490846276,0,NULL,7744,6074522476276146996,594200.976,NULL,'2022-11-27','2023-03-11 21:28:44',
         'yr8AuJLr2ud7DIwlt06cC7711UOsKslcDyySuqqfQE5X7Vjic6azHOrM6W',-715849856.288922,3762.217,
-        '4UpWZJ0Twrefw0Tm0AxFS38V5','7406302706201801560'),(-1465848366,1,72,29170,-5585523608136628843,-34210.874,
+        '4UpWZJ0Twrefw0Tm0AxFS38V5','7406302706201801560', NULL, NULL, NULL, NULL),(-1465848366,1,72,29170,-5585523608136628843,-34210.874,
         'rMGygAWU91Wa3b5A7l1wheo6EF0o6zhw4YeE','2022-09-20','2023-06-11 18:17:16','B6m9S9O2amsa4SXrEKK0ivJ2x9m1u8av',
-        862085772.298349,-22304.209,'1','-3399178642401166400'),(-394034614,1,65,5393,-200651968801088119,NULL,
+        862085772.298349,-22304.209,'1','-3399178642401166400', NULL, NULL, NULL, NULL),(-394034614,1,65,5393,-200651968801088119,NULL,
         '9MapWX9pn8zes9Gey1lhRsH3ATyQPIysjQYi','2023-05-11','2022-07-02 02:56:53','z5VWbuKr6HiK7yC7MRIoQGrb98VUS',
-        1877828963.091433,-1204.1926,'fSDQqT38rkrJEi6fwc90rivgQcRPaW5V1aEmZpdSvUm','8882970420609470903'),
+        1877828963.091433,-1204.1926,'fSDQqT38rkrJEi6fwc90rivgQcRPaW5V1aEmZpdSvUm','8882970420609470903', NULL, NULL, NULL, NULL),
         (-287465855,0,-10,-32484,-5161845307234178602,748718.592,'n64TXbG25DQL5aw5oo9o9cowSjHCXry9HkId','2023-01-02',
         '2022-11-17 14:58:52','d523m4PwLdHZtPTqSoOBo5IGivCKe4A1Sc8SKCILFxgzYLe0',NULL,27979.855,
-        'ps7qwcZjBjkGfcXYMw5HQMwnElzoHqinwk8vhQCbVoGBgfotc4oSkpD3tP34h4h0tTogDMwFu60iJm1bofUzyUQofTeRwZk8','4692206687866847780')
+        'ps7qwcZjBjkGfcXYMw5HQMwnElzoHqinwk8vhQCbVoGBgfotc4oSkpD3tP34h4h0tTogDMwFu60iJm1bofUzyUQofTeRwZk8','4692206687866847780', NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+        SET enable_nereids_planner=true;
+
+    """
+
+    sql """
+        SET forbid_unknown_col_stats=false;
+    """
+
+    sql """
+        SELECT * FROM ${tbl}
     """
 
     sql """
@@ -98,20 +115,14 @@ suite("test_analyze") {
     """
 
     sql """
-        SET enable_nereids_planner=true;
-        
-        """
-    sql """
         SET enable_fallback_to_original_planner=false;
         """
     sql """
         SET forbid_unknown_col_stats=true;
         """
 
-    Thread.sleep(1000 * 60)
-
     sql """
-        SELECT * FROM ${tbl}; 
+        SELECT * FROM ${tbl};
     """
 
     sql """
@@ -122,7 +133,7 @@ suite("test_analyze") {
 
     try {
         sql """
-            SELECT * FROM ${tbl}; 
+            SELECT * FROM ${tbl};
         """
     } catch (Exception e) {
         exception = e
@@ -137,7 +148,7 @@ suite("test_analyze") {
     """
 
     sql """
-        SELECT * FROM ${tbl}; 
+        SELECT * FROM ${tbl};
     """
 
     sql """
@@ -146,25 +157,25 @@ suite("test_analyze") {
 
     try {
         sql """
-            SELECT * FROM ${tbl}; 
+            SELECT * FROM ${tbl};
         """
     } catch (Exception e) {
         exception = e
     }
 
-    a_result_1 = sql """
+    def a_result_1 = sql """
         ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 10
     """
 
-    a_result_2 = sql """
+    def a_result_2 = sql """
         ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 5
     """
 
-    a_result_3 = sql """
+    def a_result_3 = sql """
         ANALYZE DATABASE ${db} WITH SAMPLE PERCENT 5
     """
 
-    show_result = sql """
+    def show_result = sql """
         SHOW ANALYZE
     """
 
@@ -239,7 +250,7 @@ suite("test_analyze") {
 
     def expected_result = { r->
         for(int i = 0; i < r.size; i++) {
-            if ((int) Double.parseDouble(r[i][1]) == 6) {
+            if ((int) Double.parseDouble(r[i][2]) == 6) {
                 return true
             } else {
                 return false
@@ -255,7 +266,7 @@ suite("test_analyze") {
     """
 
     sql """
-        
+
     CREATE TAbLE IF NOT EXISTS test_600_partition_table_analyze (
     `id` INT NOT NULL
     ) ENGINE=OLAP
@@ -869,7 +880,7 @@ PARTITION `p599` VALUES IN (599)
     (
         "replication_num" = "1"
     );
-    
+
     """
 
     sql """
@@ -881,7 +892,7 @@ PARTITION `p599` VALUES IN (599)
 
     sql """ANALYZE TABLE test_600_partition_table_analyze WITH SYNC"""
 
-    //  0:column_name | 1:count | 2:ndv  | 3:num_null | 4:data_size | 5:avg_size_byte | 6:min  | 7:max  | 8:updated_time
+    //  0:column_name | 1:index_name | 2:count | 3:ndv  | 4:num_null | 5:data_size | 6:avg_size_byte | 7:min  | 8:max  | 9:method | 10:type | 11:trigger | 12:query_times | 13:updated_time
     id_col_stats = sql """
         SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
     """
@@ -890,9 +901,14 @@ PARTITION `p599` VALUES IN (599)
         return (int) Double.parseDouble(r[0][idx]) == expected_value
     }
 
-    assert expected_col_stats(id_col_stats, 600, 1)
-    assert expected_col_stats(id_col_stats, 599, 7)
-    assert expected_col_stats(id_col_stats, 0, 6)
+    assert expected_col_stats(id_col_stats, 600, 2)
+    assert (int) Double.parseDouble(id_col_stats[0][3]) < 700
+            && (int) Double.parseDouble(id_col_stats[0][3]) > 500
+    assert expected_col_stats(id_col_stats, 0, 4)
+    assert expected_col_stats(id_col_stats, 2400, 5)
+    assert expected_col_stats(id_col_stats, 4, 6)
+    assert expected_col_stats(id_col_stats, 0, 7)
+    assert expected_col_stats(id_col_stats, 599, 8)
 
     sql """DROP TABLE IF EXISTS increment_analyze_test"""
     sql """
@@ -903,7 +919,7 @@ PARTITION `p599` VALUES IN (599)
         (
             PARTITION `p1` VALUES LESS THAN ('5')
         )
-        
+
         DISTRIBUTED BY HASH(`id`) BUCKETS 3
         PROPERTIES (
             "replication_num"="1"
@@ -920,7 +936,7 @@ PARTITION `p599` VALUES IN (599)
         SHOW COLUMN CACHED STATS increment_analyze_test(id)
     """
 
-    expected_col_stats(inc_res, 6, 1)
+    expected_col_stats(inc_res, 6, 2)
 
     sql """
         DROP TABLE increment_analyze_test;
@@ -960,12 +976,12 @@ PARTITION `p599` VALUES IN (599)
         SHOW COLUMN CACHED STATS a_partitioned_table_for_analyze_test(val)
     """
 
-    expected_col_stats(col_val_res, 3, 1)
+    expected_col_stats(col_val_res, 3, 2)
 
     def col_id_res = sql """
         SHOW COLUMN CACHED STATS a_partitioned_table_for_analyze_test(id)
     """
-    expected_col_stats(col_id_res, 3, 1)
+    expected_col_stats(col_id_res, 3, 2)
 
     sql """DROP TABLE IF EXISTS `some_complex_type_test`"""
 
@@ -1078,7 +1094,7 @@ PARTITION `p599` VALUES IN (599)
         DISTRIBUTED BY HASH(`col1`) BUCKETS 3
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
-        ); 
+        );
     """
 
     sql """insert into test_meta_management values(1, 2, 3);"""
@@ -1111,6 +1127,36 @@ PARTITION `p599` VALUES IN (599)
     afterDropped = sql """SHOW TABLE STATS test_meta_management"""
     assert check_column(afterDropped, "[col1, col2, col3]")
 
+    sql """ DROP TABLE IF EXISTS test_updated_rows """
+    sql """
+        CREATE TABLE test_updated_rows (
+            `col1` varchar(16) NOT NULL,
+            `col2` int(11) NOT NULL,
+            `col3` int(11) NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`col1`)
+        DISTRIBUTED BY HASH(`col1`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false"
+        );
+    """
+
+    sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
+    sql """ INSERT INTO test_updated_rows VALUES('1',1,1); """
+    def cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+    assertEquals(Integer.valueOf(cnt1[0][0]), 1)
+    sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
+    sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
+    sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
+    sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
+    sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
+    def cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+    assertTrue(Integer.valueOf(cnt2[0][0]) == 0 || Integer.valueOf(cnt2[0][0]) == 8)
+
     // test analyze specific column
     sql """CREATE TABLE test_analyze_specific_column (col1 varchar(11451) not null, col2 int not null, col3 int not null)
     DUPLICATE KEY(col1)
@@ -1138,7 +1184,7 @@ PARTITION `p599` VALUES IN (599)
             DISTRIBUTED BY HASH(`col1`) BUCKETS 3
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
-            ); 
+            );
     """
 
     sql """INSERT INTO test_max_min_lit VALUES("\\'")"""
@@ -1151,4 +1197,1586 @@ PARTITION `p599` VALUES IN (599)
         return (r[0][7]).equals(expected_value)
     }
     expected_max(max, "测试")
+
+    show_result = sql """
+        SHOW ANALYZE ${tbl}
+    """
+
+    def tbl_name_as_expetected = { r,name ->
+        for (int i = 0; i < r.size; i++) {
+            if (r[i][3] != name) {
+                return false
+            }
+        }
+        return true
+    }
+
+    assert show_result[0][9] == "FINISHED"
+    assert tbl_name_as_expetected(show_result, "${tbl}")
+
+    show_result = sql """
+        SHOW ANALYZE ${tbl} WHERE STATE = "FINISHED"
+    """
+
+    assert show_result.size() > 0
+
+    def all_finished = { r ->
+        for (int i = 0; i < r.size; i++) {
+            if (r[i][9] != "FINISHED") {
+                return  false
+            }
+        }
+        return true
+    }
+
+    assert all_finished(show_result)
+
+    // Test truncate table will drop table stats too.
+    sql """ANALYZE TABLE ${tbl} WITH SYNC"""
+    def result_before_truncate = sql """show column stats ${tbl}"""
+    assertEquals(14, result_before_truncate.size())
+    sql """TRUNCATE TABLE ${tbl}"""
+    def result_after_truncate = sql """show column stats ${tbl}"""
+    assertEquals(0, result_after_truncate.size())
+    result_after_truncate = sql """show column cached stats ${tbl}"""
+    assertEquals(0, result_after_truncate.size())
+
+    sql """
+        delete from ${tbl} where analyzetestlimitedk3 >= -2147483648
+    """
+    sql """
+        INSERT INTO `${tbl}` VALUES (-2103297891,1,101,15248,4761818404925265645,939926.283,
+        'UTmCFKMbprf0zSVOIlBJRNOl3JcNBdOsnCDt','2022-09-28','2022-10-28 01:56:56','tVvGDSrN6kyn',
+        -954349107.187117,-40.46286,'1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111g1ZP9nqVgaGKya3kPERdBofTWJQ4TIJEz972Xvw4hfPpTpWwlmondiLVTCyld7rSBlSWrE7NJRB0pvPGEFQKOx1s3',
+        '-1559301292834325905', NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+        ANALYZE TABLE ${tbl} WITH SYNC
+    """
+
+    def truncate_test_result = sql """
+        SHOW COLUMN CACHED STATS ${tbl}(analyzetestlimitedk12)
+    """
+    assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][7].substring(1, 1025)
+    assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][8].substring(1, 1025)
+
+    sql """TRUNCATE TABLE ${tbl}"""
+    result_after_truncate = sql """show column stats ${tbl}"""
+    assertEquals(0, result_after_truncate.size())
+    sql """ANALYZE TABLE ${tbl} WITH SYNC"""
+    result_after_truncate = sql """show column stats ${tbl}"""
+    assertEquals(14, result_after_truncate.size())
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk0);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk0", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk1);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk1", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk2);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk2", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk3);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk3", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk4);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk4", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk5);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk5", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk6);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk6", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk7);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk7", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk8);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk8", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk9);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk9", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk10);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk10", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk11);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk11", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk12);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk12", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk13);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk13", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+
+    // Test drop stats with more than 1024 columns.
+    sql """
+        CREATE TABLE if not exists col1100 (
+            c1 int,
+            c2 int,
+            c3 int,
+            c4 int,
+            c5 int,
+            c6 int,
+            c7 int,
+            c8 int,
+            c9 int,
+            c10 int,
+            c11 int,
+            c12 int,
+            c13 int,
+            c14 int,
+            c15 int,
+            c16 int,
+            c17 int,
+            c18 int,
+            c19 int,
+            c20 int,
+            c21 int,
+            c22 int,
+            c23 int,
+            c24 int,
+            c25 int,
+            c26 int,
+            c27 int,
+            c28 int,
+            c29 int,
+            c30 int,
+            c31 int,
+            c32 int,
+            c33 int,
+            c34 int,
+            c35 int,
+            c36 int,
+            c37 int,
+            c38 int,
+            c39 int,
+            c40 int,
+            c41 int,
+            c42 int,
+            c43 int,
+            c44 int,
+            c45 int,
+            c46 int,
+            c47 int,
+            c48 int,
+            c49 int,
+            c50 int,
+            c51 int,
+            c52 int,
+            c53 int,
+            c54 int,
+            c55 int,
+            c56 int,
+            c57 int,
+            c58 int,
+            c59 int,
+            c60 int,
+            c61 int,
+            c62 int,
+            c63 int,
+            c64 int,
+            c65 int,
+            c66 int,
+            c67 int,
+            c68 int,
+            c69 int,
+            c70 int,
+            c71 int,
+            c72 int,
+            c73 int,
+            c74 int,
+            c75 int,
+            c76 int,
+            c77 int,
+            c78 int,
+            c79 int,
+            c80 int,
+            c81 int,
+            c82 int,
+            c83 int,
+            c84 int,
+            c85 int,
+            c86 int,
+            c87 int,
+            c88 int,
+            c89 int,
+            c90 int,
+            c91 int,
+            c92 int,
+            c93 int,
+            c94 int,
+            c95 int,
+            c96 int,
+            c97 int,
+            c98 int,
+            c99 int,
+            c100 int,
+            c101 int,
+            c102 int,
+            c103 int,
+            c104 int,
+            c105 int,
+            c106 int,
+            c107 int,
+            c108 int,
+            c109 int,
+            c110 int,
+            c111 int,
+            c112 int,
+            c113 int,
+            c114 int,
+            c115 int,
+            c116 int,
+            c117 int,
+            c118 int,
+            c119 int,
+            c120 int,
+            c121 int,
+            c122 int,
+            c123 int,
+            c124 int,
+            c125 int,
+            c126 int,
+            c127 int,
+            c128 int,
+            c129 int,
+            c130 int,
+            c131 int,
+            c132 int,
+            c133 int,
+            c134 int,
+            c135 int,
+            c136 int,
+            c137 int,
+            c138 int,
+            c139 int,
+            c140 int,
+            c141 int,
+            c142 int,
+            c143 int,
+            c144 int,
+            c145 int,
+            c146 int,
+            c147 int,
+            c148 int,
+            c149 int,
+            c150 int,
+            c151 int,
+            c152 int,
+            c153 int,
+            c154 int,
+            c155 int,
+            c156 int,
+            c157 int,
+            c158 int,
+            c159 int,
+            c160 int,
+            c161 int,
+            c162 int,
+            c163 int,
+            c164 int,
+            c165 int,
+            c166 int,
+            c167 int,
+            c168 int,
+            c169 int,
+            c170 int,
+            c171 int,
+            c172 int,
+            c173 int,
+            c174 int,
+            c175 int,
+            c176 int,
+            c177 int,
+            c178 int,
+            c179 int,
+            c180 int,
+            c181 int,
+            c182 int,
+            c183 int,
+            c184 int,
+            c185 int,
+            c186 int,
+            c187 int,
+            c188 int,
+            c189 int,
+            c190 int,
+            c191 int,
+            c192 int,
+            c193 int,
+            c194 int,
+            c195 int,
+            c196 int,
+            c197 int,
+            c198 int,
+            c199 int,
+            c200 int,
+            c201 int,
+            c202 int,
+            c203 int,
+            c204 int,
+            c205 int,
+            c206 int,
+            c207 int,
+            c208 int,
+            c209 int,
+            c210 int,
+            c211 int,
+            c212 int,
+            c213 int,
+            c214 int,
+            c215 int,
+            c216 int,
+            c217 int,
+            c218 int,
+            c219 int,
+            c220 int,
+            c221 int,
+            c222 int,
+            c223 int,
+            c224 int,
+            c225 int,
+            c226 int,
+            c227 int,
+            c228 int,
+            c229 int,
+            c230 int,
+            c231 int,
+            c232 int,
+            c233 int,
+            c234 int,
+            c235 int,
+            c236 int,
+            c237 int,
+            c238 int,
+            c239 int,
+            c240 int,
+            c241 int,
+            c242 int,
+            c243 int,
+            c244 int,
+            c245 int,
+            c246 int,
+            c247 int,
+            c248 int,
+            c249 int,
+            c250 int,
+            c251 int,
+            c252 int,
+            c253 int,
+            c254 int,
+            c255 int,
+            c256 int,
+            c257 int,
+            c258 int,
+            c259 int,
+            c260 int,
+            c261 int,
+            c262 int,
+            c263 int,
+            c264 int,
+            c265 int,
+            c266 int,
+            c267 int,
+            c268 int,
+            c269 int,
+            c270 int,
+            c271 int,
+            c272 int,
+            c273 int,
+            c274 int,
+            c275 int,
+            c276 int,
+            c277 int,
+            c278 int,
+            c279 int,
+            c280 int,
+            c281 int,
+            c282 int,
+            c283 int,
+            c284 int,
+            c285 int,
+            c286 int,
+            c287 int,
+            c288 int,
+            c289 int,
+            c290 int,
+            c291 int,
+            c292 int,
+            c293 int,
+            c294 int,
+            c295 int,
+            c296 int,
+            c297 int,
+            c298 int,
+            c299 int,
+            c300 int,
+            c301 int,
+            c302 int,
+            c303 int,
+            c304 int,
+            c305 int,
+            c306 int,
+            c307 int,
+            c308 int,
+            c309 int,
+            c310 int,
+            c311 int,
+            c312 int,
+            c313 int,
+            c314 int,
+            c315 int,
+            c316 int,
+            c317 int,
+            c318 int,
+            c319 int,
+            c320 int,
+            c321 int,
+            c322 int,
+            c323 int,
+            c324 int,
+            c325 int,
+            c326 int,
+            c327 int,
+            c328 int,
+            c329 int,
+            c330 int,
+            c331 int,
+            c332 int,
+            c333 int,
+            c334 int,
+            c335 int,
+            c336 int,
+            c337 int,
+            c338 int,
+            c339 int,
+            c340 int,
+            c341 int,
+            c342 int,
+            c343 int,
+            c344 int,
+            c345 int,
+            c346 int,
+            c347 int,
+            c348 int,
+            c349 int,
+            c350 int,
+            c351 int,
+            c352 int,
+            c353 int,
+            c354 int,
+            c355 int,
+            c356 int,
+            c357 int,
+            c358 int,
+            c359 int,
+            c360 int,
+            c361 int,
+            c362 int,
+            c363 int,
+            c364 int,
+            c365 int,
+            c366 int,
+            c367 int,
+            c368 int,
+            c369 int,
+            c370 int,
+            c371 int,
+            c372 int,
+            c373 int,
+            c374 int,
+            c375 int,
+            c376 int,
+            c377 int,
+            c378 int,
+            c379 int,
+            c380 int,
+            c381 int,
+            c382 int,
+            c383 int,
+            c384 int,
+            c385 int,
+            c386 int,
+            c387 int,
+            c388 int,
+            c389 int,
+            c390 int,
+            c391 int,
+            c392 int,
+            c393 int,
+            c394 int,
+            c395 int,
+            c396 int,
+            c397 int,
+            c398 int,
+            c399 int,
+            c400 int,
+            c401 int,
+            c402 int,
+            c403 int,
+            c404 int,
+            c405 int,
+            c406 int,
+            c407 int,
+            c408 int,
+            c409 int,
+            c410 int,
+            c411 int,
+            c412 int,
+            c413 int,
+            c414 int,
+            c415 int,
+            c416 int,
+            c417 int,
+            c418 int,
+            c419 int,
+            c420 int,
+            c421 int,
+            c422 int,
+            c423 int,
+            c424 int,
+            c425 int,
+            c426 int,
+            c427 int,
+            c428 int,
+            c429 int,
+            c430 int,
+            c431 int,
+            c432 int,
+            c433 int,
+            c434 int,
+            c435 int,
+            c436 int,
+            c437 int,
+            c438 int,
+            c439 int,
+            c440 int,
+            c441 int,
+            c442 int,
+            c443 int,
+            c444 int,
+            c445 int,
+            c446 int,
+            c447 int,
+            c448 int,
+            c449 int,
+            c450 int,
+            c451 int,
+            c452 int,
+            c453 int,
+            c454 int,
+            c455 int,
+            c456 int,
+            c457 int,
+            c458 int,
+            c459 int,
+            c460 int,
+            c461 int,
+            c462 int,
+            c463 int,
+            c464 int,
+            c465 int,
+            c466 int,
+            c467 int,
+            c468 int,
+            c469 int,
+            c470 int,
+            c471 int,
+            c472 int,
+            c473 int,
+            c474 int,
+            c475 int,
+            c476 int,
+            c477 int,
+            c478 int,
+            c479 int,
+            c480 int,
+            c481 int,
+            c482 int,
+            c483 int,
+            c484 int,
+            c485 int,
+            c486 int,
+            c487 int,
+            c488 int,
+            c489 int,
+            c490 int,
+            c491 int,
+            c492 int,
+            c493 int,
+            c494 int,
+            c495 int,
+            c496 int,
+            c497 int,
+            c498 int,
+            c499 int,
+            c500 int,
+            c501 int,
+            c502 int,
+            c503 int,
+            c504 int,
+            c505 int,
+            c506 int,
+            c507 int,
+            c508 int,
+            c509 int,
+            c510 int,
+            c511 int,
+            c512 int,
+            c513 int,
+            c514 int,
+            c515 int,
+            c516 int,
+            c517 int,
+            c518 int,
+            c519 int,
+            c520 int,
+            c521 int,
+            c522 int,
+            c523 int,
+            c524 int,
+            c525 int,
+            c526 int,
+            c527 int,
+            c528 int,
+            c529 int,
+            c530 int,
+            c531 int,
+            c532 int,
+            c533 int,
+            c534 int,
+            c535 int,
+            c536 int,
+            c537 int,
+            c538 int,
+            c539 int,
+            c540 int,
+            c541 int,
+            c542 int,
+            c543 int,
+            c544 int,
+            c545 int,
+            c546 int,
+            c547 int,
+            c548 int,
+            c549 int,
+            c550 int,
+            c551 int,
+            c552 int,
+            c553 int,
+            c554 int,
+            c555 int,
+            c556 int,
+            c557 int,
+            c558 int,
+            c559 int,
+            c560 int,
+            c561 int,
+            c562 int,
+            c563 int,
+            c564 int,
+            c565 int,
+            c566 int,
+            c567 int,
+            c568 int,
+            c569 int,
+            c570 int,
+            c571 int,
+            c572 int,
+            c573 int,
+            c574 int,
+            c575 int,
+            c576 int,
+            c577 int,
+            c578 int,
+            c579 int,
+            c580 int,
+            c581 int,
+            c582 int,
+            c583 int,
+            c584 int,
+            c585 int,
+            c586 int,
+            c587 int,
+            c588 int,
+            c589 int,
+            c590 int,
+            c591 int,
+            c592 int,
+            c593 int,
+            c594 int,
+            c595 int,
+            c596 int,
+            c597 int,
+            c598 int,
+            c599 int,
+            c600 int,
+            c601 int,
+            c602 int,
+            c603 int,
+            c604 int,
+            c605 int,
+            c606 int,
+            c607 int,
+            c608 int,
+            c609 int,
+            c610 int,
+            c611 int,
+            c612 int,
+            c613 int,
+            c614 int,
+            c615 int,
+            c616 int,
+            c617 int,
+            c618 int,
+            c619 int,
+            c620 int,
+            c621 int,
+            c622 int,
+            c623 int,
+            c624 int,
+            c625 int,
+            c626 int,
+            c627 int,
+            c628 int,
+            c629 int,
+            c630 int,
+            c631 int,
+            c632 int,
+            c633 int,
+            c634 int,
+            c635 int,
+            c636 int,
+            c637 int,
+            c638 int,
+            c639 int,
+            c640 int,
+            c641 int,
+            c642 int,
+            c643 int,
+            c644 int,
+            c645 int,
+            c646 int,
+            c647 int,
+            c648 int,
+            c649 int,
+            c650 int,
+            c651 int,
+            c652 int,
+            c653 int,
+            c654 int,
+            c655 int,
+            c656 int,
+            c657 int,
+            c658 int,
+            c659 int,
+            c660 int,
+            c661 int,
+            c662 int,
+            c663 int,
+            c664 int,
+            c665 int,
+            c666 int,
+            c667 int,
+            c668 int,
+            c669 int,
+            c670 int,
+            c671 int,
+            c672 int,
+            c673 int,
+            c674 int,
+            c675 int,
+            c676 int,
+            c677 int,
+            c678 int,
+            c679 int,
+            c680 int,
+            c681 int,
+            c682 int,
+            c683 int,
+            c684 int,
+            c685 int,
+            c686 int,
+            c687 int,
+            c688 int,
+            c689 int,
+            c690 int,
+            c691 int,
+            c692 int,
+            c693 int,
+            c694 int,
+            c695 int,
+            c696 int,
+            c697 int,
+            c698 int,
+            c699 int,
+            c700 int,
+            c701 int,
+            c702 int,
+            c703 int,
+            c704 int,
+            c705 int,
+            c706 int,
+            c707 int,
+            c708 int,
+            c709 int,
+            c710 int,
+            c711 int,
+            c712 int,
+            c713 int,
+            c714 int,
+            c715 int,
+            c716 int,
+            c717 int,
+            c718 int,
+            c719 int,
+            c720 int,
+            c721 int,
+            c722 int,
+            c723 int,
+            c724 int,
+            c725 int,
+            c726 int,
+            c727 int,
+            c728 int,
+            c729 int,
+            c730 int,
+            c731 int,
+            c732 int,
+            c733 int,
+            c734 int,
+            c735 int,
+            c736 int,
+            c737 int,
+            c738 int,
+            c739 int,
+            c740 int,
+            c741 int,
+            c742 int,
+            c743 int,
+            c744 int,
+            c745 int,
+            c746 int,
+            c747 int,
+            c748 int,
+            c749 int,
+            c750 int,
+            c751 int,
+            c752 int,
+            c753 int,
+            c754 int,
+            c755 int,
+            c756 int,
+            c757 int,
+            c758 int,
+            c759 int,
+            c760 int,
+            c761 int,
+            c762 int,
+            c763 int,
+            c764 int,
+            c765 int,
+            c766 int,
+            c767 int,
+            c768 int,
+            c769 int,
+            c770 int,
+            c771 int,
+            c772 int,
+            c773 int,
+            c774 int,
+            c775 int,
+            c776 int,
+            c777 int,
+            c778 int,
+            c779 int,
+            c780 int,
+            c781 int,
+            c782 int,
+            c783 int,
+            c784 int,
+            c785 int,
+            c786 int,
+            c787 int,
+            c788 int,
+            c789 int,
+            c790 int,
+            c791 int,
+            c792 int,
+            c793 int,
+            c794 int,
+            c795 int,
+            c796 int,
+            c797 int,
+            c798 int,
+            c799 int,
+            c800 int,
+            c801 int,
+            c802 int,
+            c803 int,
+            c804 int,
+            c805 int,
+            c806 int,
+            c807 int,
+            c808 int,
+            c809 int,
+            c810 int,
+            c811 int,
+            c812 int,
+            c813 int,
+            c814 int,
+            c815 int,
+            c816 int,
+            c817 int,
+            c818 int,
+            c819 int,
+            c820 int,
+            c821 int,
+            c822 int,
+            c823 int,
+            c824 int,
+            c825 int,
+            c826 int,
+            c827 int,
+            c828 int,
+            c829 int,
+            c830 int,
+            c831 int,
+            c832 int,
+            c833 int,
+            c834 int,
+            c835 int,
+            c836 int,
+            c837 int,
+            c838 int,
+            c839 int,
+            c840 int,
+            c841 int,
+            c842 int,
+            c843 int,
+            c844 int,
+            c845 int,
+            c846 int,
+            c847 int,
+            c848 int,
+            c849 int,
+            c850 int,
+            c851 int,
+            c852 int,
+            c853 int,
+            c854 int,
+            c855 int,
+            c856 int,
+            c857 int,
+            c858 int,
+            c859 int,
+            c860 int,
+            c861 int,
+            c862 int,
+            c863 int,
+            c864 int,
+            c865 int,
+            c866 int,
+            c867 int,
+            c868 int,
+            c869 int,
+            c870 int,
+            c871 int,
+            c872 int,
+            c873 int,
+            c874 int,
+            c875 int,
+            c876 int,
+            c877 int,
+            c878 int,
+            c879 int,
+            c880 int,
+            c881 int,
+            c882 int,
+            c883 int,
+            c884 int,
+            c885 int,
+            c886 int,
+            c887 int,
+            c888 int,
+            c889 int,
+            c890 int,
+            c891 int,
+            c892 int,
+            c893 int,
+            c894 int,
+            c895 int,
+            c896 int,
+            c897 int,
+            c898 int,
+            c899 int,
+            c900 int,
+            c901 int,
+            c902 int,
+            c903 int,
+            c904 int,
+            c905 int,
+            c906 int,
+            c907 int,
+            c908 int,
+            c909 int,
+            c910 int,
+            c911 int,
+            c912 int,
+            c913 int,
+            c914 int,
+            c915 int,
+            c916 int,
+            c917 int,
+            c918 int,
+            c919 int,
+            c920 int,
+            c921 int,
+            c922 int,
+            c923 int,
+            c924 int,
+            c925 int,
+            c926 int,
+            c927 int,
+            c928 int,
+            c929 int,
+            c930 int,
+            c931 int,
+            c932 int,
+            c933 int,
+            c934 int,
+            c935 int,
+            c936 int,
+            c937 int,
+            c938 int,
+            c939 int,
+            c940 int,
+            c941 int,
+            c942 int,
+            c943 int,
+            c944 int,
+            c945 int,
+            c946 int,
+            c947 int,
+            c948 int,
+            c949 int,
+            c950 int,
+            c951 int,
+            c952 int,
+            c953 int,
+            c954 int,
+            c955 int,
+            c956 int,
+            c957 int,
+            c958 int,
+            c959 int,
+            c960 int,
+            c961 int,
+            c962 int,
+            c963 int,
+            c964 int,
+            c965 int,
+            c966 int,
+            c967 int,
+            c968 int,
+            c969 int,
+            c970 int,
+            c971 int,
+            c972 int,
+            c973 int,
+            c974 int,
+            c975 int,
+            c976 int,
+            c977 int,
+            c978 int,
+            c979 int,
+            c980 int,
+            c981 int,
+            c982 int,
+            c983 int,
+            c984 int,
+            c985 int,
+            c986 int,
+            c987 int,
+            c988 int,
+            c989 int,
+            c990 int,
+            c991 int,
+            c992 int,
+            c993 int,
+            c994 int,
+            c995 int,
+            c996 int,
+            c997 int,
+            c998 int,
+            c999 int,
+            c1000 int,
+            c1001 int,
+            c1002 int,
+            c1003 int,
+            c1004 int,
+            c1005 int,
+            c1006 int,
+            c1007 int,
+            c1008 int,
+            c1009 int,
+            c1010 int,
+            c1011 int,
+            c1012 int,
+            c1013 int,
+            c1014 int,
+            c1015 int,
+            c1016 int,
+            c1017 int,
+            c1018 int,
+            c1019 int,
+            c1020 int,
+            c1021 int,
+            c1022 int,
+            c1023 int,
+            c1024 int,
+            c1025 int,
+            c1026 int,
+            c1027 int,
+            c1028 int,
+            c1029 int,
+            c1030 int,
+            c1031 int,
+            c1032 int,
+            c1033 int,
+            c1034 int,
+            c1035 int,
+            c1036 int,
+            c1037 int,
+            c1038 int,
+            c1039 int,
+            c1040 int,
+            c1041 int,
+            c1042 int,
+            c1043 int,
+            c1044 int,
+            c1045 int,
+            c1046 int,
+            c1047 int,
+            c1048 int,
+            c1049 int,
+            c1050 int,
+            c1051 int,
+            c1052 int,
+            c1053 int,
+            c1054 int,
+            c1055 int,
+            c1056 int,
+            c1057 int,
+            c1058 int,
+            c1059 int,
+            c1060 int,
+            c1061 int,
+            c1062 int,
+            c1063 int,
+            c1064 int,
+            c1065 int,
+            c1066 int,
+            c1067 int,
+            c1068 int,
+            c1069 int,
+            c1070 int,
+            c1071 int,
+            c1072 int,
+            c1073 int,
+            c1074 int,
+            c1075 int,
+            c1076 int,
+            c1077 int,
+            c1078 int,
+            c1079 int,
+            c1080 int,
+            c1081 int,
+            c1082 int,
+            c1083 int,
+            c1084 int,
+            c1085 int,
+            c1086 int,
+            c1087 int,
+            c1088 int,
+            c1089 int,
+            c1090 int,
+            c1091 int,
+            c1092 int,
+            c1093 int,
+            c1094 int,
+            c1095 int,
+            c1096 int,
+            c1097 int,
+            c1098 int,
+            c1099 int,
+            c1100 int
+        )ENGINE=OLAP
+        DUPLICATE KEY(`c1`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`c1`) BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """drop stats col1100 """
+    sql """DROP TABLE IF EXISTS col1100"""
+
+    // Test analyze column with special character in name.
+    sql """
+      CREATE TABLE region  (
+       `r_regionkey`      int NOT NULL,
+       `r%name`     VARCHAR(25) NOT NULL,
+       `r_comment`    VARCHAR(152)
+      )ENGINE=OLAP
+      DUPLICATE KEY(`r_regionkey`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1"
+      );
+   """
+    sql """insert into region values(1,'name1', 'comment1') """
+    sql """insert into region values(2,'name2', 'comment2') """
+    sql """insert into region values(3,'name3', 'comment3') """
+    sql """ANALYZE TABLE region WITH SYNC"""
+    result = sql """show column stats region (`r%name`);"""
+    assertEquals(1, result.size())
+    assertEquals("r%name", result[0][0])
+    assertEquals("3.0", result[0][2])
+    assertEquals("3.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("\'name1\'", result[0][7])
+    assertEquals("\'name3\'", result[0][8])
+
+    // Test partititon load data for the first time.
+    sql """
+     CREATE TABLE `partition_test` (
+      `id` INT NOT NULL,
+      `name` VARCHAR(25) NOT NULL,
+      `comment` VARCHAR(152) NULL
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT 'OLAP'
+      PARTITION BY RANGE(`id`)
+      (PARTITION p1 VALUES [("0"), ("100")),
+       PARTITION p2 VALUES [("100"), ("200")),
+       PARTITION p3 VALUES [("200"), ("300")))
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1");
+     """
+
+    sql """analyze table partition_test with sync"""
+    sql """insert into partition_test values (1, '1', '1')"""
+    def partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    assertEquals(partition_result[0][0], "1")
+    sql """analyze table partition_test with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (101, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    sql """analyze table partition_test(id) with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (102, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+
+    // Test sample agg table value column
+    sql """
+     CREATE TABLE `agg_table_test` (
+      `id` BIGINT NOT NULL,
+      `name` VARCHAR(10) REPLACE NULL
+     ) ENGINE=OLAP
+     AGGREGATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+    sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
+    Thread.sleep(1000 * 60)
+    sql """analyze table agg_table_test with sample rows 100 with sync"""
+    def agg_result = sql """show column stats agg_table_test (name)"""
+    assertEquals(agg_result[0][7], "N/A")
+    assertEquals(agg_result[0][8], "N/A")
+
+    // Test sample string type min max
+    sql """
+     CREATE TABLE `string_min_max` (
+      `id` BIGINT NOT NULL,
+      `name` string NULL
+     ) ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+    sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
+    sql """analyze table string_min_max with sync"""
+    explain {
+        sql("select min(name), max(name) from string_min_max")
+        contains "pushAggOp=NONE"
+    }
+    sql """set enable_pushdown_string_minmax = true"""
+    explain {
+        sql("select min(name), max(name) from string_min_max")
+        contains "pushAggOp=MINMAX"
+    }
+
+    // Test alter
+    sql """
+      CREATE TABLE alter_test(
+       `id`      int NOT NULL,
+       `name`     VARCHAR(25) NOT NULL
+      )ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1"
+      );
+   """
+    sql """ANALYZE TABLE alter_test WITH SYNC"""
+    def alter_result = sql """show table stats alter_test"""
+    assertEquals("false", alter_result[0][7])
+    sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("true", alter_result[0][7])
+    sql """ANALYZE TABLE alter_test WITH SYNC"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("false", alter_result[0][7])
+    sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("true", alter_result[0][7])
+    sql """drop stats alter_test"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("false", alter_result[0][7])
+    sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show column stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+    alter_result = sql """show column cached stats alter_test(id)"""
+    assertEquals(0, alter_result.size())
+    alter_result = sql """show column cached stats alter_test(id)"""
+    assertEquals(0, alter_result.size())
+    sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='100', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show column stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+    alter_result = sql """show column cached stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+    sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='1', 'num_nulls'='0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show column stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+    alter_result = sql """show column cached stats alter_test(id)"""
+    assertEquals(1, alter_result.size())
+
+    // Test trigger type, manual default full, manual high health value, sample empty, kill job, show analyze
+    sql """DROP DATABASE IF EXISTS trigger"""
+    sql """CREATE DATABASE IF NOT EXISTS trigger"""
+    sql """USE trigger"""
+    sql """
+     CREATE TABLE if not exists trigger_test(
+      `id`      int NOT NULL,
+      `name`    VARCHAR(152)
+     )ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT "OLAP"
+     DISTRIBUTED BY HASH(`id`) BUCKETS 1
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+    // Test sample empty table
+    def result_sample = sql """analyze table trigger_test with sample percent 10 with sync"""
+    result_sample = sql """show column stats trigger_test"""
+    assertEquals(2, result_sample.size())
+    assertEquals("0.0", result_sample[0][2])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("0.0", result_sample[1][2])
+    assertEquals("SAMPLE", result_sample[1][9])
+
+    sql """drop stats trigger_test"""
+    sql """analyze table trigger_test with sample rows 1000 with sync"""
+    result_sample = sql """show column stats trigger_test"""
+    assertEquals(2, result_sample.size())
+    assertEquals("0.0", result_sample[0][2])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("0.0", result_sample[1][2])
+    assertEquals("SAMPLE", result_sample[1][9])
+
+    // Test show task
+    result_sample = sql """analyze table trigger_test with sample percent 10"""
+    String jobId = result_sample[0][0]
+    result_sample = sql """show analyze task status ${jobId}"""
+    assertEquals(2, result_sample.size())
+    Thread.sleep(1000)
+    sql """drop stats trigger_test"""
+
+    // Test trigger type
+    sql """insert into trigger_test values(1,'name1') """
+    sql """insert into trigger_test values(2,'name2') """
+    sql """insert into trigger_test values(3,'name3') """
+    sql """insert into trigger_test values(4,'name4') """
+
+    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+
+    int i = 0;
+    for (0; i < 10; i++) {
+        def result = sql """show column stats trigger_test"""
+        if (result.size() != 2) {
+            Thread.sleep(1000)
+            continue;
+        }
+        assertEquals(result[0][11], "SYSTEM")
+        assertEquals(result[1][11], "SYSTEM")
+        break
+    }
+    if (i < 10) {
+        sql """analyze table trigger_test with sync"""
+        def result = sql """show column stats trigger_test"""
+        assertEquals(result.size(), 2)
+        assertEquals(result[0][11], "MANUAL")
+        assertEquals(result[1][11], "MANUAL")
+    }
+
+    // Test analyze default full.
+    sql """analyze table trigger_test with sync"""
+    def result = sql """show column stats trigger_test"""
+    assertEquals(2, result.size())
+    assertEquals("4.0", result[0][2])
+    assertEquals("FULL", result[0][9])
+    assertEquals("4.0", result[1][2])
+    assertEquals("FULL", result[1][9])
+
+    // Test analyze hive health value
+    sql """insert into trigger_test values(5,'name5') """
+    sql """analyze table trigger_test with sync"""
+    result = sql """show column stats trigger_test"""
+    assertEquals(2, result.size())
+    assertEquals("5.0", result[0][2])
+    assertEquals("5.0", result[1][2])
+
+
+    sql """DROP DATABASE IF EXISTS trigger"""
 }
+

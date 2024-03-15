@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -54,9 +55,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -64,17 +66,83 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public static final String DEFAULT_GROUP_NAME = "normal";
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Id").add("Name").add("Item").add("Value")
+            .add("Id").add("Name").add(WorkloadGroup.CPU_SHARE).add(WorkloadGroup.MEMORY_LIMIT)
+            .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
+            .add(WorkloadGroup.MAX_CONCURRENCY).add(WorkloadGroup.MAX_QUEUE_SIZE)
+            .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
+            .add(WorkloadGroup.SCAN_THREAD_NUM).add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
+            .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
+            .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
     private static final Logger LOG = LogManager.getLogger(WorkloadGroupMgr.class);
     @SerializedName(value = "idToWorkloadGroup")
     private final Map<Long, WorkloadGroup> idToWorkloadGroup = Maps.newHashMap();
     private final Map<String, WorkloadGroup> nameToWorkloadGroup = Maps.newHashMap();
+    private final Map<Long, QueryQueue> idToQueryQueue = Maps.newHashMap();
     private final ResourceProcNode procNode = new ResourceProcNode();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
+    private Thread updatePropThread;
+
+    public void startUpdateThread() {
+        WorkloadGroupMgr wgMgr = this;
+        updatePropThread = new Thread(new Runnable() {
+            public void run() {
+                while (true) {
+                    try {
+                        wgMgr.resetQueryQueueProp();
+                        Thread.sleep(Config.query_queue_update_interval_ms);
+                    } catch (Throwable e) {
+                        LOG.warn("reset query queue failed ", e);
+                    }
+                }
+            }
+        });
+        updatePropThread.start();
+    }
+
+    public void resetQueryQueueProp() {
+        List<QueryQueue> newPropList = new ArrayList<>();
+        Map<Long, QueryQueue> currentQueueCopyMap = new HashMap<>();
+        readLock();
+        try {
+            for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
+                WorkloadGroup wg = entry.getValue();
+                QueryQueue tmpQ = new QueryQueue(wg.getId(), wg.getMaxConcurrency(),
+                        wg.getMaxQueueSize(), wg.getQueueTimeout(), wg.getVersion());
+                newPropList.add(tmpQ);
+            }
+            for (Map.Entry<Long, QueryQueue> entry : idToQueryQueue.entrySet()) {
+                currentQueueCopyMap.put(entry.getKey(), entry.getValue());
+            }
+        } finally {
+            readUnlock();
+        }
+
+        for (QueryQueue newPropQq : newPropList) {
+            QueryQueue currentQueryQueue = currentQueueCopyMap.get(newPropQq.getWgId());
+            if (currentQueryQueue == null) {
+                continue;
+            }
+            if (newPropQq.getPropVersion() > currentQueryQueue.getPropVersion()) {
+                currentQueryQueue.resetQueueProperty(newPropQq.getMaxConcurrency(), newPropQq.getMaxQueueSize(),
+                        newPropQq.getQueueTimeout(), newPropQq.getPropVersion());
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(currentQueryQueue.debugString()); // for test debug
+            }
+        }
+    }
+
     public WorkloadGroupMgr() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(WorkloadGroup.CPU_SHARE, "1024");
+        properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+        WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(1, DEFAULT_GROUP_NAME, properties);
+        nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
+        idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
     }
 
     public static WorkloadGroupMgr read(DataInput in) throws IOException {
@@ -98,19 +166,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         lock.writeLock().unlock();
     }
 
-    private void checkWorkloadGroupEnabled() throws DdlException {
-        if (!Config.enable_workload_group) {
-            throw new DdlException(
-                    "WorkloadGroup is disabled, you can set config enable_workload_group = true to enable it");
-        }
-    }
-
-    public void init() {
-        if (Config.enable_workload_group || Config.use_fuzzy_session_variable /* for github workflow */) {
-            checkAndCreateDefaultGroup();
-        }
-    }
-
     public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
         String groupName = getWorkloadGroupNameAndCheckPriv(context);
         List<TPipelineWorkloadGroup> workloadGroups = Lists.newArrayList();
@@ -121,18 +176,55 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 throw new UserException("Workload group " + groupName + " does not exist");
             }
             workloadGroups.add(workloadGroup.toThrift());
-            // note(wb) -1 to tell be no need to not use cpu hard limit
-            int cpuHardLimitThriftVal = -1;
-            if (Config.enable_cpu_hard_limit && workloadGroup.getCpuHardLimit() > 0) {
-                cpuHardLimitThriftVal = workloadGroup.getCpuHardLimit();
-            }
-            workloadGroups.get(0).getProperties().put(WorkloadGroup.CPU_HARD_LIMIT,
-                    String.valueOf(cpuHardLimitThriftVal));
             context.setWorkloadGroupName(groupName);
         } finally {
             readUnlock();
         }
         return workloadGroups;
+    }
+
+    public long getWorkloadGroup(UserIdentity currentUser, String groupName) throws UserException {
+        Long workloadId = getWorkloadGroupIdByName(groupName);
+        if (workloadId == null) {
+            throw new UserException("Workload group " + groupName + " does not exist");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkWorkloadGroupPriv(currentUser, groupName, PrivPredicate.USAGE)) {
+            ErrorReport.reportAnalysisException(
+                    "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'.",
+                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName);
+        }
+        return workloadId.longValue();
+    }
+
+    public List<TPipelineWorkloadGroup> getTWorkloadGroupById(long wgId) {
+        List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
+        readLock();
+        try {
+            WorkloadGroup wg = idToWorkloadGroup.get(wgId);
+            if (wg != null) {
+                tWorkloadGroups.add(wg.toThrift());
+            }
+        } finally {
+            readUnlock();
+        }
+        return tWorkloadGroups;
+    }
+
+    public List<TPipelineWorkloadGroup> getTWorkloadGroupByUserIdentity(UserIdentity user) throws UserException {
+        String groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(user.getQualifiedUser());
+        List<TPipelineWorkloadGroup> ret = new ArrayList<>();
+        readLock();
+        try {
+            WorkloadGroup wg = nameToWorkloadGroup.get(groupName);
+            if (wg == null) {
+                throw new UserException("can not find workload group " + groupName);
+            }
+            ret.add(wg.toThrift());
+        } finally {
+            readUnlock();
+        }
+        return ret;
     }
 
     public List<TopicInfo> getPublishTopicInfo() {
@@ -150,15 +242,21 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public QueryQueue getWorkloadGroupQueryQueue(ConnectContext context) throws UserException {
         String groupName = getWorkloadGroupNameAndCheckPriv(context);
-        readLock();
+        writeLock();
         try {
-            WorkloadGroup workloadGroup = nameToWorkloadGroup.get(groupName);
-            if (workloadGroup == null) {
+            WorkloadGroup wg = nameToWorkloadGroup.get(groupName);
+            if (wg == null) {
                 throw new UserException("Workload group " + groupName + " does not exist");
             }
-            return workloadGroup.getQueryQueue();
+            QueryQueue queryQueue = idToQueryQueue.get(wg.getId());
+            if (queryQueue == null) {
+                queryQueue = new QueryQueue(wg.getId(), wg.getMaxConcurrency(), wg.getMaxQueueSize(),
+                        wg.getQueueTimeout(), wg.getVersion());
+                idToQueryQueue.put(wg.getId(), queryQueue);
+            }
+            return queryQueue;
         } finally {
-            readUnlock();
+            writeUnlock();
         }
     }
 
@@ -178,32 +276,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return groupName;
     }
 
-    private void checkAndCreateDefaultGroup() {
-        WorkloadGroup defaultWorkloadGroup = null;
-        writeLock();
-        try {
-            if (nameToWorkloadGroup.containsKey(DEFAULT_GROUP_NAME)) {
-                return;
-            }
-            Map<String, String> properties = Maps.newHashMap();
-            properties.put(WorkloadGroup.CPU_SHARE, "10");
-            properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
-            properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-            defaultWorkloadGroup = WorkloadGroup.create(DEFAULT_GROUP_NAME, properties);
-            nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
-            idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
-            Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(defaultWorkloadGroup);
-        } catch (DdlException e) {
-            LOG.warn("Create workload group " + DEFAULT_GROUP_NAME + " fail");
-        } finally {
-            writeUnlock();
-        }
-        LOG.info("Create workload group success: {}", defaultWorkloadGroup);
-    }
-
     public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         WorkloadGroup workloadGroup = WorkloadGroup.create(stmt.getWorkloadGroupName(), stmt.getProperties());
         String workloadGroupName = workloadGroup.getName();
         writeLock();
@@ -213,6 +286,10 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                     return;
                 }
                 throw new DdlException("workload group " + workloadGroupName + " already exist");
+            }
+            if (idToWorkloadGroup.size() >= Config.workload_group_max_num) {
+                throw new DdlException(
+                        "workload group number can not be exceed " + Config.workload_group_max_num);
             }
             checkGlobalUnlock(workloadGroup, null);
             nameToWorkloadGroup.put(workloadGroupName, workloadGroup);
@@ -260,8 +337,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void alterWorkloadGroup(AlterWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         String workloadGroupName = stmt.getWorkloadGroupName();
         Map<String, String> properties = stmt.getProperties();
         WorkloadGroup newWorkloadGroup;
@@ -270,11 +345,15 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             if (!nameToWorkloadGroup.containsKey(workloadGroupName)) {
                 throw new DdlException("workload group(" + workloadGroupName + ") does not exist.");
             }
-            WorkloadGroup workloadGroup = nameToWorkloadGroup.get(workloadGroupName);
-            newWorkloadGroup = WorkloadGroup.copyAndUpdate(workloadGroup, properties);
-            checkGlobalUnlock(newWorkloadGroup, workloadGroup);
+            WorkloadGroup currentWorkloadGroup = nameToWorkloadGroup.get(workloadGroupName);
+            newWorkloadGroup = WorkloadGroup.copyAndUpdate(currentWorkloadGroup, properties);
+            checkGlobalUnlock(newWorkloadGroup, currentWorkloadGroup);
             nameToWorkloadGroup.put(workloadGroupName, newWorkloadGroup);
             idToWorkloadGroup.put(newWorkloadGroup.getId(), newWorkloadGroup);
+            // NOTE: used for regression test query queue
+            if (Config.enable_alter_queue_prop_sync) {
+                resetQueryQueueProp();
+            }
             Env.getCurrentEnv().getEditLog().logAlterWorkloadGroup(newWorkloadGroup);
         } finally {
             writeUnlock();
@@ -283,8 +362,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         String workloadGroupName = stmt.getWorkloadGroupName();
         if (DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
             throw new DdlException("Dropping default workload group " + workloadGroupName + " is not allowed");
@@ -309,6 +386,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             long groupId = workloadGroup.getId();
             idToWorkloadGroup.remove(groupId);
             nameToWorkloadGroup.remove(workloadGroupName);
+            idToQueryQueue.remove(groupId);
             Env.getCurrentEnv().getEditLog().logDropWorkloadGroup(new DropWorkloadGroupOperationLog(groupId));
         } finally {
             writeUnlock();
@@ -358,14 +436,47 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public List<List<String>> getResourcesInfo() {
+    public List<List<String>> getResourcesInfo(PatternMatcher matcher) {
         UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
+        List<List<String>> rows = procNode.fetchResult(currentUserIdentity).getRows();
+        for (Iterator<List<String>> it = rows.iterator(); it.hasNext(); ) {
+            List<String> row = it.next();
+            if (matcher != null && !matcher.match(row.get(1))) {
+                it.remove();
+            }
+        }
+        return rows;
+    }
+
+    public List<List<String>> getResourcesInfo(TUserIdentity tCurrentUserIdentity) {
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tCurrentUserIdentity);
         return procNode.fetchResult(currentUserIdentity).getRows();
     }
 
-    public List<List<String>> getResourcesInfo(TUserIdentity tcurrentUserIdentity) {
-        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
-        return procNode.fetchResult(currentUserIdentity).getRows();
+    public Long getWorkloadGroupIdByName(String name) {
+        readLock();
+        try {
+            WorkloadGroup wg = nameToWorkloadGroup.get(name);
+            if (wg == null) {
+                return null;
+            }
+            return wg.getId();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public String getWorkloadGroupNameById(Long id) {
+        readLock();
+        try {
+            WorkloadGroup wg = idToWorkloadGroup.get(id);
+            if (wg == null) {
+                return null;
+            }
+            return wg.getName();
+        } finally {
+            readUnlock();
+        }
     }
 
     // for ut
@@ -401,7 +512,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                             workloadGroup.getName(), PrivPredicate.SHOW_WORKLOAD_GROUP)) {
                         continue;
                     }
-                    workloadGroup.getProcNodeData(result);
+                    workloadGroup.getProcNodeData(result, idToQueryQueue.get(workloadGroup.getId()));
                 }
             } finally {
                 readUnlock();

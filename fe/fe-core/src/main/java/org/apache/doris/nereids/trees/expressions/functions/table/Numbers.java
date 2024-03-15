@@ -22,7 +22,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -66,17 +65,23 @@ public class Numbers extends TableValuedFunction {
     public Statistics computeStats(List<Slot> slots) {
         Preconditions.checkArgument(slots.size() == 1);
         try {
-            NumbersTableValuedFunction catalogFunction = (NumbersTableValuedFunction) getCatalogFunction();
-            long rowNum = catalogFunction.getTotalNumbers();
+            NumbersTableValuedFunction numberTvf = (NumbersTableValuedFunction) getCatalogFunction();
+            long rowNum = numberTvf.getTotalNumbers();
 
             Map<Expression, ColumnStatistic> columnToStatistics = Maps.newHashMap();
-            ColumnStatistic columnStat = new ColumnStatisticBuilder()
-                    .setCount(rowNum).setNdv(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8).setMinValue(0)
-                    .setMaxValue(rowNum - 1)
-                    .setMinExpr(new IntLiteral(0, Type.BIGINT))
-                    .setMaxExpr(new IntLiteral(rowNum - 1, Type.BIGINT))
-                    .build();
-            columnToStatistics.put(slots.get(0), columnStat);
+            ColumnStatisticBuilder statBuilder = new ColumnStatisticBuilder()
+                    .setCount(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8);
+            if (numberTvf.getUseConst()) { // a column of const value
+                long value = numberTvf.getConstValue();
+                statBuilder = statBuilder.setNdv(1).setMinValue(value).setMaxValue(value)
+                        .setMinExpr(new IntLiteral(value, Type.BIGINT))
+                        .setMaxExpr(new IntLiteral(value, Type.BIGINT));
+            } else { // a column of increasing value
+                statBuilder = statBuilder.setNdv(rowNum).setMinValue(0).setMaxValue(rowNum - 1)
+                        .setMinExpr(new IntLiteral(0, Type.BIGINT))
+                        .setMaxExpr(new IntLiteral(rowNum - 1, Type.BIGINT));
+            }
+            columnToStatistics.put(slots.get(0), statBuilder.build());
             return new Statistics(rowNum, columnToStatistics);
         } catch (Exception t) {
             throw new NereidsException(t.getMessage(), t);
@@ -86,16 +91,6 @@ public class Numbers extends TableValuedFunction {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitNumbers(this, context);
-    }
-
-    @Override
-    public PhysicalProperties getPhysicalProperties() {
-        // TODO: use gather after coordinator support plan gather scan
-        // String backendNum = getTVFProperties().getMap().getOrDefault(NumbersTableValuedFunction.BACKEND_NUM, "1");
-        // if (backendNum.trim().equals("1")) {
-        //     return PhysicalProperties.GATHER;
-        // }
-        return PhysicalProperties.ANY;
     }
 
     @Override

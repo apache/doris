@@ -41,7 +41,9 @@ public:
             : _shutdown(false),
               _max_elements(max_elements),
               _total_get_wait_time(0),
-              _total_put_wait_time(0) {}
+              _total_put_wait_time(0),
+              _get_waiting(0),
+              _put_waiting(0) {}
 
     // Get an element from the queue, waiting indefinitely for one to become available.
     // Returns false if we were shut down prior to getting the element, and there
@@ -50,13 +52,20 @@ public:
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
-        _get_cv.wait(unique_lock, [this] { return _shutdown || !_list.empty(); });
+        while (!(_shutdown || !_list.empty())) {
+            ++_get_waiting;
+            _get_cv.wait(unique_lock);
+        }
         _total_get_wait_time += timer.elapsed_time();
 
         if (!_list.empty()) {
             *out = _list.front();
             _list.pop_front();
-            _put_cv.notify_one();
+            if (_put_waiting > 0) {
+                --_put_waiting;
+                unique_lock.unlock();
+                _put_cv.notify_one();
+            }
             return true;
         } else {
             assert(_shutdown);
@@ -70,7 +79,10 @@ public:
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
-        _put_cv.wait(unique_lock, [this] { return _shutdown || _list.size() < _max_elements; });
+        while (!(_shutdown || _list.size() < _max_elements)) {
+            ++_put_waiting;
+            _put_cv.wait(unique_lock);
+        }
         _total_put_wait_time += timer.elapsed_time();
 
         if (_shutdown) {
@@ -78,7 +90,11 @@ public:
         }
 
         _list.push_back(val);
-        _get_cv.notify_one();
+        if (_get_waiting > 0) {
+            --_get_waiting;
+            unique_lock.unlock();
+            _get_cv.notify_one();
+        }
         return true;
     }
 
@@ -98,7 +114,11 @@ public:
         }
 
         _list.push_back(val);
-        _get_cv.notify_one();
+        if (_get_waiting > 0) {
+            --_get_waiting;
+            unique_lock.unlock();
+            _get_cv.notify_one();
+        }
         return true;
     }
 
@@ -136,6 +156,8 @@ private:
     std::list<T> _list;
     std::atomic<uint64_t> _total_get_wait_time;
     std::atomic<uint64_t> _total_put_wait_time;
+    size_t _get_waiting;
+    size_t _put_waiting;
 };
 
 } // namespace doris

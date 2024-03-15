@@ -20,6 +20,26 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_nested_types_insert_into_with_dup_table", "p0") {
     sql 'use regression_test_datatype_p0_nested_types'
     sql 'set enable_nereids_planner=false'
+
+    sql """
+        truncate table `tbl_array_nested_types_dup`;
+    """
+
+    sql """
+        truncate table `tbl_array_nested_types_dup2`;
+    """
+
+    sql """
+        truncate table `tbl_map_types_dup`;
+    """
+
+    sql """
+        truncate table `tbl_array_map_types_dup`;
+    """
+
+    sql """
+        truncate table `tbl_map_array_types_dup`;
+    """
     
     // test action for scala to array with scala type
     //  current we support char family to insert nested type

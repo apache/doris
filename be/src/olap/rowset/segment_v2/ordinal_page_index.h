@@ -131,7 +131,7 @@ public:
     ordinal_t last_ordinal() const { return _index->get_last_ordinal(_cur_idx); }
 
 private:
-    OrdinalIndexReader* _index;
+    OrdinalIndexReader* _index = nullptr;
     int32_t _cur_idx;
 };
 

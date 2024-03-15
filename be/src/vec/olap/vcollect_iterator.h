@@ -33,8 +33,8 @@
 #include <ext/pb_ds/priority_queue.hpp>
 #endif
 
-#include "olap/reader.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/tablet_reader.h"
 #include "vec/core/block.h"
 
 namespace __gnu_pbds {
@@ -153,7 +153,7 @@ private:
     protected:
         const TabletSchema& _schema;
         IteratorRowRef _ref;
-        std::vector<uint32_t>* _compare_columns;
+        std::vector<uint32_t>* _compare_columns = nullptr;
     };
 
     // Compare row cursors between multiple merge elements,

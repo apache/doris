@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/Types_types.h>
 #include <stddef.h>
 
 #include <string>
@@ -46,6 +47,9 @@ class VectorizedFnCall : public VExpr {
 public:
     VectorizedFnCall(const TExprNode& node);
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
+                                  doris::vectorized::Block* block, int* result_column_id,
+                                  std::vector<size_t>& args) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -53,7 +57,9 @@ public:
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     bool is_constant() const override {
-        if (!_function->is_use_default_implementation_for_constants()) {
+        if (!_function->is_use_default_implementation_for_constants() ||
+            // udf function with no argument, can't sure it's must return const column
+            (_fn.binary_type == TFunctionBinaryType::JAVA_UDF && _children.empty())) {
             return false;
         }
         return VExpr::is_constant();
@@ -68,5 +74,9 @@ protected:
     bool _can_fast_execute = false;
     std::string _expr_name;
     std::string _function_name;
+
+private:
+    Status _do_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
+                       int* result_column_id, std::vector<size_t>& args);
 };
 } // namespace doris::vectorized

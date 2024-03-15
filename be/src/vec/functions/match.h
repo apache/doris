@@ -56,6 +56,8 @@ const std::string MATCH_PHRASE_FUNCTION = "match_phrase";
 
 class FunctionMatchBase : public IFunction {
 public:
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     size_t get_number_of_arguments() const override { return 2; }
 
     String get_name() const override { return "match"; }
@@ -124,6 +126,54 @@ public:
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
                          ColumnUInt8::Container& result) const override;
+};
+
+class FunctionMatchPhrasePrefix : public FunctionMatchBase {
+public:
+    static constexpr auto name = "match_phrase_prefix";
+    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrasePrefix>(); }
+
+    String get_name() const override { return name; }
+
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) const override;
+};
+
+class FunctionMatchRegexp : public FunctionMatchBase {
+public:
+    static constexpr auto name = "match_regexp";
+    static FunctionPtr create() { return std::make_shared<FunctionMatchRegexp>(); }
+
+    String get_name() const override { return name; }
+
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) const override {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchRegexp not support execute_match");
+    }
+};
+
+class FunctionMatchPhraseEdge : public FunctionMatchBase {
+public:
+    static constexpr auto name = "match_phrase_edge";
+    static FunctionPtr create() { return std::make_shared<FunctionMatchPhraseEdge>(); }
+
+    String get_name() const override { return name; }
+
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) const override {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchPhraseEdge not support execute_match");
+    }
 };
 
 class FunctionMatchElementEQ : public FunctionMatchBase {

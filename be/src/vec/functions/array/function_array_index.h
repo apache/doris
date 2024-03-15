@@ -349,12 +349,12 @@ private:
                 return_column = _execute_number_expanded<ColumnDecimal64>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_decimal128i()) {
-                return_column = _execute_number_expanded<ColumnDecimal128I>(
+            } else if (left_which_type.is_decimal128v3()) {
+                return_column = _execute_number_expanded<ColumnDecimal128V3>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_decimal128()) {
-                return_column = _execute_number_expanded<ColumnDecimal128>(
+            } else if (left_which_type.is_decimal128v2()) {
+                return_column = _execute_number_expanded<ColumnDecimal128V2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             } else if (left_which_type.is_decimal256()) {

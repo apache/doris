@@ -263,7 +263,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 : new DateTimeLiteral(1995, 5, 1, 0, 0, 0);
         assertRewrite(e7, e8);
 
-        interval = "interval 3 + 3 / 2 hour + '1991-05-01 10:00:00'";
+        interval = "interval 3 + 3 / 3 hour + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = Config.enable_date_conversion
                 ? new DateTimeV2Literal(1991, 5, 1, 14, 0, 0)
@@ -277,7 +277,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 : new DateTimeLiteral(1991, 5, 1, 10, 2, 0);
         assertRewrite(e7, e8);
 
-        interval = "interval 3 / 2 + 1 second + '1991-05-01 10:00:00'";
+        interval = "interval 3 / 3 + 1 second + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = Config.enable_date_conversion
                 ? new DateTimeV2Literal(1991, 5, 1, 10, 0, 2)
@@ -286,7 +286,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         // a + interval 1 day
         Slot a = SlotReference.of("a", DateTimeV2Type.SYSTEM_DEFAULT);
-        TimestampArithmetic arithmetic = new TimestampArithmetic(Operator.ADD, a, Literal.of(1), TimeUnit.DAY, false);
+        TimestampArithmetic arithmetic = new TimestampArithmetic(Operator.ADD, a, Literal.of(1), TimeUnit.DAY);
         Expression process = process(arithmetic);
         assertRewrite(process, process);
     }
@@ -491,7 +491,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.date(dateLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(dateLiteral).toSql(), answer[answerIdx]);
 
-        Assertions.assertEquals("'2021 52 2022 01'", DateTimeExtractAndTransform.dateFormat(
+        Assertions.assertEquals("'2021 52 2021 52'", DateTimeExtractAndTransform.dateFormat(
                 new DateTimeLiteral("2022-01-01 00:12:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
         Assertions.assertEquals("'2023 18 2023 19'", DateTimeExtractAndTransform.dateFormat(

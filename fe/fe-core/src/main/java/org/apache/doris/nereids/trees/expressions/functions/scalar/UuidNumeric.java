@@ -47,6 +47,11 @@ public class UuidNumeric extends ScalarFunction
     }
 
     @Override
+    public boolean foldable() {
+        return false;
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUuidNumeric(this, context);
     }

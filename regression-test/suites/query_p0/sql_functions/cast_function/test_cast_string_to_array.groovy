@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cast_string_to_array") {
+suite("test_cast_string_to_array", "nonConcurrent") {
     // cast string to array<int>
     qt_sql """ select cast ("[1,2,3]" as array<int>) """
 

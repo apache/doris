@@ -76,7 +76,7 @@ class OutputUtils {
                 double expectDouble = Double.parseDouble(expectCell)
                 double realDouble = Double.parseDouble(realCell)
 
-                double realRelativeError = Math.abs(expectDouble - realDouble) / realDouble
+                double realRelativeError = Math.abs(expectDouble - realDouble) / Math.abs(realDouble)
                 double expectRelativeError = 1e-8
 
                 if (expectRelativeError < realRelativeError) {
@@ -141,7 +141,7 @@ class OutputUtils {
 
                     def res = checkCell(info, line, expectCell, realCell, dataType)
                     if(res != null) {
-                        res += "line ${line} mismatch\nExpectRow: ${expectRaw}\nRealRow: ${realRaw}";
+                        res += "\nline ${line} mismatch\nExpectRow: ${expectRaw}\nRealRow: ${realRaw}";
                         return res
                     }
                 }

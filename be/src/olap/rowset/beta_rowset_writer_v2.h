@@ -39,9 +39,9 @@
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_creator.h"
 #include "segment_v2/segment.h"
@@ -120,13 +120,10 @@ public:
         return Status::OK();
     }
 
-    Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
+                       TabletSchemaSPtr flush_schema) override;
 
-    int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
-
-    bool is_doing_segcompaction() const override { return false; }
-
-    Status wait_flying_segcompaction() override { return Status::OK(); }
+    int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
@@ -141,27 +138,15 @@ public:
     }
 
 private:
-    RowsetWriterContext _context;
-
-    std::atomic<int32_t> _next_segment_id; // the next available segment_id (offset),
-                                           // also the numer of allocated segments
-    std::atomic<int32_t> _num_segment;     // number of consecutive flushed segments
-    roaring::Roaring _segment_set;         // bitmap set to record flushed segment id
-    std::mutex _segment_set_mutex;         // mutex for _segment_set
-
     mutable SpinLock _lock; // protect following vectors.
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
-    std::vector<io::FileWriterPtr> _file_writers;
+
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
 
-    // counters and statistics maintained during add_rowset
-    std::atomic<int64_t> _num_rows_written;
-    std::atomic<int64_t> _total_data_size;
-    std::atomic<int64_t> _total_index_size;
-    // TODO rowset Zonemap
+    SegmentFileCollection _seg_files;
 
     SegmentCreator _segment_creator;
 

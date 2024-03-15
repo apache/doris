@@ -94,4 +94,3 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
         return SCHEMA;
     }
 }
-

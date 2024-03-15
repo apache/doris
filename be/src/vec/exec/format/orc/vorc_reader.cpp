@@ -113,6 +113,9 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     uint64_t has_read = 0;
     char* out = reinterpret_cast<char*>(buf);
     while (has_read < length) {
+        if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+            throw orc::ParseError("stop");
+        }
         size_t loop_read;
         Slice result(out + has_read, length - has_read);
         Status st = _file_reader->read_at(offset + has_read, result, &loop_read, _io_ctx);
@@ -134,7 +137,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     bool enable_lazy_mat)
+                     bool enable_lazy_mat, std::vector<orc::TypeKind>* unsupported_pushdown_types)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -143,9 +146,10 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
-          _is_hive(params.__isset.slot_name_to_schema_pos),
           _io_ctx(io_ctx),
-          _enable_lazy_mat(enable_lazy_mat) {
+          _enable_lazy_mat(enable_lazy_mat),
+          _is_dict_cols_converted(false),
+          _unsupported_pushdown_types(unsupported_pushdown_types) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
@@ -161,10 +165,10 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _scan_params(params),
           _scan_range(range),
           _ctz(ctz),
-          _is_hive(params.__isset.slot_name_to_schema_pos),
           _file_system(nullptr),
           _io_ctx(io_ctx),
-          _enable_lazy_mat(enable_lazy_mat) {
+          _enable_lazy_mat(enable_lazy_mat),
+          _is_dict_cols_converted(false) {
     _init_system_properties();
     _init_file_description();
 }
@@ -245,6 +249,9 @@ Status OrcReader::_create_file_reader() {
         // invoker maybe just skip Status.NotFound and continue
         // so we need distinguish between it and other kinds of errors
         std::string _err_msg = e.what();
+        if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
+            return Status::EndOfFile("stop");
+        }
         if (_err_msg.find("No such file or directory") != std::string::npos) {
             return Status::NotFound(_err_msg);
         }
@@ -299,11 +306,15 @@ Status OrcReader::_init_read_columns() {
     auto& root_type = _reader->getType();
     std::vector<std::string> orc_cols;
     std::vector<std::string> orc_cols_lower_case;
-    _init_orc_cols(root_type, orc_cols, orc_cols_lower_case, _type_map);
+    bool is_hive1_orc = false;
+    _init_orc_cols(root_type, orc_cols, orc_cols_lower_case, _type_map, &is_hive1_orc);
 
+    // In old version slot_name_to_schema_pos may not be set in _scan_params
+    // TODO, should be removed in 2.2 or later
+    _is_hive1_orc = is_hive1_orc && _scan_params.__isset.slot_name_to_schema_pos;
     for (size_t i = 0; i < _column_names->size(); ++i) {
         auto& col_name = (*_column_names)[i];
-        if (_is_hive) {
+        if (_is_hive1_orc) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
             if (iter != _scan_params.slot_name_to_schema_pos.end()) {
                 int pos = iter->second;
@@ -338,7 +349,7 @@ Status OrcReader::_init_read_columns() {
             _read_cols_lower_case.emplace_back(col_name);
             // For hive engine, store the orc column name to schema column name map.
             // This is for Hive 1.x orc file with internal column name _col0, _col1...
-            if (_is_hive) {
+            if (_is_hive1_orc) {
                 _removed_acid_file_col_name_to_schema_col[orc_cols[pos]] = col_name;
             }
             _col_name_to_file_col_name[col_name] = read_col;
@@ -349,20 +360,26 @@ Status OrcReader::_init_read_columns() {
 
 void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
                                std::vector<std::string>& orc_cols_lower_case,
-                               std::unordered_map<std::string, const orc::Type*>& type_map) {
+                               std::unordered_map<std::string, const orc::Type*>& type_map,
+                               bool* is_hive1_orc) {
+    bool hive1_orc = true;
     for (int i = 0; i < type.getSubtypeCount(); ++i) {
         orc_cols.emplace_back(type.getFieldName(i));
         auto filed_name_lower_case = _get_field_name_lower_case(&type, i);
+        if (hive1_orc) {
+            hive1_orc = _is_hive1_col_name(filed_name_lower_case);
+        }
         auto filed_name_lower_case_copy = filed_name_lower_case;
         orc_cols_lower_case.emplace_back(std::move(filed_name_lower_case));
         type_map.emplace(std::move(filed_name_lower_case_copy), type.getSubtype(i));
         if (_is_acid) {
             const orc::Type* sub_type = type.getSubtype(i);
             if (sub_type->getKind() == orc::TypeKind::STRUCT) {
-                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case, type_map);
+                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case, type_map, is_hive1_orc);
             }
         }
     }
+    *is_hive1_orc = hive1_orc;
 }
 
 bool OrcReader::_check_acid_schema(const orc::Type& type) {
@@ -508,8 +525,20 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
 
 template <PrimitiveType primitive_type>
 std::vector<OrcPredicate> value_range_to_predicate(
-        const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type) {
+        const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type,
+        std::vector<orc::TypeKind>* unsupported_pushdown_types) {
     std::vector<OrcPredicate> predicates;
+
+    if (unsupported_pushdown_types != nullptr) {
+        for (vector<orc::TypeKind>::iterator it = unsupported_pushdown_types->begin();
+             it != unsupported_pushdown_types->end(); ++it) {
+            if (*it == type->getKind()) {
+                // Unsupported type
+                return predicates;
+            }
+        }
+    }
+
     orc::PredicateDataType predicate_data_type;
     auto type_it = TYPEKIND_TO_PREDICATE_TYPE.find(type->getKind());
     if (type_it == TYPEKIND_TO_PREDICATE_TYPE.end()) {
@@ -651,8 +680,8 @@ bool OrcReader::_init_search_argument(
         }
         std::visit(
                 [&](auto& range) {
-                    std::vector<OrcPredicate> value_predicates =
-                            value_range_to_predicate(range, type_it->second);
+                    std::vector<OrcPredicate> value_predicates = value_range_to_predicate(
+                            range, type_it->second, _unsupported_pushdown_types);
                     for (auto& range_predicate : value_predicates) {
                         predicates.emplace_back(range_predicate);
                     }
@@ -732,6 +761,17 @@ Status OrcReader::set_fill_columns(
         }
     }
 
+    if (_tuple_descriptor != nullptr) {
+        for (auto& each : _tuple_descriptor->slots()) {
+            PrimitiveType column_type = each->col_type();
+            if (column_type == TYPE_ARRAY || column_type == TYPE_MAP ||
+                column_type == TYPE_STRUCT) {
+                _has_complex_type = true;
+                break;
+            }
+        }
+    }
+
     for (auto& kv : partition_columns) {
         auto iter = predicate_columns.find(kv.first);
         if (iter == predicate_columns.end()) {
@@ -752,7 +792,8 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    if (_enable_lazy_mat && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
+    if (!_has_complex_type && _enable_lazy_mat &&
+        _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }
@@ -795,7 +836,11 @@ Status OrcReader::set_fill_columns(
         _remaining_rows = _row_reader->getNumberOfRows();
 
     } catch (std::exception& e) {
-        return Status::InternalError("Failed to create orc row reader. reason = {}", e.what());
+        std::string _err_msg = e.what();
+        // ignore stop exception
+        if (!(_io_ctx && _io_ctx->should_stop && _err_msg == "stop")) {
+            return Status::InternalError("Failed to create orc row reader. reason = {}", _err_msg);
+        }
     }
 
     if (!_slot_id_to_filter_conjuncts) {
@@ -821,7 +866,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         std::string name;
         // For hive engine, translate the column name in orc file to schema column name.
         // This is for Hive 1.x which use internal column name _col0, _col1...
-        if (_is_hive) {
+        if (_is_hive1_orc) {
             name = _removed_acid_file_col_name_to_schema_col[type.getFieldName(i)];
         } else {
             name = _get_field_name_lower_case(&type, i);
@@ -1021,7 +1066,8 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     auto* data = dynamic_cast<orc::EncodedStringVectorBatch*>(cvb);
     if (data == nullptr) {
-        return Status::InternalError("Wrong data type for colum '{}'", col_name);
+        return Status::InternalError(
+                "Wrong data type for column '{}', expected EncodedStringVectorBatch", col_name);
     }
     if (data->isEncoded) {
         return _decode_string_dict_encoded_column<is_filter>(col_name, data_column, type_kind, data,
@@ -1190,9 +1236,6 @@ Status OrcReader::_decode_int32_column(const std::string& col_name,
                                                                 num_values);
     } else if (dynamic_cast<orc::EncodedStringVectorBatch*>(cvb) != nullptr) {
         auto* data = static_cast<orc::EncodedStringVectorBatch*>(cvb);
-        if (data == nullptr) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
-        }
         auto* cvb_data = data->index.data();
         auto& column_data = static_cast<ColumnVector<Int32>&>(*data_column).get_data();
         auto origin_size = column_data.size();
@@ -1250,9 +1293,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                 map_data_column[origin_size + i] = !cvb_nulls[i];
             }
         } else {
-            for (int i = 0; i < num_values; ++i) {
-                map_data_column[origin_size + i] = false;
-            }
+            memset(map_data_column.data() + origin_size, 0, num_values);
         }
     } else {
         if (cvb->hasNulls) {
@@ -1272,17 +1313,17 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     case TypeIndex::Int32:
         return _decode_int32_column<is_filter>(col_name, data_column, cvb, num_values);
     case TypeIndex::Decimal32:
-        return _decode_decimal_column<Int32, is_filter>(col_name, data_column, data_type, cvb,
-                                                        num_values);
+        return _decode_decimal_column<Decimal32, is_filter>(col_name, data_column, data_type, cvb,
+                                                            num_values);
     case TypeIndex::Decimal64:
-        return _decode_decimal_column<Int64, is_filter>(col_name, data_column, data_type, cvb,
-                                                        num_values);
-    case TypeIndex::Decimal128:
-        return _decode_decimal_column<Int128, is_filter>(col_name, data_column, data_type, cvb,
-                                                         num_values);
-    case TypeIndex::Decimal128I:
-        return _decode_decimal_column<Int128, is_filter>(col_name, data_column, data_type, cvb,
-                                                         num_values);
+        return _decode_decimal_column<Decimal64, is_filter>(col_name, data_column, data_type, cvb,
+                                                            num_values);
+    case TypeIndex::Decimal128V2:
+        return _decode_decimal_column<Decimal128V2, is_filter>(col_name, data_column, data_type,
+                                                               cvb, num_values);
+    case TypeIndex::Decimal128V3:
+        return _decode_decimal_column<Decimal128V3, is_filter>(col_name, data_column, data_type,
+                                                               cvb, num_values);
     case TypeIndex::Date:
         return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch, is_filter>(
                 col_name, data_column, cvb, num_values);
@@ -1302,7 +1343,9 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                                                 cvb, num_values);
     case TypeIndex::Array: {
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError(
+                    "Wrong data type for column '{}', expected list, actual {}", col_name,
+                    orc_column_type->getKind());
         }
         auto* orc_list = dynamic_cast<orc::ListVectorBatch*>(cvb);
         auto& doris_offsets = static_cast<ColumnArray&>(*data_column).get_offsets();
@@ -1320,7 +1363,8 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     }
     case TypeIndex::Map: {
         if (orc_column_type->getKind() != orc::TypeKind::MAP) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError("Wrong data type for column '{}', expected map, actual {}",
+                                         col_name, orc_column_type->getKind());
         }
         auto* orc_map = dynamic_cast<orc::MapVectorBatch*>(cvb);
         auto& doris_map = static_cast<ColumnMap&>(*data_column);
@@ -1346,7 +1390,9 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     }
     case TypeIndex::Struct: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError(
+                    "Wrong data type for column '{}', expected struct, actual {}", col_name,
+                    orc_column_type->getKind());
         }
         auto* orc_struct = dynamic_cast<orc::StructVectorBatch*>(cvb);
         auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
@@ -1378,15 +1424,20 @@ std::string OrcReader::_get_field_name_lower_case(const orc::Type* orc_type, int
 }
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    if (_io_ctx && _io_ctx->should_stop) {
+        *eof = true;
+        *read_rows = 0;
+        return Status::OK();
+    }
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
 
         set_remaining_rows(get_remaining_rows() - rows);
-
-        for (auto& col : block->mutate_columns()) {
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-
+        block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
         if (get_remaining_rows() == 0) {
             *eof = true;
@@ -1415,8 +1466,15 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                     return Status::OK();
                 }
             } catch (std::exception& e) {
+                std::string _err_msg = e.what();
+                if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
+                    block->clear_column_data();
+                    *eof = true;
+                    *read_rows = 0;
+                    return Status::OK();
+                }
                 return Status::InternalError("Orc row reader nextBatch failed. reason = {}",
-                                             e.what());
+                                             _err_msg);
             }
         }
 
@@ -1434,7 +1492,6 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                     col_name, column_ptr, column_type, _col_orc_type[orc_col_idx->second],
                     batch_vec[orc_col_idx->second], _batch->numElements));
         }
-        *read_rows = rr;
 
         RETURN_IF_ERROR(_fill_partition_columns(block, _batch->numElements,
                                                 _lazy_read_ctx.partition_columns));
@@ -1442,22 +1499,24 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
+            static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
             *eof = true;
+            *read_rows = 0;
             return Status::OK();
         }
 
+        RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, *_filter));
         if (!_not_single_slot_filter_conjuncts.empty()) {
-            std::vector<IColumn::Filter*> filters;
-            filters.push_back(_filter.get());
+            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                            _not_single_slot_filter_conjuncts, &filters, block, columns_to_filter,
+                            _not_single_slot_filter_conjuncts, nullptr, block, columns_to_filter,
                             column_to_keep)));
         } else {
-            RETURN_IF_CATCH_EXCEPTION(
-                    Block::filter_block_internal(block, columns_to_filter, *_filter));
             Block::erase_useless_column(block, column_to_keep);
+            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
+        *read_rows = block->rows();
     } else {
         uint64_t rr;
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
@@ -1473,8 +1532,15 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                     return Status::OK();
                 }
             } catch (std::exception& e) {
+                std::string _err_msg = e.what();
+                if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
+                    block->clear_column_data();
+                    *eof = true;
+                    *read_rows = 0;
+                    return Status::OK();
+                }
                 return Status::InternalError("Orc row reader nextBatch failed. reason = {}",
-                                             e.what());
+                                             _err_msg);
             }
         }
 
@@ -1494,6 +1560,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 block->replace_by_position(pos, std::move(dict_col_ptr));
             }
         }
+        _is_dict_cols_converted = true;
 
         std::vector<orc::ColumnVectorBatch*> batch_vec;
         _fill_batch_vec(batch_vec, _batch.get(), 0);
@@ -1510,7 +1577,6 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                     col_name, column_ptr, column_type, _col_orc_type[orc_col_idx->second],
                     batch_vec[orc_col_idx->second], _batch->numElements));
         }
-        *read_rows = rr;
 
         RETURN_IF_ERROR(_fill_partition_columns(block, _batch->numElements,
                                                 _lazy_read_ctx.partition_columns));
@@ -1520,6 +1586,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         if (block->rows() == 0) {
             static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
             *eof = true;
+            *read_rows = 0;
             return Status::OK();
         }
 
@@ -1557,17 +1624,15 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 return Status::OK();
             }
+            RETURN_IF_CATCH_EXCEPTION(
+                    Block::filter_block_internal(block, columns_to_filter, result_filter));
             if (!_not_single_slot_filter_conjuncts.empty()) {
                 static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
-                std::vector<IColumn::Filter*> merged_filters;
-                merged_filters.push_back(&result_filter);
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                                _not_single_slot_filter_conjuncts, &merged_filters, block,
+                                _not_single_slot_filter_conjuncts, nullptr, block,
                                 columns_to_filter, column_to_keep)));
             } else {
-                RETURN_IF_CATCH_EXCEPTION(
-                        Block::filter_block_internal(block, columns_to_filter, result_filter));
                 Block::erase_useless_column(block, column_to_keep);
                 static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
             }
@@ -1579,6 +1644,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             Block::erase_useless_column(block, column_to_keep);
             static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
+        *read_rows = block->rows();
     }
     return Status::OK();
 }
@@ -1640,6 +1706,7 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
             block->replace_by_position(pos, std::move(dict_col_ptr));
         }
     }
+    _is_dict_cols_converted = true;
     std::vector<orc::ColumnVectorBatch*> batch_vec;
     _fill_batch_vec(batch_vec, &data, 0);
     std::vector<string> col_names;
@@ -1718,11 +1785,6 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
         new_size += result_filter_data[i] ? 1 : 0;
     }
     data.numElements = new_size;
-    if (data.numElements > 0) {
-        static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
-    } else {
-        static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
-    }
     return Status::OK();
 }
 
@@ -1876,8 +1938,10 @@ Status OrcReader::on_string_dicts_loaded(
                 auto data_type = slot_desc->get_data_type_ptr();
                 if (data_type->is_nullable()) {
                     temp_block.insert(
-                            {ColumnNullable::create(std::move(dict_value_column),
-                                                    ColumnUInt8::create(dict_value_column_size, 0)),
+                            {ColumnNullable::create(
+                                     std::move(
+                                             dict_value_column), // NOLINT(bugprone-use-after-move)
+                                     ColumnUInt8::create(dict_value_column_size, 0)),
                              std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                              ""});
                 } else {
@@ -2011,13 +2075,12 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             // VdirectInPredicate assume is_nullable = false.
             node.__set_is_nullable(false);
 
-            root = vectorized::VDirectInPredicate::create_shared(node);
             std::shared_ptr<HybridSetBase> hybrid_set(
                     create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }
-            static_cast<vectorized::VDirectInPredicate*>(root.get())->set_filter(hybrid_set);
+            root = vectorized::VDirectInPredicate::create_shared(node, hybrid_set);
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -2040,6 +2103,9 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
 
 Status OrcReader::_convert_dict_cols_to_string_cols(
         Block* block, const std::vector<orc::ColumnVectorBatch*>* batch_vec) {
+    if (!_is_dict_cols_converted) {
+        return Status::OK();
+    }
     for (auto& dict_filter_cols : _dict_filter_cols) {
         size_t pos = block->get_position_by_name(dict_filter_cols.first);
         ColumnWithTypeAndName& column_with_type_and_name = block->get_by_position(pos);
@@ -2103,10 +2169,10 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
     const int* dict_data = dict_column->get_data().data();
     string_values.reserve(num_values);
     size_t max_value_length = 0;
-    auto* null_map_data = null_map->data();
     if (orc_column_type->getKind() == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
         if (null_map) {
+            auto* null_map_data = null_map->data();
             for (int i = 0; i < num_values; ++i) {
                 if (!null_map_data[i]) {
                     char* val_ptr;
@@ -2140,6 +2206,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
         }
     } else {
         if (null_map) {
+            auto* null_map_data = null_map->data();
             for (int i = 0; i < num_values; ++i) {
                 if (!null_map_data[i]) {
                     char* val_ptr;
@@ -2177,6 +2244,7 @@ void ORCFileInputStream::beforeReadStripe(
     // Generate prefetch ranges, build stripe file reader.
     uint64_t offset = current_strip_information->getOffset();
     std::vector<io::PrefetchRange> prefetch_ranges;
+    size_t total_io_size = 0;
     for (uint64_t stream_id = 0; stream_id < current_strip_information->getNumberOfStreams();
          ++stream_id) {
         std::unique_ptr<orc::StreamInformation> stream =
@@ -2184,13 +2252,20 @@ void ORCFileInputStream::beforeReadStripe(
         uint32_t columnId = stream->getColumnId();
         uint64_t length = stream->getLength();
         if (selected_columns[columnId]) {
+            total_io_size += length;
             doris::io::PrefetchRange prefetch_range = {offset, offset + length};
             prefetch_ranges.emplace_back(std::move(prefetch_range));
         }
         offset += length;
     }
-    // The underlying page reader will prefetch data in column.
-    _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
+    size_t num_columns = std::count_if(selected_columns.begin(), selected_columns.end(),
+                                       [](bool selected) { return selected; });
+    if (total_io_size / num_columns < io::MergeRangeFileReader::SMALL_IO) {
+        // The underlying page reader will prefetch data in column.
+        _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
+    } else {
+        _file_reader = _inner_reader;
+    }
 }
 
 } // namespace doris::vectorized

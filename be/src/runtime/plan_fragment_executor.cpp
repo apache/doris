@@ -20,14 +20,11 @@
 
 #include "runtime/plan_fragment_executor.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/span_context.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -59,12 +56,10 @@
 #include "util/debug_util.h"
 #include "util/defer_op.h"
 #include "util/pretty_printer.h"
-#include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
-#include "vec/core/future_block.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -93,19 +88,21 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _report_thread_active(false),
           _done(false),
           _prepared(false),
+          _opened(false),
           _closed(false),
           _is_report_success(false),
           _is_report_on_cancel(true),
-          _collect_query_statistics_with_every_batch(false),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
     _report_thread_future = _report_thread_promise.get_future();
     _start_time = VecDateTimeValue::local_time();
+    _query_statistics = std::make_shared<QueryStatistics>();
+    _query_ctx->register_query_statistics(_query_statistics);
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
     if (_runtime_state != nullptr) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_ATTACH_TASK(_runtime_state.get());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         close();
         _runtime_state.reset();
     } else {
@@ -116,18 +113,11 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
-    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
-    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_ctx->query_id()));
-    }
-    _span = tracer->StartSpan("Plan_fragment_executor");
-    OpentelemetryScope scope {_span};
-    if (request.__isset.query_options) {
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
         _timeout_second = request.query_options.execution_timeout;
     }
 
     const TPlanFragmentExecParams& params = request.params;
-    _group_commit = params.group_commit;
     LOG_INFO("PlanFragmentExecutor::prepare")
             .tag("query_id", print_id(_query_ctx->query_id()))
             .tag("instance_id", print_id(params.fragment_instance_id))
@@ -136,14 +126,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals = _query_ctx->query_globals;
-    _runtime_state =
-            RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
-    _runtime_state->set_query_ctx(_query_ctx.get());
+    _runtime_state = RuntimeState::create_unique(params, request.query_options, query_globals,
+                                                 _exec_env, _query_ctx.get());
+    _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-    _runtime_state->set_tracer(std::move(tracer));
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
-    static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -159,6 +147,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
     if (request.__isset.wal_id) {
         _runtime_state->set_wal_id(request.wal_id);
+    }
+    if (request.__isset.content_length) {
+        _runtime_state->set_content_length(request.content_length);
     }
 
     if (request.query_options.__isset.is_report_success) {
@@ -224,30 +215,32 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
     _runtime_state->set_num_per_fragment_instances(params.num_senders);
-
+    _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
+    _runtime_state->set_total_load_streams(request.total_load_streams);
+    _runtime_state->set_num_local_sink(request.num_local_sink);
+    RuntimeProfile* sink_profile = nullptr;
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
-                obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
-                row_desc(), runtime_state(), &_sink, *_desc_tbl));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                DataSink::create_data_sink(_runtime_state->obj_pool(), request.fragment.output_sink,
+                                           request.fragment.output_exprs, params, row_desc(),
+                                           runtime_state(), &_sink, *_desc_tbl));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
-
-        RuntimeProfile* sink_profile = _sink->profile();
+        sink_profile = _sink->profile();
         if (sink_profile != nullptr) {
             profile()->add_child(sink_profile, true, nullptr);
         }
-
-        _collect_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
     } else {
         // _sink is set to nullptr
         _sink.reset(nullptr);
     }
 
     // set up profile counters
-    profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    if (sink_profile != nullptr) {
+        sink_profile->add_child(_plan->runtime_profile(), true, nullptr);
+    } else {
+        profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    }
     profile()->add_info_string("DorisBeVersion", version::doris_build_short_hash());
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
@@ -255,19 +248,13 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
-
-    _query_statistics.reset(new QueryStatistics());
-    if (_sink != nullptr) {
-        _sink->set_query_statistics(_query_statistics);
-    }
     return Status::OK();
 }
 
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->query_mem_tracker()->limit();
-    LOG_INFO("PlanFragmentExecutor::open {}, mem_limit {}",
-             PrintInstanceStandardInfo(_query_ctx->query_id(), _fragment_instance_id),
-             PrettyPrinter::print(mem_limit, TUnit::BYTES));
+    LOG_INFO("PlanFragmentExecutor::open {}|{}, mem_limit {}", print_id(_query_ctx->query_id()),
+             print_id(_fragment_instance_id), PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -320,45 +307,39 @@ Status PlanFragmentExecutor::open() {
 Status PlanFragmentExecutor::open_vectorized_internal() {
     SCOPED_TIMER(profile()->total_time_counter());
     {
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        ThreadCpuStopWatch cpu_time_stop_watch;
+        cpu_time_stop_watch.start();
+        Defer defer {[&]() {
+            int64_t cpu_time = cpu_time_stop_watch.elapsed_time();
+            _fragment_cpu_timer->update(cpu_time);
+        }};
+
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
         RETURN_IF_CANCELLED(_runtime_state);
         if (_sink == nullptr) {
             return Status::OK();
         }
         RETURN_IF_ERROR(_sink->open(runtime_state()));
-        std::unique_ptr<doris::vectorized::Block> block =
-                _group_commit ? doris::vectorized::FutureBlock::create_unique()
-                              : doris::vectorized::Block::create_unique();
+        _opened = true;
+        std::unique_ptr<doris::vectorized::Block> block = doris::vectorized::Block::create_unique();
         bool eos = false;
 
-        while (!eos) {
-            RETURN_IF_CANCELLED(_runtime_state);
-            RETURN_IF_ERROR(get_vectorized_internal(block.get(), &eos));
+        auto st = Status::OK();
 
-            // Collect this plan and sub plan statistics, and send to parent plan.
-            if (_collect_query_statistics_with_every_batch) {
-                _collect_query_statistics();
-            }
+        int64_t old_cpu_time = cpu_time_stop_watch.elapsed_time();
+        while (!eos) {
+            Defer defer {[&]() {
+                int64_t current_cpu_time = cpu_time_stop_watch.elapsed_time();
+                int64_t delta_time = current_cpu_time - old_cpu_time;
+                _query_statistics->add_cpu_nanos(delta_time);
+                old_cpu_time = current_cpu_time;
+            }};
+            RETURN_IF_CANCELLED(_runtime_state);
+            st = get_vectorized_internal(block.get(), &eos);
+            RETURN_IF_ERROR(st);
 
             if (!eos || block->rows() > 0) {
-                auto st = _sink->send(runtime_state(), block.get());
-                //TODO: Asynchronisation need refactor this
-                if (st.is<NEED_SEND_AGAIN>()) { // created partition, do it again.
-                    st = _sink->send(runtime_state(), block.get());
-                    DCHECK(!st.is<NEED_SEND_AGAIN>());
-                }
-                if (UNLIKELY(!st.ok() || block->rows() == 0)) {
-                    // Used for group commit insert
-                    if (_group_commit) {
-                        auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
-                        std::unique_lock<doris::Mutex> l(*(future_block->lock));
-                        if (!future_block->is_handled()) {
-                            future_block->set_result(st, 0, 0);
-                            future_block->cv->notify_all();
-                        }
-                    }
-                }
+                st = _sink->send(runtime_state(), block.get());
                 if (st.is<END_OF_FILE>()) {
                     break;
                 }
@@ -367,7 +348,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         }
     }
     {
-        _collect_query_statistics();
         Status status;
         {
             std::lock_guard<std::mutex> l(_status_lock);
@@ -421,7 +401,6 @@ Status PlanFragmentExecutor::execute() {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
         Status st = open();
         WARN_IF_ERROR(st, strings::Substitute("Got error while opening fragment $0, query id: $1",
                                               print_id(_fragment_instance_id),
@@ -445,26 +424,6 @@ bool PlanFragmentExecutor::is_timeout(const VecDateTimeValue& now) const {
         return true;
     }
     return false;
-}
-
-void PlanFragmentExecutor::_collect_query_statistics() {
-    _query_statistics->clear();
-    Status status = _plan->collect_query_statistics(_query_statistics.get());
-    if (!status.ok()) {
-        LOG(INFO) << "collect query statistics failed, st=" << status;
-        return;
-    }
-    _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
-    if (_runtime_state->backend_id() != -1) {
-        _collect_node_statistics();
-    }
-}
-
-void PlanFragmentExecutor::_collect_node_statistics() {
-    DCHECK(_runtime_state->backend_id() != -1);
-    NodeStatistics* node_statistics =
-            _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->set_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {
@@ -605,7 +564,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
         _is_report_on_cancel = false;
     }
     _cancel_msg = msg;
-    _runtime_state->set_is_cancelled(true, msg);
+    _runtime_state->set_is_cancelled(msg);
     // To notify wait_for_start()
     _query_ctx->set_ready_to_execute(true);
 
@@ -649,20 +608,23 @@ void PlanFragmentExecutor::close() {
         }
 
         if (_sink != nullptr) {
-            if (_prepared) {
+            if (!_prepared) {
+                static_cast<void>(
+                        _sink->close(runtime_state(), Status::InternalError("prepare failed")));
+            } else if (!_opened) {
+                static_cast<void>(
+                        _sink->close(runtime_state(), Status::InternalError("open failed")));
+            } else {
                 Status status;
                 {
                     std::lock_guard<std::mutex> l(_status_lock);
                     status = _status;
                 }
                 static_cast<void>(_sink->close(runtime_state(), status));
-            } else {
-                static_cast<void>(
-                        _sink->close(runtime_state(), Status::InternalError("prepare failed")));
             }
         }
 
-        if (_is_report_success) {
+        if (_runtime_state->enable_profile()) {
             std::stringstream ss;
             // Compute the _local_time_percent before pretty_print the runtime_profile
             // Before add this operation, the print out like that:
@@ -680,7 +642,6 @@ void PlanFragmentExecutor::close() {
         }
     }
 
-    profile()->add_to_span(_span);
     _closed = true;
 }
 

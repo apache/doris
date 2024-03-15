@@ -511,7 +511,9 @@ public class ReportHandler extends Daemon {
     }
 
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
-        LOG.debug("begin to handle task report from backend {}", backendId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("begin to handle task report from backend {}", backendId);
+        }
         long start = System.currentTimeMillis();
 
         if (LOG.isDebugEnabled()) {
@@ -519,7 +521,9 @@ public class ReportHandler extends Daemon {
                 Set<Long> taskSet = runningTasks.get(type);
                 if (!taskSet.isEmpty()) {
                     String signatures = StringUtils.join(taskSet, ", ");
-                    LOG.debug("backend task[{}]: {}", type.name(), signatures);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("backend task[{}]: {}", type.name(), signatures);
+                    }
                 }
             }
         }
@@ -547,7 +551,9 @@ public class ReportHandler extends Daemon {
 
         }
 
-        LOG.debug("get {} diff task(s) to resend", batchTask.getTaskNum());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get {} diff task(s) to resend", batchTask.getTaskNum());
+        }
         if (batchTask.getTaskNum() > 0) {
             AgentTaskExecutor.submit(batchTask);
         }
@@ -563,9 +569,12 @@ public class ReportHandler extends Daemon {
             LOG.warn("backend doesn't exist. id: " + backendId);
             return;
         }
+        List<String> badDisks = backendDisks.values().stream().filter(disk -> !disk.isUsed())
+                .map(disk -> "path=" + disk.getRootPath() + ", path hash=" + disk.getPathHash())
+                .collect(Collectors.toList());
         backend.updateDisks(backendDisks);
-        LOG.info("finished to handle disk report from backend {}, cost: {} ms",
-                backendId, (System.currentTimeMillis() - start));
+        LOG.info("finished to handle disk report from backend: {}, disk size: {}, bad disk: {}, cost: {} ms",
+                backendId, backendDisks.size(), badDisks, (System.currentTimeMillis() - start));
     }
 
     private static void cpuReport(long backendId, int cpuCores, int pipelineExecutorSize) {
@@ -713,13 +722,17 @@ public class ReportHandler extends Daemon {
                             }
 
                             ++syncCounter;
-                            LOG.debug("sync replica {} of tablet {} in backend {} in db {}. report version: {}",
-                                    replica.getId(), tabletId, backendId, dbId, backendReportVersion);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("sync replica {} of tablet {} in backend {} in db {}. report version: {}",
+                                        replica.getId(), tabletId, backendId, dbId, backendReportVersion);
+                            }
                         } else {
-                            LOG.debug("replica {} of tablet {} in backend {} version is changed"
-                                            + " between check and real sync. meta[{}]. backend[{}]",
-                                    replica.getId(), tabletId, backendId, metaVersion,
-                                    backendVersion);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("replica {} of tablet {} in backend {} version is changed"
+                                                + " between check and real sync. meta[{}]. backend[{}]",
+                                        replica.getId(), tabletId, backendId, metaVersion,
+                                        backendVersion);
+                            }
                         }
                     }
                 } finally {
@@ -835,6 +848,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
                                             olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                            olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                            olapTable.getTimeSeriesCompactionLevelThreshold(),
                                             olapTable.storeRowColumn(),
                                             binlogConfig);
 
@@ -908,7 +923,9 @@ public class ReportHandler extends Daemon {
             TTabletInfo backendTabletInfo = backendTablet.getTabletInfos().get(0);
             boolean needDelete = false;
             TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-            LOG.debug("process tablet [{}], backend[{}]", tabletId, backendId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("process tablet [{}], backend[{}]", tabletId, backendId);
+            }
             if (!tabletFoundInMeta.contains(tabletId)) {
                 if (isBackendReplicaHealthy(backendTabletInfo)) {
                     // if this tablet meta is still in invertedIndex. try to add it.
@@ -916,7 +933,9 @@ public class ReportHandler extends Daemon {
                     if (tabletMeta != null && addReplica(tabletId, tabletMeta, backendTabletInfo, backendId)) {
                         // update counter
                         ++addToMetaCounter;
-                        LOG.debug("add to meta. tablet[{}], backend[{}]", tabletId, backendId);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("add to meta. tablet[{}], backend[{}]", tabletId, backendId);
+                        }
                     } else {
                         LOG.info("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                         needDelete = true;
@@ -979,6 +998,9 @@ public class ReportHandler extends Daemon {
             for (int i = 0; i < tabletMetaList.size(); i++) {
                 long tabletId = tabletIds.get(i);
                 TabletMeta tabletMeta = tabletMetaList.get(i);
+                if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                    continue;
+                }
                 // always get old schema hash(as effective one)
                 int effectiveSchemaHash = tabletMeta.getOldSchemaHash();
                 StorageMediaMigrationTask task = new StorageMediaMigrationTask(backendId, tabletId,

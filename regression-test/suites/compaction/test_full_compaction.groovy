@@ -19,6 +19,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_full_compaction") {
     def tableName = "test_full_compaction"
+    def isCloudMode = {
+        def ret = sql_return_maparray  """show backends"""
+        ret.Tag[0].contains("cloud_cluster_name")
+    }
 
     try {
         String backend_id;
@@ -98,26 +102,27 @@ suite("test_full_compaction") {
         qt_skip_delete """select * from ${tableName} order by user_id, value"""
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
-        String[][] tablets = sql """ show tablets from ${tableName}; """
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
+        def replicaNum = get_table_replica_num(tableName)
+        logger.info("get table replica num: " + replicaNum)
         // before full compaction, there are 7 rowsets.
         int rowsetCount = 0
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            def compactionStatusUrlIndex = 18
-            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+        for (def tablet in tablets) {
+            String tablet_id = tablet.TabletId
+            (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
             assert tabletJson.rowsets instanceof List
             rowsetCount +=((List<String>) tabletJson.rowsets).size()
         }
-        assert (rowsetCount == 7)
+        assert (rowsetCount == 7 * replicaNum)
 
         // trigger full compactions for all tablets in ${tableName}
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
+        for (def tablet in tablets) {
+            String tablet_id = tablet.TabletId
+            backend_id = tablet.BackendId
             times = 1
 
             do{
@@ -138,12 +143,12 @@ suite("test_full_compaction") {
         }
 
         // wait for full compaction done
-        for (String[] tablet in tablets) {
+        for (def tablet in tablets) {
             boolean running = true
             do {
                 Thread.sleep(1000)
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
+                String tablet_id = tablet.TabletId
+                backend_id = tablet.BackendId
                 (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
@@ -156,17 +161,21 @@ suite("test_full_compaction") {
         // after full compaction, there is only 1 rowset.
         
         rowsetCount = 0
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            def compactionStatusUrlIndex = 18
-            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+        for (def tablet in tablets) {
+            String tablet_id = tablet.TabletId
+            (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
             assert tabletJson.rowsets instanceof List
             rowsetCount +=((List<String>) tabletJson.rowsets).size()
         }
-        assert (rowsetCount == 1)
+        def cloudMode = isCloudMode.call()
+        if (cloudMode) {
+            assert (rowsetCount == 2)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         // make sure all hidden data has been deleted
         // (1,100)(2,200)

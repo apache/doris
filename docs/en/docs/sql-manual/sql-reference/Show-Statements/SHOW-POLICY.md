@@ -35,7 +35,7 @@ SHOW ROW POLICY
 View the row security policy under the current DB
 
 ```sql
-SHOW ROW POLICY [FOR user]
+SHOW ROW POLICY [FOR user| ROLE role]
 ```
 
 ### Example
@@ -68,7 +68,19 @@ SHOW ROW POLICY [FOR user]
     1 row in set (0.01 sec)
     ```
 
-3. demonstrate data migration strategies
+3. specify role name query
+    
+    ```sql
+    mysql> SHOW ROW POLICY for role role1;
+    +------------+--------+-----------+------+-------------+----------------+------+-------+----------------------------------------------------------------------------------+
+    | PolicyName | DbName | TableName | Type | FilterType  | WherePredicate | User | Role  | OriginStmt                                                                       |
+    +------------+--------+-----------+------+-------------+----------------+------+-------+----------------------------------------------------------------------------------+
+    | zdtest1    | zd     | user      | ROW  | RESTRICTIVE | `user_id` = 1  | NULL | role1 | create row policy zdtest1 on user as restrictive to role role1 using (user_id=1) |
+    +------------+--------+-----------+------+-------------+----------------+------+-------+----------------------------------------------------------------------------------+
+    1 row in set (0.01 sec)
+   ```
+
+4. demonstrate data migration strategies
     ```sql
     mysql> SHOW STORAGE POLICY;
     +---------------------+---------+-----------------------+---------------------+-------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+

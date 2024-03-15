@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.memo.Group;
 
 import java.util.List;
@@ -26,7 +26,7 @@ import java.util.List;
  * A interface of receiver
  */
 public interface AbstractReceiver {
-    boolean emitCsgCmp(long csg, long cmp, List<Edge> edges);
+    boolean emitCsgCmp(long csg, long cmp, List<JoinEdge> edges);
 
     void addGroup(long bitSet, Group group);
 

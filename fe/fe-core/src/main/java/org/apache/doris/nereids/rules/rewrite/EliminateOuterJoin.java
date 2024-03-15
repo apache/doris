@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -74,8 +75,7 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             boolean conjunctsChanged = false;
             if (!notNullSlots.isEmpty()) {
                 for (Slot slot : notNullSlots) {
-                    Not isNotNull = new Not(new IsNull(slot));
-                    isNotNull.isGeneratedIsNotNull = true;
+                    Not isNotNull = new Not(new IsNull(slot), true);
                     conjunctsChanged |= conjuncts.add(isNotNull);
                 }
             }
@@ -89,30 +89,26 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                  *
                  * TODO: is_not_null can also be inferred from A < B and so on
                  */
-                conjunctsChanged |= join.getHashJoinConjuncts().stream()
+                conjunctsChanged |= join.getEqualToConjuncts().stream()
                         .map(EqualTo.class::cast)
-                        .map(equalTo ->
-                                (EqualTo) JoinUtils.swapEqualToForChildrenOrder(equalTo, join.left().getOutputSet()))
-                        .map(equalTo -> createIsNotNullIfNecessary(equalTo, conjuncts)
-                        ).anyMatch(Boolean::booleanValue);
+                        .map(equalTo -> JoinUtils.swapEqualToForChildrenOrder(equalTo, join.left().getOutputSet()))
+                        .anyMatch(equalTo -> createIsNotNullIfNecessary(equalTo, conjuncts));
 
                 JoinUtils.JoinSlotCoverageChecker checker = new JoinUtils.JoinSlotCoverageChecker(
                         join.left().getOutput(),
                         join.right().getOutput());
-                conjunctsChanged |= join.getOtherJoinConjuncts().stream().filter(EqualTo.class::isInstance)
-                        .map(EqualTo.class::cast)
-                        .filter(equalTo -> checker.isHashJoinCondition(equalTo))
-                        .map(equalTo -> (EqualTo) JoinUtils.swapEqualToForChildrenOrder(equalTo,
+                conjunctsChanged |= join.getOtherJoinConjuncts().stream()
+                        .filter(EqualTo.class::isInstance)
+                        .filter(equalTo -> checker.isHashJoinCondition((EqualPredicate) equalTo))
+                        .map(equalTo -> JoinUtils.swapEqualToForChildrenOrder((EqualPredicate) equalTo,
                                 join.left().getOutputSet()))
-                        .map(equalTo ->
-                            createIsNotNullIfNecessary(equalTo, conjuncts))
-                        .anyMatch(Boolean::booleanValue);
+                        .anyMatch(equalTo -> createIsNotNullIfNecessary(equalTo, conjuncts));
             }
             if (conjunctsChanged) {
                 return filter.withConjuncts(conjuncts.stream().collect(ImmutableSet.toImmutableSet()))
-                        .withChildren(join.withJoinType(newJoinType));
+                        .withChildren(join.withJoinTypeAndContext(newJoinType, join.getJoinReorderContext()));
             }
-            return filter.withChildren(join.withJoinType(newJoinType));
+            return filter.withChildren(join.withJoinTypeAndContext(newJoinType, join.getJoinReorderContext()));
         }).toRule(RuleType.ELIMINATE_OUTER_JOIN);
     }
 
@@ -135,16 +131,14 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
         return joinType;
     }
 
-    private boolean createIsNotNullIfNecessary(EqualTo swapedEqualTo, Collection<Expression> container) {
+    private boolean createIsNotNullIfNecessary(EqualPredicate swapedEqualTo, Collection<Expression> container) {
         boolean containerChanged = false;
         if (swapedEqualTo.left().nullable()) {
-            Not not = new Not(new IsNull(swapedEqualTo.left()));
-            not.isGeneratedIsNotNull = true;
+            Not not = new Not(new IsNull(swapedEqualTo.left()), true);
             containerChanged |= container.add(not);
         }
         if (swapedEqualTo.right().nullable()) {
-            Not not = new Not(new IsNull(swapedEqualTo.right()));
-            not.isGeneratedIsNotNull = true;
+            Not not = new Not(new IsNull(swapedEqualTo.right()), true);
             containerChanged |= container.add(not);
         }
         return containerChanged;

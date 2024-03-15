@@ -353,29 +353,6 @@ public:
     }
 };
 
-static_assert(sizeof(HashTableGrowerWithPrecalculation<>) == 64);
-
-/** When used as a Grower, it turns a hash table into something like a lookup table.
-  * It remains non-optimal - the cells store the keys.
-  * Also, the compiler can not completely remove the code of passing through the collision resolution chain, although it is not needed.
-  * TODO Make a proper lookup table.
-  */
-template <size_t key_bits>
-struct HashTableFixedGrower {
-    size_t buf_size() const { return 1ULL << key_bits; }
-    size_t place(size_t x) const { return x; }
-    /// You could write __builtin_unreachable(), but the compiler does not optimize everything, and it turns out less efficiently.
-    size_t next(size_t pos) const { return pos + 1; }
-    bool overflow(size_t /*elems*/) const { return false; }
-
-    void increase_size() {
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
-    void set(size_t /*num_elems*/) {}
-    void set_buf_size(size_t /*buf_size_*/) {}
-};
-
 /** If you want to store the zero key separately - a place to store it. */
 template <bool need_zero_value_storage, typename Cell>
 struct ZeroValueStorage;
@@ -438,10 +415,9 @@ protected:
     using cell_type = Cell;
 
     size_t m_size = 0;   /// Amount of elements
-    Cell* buf {nullptr}; /// A piece of memory for all elements except the element with zero key.
+    Cell* buf = nullptr; /// A piece of memory for all elements except the element with zero key.
     Grower grower;
     int64_t _resize_timer_ns;
-
     // the bucket count threshold above which it's converted to partioned hash table
     // > 0: enable convert dynamically
     // 0: convert is disabled
@@ -542,8 +518,8 @@ protected:
         using Container = std::conditional_t<is_const, const Self, Self>;
         using cell_type = std::conditional_t<is_const, const Cell, Cell>;
 
-        Container* container;
-        cell_type* ptr;
+        Container* container = nullptr;
+        cell_type* ptr = nullptr;
 
         friend class HashTable;
 
@@ -573,11 +549,6 @@ protected:
 
         auto get_ptr() const { return ptr; }
         size_t get_hash() const { return ptr->get_hash(*container); }
-
-        size_t get_collision_chain_length() const {
-            return container->grower.place((ptr - container->buf) -
-                                           container->grower.place(get_hash()));
-        }
 
         /**
           * A hack for HashedDictionary.
@@ -640,10 +611,11 @@ public:
         std::swap(_need_partition, rhs._need_partition);
         std::swap(_partitioned_threshold, rhs._partitioned_threshold);
 
-        Hash::operator=(std::move(rhs));
-        Allocator::operator=(std::move(rhs));
-        Cell::State::operator=(std::move(rhs));
-        ZeroValueStorage<Cell::need_zero_value_storage, Cell>::operator=(std::move(rhs));
+        Hash::operator=(std::move(rhs));        // NOLINT(bugprone-use-after-move)
+        Allocator::operator=(std::move(rhs));   // NOLINT(bugprone-use-after-move)
+        Cell::State::operator=(std::move(rhs)); // NOLINT(bugprone-use-after-move)
+        ZeroValueStorage<Cell::need_zero_value_storage, Cell>::operator=(
+                std::move(rhs)); // NOLINT(bugprone-use-after-move)
 
         return *this;
     }
@@ -877,7 +849,7 @@ public:
 
     private:
         Constructor(Cell* cell) : _cell(cell) {}
-        Cell* _cell;
+        Cell* _cell = nullptr;
     };
 
     /** Insert the key.

@@ -36,7 +36,6 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/lock.h"
 
 namespace doris {
 
@@ -139,7 +138,8 @@ public:
 
     // publish rowset to make it visible to read
     void make_visible(Version version);
-    TabletSchemaSPtr tablet_schema() { return _schema; }
+    void set_version(Version version);
+    const TabletSchemaSPtr& tablet_schema() const { return _schema; }
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
@@ -171,7 +171,7 @@ public:
 
     // used for partial update, when publish, partial update may add a new rowset
     // and we should update rowset meta
-    void merge_rowset_meta(const RowsetMetaSharedPtr& other);
+    Status merge_rowset_meta(const RowsetMeta& other);
 
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on
@@ -295,6 +295,16 @@ public:
 
     [[nodiscard]] virtual Status add_to_binlog() { return Status::OK(); }
 
+    // is skip index compaction this time
+    bool is_skip_index_compaction(int32_t column_id) const {
+        return skip_index_compaction.find(column_id) != skip_index_compaction.end();
+    }
+
+    // set skip index compaction next time
+    void set_skip_index_compaction(int32_t column_id) { skip_index_compaction.insert(column_id); }
+
+    std::string get_rowset_info_str();
+
 protected:
     friend class RowsetFactory;
 
@@ -321,13 +331,19 @@ protected:
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
     // mutex lock for load/close api because it is costly
-    doris::Mutex _lock;
+    std::mutex _lock;
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset
     std::atomic<uint64_t> _refs_by_reader;
     // rowset state machine
     RowsetStateMachine _rowset_state_machine;
     std::atomic<uint64_t> _delayed_expired_timestamp = 0;
+
+    // <column_uniq_id>, skip index compaction
+    std::set<int32_t> skip_index_compaction;
 };
+
+// `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
+Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
 
 } // namespace doris

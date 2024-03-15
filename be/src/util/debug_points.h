@@ -19,9 +19,11 @@
 
 #include <atomic>
 #include <boost/lexical_cast.hpp>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
+#include <thread>
 #include <type_traits>
 
 #include "common/compiler_util.h"
@@ -33,8 +35,20 @@
     if (UNLIKELY(config::enable_debug_points)) {                              \
         auto dp = DebugPoints::instance()->get_debug_point(debug_point_name); \
         if (dp) {                                                             \
+            [[maybe_unused]] auto DP_NAME = debug_point_name;                 \
             code;                                                             \
         }                                                                     \
+    }
+
+// define some common debug actions
+// usage example: DBUG_EXECUTE_IF("xxx", DBUG_BLOCK);
+#define DBUG_BLOCK                                                      \
+    {                                                                   \
+        LOG(INFO) << "start debug block " << DP_NAME;                   \
+        while (DebugPoints::instance()->is_enable(DP_NAME)) {           \
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); \
+        }                                                               \
+        LOG(INFO) << "end debug block " << DP_NAME;                     \
     }
 
 namespace doris {

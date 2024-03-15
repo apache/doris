@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_intersect") {
+suite("test_intersect", "arrow_flight_sql") {
     qt_select """
                 SELECT * FROM (SELECT k1 FROM test_query_db.baseall
                     INTERSECT SELECT k1 FROM test_query_db.test) a ORDER BY k1

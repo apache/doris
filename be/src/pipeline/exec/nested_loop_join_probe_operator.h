@@ -40,7 +40,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class NestLoopJoinProbeOperator final : public StatefulOperator<NestLoopJoinProbeOperatorBuilder> {
+class NestLoopJoinProbeOperator final : public StatefulOperator<vectorized::VNestedLoopJoinNode> {
 public:
     NestLoopJoinProbeOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
@@ -53,7 +53,7 @@ public:
 
 class NestedLoopJoinProbeOperatorX;
 class NestedLoopJoinProbeLocalState final
-        : public JoinProbeLocalState<NestedLoopJoinDependency, NestedLoopJoinProbeLocalState> {
+        : public JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState> {
 public:
     using Parent = NestedLoopJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalState);
@@ -74,11 +74,11 @@ private:
     friend class NestedLoopJoinProbeOperatorX;
     void _update_additional_flags(vectorized::Block* block);
     template <bool BuildSide, bool IsSemi>
-    void _finalize_current_phase(vectorized::MutableBlock& mutable_block, size_t batch_size);
+    void _finalize_current_phase(vectorized::Block& block, size_t batch_size);
     void _resize_fill_tuple_is_null_column(size_t new_size, int left_flag, int right_flag);
     void _reset_with_next_probe_row();
-    void _append_left_data_with_null(vectorized::MutableBlock& mutable_block) const;
-    void _process_left_child_block(vectorized::MutableBlock& mutable_block,
+    void _append_left_data_with_null(vectorized::Block& block) const;
+    void _process_left_child_block(vectorized::Block& block,
                                    const vectorized::Block& now_process_build_block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
     void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block, int column_to_keep,
@@ -199,7 +199,7 @@ private:
     uint64_t _output_null_idx_build_side = 0;
     vectorized::VExprContextSPtrs _join_conjuncts;
 
-    RuntimeProfile::Counter* _loop_join_timer;
+    RuntimeProfile::Counter* _loop_join_timer = nullptr;
 };
 
 class NestedLoopJoinProbeOperatorX final
@@ -211,15 +211,21 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status push(RuntimeState* state, vectorized::Block* input_block,
-                SourceState source_state) const override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state) const override;
+                bool* eos) const override;
     const RowDescriptor& intermediate_row_desc() const override {
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
     }
 
-    const RowDescriptor& row_desc() override {
+    DataDistribution required_data_distribution() const override {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return {ExchangeType::NOOP};
+        }
+        return {ExchangeType::ADAPTIVE_PASSTHROUGH};
+    }
+
+    const RowDescriptor& row_desc() const override {
         return _old_version_flag
                        ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
                        : *_output_row_desc;

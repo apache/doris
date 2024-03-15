@@ -106,7 +106,7 @@ public class CreatePolicyStmt extends DdlStmt {
             default:
                 tableName.analyze(analyzer);
                 if (user != null) {
-                    user.analyze(analyzer.getClusterName());
+                    user.analyze();
                     if (user.isRootUser() || user.isAdminUser()) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
                                 user.getQualifiedUser(), user.getHost(), tableName.getTbl());

@@ -17,27 +17,29 @@
 
 #pragma once
 
-#include <butil/macros.h>
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/rowid_conversion.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_reader.h"
-#include "olap/tablet.h"
-#include "olap/tablet_schema.h"
+#include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
 class MemTrackerLimiter;
 class RowsetWriter;
+struct RowsetWriterContext;
+class StorageEngine;
+class CloudStorageEngine;
 
 // This class is a base class for compaction.
 // The entrance of this class is compact()
@@ -48,86 +50,62 @@ class RowsetWriter;
 //  4. gc output rowset if failed
 class Compaction {
 public:
-    Compaction(const TabletSharedPtr& tablet, const std::string& label);
+    Compaction(BaseTabletSPtr tablet, const std::string& label);
     virtual ~Compaction();
 
-    // This is only for http CompactionAction
-    Status compact();
-
+    // Pick input rowsets satisfied to compact
     virtual Status prepare_compact() = 0;
-    Status execute_compact();
-    virtual Status execute_compact_impl() = 0;
-#ifdef BE_TEST
-    void set_input_rowset(const std::vector<RowsetSharedPtr>& rowsets);
-    RowsetSharedPtr output_rowset();
-#endif
+
+    // Merge input rowsets to output rowset and modify tablet meta
+    virtual Status execute_compact() = 0;
 
     RuntimeProfile* runtime_profile() const { return _profile.get(); }
 
-protected:
-    virtual Status pick_rowsets_to_compact() = 0;
-    virtual std::string compaction_name() const = 0;
     virtual ReaderType compaction_type() const = 0;
+    virtual std::string_view compaction_name() const = 0;
 
-    Status do_compaction(int64_t permits);
-    Status do_compaction_impl(int64_t permits);
+protected:
+    Status merge_input_rowsets();
 
-    virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
-    void gc_output_rowset();
+    virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 
-    Status construct_output_rowset_writer(RowsetWriterContext& ctx, bool is_vertical = false);
-    Status construct_input_rowset_readers();
+    Status check_correctness();
 
-    Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
-    Status check_correctness(const Merger::Statistics& stats);
-    Status find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                            std::vector<Version>* missing_version);
-    int64_t get_compaction_permits();
-
-    bool should_vertical_compaction();
     int64_t get_avg_segment_rows();
 
-    bool handle_ordered_data_compaction();
-    Status do_compact_ordered_rowsets();
-    bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);
-    void build_basic_info();
-
     void init_profile(const std::string& label);
-    [[nodiscard]] bool allow_delete_in_cumu_compaction() const {
-        return _allow_delete_in_cumu_compaction;
-    }
 
-private:
-    bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
     void _load_segment_to_cache();
 
-protected:
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
-    std::vector<RowsetReaderSharedPtr> _input_rs_readers;
-    int64_t _input_rowsets_size;
-    int64_t _input_row_num;
-    int64_t _input_num_segments;
-    int64_t _input_index_size;
+    int64_t _input_rowsets_size {0};
+    int64_t _input_row_num {0};
+    int64_t _input_num_segments {0};
+    int64_t _input_index_size {0};
+
+    Merger::Statistics _stats;
 
     RowsetSharedPtr _output_rowset;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
 
-    enum CompactionState { INITED = 0, SUCCESS = 1 };
-    CompactionState _state;
+    enum CompactionState : uint8_t { INITED = 0, SUCCESS = 1 };
+    CompactionState _state {CompactionState::INITED};
+
+    bool _is_vertical;
+    bool _allow_delete_in_cumu_compaction;
 
     Version _output_version;
 
-    int64_t _newest_write_timestamp;
+    int64_t _newest_write_timestamp {-1};
     RowIdConversion _rowid_conversion;
     TabletSchemaSPtr _cur_tablet_schema;
 
     std::unique_ptr<RuntimeProfile> _profile;
-    bool _allow_delete_in_cumu_compaction = false;
 
     RuntimeProfile::Counter* _input_rowsets_data_size_counter = nullptr;
     RuntimeProfile::Counter* _input_rowsets_counter = nullptr;
@@ -139,8 +117,75 @@ protected:
     RuntimeProfile::Counter* _output_row_num_counter = nullptr;
     RuntimeProfile::Counter* _output_segments_num_counter = nullptr;
     RuntimeProfile::Counter* _merge_rowsets_latency_timer = nullptr;
+};
 
-    DISALLOW_COPY_AND_ASSIGN(Compaction);
+// `StorageEngine` mixin for `Compaction`
+class CompactionMixin : public Compaction {
+public:
+    CompactionMixin(StorageEngine& engine, TabletSharedPtr tablet, const std::string& label);
+
+    ~CompactionMixin() override;
+
+    Status execute_compact() override;
+
+    int64_t get_compaction_permits();
+
+protected:
+    // Convert `_tablet` from `BaseTablet` to `Tablet`
+    Tablet* tablet();
+
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
+
+    virtual Status modify_rowsets();
+
+    StorageEngine& _engine;
+
+private:
+    Status execute_compact_impl(int64_t permits);
+
+    void build_basic_info();
+
+    void construct_skip_inverted_index(RowsetWriterContext& ctx);
+
+    bool handle_ordered_data_compaction();
+
+    Status do_compact_ordered_rowsets();
+
+    Status do_inverted_index_compaction();
+
+    bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
+
+    PendingRowsetGuard _pending_rs_guard;
+};
+
+class CloudCompactionMixin : public Compaction {
+public:
+    CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet,
+                         const std::string& label);
+
+    ~CloudCompactionMixin() override = default;
+
+    Status execute_compact() override;
+
+protected:
+    CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
+
+    CloudStorageEngine& _engine;
+
+    int64_t _expiration = 0;
+
+private:
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
+
+    virtual void garbage_collection() {};
+
+    Status execute_compact_impl(int64_t permits);
+
+    void build_basic_info();
+
+    virtual Status modify_rowsets();
+
+    int64_t get_compaction_permits();
 };
 
 } // namespace doris

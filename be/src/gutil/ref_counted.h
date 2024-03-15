@@ -312,7 +312,7 @@ public:
     void reset(T* p = NULL) { *this = p; }
 
 protected:
-    T* ptr_;
+    T* ptr_ = nullptr;
 
 private:
     template <typename U>

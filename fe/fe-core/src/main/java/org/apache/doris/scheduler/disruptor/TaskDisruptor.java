@@ -19,7 +19,6 @@ package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.scheduler.constants.TaskType;
-import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
@@ -48,8 +47,6 @@ import java.util.concurrent.TimeUnit;
 public class TaskDisruptor implements Closeable {
 
     private  Disruptor<TaskEvent> disruptor;
-
-    private TimerJobManager timerJobManager;
     private TransientTaskManager transientTaskManager;
     private static final int DEFAULT_RING_BUFFER_SIZE = Config.async_task_queen_size;
 
@@ -77,18 +74,17 @@ public class TaskDisruptor implements Closeable {
                 event.setTaskType(taskType);
             };
 
-    public TaskDisruptor(TimerJobManager timerJobManager, TransientTaskManager transientTaskManager) {
-        this.timerJobManager = timerJobManager;
+    public TaskDisruptor(TransientTaskManager transientTaskManager) {
         this.transientTaskManager = transientTaskManager;
     }
 
     public void start() {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
         disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
-                ProducerType.SINGLE, new BlockingWaitStrategy());
+                ProducerType.MULTI, new BlockingWaitStrategy());
         WorkHandler<TaskEvent>[] workers = new TaskHandler[consumerThreadCount];
         for (int i = 0; i < consumerThreadCount; i++) {
-            workers[i] = new TaskHandler(timerJobManager, transientTaskManager);
+            workers[i] = new TaskHandler(transientTaskManager);
         }
         disruptor.handleEventsWithWorkerPool(workers);
         disruptor.start();

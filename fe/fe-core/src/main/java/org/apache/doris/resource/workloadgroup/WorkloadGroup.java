@@ -18,6 +18,7 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -25,12 +26,11 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
-import org.apache.doris.thrift.TTopicInfoType;
+import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -39,7 +39,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class WorkloadGroup implements Writable, GsonPostProcessable {
@@ -59,12 +61,19 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String QUEUE_TIMEOUT = "queue_timeout";
 
-    private static final ImmutableSet<String> REQUIRED_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SHARE).add(MEMORY_LIMIT).build();
+    public static final String SCAN_THREAD_NUM = "scan_thread_num";
 
+    public static final String MAX_REMOTE_SCAN_THREAD_NUM = "max_remote_scan_thread_num";
+
+    public static final String MIN_REMOTE_SCAN_THREAD_NUM = "min_remote_scan_thread_num";
+
+    // NOTE(wb): all property is not required, some properties default value is set in be
+    // default value is as followed
+    // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
             .add(CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_MEMORY_OVERCOMMIT).add(MAX_CONCURRENCY)
-            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).build();
+            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
+            .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM).build();
 
     @SerializedName(value = "id")
     private long id;
@@ -79,16 +88,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     @SerializedName(value = "version")
     private long version;
 
-    private double memoryLimitPercent;
-
-    private QueryQueue queryQueue;
+    private double memoryLimitPercent = 0;
     private int maxConcurrency = Integer.MAX_VALUE;
     private int maxQueueSize = 0;
     private int queueTimeout = 0;
 
     private int cpuHardLimit = 0;
 
-    private WorkloadGroup(long id, String name, Map<String, String> properties) {
+    WorkloadGroup(long id, String name, Map<String, String> properties) {
         this(id, name, properties, 0);
     }
 
@@ -97,8 +104,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         this.name = name;
         this.properties = properties;
         this.version = version;
-        String memoryLimitString = properties.get(MEMORY_LIMIT);
-        this.memoryLimitPercent = Double.parseDouble(memoryLimitString.substring(0, memoryLimitString.length() - 1));
+        if (properties.containsKey(MEMORY_LIMIT)) {
+            String memoryLimitString = properties.get(MEMORY_LIMIT);
+            this.memoryLimitPercent = Double.parseDouble(
+                    memoryLimitString.substring(0, memoryLimitString.length() - 1));
+        }
         if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
             properties.put(ENABLE_MEMORY_OVERCOMMIT, properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase());
         }
@@ -110,20 +120,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             this.cpuHardLimit = Integer.parseInt(cpuHardLimitStr);
             this.properties.put(CPU_HARD_LIMIT, cpuHardLimitStr);
         }
-    }
-
-    // called when first create a resource group, load from image or user new create a group
-    public void initQueryQueue() {
         resetQueueProperty(properties);
-        // if query queue property is not set, when use default value
-        this.queryQueue = new QueryQueue(maxConcurrency, maxQueueSize, queueTimeout);
-    }
-
-    void resetQueryQueue(QueryQueue queryQueue) {
-        resetQueueProperty(properties);
-        this.queryQueue = queryQueue;
-        this.queryQueue.resetQueueProperty(this.maxConcurrency, this.maxQueueSize, this.queueTimeout);
-
     }
 
     private void resetQueueProperty(Map<String, String> properties) {
@@ -147,22 +144,17 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
     }
 
-    public QueryQueue getQueryQueue() {
-        return this.queryQueue;
-    }
-
     // new resource group
     public static WorkloadGroup create(String name, Map<String, String> properties) throws DdlException {
         checkProperties(properties);
         WorkloadGroup newWorkloadGroup = new WorkloadGroup(Env.getCurrentEnv().getNextId(), name, properties);
-        newWorkloadGroup.initQueryQueue();
         return newWorkloadGroup;
     }
 
     // alter resource group
-    public static WorkloadGroup copyAndUpdate(WorkloadGroup workloadGroup, Map<String, String> updateProperties)
+    public static WorkloadGroup copyAndUpdate(WorkloadGroup currentWorkloadGroup, Map<String, String> updateProperties)
             throws DdlException {
-        Map<String, String> newProperties = new HashMap<>(workloadGroup.getProperties());
+        Map<String, String> newProperties = new HashMap<>(currentWorkloadGroup.getProperties());
         for (Map.Entry<String, String> kv : updateProperties.entrySet()) {
             if (!Strings.isNullOrEmpty(kv.getValue())) {
                 newProperties.put(kv.getKey(), kv.getValue());
@@ -171,11 +163,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
         checkProperties(newProperties);
         WorkloadGroup newWorkloadGroup = new WorkloadGroup(
-                workloadGroup.getId(), workloadGroup.getName(), newProperties, workloadGroup.getVersion() + 1);
-
-        // note(wb) query queue should be unique and can not be copy
-        newWorkloadGroup.resetQueryQueue(workloadGroup.getQueryQueue());
-
+                currentWorkloadGroup.getId(), currentWorkloadGroup.getName(),
+                newProperties, currentWorkloadGroup.getVersion() + 1);
         return newWorkloadGroup;
     }
 
@@ -185,15 +174,12 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 throw new DdlException("Property " + propertyName + " is not supported.");
             }
         }
-        for (String propertyName : REQUIRED_PROPERTIES_NAME) {
-            if (!properties.containsKey(propertyName)) {
-                throw new DdlException("Property " + propertyName + " is required.");
-            }
-        }
 
-        String cpuSchedulingWeight = properties.get(CPU_SHARE);
-        if (!StringUtils.isNumeric(cpuSchedulingWeight) || Long.parseLong(cpuSchedulingWeight) <= 0) {
-            throw new DdlException(CPU_SHARE + " " + cpuSchedulingWeight + " requires a positive integer.");
+        if (properties.containsKey(CPU_SHARE)) {
+            String cpuShare = properties.get(CPU_SHARE);
+            if (!StringUtils.isNumeric(cpuShare) || Long.parseLong(cpuShare) <= 0) {
+                throw new DdlException(CPU_SHARE + " " + cpuShare + " requires a positive integer.");
+            }
         }
 
         if (properties.containsKey(CPU_HARD_LIMIT)) {
@@ -206,24 +192,67 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
         }
 
-        String memoryLimit = properties.get(MEMORY_LIMIT);
-        if (!memoryLimit.endsWith("%")) {
-            throw new DdlException(MEMORY_LIMIT + " " + memoryLimit + " requires a percentage and ends with a '%'");
-        }
-        String memLimitErr = MEMORY_LIMIT + " " + memoryLimit + " requires a positive floating point number.";
-        try {
-            if (Double.parseDouble(memoryLimit.substring(0, memoryLimit.length() - 1)) <= 0) {
+        if (properties.containsKey(MEMORY_LIMIT)) {
+            String memoryLimit = properties.get(MEMORY_LIMIT);
+            if (!memoryLimit.endsWith("%")) {
+                throw new DdlException(MEMORY_LIMIT + " " + memoryLimit + " requires a percentage and ends with a '%'");
+            }
+            String memLimitErr = MEMORY_LIMIT + " " + memoryLimit + " requires a positive floating point number.";
+            try {
+                if (Double.parseDouble(memoryLimit.substring(0, memoryLimit.length() - 1)) <= 0) {
+                    throw new DdlException(memLimitErr);
+                }
+            } catch (NumberFormatException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(memLimitErr, e);
+                }
                 throw new DdlException(memLimitErr);
             }
-        } catch (NumberFormatException e) {
-            LOG.debug(memLimitErr, e);
-            throw new DdlException(memLimitErr);
         }
 
         if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
             String value = properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase();
             if (!("true".equals(value) || "false".equals(value))) {
                 throw new DdlException("The value of '" + ENABLE_MEMORY_OVERCOMMIT + "' must be true or false.");
+            }
+        }
+
+        if (properties.containsKey(SCAN_THREAD_NUM)) {
+            String value = properties.get(SCAN_THREAD_NUM);
+            try {
+                int intValue = Integer.parseInt(value);
+                if (intValue <= 0 && intValue != -1) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
+            }
+        }
+
+        if (properties.containsKey(MAX_REMOTE_SCAN_THREAD_NUM)) {
+            String value = properties.get(MAX_REMOTE_SCAN_THREAD_NUM);
+            try {
+                int intValue = Integer.parseInt(value);
+                if (intValue <= 0 && intValue != -1) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        MAX_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
+            }
+        }
+
+        if (properties.containsKey(MIN_REMOTE_SCAN_THREAD_NUM)) {
+            String value = properties.get(MIN_REMOTE_SCAN_THREAD_NUM);
+            try {
+                int intValue = Integer.parseInt(value);
+                if (intValue <= 0 && intValue != -1) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        MAX_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
             }
         }
 
@@ -269,7 +298,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return properties;
     }
 
-    private long getVersion() {
+    public long getVersion() {
         return version;
     }
 
@@ -277,14 +306,51 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return memoryLimitPercent;
     }
 
-    public void getProcNodeData(BaseProcResult result) {
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (CPU_HARD_LIMIT.equals(entry.getKey())) {
-                result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue() + "%"));
+    public int getMaxConcurrency() {
+        return maxConcurrency;
+    }
+
+    public int getMaxQueueSize() {
+        return maxQueueSize;
+    }
+
+    public int getQueueTimeout() {
+        return queueTimeout;
+    }
+
+    public void getProcNodeData(BaseProcResult result, QueryQueue qq) {
+        List<String> row = new ArrayList<>();
+        row.add(String.valueOf(id));
+        row.add(name);
+        // skip id,name,running query,waiting query
+        for (int i = 2; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size() - 2; i++) {
+            String key = WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i);
+            if (CPU_HARD_LIMIT.equalsIgnoreCase(key)) {
+                String val = properties.get(key);
+                if (StringUtils.isEmpty(val)) { // cpu_hard_limit is not required
+                    row.add("0%");
+                } else {
+                    row.add(val + "%");
+                }
+            } else if (CPU_SHARE.equals(key) && !properties.containsKey(key)) {
+                row.add("1024");
+            } else if (MEMORY_LIMIT.equals(key) && !properties.containsKey(key)) {
+                row.add("0%");
+            } else if (ENABLE_MEMORY_OVERCOMMIT.equals(key) && !properties.containsKey(key)) {
+                row.add("true");
+            } else if (SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
+                row.add("-1");
+            } else if (MAX_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
+                row.add("-1");
+            }  else if (MIN_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
+                row.add("-1");
             } else {
-                result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue()));
+                row.add(properties.get(key));
             }
         }
+        row.add(qq == null ? "0" : String.valueOf(qq.getCurrentRunningQueryNum()));
+        row.add(qq == null ? "0" : String.valueOf(qq.getCurrentWaitingQueryNum()));
+        result.addRow(row);
     }
 
     public int getCpuHardLimit() {
@@ -297,20 +363,59 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     }
 
     public TPipelineWorkloadGroup toThrift() {
-        //note(wb) we need add a new key-value to properties and then transfer it to be, so need a copy here
-        // see WorkloadGroupMgr.getWorkloadGroup
-        HashMap<String, String> clonedHashMap = new HashMap<>();
-        clonedHashMap.putAll(properties);
-        return new TPipelineWorkloadGroup().setId(id).setName(name).setProperties(clonedHashMap).setVersion(version);
+        return new TPipelineWorkloadGroup().setId(id);
     }
 
     public TopicInfo toTopicInfo() {
-        HashMap<String, String> newHashMap = new HashMap<>();
-        newHashMap.put("id", String.valueOf(id));
+        TWorkloadGroupInfo tWorkloadGroupInfo = new TWorkloadGroupInfo();
+        tWorkloadGroupInfo.setId(id);
+        tWorkloadGroupInfo.setName(name);
+        tWorkloadGroupInfo.setVersion(version);
+
+        String cpuShareStr = properties.get(CPU_SHARE);
+        if (cpuShareStr != null) {
+            tWorkloadGroupInfo.setCpuShare(Long.valueOf(cpuShareStr));
+        }
+
+        String cpuHardLimitStr = properties.get(CPU_HARD_LIMIT);
+        if (cpuHardLimitStr != null) {
+            tWorkloadGroupInfo.setCpuHardLimit(Integer.valueOf(cpuHardLimitStr));
+        }
+
+        String memLimitStr = properties.get(MEMORY_LIMIT);
+        if (memLimitStr != null) {
+            tWorkloadGroupInfo.setMemLimit(memLimitStr);
+        }
+        String memOvercommitStr = properties.get(ENABLE_MEMORY_OVERCOMMIT);
+        if (memOvercommitStr != null) {
+            tWorkloadGroupInfo.setEnableMemoryOvercommit(Boolean.valueOf(memOvercommitStr));
+        }
+        // enable_cpu_hard_limit = true, using cpu hard limit
+        // enable_cpu_hard_limit = false, using cpu soft limit
+        tWorkloadGroupInfo.setEnableCpuHardLimit(Config.enable_cpu_hard_limit);
+
+        if (Config.enable_cpu_hard_limit && cpuHardLimit <= 0) {
+            LOG.warn("enable_cpu_hard_limit=true but cpuHardLimit value not illegal,"
+                    + "id=" + id + ",name=" + name);
+        }
+
+        String scanThreadNumStr = properties.get(SCAN_THREAD_NUM);
+        if (scanThreadNumStr != null) {
+            tWorkloadGroupInfo.setScanThreadNum(Integer.parseInt(scanThreadNumStr));
+        }
+
+        String maxRemoteScanThreadNumStr = properties.get(MAX_REMOTE_SCAN_THREAD_NUM);
+        if (maxRemoteScanThreadNumStr != null) {
+            tWorkloadGroupInfo.setMaxRemoteScanThreadNum(Integer.parseInt(maxRemoteScanThreadNumStr));
+        }
+
+        String minRemoteScanThreadNumStr = properties.get(MIN_REMOTE_SCAN_THREAD_NUM);
+        if (minRemoteScanThreadNumStr != null) {
+            tWorkloadGroupInfo.setMinRemoteScanThreadNum(Integer.parseInt(minRemoteScanThreadNumStr));
+        }
+
         TopicInfo topicInfo = new TopicInfo();
-        topicInfo.setTopicType(TTopicInfoType.WORKLOAD_GROUP);
-        topicInfo.setInfoMap(newHashMap);
-        topicInfo.setTopicKey(name);
+        topicInfo.setWorkloadGroupInfo(tWorkloadGroupInfo);
         return topicInfo;
     }
 
@@ -331,13 +436,12 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             String memoryLimitString = properties.get(MEMORY_LIMIT);
             this.memoryLimitPercent = Double.parseDouble(memoryLimitString.substring(0,
                     memoryLimitString.length() - 1));
-        } else {
-            this.memoryLimitPercent = 100;
-            this.properties.put(MEMORY_LIMIT, "100%");
         }
+
         if (properties.containsKey(CPU_HARD_LIMIT)) {
             this.cpuHardLimit = Integer.parseInt(properties.get(CPU_HARD_LIMIT));
         }
-        this.initQueryQueue();
+
+        this.resetQueueProperty(this.properties);
     }
 }

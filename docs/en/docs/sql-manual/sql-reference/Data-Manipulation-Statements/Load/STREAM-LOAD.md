@@ -95,7 +95,7 @@ Parameter introduction:
 
 9. strict_mode: The user specifies whether to enable strict mode for this import. The default is off. The enable mode is -H "strict_mode: true".
 
-10. timezone: Specify the time zone used for this import. The default is Dongba District. This parameter affects the results of all time zone-related functions involved in the import.
+10. timezone: Specifies the timezone used for this import. The default is "+08:00". This variable replaces the session variable `time_zone` in this import transaction. See the section "Importing with timezones" in [Best Practice](#best-practice) for more information.
 
 11. exec_mem_limit: Import memory limit. Default is 2GB. The unit is bytes.
 
@@ -217,12 +217,12 @@ separated by commas.
 
 10. Simple mode, import json data
     Table Structure:
-
+    ```
     `category` varchar(512) NULL COMMENT "",
     `author` varchar(512) NULL COMMENT "",
     `title` varchar(512) NULL COMMENT "",
     `price` double NULL COMMENT ""
-
+    ```
     json data format:
     ````
     {"category":"C++","author":"avc","title":"C++ primer","price":895}
@@ -462,3 +462,11 @@ separated by commas.
 
    Doris also limits the number of import tasks running at the same time in the cluster, usually ranging from 10-20. Import jobs submitted after that will be rejected.
 
+10. Importing with timezones
+
+   Since Doris currently has no built-in time types for time zones, all `DATETIME` related types only represent absolute points in time, and do not contain time zone information, which does not change due to time zone changes in the Doris system. Therefore, for importing data with a time zone, we uniformly handle it as **converting it to data in a specific target time zone**. In the Doris system, this is the time zone represented by the session variable `time_zone`.
+
+   In the import, on the other hand, our target timezone is specified by the parameter `timezone`, which will replace the session variable `time_zone` when timezone conversions occur, and when computing timezone-sensitive functions. Therefore, if there are no special circumstances, `timezone` should be set in the import transaction to match the `time_zone` of the current Doris cluster. This means that all time data with a time zone will be converted to that time zone.
+   For example, if the Doris system timezone is "+08:00", and the time column in the imported data contains two pieces of data, "2012-01-01 01:00:00Z" and "2015-12-12 12:12:12-08:00", then after we specify the timezone of the imported transaction via `-H "timezone: +08:00"` during import, both pieces of data will be converted to that timezone, resulting in the results "2012-01-01 09:00:00" and "2015-12-13 04:12:12".
+
+   For a more detailed understanding, see [time-zone](../../../../advanced/time-zone) document.

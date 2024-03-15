@@ -56,9 +56,31 @@ illustrate:
 
 ### Example
 
-1. Display the data volume, replica number, aggregate data volume and aggregate replica number of each table in the default db.
+1. Display the data size and RecycleBin size of each database by default.
+
+    ```
+    SHOW DATA;
+    ```
+
+    ```
+    +-------+-----------------------------------+--------+------------+-------------+-------------------+
+    | DbId  | DbName                            | Size   | RemoteSize | RecycleSize | RecycleRemoteSize |
+    +-------+-----------------------------------+--------+------------+-------------+-------------------+
+    | 21009 | db1                               | 0      | 0          | 0           | 0                 |
+    | 22011 | regression_test_inverted_index_p0 | 72764  | 0          | 0           | 0                 |
+    | 0     | information_schema                | 0      | 0          | 0           | 0                 |
+    | 22010 | regression_test                   | 0      | 0          | 0           | 0                 |
+    | 1     | mysql                             | 0      | 0          | 0           | 0                 |
+    | 22017 | regression_test_show_p0           | 0      | 0          | 0           | 0                 |
+    | 10002 | __internal_schema                 | 46182  | 0          | 0           | 0                 |
+    | Total | NULL                              | 118946 | 0          | 0           | 0                 |
+    +-------+-----------------------------------+--------+------------+-------------+-------------------+
+    ```
+
+2. Display the data volume, replica number, aggregate data volume and aggregate replica number of each table in a database.
 
    ```sql
+   USE db1;
    SHOW DATA;
    ````
 
@@ -74,7 +96,7 @@ illustrate:
    +-----------+-------------+--------------+
    ````
 
-2. Display the subdivided data volume, the number of replicas and the number of statistical rows of the specified table under the specified db
+3. Display the subdivided data volume, the number of replicas and the number of statistical rows of the specified table under the specified db
 
    ```sql
    SHOW DATA FROM example_db.test;
@@ -91,7 +113,7 @@ illustrate:
    +-----------+-----------+-----------+--------------+----------+
    ````
 
-3. It can be combined and sorted according to the amount of data, the number of copies, the number of statistical rows, etc.
+4. It can be combined and sorted according to the amount of data, the number of copies, the number of statistical rows, etc.
 
    ```sql
    SHOW DATA ORDER BY ReplicaCount desc,Size asc;

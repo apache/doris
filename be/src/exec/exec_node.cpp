@@ -25,11 +25,10 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <map>
+#include <memory>
 #include <sstream>
-#include <typeinfo>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -75,9 +74,8 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
-class QueryStatistics;
 
-const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
+const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsProducedRate";
 
 ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : _id(tnode.node_id),
@@ -86,17 +84,12 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _tuple_ids(tnode.row_tuples),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _resource_profile(tnode.resource_profile),
-          _limit(tnode.limit),
-          _num_rows_returned(0),
-          _rows_returned_counter(nullptr),
-          _rows_returned_rate(nullptr),
-          _memory_used_counter(nullptr),
-          _peak_memory_usage_counter(nullptr),
-          _is_closed(false),
-          _ref(0) {
+          _limit(tnode.limit) {
     if (tnode.__isset.output_tuple_id) {
-        _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
+        _output_row_descriptor = std::make_unique<RowDescriptor>(
+                descs, std::vector {tnode.output_tuple_id}, std::vector {true});
     }
+    _query_statistics = std::make_shared<QueryStatistics>();
 }
 
 ExecNode::~ExecNode() = default;
@@ -109,7 +102,7 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
         _conjuncts.emplace_back(context);
     } else if (tnode.__isset.conjuncts) {
-        for (auto& conjunct : tnode.conjuncts) {
+        for (const auto& conjunct : tnode.conjuncts) {
             vectorized::VExprContextSPtr context;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(conjunct, context));
             _conjuncts.emplace_back(context);
@@ -127,20 +120,19 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
-    _span = state->get_tracer()->StartSpan(get_name());
-    OpentelemetryScope scope {_span};
-
     _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
     _rows_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsReturned", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
     _output_bytes_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBytes", TUnit::BYTES, 1);
-    _block_count_counter = ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlockCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BytesProduced", TUnit::BYTES, 1);
+    _block_count_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
-            std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
-                               runtime_profile()->total_time_counter()),
+            [this, capture0 = runtime_profile()->total_time_counter()] {
+                return RuntimeProfile::units_per_second(_rows_returned_counter, capture0);
+            },
             "");
     _memory_used_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
     _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
@@ -153,13 +145,13 @@ Status ExecNode::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->prepare(state));
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->prepare(state));
     }
     return Status::OK();
 }
 
-Status ExecNode::alloc_resource(doris::RuntimeState* state) {
+Status ExecNode::alloc_resource(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
@@ -173,24 +165,8 @@ Status ExecNode::open(RuntimeState* state) {
 
 Status ExecNode::reset(RuntimeState* state) {
     _num_rows_returned = 0;
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->reset(state));
-    }
-    return Status::OK();
-}
-
-Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
-    DCHECK(statistics != nullptr);
-    for (auto child_node : _children) {
-        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics));
-    }
-    return Status::OK();
-}
-
-Status ExecNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
-    DCHECK(statistics != nullptr);
-    for (auto child_node : _children) {
-        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics, sender_id));
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->reset(state));
     }
     return Status::OK();
 }
@@ -201,8 +177,10 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        runtime_profile()->add_to_span(_span);
         _is_resource_released = true;
+    }
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
 }
 
@@ -216,14 +194,11 @@ Status ExecNode::close(RuntimeState* state) {
     _is_closed = true;
 
     Status result;
-    for (int i = 0; i < _children.size(); ++i) {
-        auto st = _children[i]->close(state);
+    for (auto& i : _children) {
+        auto st = i->close(state);
         if (result.ok() && !st.ok()) {
             result = st;
         }
-    }
-    if (_peak_memory_usage_counter) {
-        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     release_resource(state);
     LOG(INFO) << "query= " << print_id(state->query_id())
@@ -247,7 +222,7 @@ void ExecNode::add_runtime_exec_option(const std::string& str) {
 
 Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
                              const DescriptorTbl& descs, ExecNode** root) {
-    if (plan.nodes.size() == 0) {
+    if (plan.nodes.empty()) {
         *root = nullptr;
         return Status::OK();
     }
@@ -280,6 +255,9 @@ Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
     // Step 1 Create current ExecNode according to current thrift plan node.
     ExecNode* cur_exec_node = nullptr;
     RETURN_IF_ERROR(create_node(state, pool, cur_plan_node, descs, &cur_exec_node));
+    if (cur_exec_node != nullptr && state->get_query_ctx()) {
+        state->get_query_ctx()->register_query_statistics(cur_exec_node->get_query_statistics());
+    }
 
     // Step 1.1
     // Record current node if we have parent or record myself as root node.
@@ -322,6 +300,7 @@ Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
     return Status::OK();
 }
 
+// NOLINTBEGIN(readability-function-size)
 Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                              const DescriptorTbl& descs, ExecNode** node) {
     VLOG_CRITICAL << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
@@ -445,8 +424,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     default:
-        std::map<int, const char*>::const_iterator i =
-                _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
+        auto i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
         const char* str = "unknown node type";
 
         if (i != _TPlanNodeType_VALUES_TO_NAMES.end()) {
@@ -460,6 +438,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     return Status::OK();
 }
+// NOLINTEND(readability-function-size)
 
 std::string ExecNode::debug_string() const {
     std::stringstream out;
@@ -476,9 +455,9 @@ void ExecNode::debug_string(int indentation_level, std::stringstream* out) const
     }
     *out << "]";
 
-    for (int i = 0; i < _children.size(); ++i) {
+    for (auto* i : _children) {
         *out << "\n";
-        _children[i]->debug_string(indentation_level + 1, out);
+        i->debug_string(indentation_level + 1, out);
     }
 }
 
@@ -487,8 +466,8 @@ void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode
         nodes->push_back(this);
     }
 
-    for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->collect_nodes(node_type, nodes);
+    for (auto& i : _children) {
+        i->collect_nodes(node_type, nodes);
     }
 }
 
@@ -505,7 +484,7 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
 void ExecNode::init_runtime_profile(const std::string& name) {
     std::stringstream ss;
     ss << name << " (id=" << _id << ")";
-    _runtime_profile.reset(new RuntimeProfile(ss.str()));
+    _runtime_profile = std::make_unique<RuntimeProfile>(ss.str());
     _runtime_profile->set_metadata(_id);
 }
 
@@ -542,7 +521,14 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        DCHECK(mutable_columns.size() == _projections.size());
+
+        if (mutable_columns.size() != _projections.size()) {
+            return Status::InternalError(
+                    "Logical error during processing {}, output of projections {} mismatches with "
+                    "exec node output {}",
+                    this->get_name(), _projections.size(), mutable_columns.size());
+        }
+
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
@@ -558,6 +544,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
             }
         }
         DCHECK(mutable_block.rows() == rows);
+        output_block->set_columns(std::move(mutable_columns));
     }
 
     return Status::OK();
@@ -567,22 +554,22 @@ Status ExecNode::get_next_after_projects(
         RuntimeState* state, vectorized::Block* block, bool* eos,
         const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func,
         bool clear_data) {
-    Defer defer([block, this]() {
-        if (block && !block->empty()) {
-            COUNTER_UPDATE(_output_bytes_counter, block->allocated_bytes());
-            COUNTER_UPDATE(_block_count_counter, 1);
-        }
-    });
     if (_output_row_descriptor) {
         if (clear_data) {
             clear_origin_block();
         }
-        auto status = func(state, &_origin_block, eos);
-        if (UNLIKELY(!status.ok())) return status;
-        return do_projections(&_origin_block, block);
+        RETURN_IF_ERROR(func(state, &_origin_block, eos));
+        RETURN_IF_ERROR(do_projections(&_origin_block, block));
+    } else {
+        RETURN_IF_ERROR(func(state, block, eos));
     }
     _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
-    return func(state, block, eos);
+
+    if (block && !block->empty()) {
+        COUNTER_UPDATE(_output_bytes_counter, block->allocated_bytes());
+        COUNTER_UPDATE(_block_count_counter, 1);
+    }
+    return Status::OK();
 }
 
 Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {

@@ -138,7 +138,7 @@ Node resource division refers to setting tags for BE nodes in a Doris cluster, a
     
     After the setting is complete, when user1 initiates a query on the UserTable table, it will only access the data copy on the nodes in the `group_a` resource group, and the query will only use the node computing resources in the `group_a` resource group. The query of user3 can use copies and computing resources in any resource group.
     
-    > Note: By default, the user's `resource_tags.location` attribute is empty. In versions prior to 2.0.2 (inclusive), by default, users are not restricted by tags and can use any resource group. After version 2.0.3, users can only use the `default` resource group by default.
+    > Note: By default, the user's `resource_tags.location` attribute is empty. In versions prior to 2.0.2 (inclusive), by default, users are not restricted by tags and can use any resource group. After version 2.0.3, normal users can only use the `default` resource group by default. Root and Admin user can use any resource group.
 
     In this way, we have achieved physical resource isolation for different user queries by dividing nodes and restricting user resource usage. Furthermore, we can create different users for different business departments and restrict each user from using different resource groups. In order to avoid the use of resource interference between different business parts. For example, there is a business table in the cluster that needs to be shared by all 9 business departments, but it is hoped that resource preemption between different departments can be avoided as much as possible. Then we can create 3 copies of this table and store them in 3 resource groups. Next, we create 9 users for 9 business departments, and limit the use of one resource group for every 3 users. In this way, the degree of competition for resources is reduced from 9 to 3.
     
@@ -251,7 +251,7 @@ Through the above 4 steps, we can smoothly use the resource division function af
    
    ```sql
    CREATE DATABASE db1 PROPERTIES (
-   "replication_allocation" = "tag.location.group_a:1, tag.location.group_b:2"
+   "replication_allocation" = "tag.location.group_c:1, tag.location.group_b:2"
    )
    ```
 
@@ -262,7 +262,7 @@ Through the above 4 steps, we can smoothly use the resource division function af
    (k1 int, k2 int)
    distributed by hash(k1) buckets 1
    properties(
-   "replication_allocation"="tag.location.group_c:1, tag.location.group_b:2"
+   "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
    )
    ```
 

@@ -59,6 +59,10 @@ suite ("sub_query_correlated") {
     """
 
     sql """
+        DROP TABLE IF EXISTS `sub_query_correlated_subquery10`
+    """
+
+    sql """
         create table if not exists sub_query_correlated_subquery1
         (k1 bigint, k2 bigint)
         duplicate key(k1)
@@ -123,6 +127,13 @@ suite ("sub_query_correlated") {
 
     sql """
         create table if not exists sub_query_correlated_subquery9
+            (k1 int, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
+            distributed by hash(k2) buckets 1
+            properties('replication_num' = '1');
+    """
+
+    sql """
+        create table if not exists sub_query_correlated_subquery10
             (k1 int, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
             distributed by hash(k2) buckets 1
             properties('replication_num' = '1');
@@ -417,27 +428,27 @@ suite ("sub_query_correlated") {
     """
 
     order_qt_hash_join_with_other_conjuncts1 """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1,k2;
     """
 
     order_qt_hash_join_with_other_conjuncts2 """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1,k2;
     """
 
     order_qt_hash_join_with_other_conjuncts3 """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1,k2;
     """
 
     order_qt_hash_join_with_other_conjuncts4 """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1,k2;
     """
 
     order_qt_same_subquery_in_conjuncts """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1,k2;
     """
 
     order_qt_two_subquery_in_one_conjuncts """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k3 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k3 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1,k2;
     """
 
     order_qt_multi_subquery_in_and_scalry """
@@ -532,7 +543,223 @@ suite ("sub_query_correlated") {
         select sub_query_correlated_subquery8.k1 in (select sub_query_correlated_subquery9.k3 from sub_query_correlated_subquery9) from sub_query_correlated_subquery8 order by k1, k2;
     """
 
+    qt_cir_5218_in_ok """
+        SELECT count(*)
+        FROM sub_query_correlated_subquery6
+        WHERE k1 IN 
+            (SELECT k1
+            FROM 
+                (SELECT k1,
+                sum(k3) AS bbb,
+                count(k2) AS aaa
+                FROM sub_query_correlated_subquery7
+                WHERE k1 > 0
+                        AND k3 > 0
+                GROUP BY  k1 ) y
+                WHERE y.aaa>0
+                        AND k1>1); 
+    """
+
+    qt_cir_5218_exists_ok_1 """
+        SELECT count(*)
+        FROM sub_query_correlated_subquery6
+        WHERE exists 
+            (SELECT k1
+            FROM 
+                (SELECT k1,
+                sum(k3) AS bbb,
+                count(k2) AS aaa
+                FROM sub_query_correlated_subquery7
+                WHERE k1 > 0
+                        AND k3 > 0
+                GROUP BY  k1 ) y
+                WHERE y.aaa>0
+                        AND k1>1); 
+    """
+
+    qt_cir_5218_exists_ok_2 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT k1
+                FROM 
+                    (SELECT k1
+                    FROM sub_query_correlated_subquery7
+                    WHERE sub_query_correlated_subquery6.k1 > 7
+                    GROUP BY  k1 ) y);
+    """
+
+    qt_cir_5218_exists_ok_3 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT k1
+                FROM 
+                    (SELECT k1
+                    FROM sub_query_correlated_subquery7
+                    WHERE sub_query_correlated_subquery6.k1 > sub_query_correlated_subquery7.k3
+                    GROUP BY  k1 ) y);
+    """
+
+    qt_cir_5218_exists_ok_4 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT sum(k3)
+                FROM 
+                    sub_query_correlated_subquery7
+                    WHERE sub_query_correlated_subquery6.k1 > sub_query_correlated_subquery7.k3);
+    """
+
+    qt_cir_5218_exists_ok_5 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT sum(k3)
+                FROM 
+                    sub_query_correlated_subquery10);
+    """
+
+    qt_cir_5218_exists_ok_6 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT sum(k3)
+                FROM 
+                    sub_query_correlated_subquery10 group by k2);
+    """
+
+    test {
+        sql """
+                SELECT count(*)
+                    FROM sub_query_correlated_subquery6
+                    WHERE k1 IN 
+                        (SELECT k1
+                        FROM 
+                            (SELECT k1,
+                            sum(k3) AS bbb,
+                            count(k2) AS aaa
+                            FROM sub_query_correlated_subquery7
+                            WHERE k1 > 0
+                                    AND k3 > 0 and sub_query_correlated_subquery6.k1 > 2
+                            GROUP BY  k1 ) y
+                            WHERE y.aaa>0
+                                    AND k1>1); """
+        exception "Unsupported correlated subquery with grouping and/or aggregation";
+    }
+
+    qt_doris_7643 """
+        SELECT sub_query_correlated_subquery6.*
+        FROM sub_query_correlated_subquery6
+        JOIN sub_query_correlated_subquery7
+            ON sub_query_correlated_subquery6.k2 = sub_query_correlated_subquery7.k3
+                AND EXISTS 
+            (SELECT sub_query_correlated_subquery8.k1
+            FROM sub_query_correlated_subquery8 )
+                AND sub_query_correlated_subquery6.k2 IN 
+            (SELECT sub_query_correlated_subquery8.k2
+            FROM sub_query_correlated_subquery8 )
+                AND sub_query_correlated_subquery6.k1 IN 
+            (SELECT sub_query_correlated_subquery8.k2
+            FROM sub_query_correlated_subquery8
+            WHERE sub_query_correlated_subquery6.k2 = sub_query_correlated_subquery8.k2 )
+                AND sub_query_correlated_subquery7.k3 IN 
+            (SELECT sub_query_correlated_subquery8.k1
+            FROM sub_query_correlated_subquery8 )
+                AND 10 > 
+            (SELECT min(sub_query_correlated_subquery8.k2)
+            FROM sub_query_correlated_subquery8 )
+                AND sub_query_correlated_subquery7.k3 IN 
+            (SELECT sub_query_correlated_subquery8.k2
+            FROM sub_query_correlated_subquery8
+            WHERE sub_query_correlated_subquery7.v1 = sub_query_correlated_subquery8.k2 )
+        ORDER BY  sub_query_correlated_subquery6.k1, sub_query_correlated_subquery6.k2; 
+        """
+
     // order_qt_doris_6937_2 """
     //     select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 > sub_query_correlated_subquery1.k2) or k1 < 10 order by k1, k2;
     // """
+    sql """drop table if exists table_21_undef_partitions2_keys3;"""
+    sql """drop table if exists table_1_undef_partitions2_keys3;"""
+    sql """create table table_21_undef_partitions2_keys3 (
+            `col_int_undef_signed` int   ,
+            `col_varchar_10__undef_signed` varchar(10)   ,
+            `pk` int
+            ) engine=olap
+            distributed by hash(pk) buckets 10
+            properties('replication_num' = '1');"""
+    sql """create table table_1_undef_partitions2_keys3 (
+            `col_int_undef_signed` int   ,
+            `col_varchar_10__undef_signed` varchar(10)   ,
+            `pk` int
+            ) engine=olap
+            distributed by hash(pk) buckets 10
+            properties('replication_num' = '1');"""
+    sql """insert into table_21_undef_partitions2_keys3(pk,col_int_undef_signed,col_varchar_10__undef_signed) values (0,null,null),(1,6,'c'),(2,7,'m'),(3,null,null),(4,null,'b'),(5,4,null),(6,3,null),(7,0,'z'),(8,null,"me"),(9,6,null),(10,0,""),(11,null,'e'),(12,null,"up"),(13,null,""),(14,7,'s'),(15,null,""),(16,3,null),(17,null,""),(18,null,""),(19,4,""),(20,7,null);"""
+    sql """insert into table_1_undef_partitions2_keys3(pk,col_int_undef_signed,col_varchar_10__undef_signed) values (0,null,null),(100,null,null);"""
+
+    qt_select_exists1 """SELECT *
+                            FROM table_1_undef_partitions2_keys3 AS t1
+                            WHERE EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) order by t1.pk;"""
+    qt_select_exists2 """SELECT *
+                            FROM table_1_undef_partitions2_keys3 AS t1
+                            WHERE not EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) order by t1.pk;"""
+    qt_select_exists3 """SELECT *
+                            FROM table_1_undef_partitions2_keys3 AS t1
+                            WHERE EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = 9
+                                ) or t1.pk = 100 order by t1.pk;"""
+    qt_select_exists4 """SELECT *
+                            FROM table_1_undef_partitions2_keys3 AS t1
+                            WHERE not EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = 9
+                                ) or t1.pk = 100 order by t1.pk;"""
+    qt_select_exists5 """select EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) from table_1_undef_partitions2_keys3 AS t1;"""
+    qt_select_exists6 """select not EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) from table_1_undef_partitions2_keys3 AS t1 order by t1.pk;"""
+    qt_select_exists7 """select EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) or t1.pk = 100 from table_1_undef_partitions2_keys3 AS t1 order by t1.pk;"""
+    qt_select_exists8 """select EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) and t1.pk = 100 from table_1_undef_partitions2_keys3 AS t1 order by t1.pk;"""
+    qt_select_exists9 """select t1.* from table_1_undef_partitions2_keys3 AS t1 join table_21_undef_partitions2_keys3 AS t2 
+                                on t1.pk = t2.pk and not exists ( SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9 ) or t1.pk = 100 order by t1.pk;"""
+    qt_select_exists10 """select t1.* from table_1_undef_partitions2_keys3 AS t1 join table_21_undef_partitions2_keys3 AS t2 
+                                on t1.pk = t2.pk and not exists ( SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9 ) or t1.pk > 100 order by t1.pk;"""
+    qt_select_exists11 """select t1.* from table_1_undef_partitions2_keys3 AS t1  join table_21_undef_partitions2_keys3 AS t2 
+                                on t1.pk = t2.pk and exists ( SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9 ) or t1.pk = 100 order by t1.pk;"""
+    qt_select_exists12 """select t1.* from table_1_undef_partitions2_keys3 AS t1  join table_21_undef_partitions2_keys3 AS t2 
+                                on t1.pk = t2.pk and exists ( SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9 ) or t1.pk > 100 order by t1.pk;"""                                                                                                                                            
 }

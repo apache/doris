@@ -57,6 +57,9 @@ public:
             size_t str_len = 1;
             // search until next '"' or '\''
             while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
+                if (*(rb.position() + str_len) == '\\' && str_len + 1 < rb.count()) {
+                    ++str_len;
+                }
                 ++str_len;
             }
             // invalid string

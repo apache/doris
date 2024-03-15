@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
@@ -27,6 +28,7 @@ import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -41,6 +43,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -360,14 +363,16 @@ public class Function implements Writable {
             return false;
         }
         for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true)) {
+            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true,
+                    SessionVariable.getEnableDecimal256())) {
                 return false;
             }
         }
         // Check trailing varargs.
         if (this.hasVarArgs) {
             for (int i = this.argTypes.length; i < other.argTypes.length; ++i) {
-                if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true)) {
+                if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true,
+                        SessionVariable.getEnableDecimal256())) {
                     return false;
                 }
             }
@@ -853,7 +858,7 @@ public class Function implements Writable {
                 aggFunction.hasVarArgs(), aggFunction.isUserVisible());
         fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
-        return new FunctionCallExpr(fn, fnCall.getParams());
+        return new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()));
     }
 
     public static FunctionCallExpr convertToMergeCombinator(FunctionCallExpr fnCall) {
@@ -872,6 +877,19 @@ public class Function implements Writable {
         aggFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         aggFunction.setReturnType(fnCall.getChildren().get(0).getType());
         fnCall.setType(fnCall.getChildren().get(0).getType());
+        return fnCall;
+    }
+
+    public static FunctionCallExpr convertForEachCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_FOREACH_SUFFIX));
+        List<Type> argTypes = new ArrayList();
+        for (Type type : aggFunction.argTypes) {
+            argTypes.add(new ArrayType(type));
+        }
+        aggFunction.setArgs(argTypes);
+        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), fnCall.isNullable()));
+        aggFunction.setNullableMode(NullableMode.ALWAYS_NULLABLE);
         return fnCall;
     }
 }

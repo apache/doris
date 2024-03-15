@@ -60,13 +60,14 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
             bw.write(',');
             bw.write(' ');
         }
+        std::string col_name = "\"" + elemNames[i] + "\": ";
+        bw.write(col_name.c_str(), col_name.length());
         RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(struct_column.get_column(i),
                                                                       row_num, bw, options));
     }
     bw.write('}');
     return Status::OK();
 }
-
 Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     if (slice.empty()) {
@@ -94,105 +95,125 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
         }
         return Status::OK();
     }
-
-    ReadBuffer rb(slice.data, slice.size);
-    ++rb.position();
+    // remove '{' '}'
+    slice.remove_prefix(1);
+    slice.remove_suffix(1);
+    slice.trim_prefix();
 
     bool is_explicit_names = false;
-    std::vector<std::string> field_names;
-    std::vector<ReadBuffer> field_rbs;
-    std::vector<size_t> field_pos;
+    int nested_level = 0;
+    bool has_quote = false;
+    int start_pos = 0;
+    size_t slice_size = slice.size;
+    bool key_added = false;
+    int idx = 0;
+    char quote_char = 0;
 
-    while (!rb.eof()) {
-        StringRef slot(rb.position(), rb.count());
-        bool has_quota = false;
-        bool is_name = false;
-        if (!next_slot_from_string(rb, slot, is_name, has_quota)) {
-            return Status::InvalidArgument("Cannot read struct field from text '{}'",
-                                           slot.to_string());
-        }
-        if (is_name) {
-            std::string name = slot.to_string();
-            if (!next_slot_from_string(rb, slot, is_name, has_quota)) {
-                return Status::InvalidArgument("Cannot read struct field from text '{}'",
-                                               slot.to_string());
+    auto elem_size = elemSerDeSPtrs.size();
+    int field_pos = 0;
+
+    for (; idx < slice_size; ++idx) {
+        char c = slice[idx];
+        if (c == '"' || c == '\'') {
+            if (!has_quote) {
+                quote_char = c;
+                has_quote = !has_quote;
+            } else if (has_quote && quote_char == c) {
+                quote_char = 0;
+                has_quote = !has_quote;
             }
-            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
-            field_names.push_back(name);
-            field_rbs.push_back(field_rb);
-
-            if (!is_explicit_names) {
-                is_explicit_names = true;
+        } else if (c == '\\' && idx + 1 < slice_size) { //escaped
+            ++idx;
+        } else if (!has_quote && (c == '[' || c == '{')) {
+            ++nested_level;
+        } else if (!has_quote && (c == ']' || c == '}')) {
+            --nested_level;
+        } else if (!has_quote && nested_level == 0 && c == options.map_key_delim && !key_added) {
+            // if meet map_key_delimiter and not in quote, we can make it as key elem.
+            if (idx == start_pos) {
+                continue;
             }
-        } else {
-            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
-            field_rbs.push_back(field_rb);
-        }
-    }
-
-    // TODO: should we support insert default field value when actual field number is less than
-    // schema field number?
-    if (field_rbs.size() != elemSerDeSPtrs.size()) {
-        std::string cmp_str = field_rbs.size() > elemSerDeSPtrs.size() ? "more" : "less";
-        return Status::InvalidArgument(
-                "Actual struct field number {} is {} than schema field number {}.",
-                field_rbs.size(), cmp_str, elemSerDeSPtrs.size());
-    }
-
-    if (is_explicit_names) {
-        if (field_names.size() != field_rbs.size()) {
-            return Status::InvalidArgument(
-                    "Struct field name number {} is not equal to field number {}.",
-                    field_names.size(), field_rbs.size());
-        }
-        std::unordered_set<std::string> name_set;
-        for (size_t i = 0; i < field_names.size(); i++) {
-            // check duplicate fields
-            auto ret = name_set.insert(field_names[i]);
-            if (!ret.second) {
-                return Status::InvalidArgument("Struct field name {} is duplicate with others.",
-                                               field_names[i]);
-            }
-            // check name valid
-            auto idx = try_get_position_by_name(field_names[i]);
-            if (idx == std::nullopt) {
+            Slice next(slice.data + start_pos, idx - start_pos);
+            next.trim_prefix();
+            next.trim_quote();
+            // check field_name
+            if (elemNames[field_pos] != next) {
+                // we should do column revert if error
+                for (size_t j = 0; j < field_pos; j++) {
+                    struct_column.get_column(j).pop_back(1);
+                }
                 return Status::InvalidArgument("Cannot find struct field name {} in schema.",
-                                               field_names[i]);
+                                               next.to_string());
             }
-            field_pos.push_back(idx.value());
-        }
-    } else {
-        for (size_t i = 0; i < field_rbs.size(); i++) {
-            field_pos.push_back(i);
+            // skip delimiter
+            start_pos = idx + 1;
+            is_explicit_names = true;
+            key_added = true;
+        } else if (!has_quote && nested_level == 0 && c == options.collection_delim &&
+                   (key_added || !is_explicit_names)) {
+            // if meet collection_delimiter and not in quote, we can make it as value elem
+            if (idx == start_pos) {
+                continue;
+            }
+            Slice next(slice.data + start_pos, idx - start_pos);
+            next.trim_prefix();
+            if (field_pos > elem_size) {
+                // we should do column revert if error
+                for (size_t j = 0; j < field_pos; j++) {
+                    struct_column.get_column(j).pop_back(1);
+                }
+                return Status::InvalidArgument(
+                        "Actual struct field number is more than schema field number {}.",
+                        field_pos, elem_size);
+            }
+            if (Status st = elemSerDeSPtrs[field_pos]->deserialize_one_cell_from_json(
+                        struct_column.get_column(field_pos), next, options);
+                st != Status::OK()) {
+                // we should do column revert if error
+                for (size_t j = 0; j < field_pos; j++) {
+                    struct_column.get_column(j).pop_back(1);
+                }
+                return st;
+            }
+            // skip delimiter
+            start_pos = idx + 1;
+            // reset key_added
+            key_added = false;
+            ++field_pos;
         }
     }
-
-    for (size_t idx = 0; idx < elemSerDeSPtrs.size(); idx++) {
-        auto field_rb = field_rbs[field_pos[idx]];
-        // handle empty element
-        if (field_rb.count() == 0) {
-            struct_column.get_column(idx).insert_default();
-            continue;
-        }
-        // handle null element
-        if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
-            auto& nested_null_col =
-                    reinterpret_cast<ColumnNullable&>(struct_column.get_column(idx));
-            nested_null_col.insert_null_elements(1);
-            continue;
-        }
-        Slice element_slice(field_rb.position(), field_rb.count());
-        auto st = elemSerDeSPtrs[idx]->deserialize_one_cell_from_json(struct_column.get_column(idx),
-                                                                      element_slice, options);
-        if (!st.ok()) {
+    // for last value elem
+    if (!has_quote && nested_level == 0 && idx == slice_size && idx != start_pos &&
+        (key_added || !is_explicit_names)) {
+        Slice next(slice.data + start_pos, idx - start_pos);
+        next.trim_prefix();
+        if (field_pos > elem_size) {
             // we should do column revert if error
-            for (size_t j = 0; j < idx; j++) {
+            for (size_t j = 0; j < field_pos; j++) {
+                struct_column.get_column(j).pop_back(1);
+            }
+            return Status::InvalidArgument(
+                    "Actual struct field number is more than schema field number {}.", field_pos,
+                    elem_size);
+        }
+        if (Status st = elemSerDeSPtrs[field_pos]->deserialize_one_cell_from_json(
+                    struct_column.get_column(field_pos), next, options);
+            st != Status::OK()) {
+            // we should do column revert if error
+            for (size_t j = 0; j < field_pos; j++) {
                 struct_column.get_column(j).pop_back(1);
             }
             return st;
         }
+        ++field_pos;
     }
 
+    // check stuff:
+    if (field_pos < elem_size) {
+        return Status::InvalidArgument(
+                "Actual struct field number {} is less than schema field number {}.", field_pos,
+                elem_size);
+    }
     return Status::OK();
 }
 
@@ -333,7 +354,8 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
         }
 
         if (col.get_column_ptr(j)->is_null_at(col_index)) {
-            if (0 != result.push_string("null", strlen("null"))) {
+            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
+                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
@@ -378,22 +400,12 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 int end,
                                                 std::vector<StringRef>& buffer_list) const {
     orc::StructVectorBatch* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
-
     const ColumnStruct& struct_col = assert_cast<const ColumnStruct&>(column);
     for (size_t row_id = start; row_id < end; row_id++) {
-        if (cur_batch->notNull[row_id] == 1) {
-            for (int i = 0; i < struct_col.tuple_size(); ++i) {
-                static_cast<void>(elemSerDeSPtrs[i]->write_column_to_orc(
-                        timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                        row_id + 1, buffer_list));
-            }
-        } else {
-            // This else is necessary
-            // because we must set notNull when cur_batch->notNull[row_id] == 0
-            for (int j = 0; j < struct_col.tuple_size(); ++j) {
-                cur_batch->fields[j]->hasNulls = true;
-                cur_batch->fields[j]->notNull[row_id] = 0;
-            }
+        for (int i = 0; i < struct_col.tuple_size(); ++i) {
+            RETURN_IF_ERROR(elemSerDeSPtrs[i]->write_column_to_orc(
+                    timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
+                    row_id + 1, buffer_list));
         }
     }
 

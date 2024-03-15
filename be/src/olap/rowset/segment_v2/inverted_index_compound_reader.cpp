@@ -26,12 +26,12 @@
 #include <string.h>
 #include <wchar.h>
 
-#include <algorithm>
 #include <memory>
 #include <utility>
 
 #include "CLucene/SharedHeader.h"
-#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 namespace io {
@@ -49,19 +49,6 @@ using FileWriterPtr = std::unique_ptr<doris::io::FileWriter>;
 
 namespace doris {
 namespace segment_v2 {
-
-class DorisCompoundReader::ReaderFileEntry : LUCENE_BASE {
-public:
-    std::string file_name {};
-    int64_t offset;
-    int64_t length;
-    ReaderFileEntry() {
-        //file_name = nullptr;
-        offset = 0;
-        length = 0;
-    }
-    ~ReaderFileEntry() override = default;
-};
 
 /** Implementation of an IndexInput that reads from a portion of the
  *  compound file.
@@ -98,7 +85,7 @@ CSIndexInput::CSIndexInput(CL_NS(store)::IndexInput* base, const int64_t fileOff
 }
 
 void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
-    std::lock_guard wlock(((DorisCompoundDirectory::FSIndexInput*)base)->_this_lock);
+    std::lock_guard wlock(((DorisFSDirectory::FSIndexInput*)base)->_this_lock);
 
     int64_t start = getFilePointer();
     if (start + len > _length) {
@@ -124,7 +111,7 @@ CSIndexInput::CSIndexInput(const CSIndexInput& clone) : BufferedIndexInput(clone
 void CSIndexInput::close() {}
 
 DorisCompoundReader::DorisCompoundReader(lucene::store::Directory* d, const char* name,
-                                         int32_t read_buffer_size)
+                                         int32_t read_buffer_size, bool open_idx_file_cache)
         : readBufferSize(read_buffer_size),
           dir(d),
           ram_dir(new lucene::store::RAMDirectory()),
@@ -140,6 +127,7 @@ DorisCompoundReader::DorisCompoundReader(lucene::store::Directory* d, const char
                               .c_str());
         }
         stream = dir->openInput(name, readBufferSize);
+        stream->setIdxFileCache(open_idx_file_cache);
 
         int32_t count = stream->readVInt();
         ReaderFileEntry* entry = nullptr;
@@ -209,7 +197,9 @@ void DorisCompoundReader::copyFile(const char* file, int64_t file_length, uint8_
 }
 
 DorisCompoundReader::~DorisCompoundReader() {
-    _CLDELETE(entries)
+    if (_own_index_input) {
+        _CLDELETE(entries)
+    }
 }
 
 const char* DorisCompoundReader::getClassName() {
@@ -232,6 +222,10 @@ bool DorisCompoundReader::fileExists(const char* name) const {
 
 lucene::store::Directory* DorisCompoundReader::getDirectory() {
     return dir;
+}
+
+std::string DorisCompoundReader::getPath() const {
+    return ((DorisFSDirectory*)dir)->getCfsDirName();
 }
 
 int64_t DorisCompoundReader::fileModified(const char* name) const {
@@ -277,7 +271,7 @@ bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*
     }
 
     // If file is in RAM, just return.
-    if (ram_dir->fileExists(name)) {
+    if (ram_dir && ram_dir->fileExists(name)) {
         return ram_dir->openInput(name, ret, error, bufferSize);
     }
 
@@ -291,15 +285,19 @@ bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*
 
 void DorisCompoundReader::close() {
     std::lock_guard<std::mutex> wlock(_this_lock);
-    if (stream != nullptr) {
+    if (_own_index_input && stream != nullptr) {
         entries->clear();
         stream->close();
         _CLDELETE(stream)
     }
-    ram_dir->close();
-    dir->close();
-    _CLDECDELETE(dir)
-    _CLDELETE(ram_dir)
+    if (ram_dir) {
+        ram_dir->close();
+        _CLDELETE(ram_dir)
+    }
+    if (dir) {
+        dir->close();
+        _CLDECDELETE(dir)
+    }
 }
 
 bool DorisCompoundReader::doDeleteFile(const char* /*name*/) {
@@ -325,6 +323,10 @@ lucene::store::IndexOutput* DorisCompoundReader::createOutput(const char* /*name
 std::string DorisCompoundReader::toString() const {
     return std::string("DorisCompoundReader@") + this->directory + std::string("; file_name: ") +
            std::string(file_name);
+}
+
+CL_NS(store)::IndexInput* DorisCompoundReader::getDorisIndexInput() {
+    return stream;
 }
 
 } // namespace segment_v2

@@ -45,6 +45,11 @@ public:
                uint64_t length);
     ~PageReader() = default;
 
+    // Deprecated
+    // Parquet file may not be standardized,
+    // _end_offset may exceed the actual data area.
+    // ColumnChunkReader::has_next_page() use the number of parsed values for judgment
+    // [[deprecated]]
     bool has_next_page() const { return _offset < _end_offset; }
 
     Status next_page_header();
@@ -66,8 +71,8 @@ public:
 private:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
 
-    io::BufferedStreamReader* _reader;
-    io::IOContext* _io_ctx;
+    io::BufferedStreamReader* _reader = nullptr;
+    io::IOContext* _io_ctx = nullptr;
     tparquet::PageHeader _cur_page_header;
     Statistics _statistics;
     PageReaderState _state = INITIALIZED;

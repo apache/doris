@@ -63,11 +63,6 @@ public class TokenManager {
         return UUID.randomUUID().toString();
     }
 
-    // this method only will be called in master node, since stream load only send message to master.
-    public boolean checkAuthToken(String token) {
-        return tokenQueue.contains(token);
-    }
-
     public String acquireToken() throws UserException {
         if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
             return tokenQueue.peek();
@@ -81,12 +76,13 @@ public class TokenManager {
         }
     }
 
-    public String acquireTokenFromMaster() throws TException {
+    private String acquireTokenFromMaster() throws TException {
         TNetworkAddress thriftAddress = getMasterAddress();
-
         FrontendService.Client client = getClient(thriftAddress);
 
-        LOG.debug("Send acquire token to Master {}", thriftAddress);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Send acquire token to Master {}", thriftAddress);
+        }
 
         boolean isReturnToPool = false;
         try {
@@ -106,7 +102,7 @@ public class TokenManager {
             } else {
                 TMySqlLoadAcquireTokenResult result = client.acquireToken();
                 if (result.getStatus().getStatusCode() != TStatusCode.OK) {
-                    throw new TException("commit failed.");
+                    throw new TException("acquire token from master failed. " + result.getStatus());
                 }
                 isReturnToPool = true;
                 return result.getToken();
@@ -120,11 +116,60 @@ public class TokenManager {
         }
     }
 
+    /**
+     * Check if the token is valid.
+     * If this is not Master FE, will send the request to Master FE.
+     */
+    public boolean checkAuthToken(String token) throws UserException {
+        if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
+            return tokenQueue.contains(token);
+        } else {
+            try {
+                return checkTokenFromMaster(token);
+            } catch (TException e) {
+                LOG.warn("check token error", e);
+                throw new UserException("Check token from master failed", e);
+            }
+        }
+    }
+
+    private boolean checkTokenFromMaster(String token) throws TException {
+        TNetworkAddress thriftAddress = getMasterAddress();
+        FrontendService.Client client = getClient(thriftAddress);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Send check token to Master {}", thriftAddress);
+        }
+
+        boolean isReturnToPool = false;
+        try {
+            boolean result = client.checkToken(token);
+            isReturnToPool = true;
+            return result;
+        } catch (TTransportException e) {
+            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
+            if (!ok) {
+                throw e;
+            }
+            if (e.getType() == TTransportException.TIMED_OUT) {
+                throw e;
+            } else {
+                boolean result = client.checkToken(token);
+                isReturnToPool = true;
+                return result;
+            }
+        } finally {
+            if (isReturnToPool) {
+                ClientPool.frontendPool.returnObject(thriftAddress, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+            }
+        }
+    }
+
 
     private TNetworkAddress getMasterAddress() throws TException {
-        if (!Env.getCurrentEnv().isReady()) {
-            throw new TException("Node catalog is not ready, please wait for a while.");
-        }
+        Env.getCurrentEnv().checkReadyOrThrowTException();
         String masterHost = Env.getCurrentEnv().getMasterHost();
         int masterRpcPort = Env.getCurrentEnv().getMasterRpcPort();
         return new TNetworkAddress(masterHost, masterRpcPort);

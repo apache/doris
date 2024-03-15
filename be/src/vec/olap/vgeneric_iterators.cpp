@@ -51,7 +51,8 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
             auto unique_id = _schema.column(cid)->unique_id();
             if (_column_iterators_map.count(unique_id) < 1) {
                 RETURN_IF_ERROR(_segment->new_column_iterator(opts.tablet_schema->column(cid),
-                                                              &_column_iterators_map[unique_id]));
+                                                              &_column_iterators_map[unique_id],
+                                                              nullptr));
             }
             _column_iterators.push_back(_column_iterators_map[unique_id].get());
         }
@@ -74,14 +75,15 @@ Status VStatisticsIterator::next_batch(Block* block) {
                               : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
-            for (int i = 0; i < block->columns(); ++i) {
-                columns[i]->resize(size);
+            for (int i = 0; i < columns.size(); ++i) {
+                columns[i]->insert_many_defaults(size);
             }
         } else {
-            for (int i = 0; i < block->columns(); ++i) {
-                static_cast<void>(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
+            for (int i = 0; i < columns.size(); ++i) {
+                RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
             }
         }
+        block->set_columns(std::move(columns));
         _output_rows += size;
         return Status::OK();
     }
@@ -290,7 +292,7 @@ Status VMergeIteratorContext::_load_next_block() {
         }
         for (auto it = _block_list.begin(); it != _block_list.end(); it++) {
             if (it->use_count() == 1) {
-                static_cast<void>(block_reset(*it));
+                RETURN_IF_ERROR(block_reset(*it));
                 _block = *it;
                 _block_list.erase(it);
                 break;
@@ -298,7 +300,7 @@ Status VMergeIteratorContext::_load_next_block() {
         }
         if (_block == nullptr) {
             _block = std::make_shared<Block>();
-            static_cast<void>(block_reset(_block));
+            RETURN_IF_ERROR(block_reset(_block));
         }
         Status st = _iter->next_batch(_block.get());
         if (!st.ok()) {

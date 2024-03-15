@@ -21,10 +21,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -33,6 +31,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
@@ -140,6 +140,8 @@ public class TableRef implements ParseNode, Writable {
 
     private TableSnapshot tableSnapshot;
 
+    private TableScanParams scanParams;
+
     // END: Members that need to be reset()
     // ///////////////////////////////////////
 
@@ -169,6 +171,12 @@ public class TableRef implements ParseNode, Writable {
 
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<Long> sampleTabletIds,
                     TableSample tableSample, ArrayList<String> commonHints, TableSnapshot tableSnapshot) {
+        this(name, alias, partitionNames, sampleTabletIds, tableSample, commonHints, tableSnapshot, null);
+    }
+
+    public TableRef(TableName name, String alias, PartitionNames partitionNames,
+                    ArrayList<Long> sampleTabletIds, TableSample tableSample, ArrayList<String> commonHints,
+                    TableSnapshot tableSnapshot, TableScanParams scanParams) {
         this.name = name;
         if (alias != null) {
             if (Env.isStoredTableNamesLowerCase()) {
@@ -184,6 +192,7 @@ public class TableRef implements ParseNode, Writable {
         this.tableSample = tableSample;
         this.commonHints = commonHints;
         this.tableSnapshot = tableSnapshot;
+        this.scanParams = scanParams;
         isAnalyzed = false;
     }
 
@@ -204,6 +213,7 @@ public class TableRef implements ParseNode, Writable {
         onClause = (other.onClause != null) ? other.onClause.clone().reset() : null;
         partitionNames = (other.partitionNames != null) ? new PartitionNames(other.partitionNames) : null;
         tableSnapshot = (other.tableSnapshot != null) ? new TableSnapshot(other.tableSnapshot) : null;
+        scanParams = other.scanParams;
         tableSample = (other.tableSample != null) ? new TableSample(other.tableSample) : null;
         commonHints = other.commonHints;
 
@@ -327,6 +337,14 @@ public class TableRef implements ParseNode, Writable {
 
     public TableSnapshot getTableSnapshot() {
         return tableSnapshot;
+    }
+
+    public Boolean haveDesc() {
+        return desc != null;
+    }
+
+    public TableScanParams getScanParams() {
+        return scanParams;
     }
 
     /**

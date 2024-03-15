@@ -8,15 +8,14 @@
 #include <gen_cpp/Status_types.h> // for TStatus
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
@@ -29,306 +28,305 @@ namespace doris {
 class PStatus;
 
 namespace ErrorCode {
-#define E(name, code) static constexpr int name = code
-E(OK, 0);
-#define TStatusError(name) E(name, TStatusCode::name)
-// Errors defined in TStatus
-TStatusError(PUBLISH_TIMEOUT);
-TStatusError(MEM_ALLOC_FAILED);
-TStatusError(BUFFER_ALLOCATION_FAILED);
-TStatusError(INVALID_ARGUMENT);
-TStatusError(MINIMUM_RESERVATION_UNAVAILABLE);
-TStatusError(CORRUPTION);
-TStatusError(IO_ERROR);
-TStatusError(NOT_FOUND);
-TStatusError(ALREADY_EXIST);
-TStatusError(NOT_IMPLEMENTED_ERROR);
-TStatusError(END_OF_FILE);
-TStatusError(INTERNAL_ERROR);
-TStatusError(RUNTIME_ERROR);
-TStatusError(CANCELLED);
-TStatusError(MEM_LIMIT_EXCEEDED);
-TStatusError(THRIFT_RPC_ERROR);
-TStatusError(TIMEOUT);
-TStatusError(TOO_MANY_TASKS);
-TStatusError(UNINITIALIZED);
-TStatusError(ABORTED);
-TStatusError(DATA_QUALITY_ERROR);
-TStatusError(LABEL_ALREADY_EXISTS);
-TStatusError(NOT_AUTHORIZED);
-TStatusError(HTTP_ERROR);
-#undef TStatusError
-// BE internal errors
-E(OS_ERROR, -100);
-E(DIR_NOT_EXIST, -101);
-E(FILE_NOT_EXIST, -102);
-E(CREATE_FILE_ERROR, -103);
-E(STL_ERROR, -105);
-E(MUTEX_ERROR, -107);
-E(PTHREAD_ERROR, -108);
-E(NETWORK_ERROR, -109);
-E(UB_FUNC_ERROR, -110);
-E(COMPRESS_ERROR, -111);
-E(DECOMPRESS_ERROR, -112);
-E(UNKNOWN_COMPRESSION_TYPE, -113);
-E(MMAP_ERROR, -114);
-E(CANNOT_CREATE_DIR, -117);
-E(UB_NETWORK_ERROR, -118);
-E(FILE_FORMAT_ERROR, -119);
-E(EVAL_CONJUNCTS_ERROR, -120);
-E(COPY_FILE_ERROR, -121);
-E(FILE_ALREADY_EXIST, -122);
-E(BAD_CAST, -123);
-E(CALL_SEQUENCE_ERROR, -202);
-E(BUFFER_OVERFLOW, -204);
-E(CONFIG_ERROR, -205);
-E(INIT_FAILED, -206);
-E(INVALID_SCHEMA, -207);
-E(CHECKSUM_ERROR, -208);
-E(SIGNATURE_ERROR, -209);
-E(CATCH_EXCEPTION, -210);
-E(PARSE_PROTOBUF_ERROR, -211);
-E(SERIALIZE_PROTOBUF_ERROR, -212);
-E(WRITE_PROTOBUF_ERROR, -213);
-E(VERSION_NOT_EXIST, -214);
-E(TABLE_NOT_FOUND, -215);
-E(TRY_LOCK_FAILED, -216);
-E(OUT_OF_BOUND, -218);
-E(INVALID_ROOT_PATH, -222);
-E(NO_AVAILABLE_ROOT_PATH, -223);
-E(CHECK_LINES_ERROR, -224);
-E(INVALID_CLUSTER_INFO, -225);
-E(TRANSACTION_NOT_EXIST, -226);
-E(DISK_FAILURE, -227);
-E(TRANSACTION_ALREADY_COMMITTED, -228);
-E(TRANSACTION_ALREADY_VISIBLE, -229);
-E(VERSION_ALREADY_MERGED, -230);
-E(LZO_DISABLED, -231);
-E(DISK_REACH_CAPACITY_LIMIT, -232);
-E(TOO_MANY_TRANSACTIONS, -233);
-E(INVALID_SNAPSHOT_VERSION, -234);
-E(TOO_MANY_VERSION, -235);
-E(NOT_INITIALIZED, -236);
-E(ALREADY_CANCELLED, -237);
-E(TOO_MANY_SEGMENTS, -238);
-E(ALREADY_CLOSED, -239);
-E(SERVICE_UNAVAILABLE, -240);
-E(NEED_SEND_AGAIN, -241);
-E(CE_CMD_PARAMS_ERROR, -300);
-E(CE_BUFFER_TOO_SMALL, -301);
-E(CE_CMD_NOT_VALID, -302);
-E(CE_LOAD_TABLE_ERROR, -303);
-E(CE_NOT_FINISHED, -304);
-E(CE_TABLET_ID_EXIST, -305);
-E(TABLE_VERSION_DUPLICATE_ERROR, -400);
-E(TABLE_VERSION_INDEX_MISMATCH_ERROR, -401);
-E(TABLE_INDEX_VALIDATE_ERROR, -402);
-E(TABLE_INDEX_FIND_ERROR, -403);
-E(TABLE_CREATE_FROM_HEADER_ERROR, -404);
-E(TABLE_CREATE_META_ERROR, -405);
-E(TABLE_ALREADY_DELETED_ERROR, -406);
-E(ENGINE_INSERT_EXISTS_TABLE, -500);
-E(ENGINE_DROP_NOEXISTS_TABLE, -501);
-E(ENGINE_LOAD_INDEX_TABLE_ERROR, -502);
-E(TABLE_INSERT_DUPLICATION_ERROR, -503);
-E(DELETE_VERSION_ERROR, -504);
-E(GC_SCAN_PATH_ERROR, -505);
-E(ENGINE_INSERT_OLD_TABLET, -506);
-E(FETCH_OTHER_ERROR, -600);
-E(FETCH_TABLE_NOT_EXIST, -601);
-E(FETCH_VERSION_ERROR, -602);
-E(FETCH_SCHEMA_ERROR, -603);
-E(FETCH_COMPRESSION_ERROR, -604);
-E(FETCH_CONTEXT_NOT_EXIST, -605);
-E(FETCH_GET_READER_PARAMS_ERR, -606);
-E(FETCH_SAVE_SESSION_ERR, -607);
-E(FETCH_MEMORY_EXCEEDED, -608);
-E(READER_IS_UNINITIALIZED, -700);
-E(READER_GET_ITERATOR_ERROR, -701);
-E(CAPTURE_ROWSET_READER_ERROR, -702);
-E(READER_READING_ERROR, -703);
-E(READER_INITIALIZE_ERROR, -704);
-E(BE_VERSION_NOT_MATCH, -800);
-E(BE_REPLACE_VERSIONS_ERROR, -801);
-E(BE_MERGE_ERROR, -802);
-E(CAPTURE_ROWSET_ERROR, -804);
-E(BE_SAVE_HEADER_ERROR, -805);
-E(BE_INIT_OLAP_DATA, -806);
-E(BE_TRY_OBTAIN_VERSION_LOCKS, -807);
-E(BE_NO_SUITABLE_VERSION, -808);
-E(BE_INVALID_NEED_MERGED_VERSIONS, -810);
-E(BE_ERROR_DELETE_ACTION, -811);
-E(BE_SEGMENTS_OVERLAPPING, -812);
-E(BE_CLONE_OCCURRED, -813);
-E(PUSH_INIT_ERROR, -900);
-E(PUSH_VERSION_INCORRECT, -902);
-E(PUSH_SCHEMA_MISMATCH, -903);
-E(PUSH_CHECKSUM_ERROR, -904);
-E(PUSH_ACQUIRE_DATASOURCE_ERROR, -905);
-E(PUSH_CREAT_CUMULATIVE_ERROR, -906);
-E(PUSH_BUILD_DELTA_ERROR, -907);
-E(PUSH_VERSION_ALREADY_EXIST, -908);
-E(PUSH_TABLE_NOT_EXIST, -909);
-E(PUSH_INPUT_DATA_ERROR, -910);
-E(PUSH_TRANSACTION_ALREADY_EXIST, -911);
-E(PUSH_BATCH_PROCESS_REMOVED, -912);
-E(PUSH_COMMIT_ROWSET, -913);
-E(PUSH_ROWSET_NOT_FOUND, -914);
-E(INDEX_LOAD_ERROR, -1000);
-E(INDEX_CHECKSUM_ERROR, -1002);
-E(INDEX_DELTA_PRUNING, -1003);
-E(DATA_ROW_BLOCK_ERROR, -1100);
-E(DATA_FILE_TYPE_ERROR, -1101);
-E(WRITER_INDEX_WRITE_ERROR, -1200);
-E(WRITER_DATA_WRITE_ERROR, -1201);
-E(WRITER_ROW_BLOCK_ERROR, -1202);
-E(WRITER_SEGMENT_NOT_FINALIZED, -1203);
-E(ROWBLOCK_DECOMPRESS_ERROR, -1300);
-E(ROWBLOCK_FIND_ROW_EXCEPTION, -1301);
-E(HEADER_ADD_VERSION, -1400);
-E(HEADER_DELETE_VERSION, -1401);
-E(HEADER_ADD_PENDING_DELTA, -1402);
-E(HEADER_ADD_INCREMENTAL_VERSION, -1403);
-E(HEADER_INVALID_FLAG, -1404);
-E(HEADER_LOAD_INVALID_KEY, -1408);
-E(HEADER_LOAD_JSON_HEADER, -1410);
-E(HEADER_INIT_FAILED, -1411);
-E(HEADER_PB_PARSE_FAILED, -1412);
-E(HEADER_HAS_PENDING_DATA, -1413);
-E(SCHEMA_SCHEMA_INVALID, -1500);
-E(SCHEMA_SCHEMA_FIELD_INVALID, -1501);
-E(ALTER_MULTI_TABLE_ERR, -1600);
-E(ALTER_DELTA_DOES_NOT_EXISTS, -1601);
-E(ALTER_STATUS_ERR, -1602);
-E(PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED, -1603);
-E(SCHEMA_CHANGE_INFO_INVALID, -1604);
-E(QUERY_SPLIT_KEY_ERR, -1605);
-E(DATA_QUALITY_ERR, -1606);
-E(COLUMN_DATA_LOAD_BLOCK, -1700);
-E(COLUMN_DATA_RECORD_INDEX, -1701);
-E(COLUMN_DATA_MAKE_FILE_HEADER, -1702);
-E(COLUMN_DATA_READ_VAR_INT, -1703);
-E(COLUMN_DATA_PATCH_LIST_NUM, -1704);
-E(COLUMN_READ_STREAM, -1706);
-E(COLUMN_STREAM_NOT_EXIST, -1716);
-E(COLUMN_VALUE_NULL, -1717);
-E(COLUMN_SEEK_ERROR, -1719);
-E(COLUMN_NO_MATCH_OFFSETS_SIZE, -1720);
-E(COLUMN_NO_MATCH_FILTER_SIZE, -1721);
-E(DELETE_INVALID_CONDITION, -1900);
-E(DELETE_UPDATE_HEADER_FAILED, -1901);
-E(DELETE_SAVE_HEADER_FAILED, -1902);
-E(DELETE_INVALID_PARAMETERS, -1903);
-E(DELETE_INVALID_VERSION, -1904);
-E(CUMULATIVE_NO_SUITABLE_VERSION, -2000);
-E(CUMULATIVE_REPEAT_INIT, -2001);
-E(CUMULATIVE_INVALID_PARAMETERS, -2002);
-E(CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE, -2003);
-E(CUMULATIVE_INVALID_NEED_MERGED_VERSIONS, -2004);
-E(CUMULATIVE_ERROR_DELETE_ACTION, -2005);
-E(CUMULATIVE_MISS_VERSION, -2006);
-E(CUMULATIVE_CLONE_OCCURRED, -2007);
-E(FULL_NO_SUITABLE_VERSION, -2008);
-E(FULL_MISS_VERSION, -2009);
-E(META_INVALID_ARGUMENT, -3000);
-E(META_OPEN_DB_ERROR, -3001);
-E(META_KEY_NOT_FOUND, -3002);
-E(META_GET_ERROR, -3003);
-E(META_PUT_ERROR, -3004);
-E(META_ITERATOR_ERROR, -3005);
-E(META_DELETE_ERROR, -3006);
-E(META_ALREADY_EXIST, -3007);
-E(ROWSET_WRITER_INIT, -3100);
-E(ROWSET_SAVE_FAILED, -3101);
-E(ROWSET_GENERATE_ID_FAILED, -3102);
-E(ROWSET_DELETE_FILE_FAILED, -3103);
-E(ROWSET_BUILDER_INIT, -3104);
-E(ROWSET_TYPE_NOT_FOUND, -3105);
-E(ROWSET_ALREADY_EXIST, -3106);
-E(ROWSET_CREATE_READER, -3107);
-E(ROWSET_INVALID, -3108);
-E(ROWSET_READER_INIT, -3110);
-E(ROWSET_INVALID_STATE_TRANSITION, -3112);
-E(STRING_OVERFLOW_IN_VEC_ENGINE, -3113);
-E(ROWSET_ADD_MIGRATION_V2, -3114);
-E(PUBLISH_VERSION_NOT_CONTINUOUS, -3115);
-E(ROWSET_RENAME_FILE_FAILED, -3116);
-E(SEGCOMPACTION_INIT_READER, -3117);
-E(SEGCOMPACTION_INIT_WRITER, -3118);
-E(SEGCOMPACTION_FAILED, -3119);
-E(PIP_WAIT_FOR_RF, -3120);
-E(PIP_WAIT_FOR_SC, -3121);
-E(ROWSET_ADD_TO_BINLOG_FAILED, -3122);
-E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123);
-E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
-E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
-E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
-E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
-E(INVERTED_INDEX_BYPASS, -6004);
-E(INVERTED_INDEX_NO_TERMS, -6005);
-E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
-E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
-E(INVERTED_INDEX_BUILD_WAITTING, -6008);
-E(KEY_NOT_FOUND, -6009);
-E(KEY_ALREADY_EXISTS, -6010);
-E(ENTRY_NOT_FOUND, -6011);
-#undef E
-} // namespace ErrorCode
 
-// clang-format off
-// whether to capture stacktrace
-constexpr bool capture_stacktrace(int code) {
-    return code != ErrorCode::OK
-        && code != ErrorCode::END_OF_FILE
-        && code != ErrorCode::DATA_QUALITY_ERROR
-        && code != ErrorCode::MEM_LIMIT_EXCEEDED
-        && code != ErrorCode::TRY_LOCK_FAILED
-        && code != ErrorCode::TOO_MANY_SEGMENTS
-        && code != ErrorCode::TOO_MANY_VERSION
-        && code != ErrorCode::ALREADY_CANCELLED
-        && code != ErrorCode::ALREADY_CLOSED
-        && code != ErrorCode::NEED_SEND_AGAIN
-        && code != ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST
-        && code != ErrorCode::BE_NO_SUITABLE_VERSION
-        && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
-        && code != ErrorCode::FULL_NO_SUITABLE_VERSION
-        && code != ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS
-        && code != ErrorCode::PUBLISH_TIMEOUT
-        && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
-        && code != ErrorCode::SEGCOMPACTION_INIT_READER
-        && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
-        && code != ErrorCode::SEGCOMPACTION_FAILED
-        && code != ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS
-        && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
-        && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
-        && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
-        && code != ErrorCode::INVERTED_INDEX_BYPASS
-        && code != ErrorCode::INVERTED_INDEX_NO_TERMS
-        && code != ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED
-        && code != ErrorCode::INVERTED_INDEX_BUILD_WAITTING
-        && code != ErrorCode::META_KEY_NOT_FOUND
-        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
-        && code != ErrorCode::VERSION_NOT_EXIST
-        && code != ErrorCode::TABLE_ALREADY_DELETED_ERROR
-        && code != ErrorCode::TRANSACTION_NOT_EXIST
-        && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
-        && code != ErrorCode::TOO_MANY_TRANSACTIONS
-        && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED
-        && code != ErrorCode::ENTRY_NOT_FOUND
-        && code != ErrorCode::KEY_NOT_FOUND
-        && code != ErrorCode::KEY_ALREADY_EXISTS
-        && code != ErrorCode::CANCELLED
-        && code != ErrorCode::UNINITIALIZED
-        && code != ErrorCode::PIP_WAIT_FOR_RF
-        && code != ErrorCode::PIP_WAIT_FOR_SC
-        && code != ErrorCode::INVALID_ARGUMENT
-        && code != ErrorCode::DATA_QUALITY_ERR;
-}
-// clang-format on
+// E thrift_error_name, print_stacktrace
+#define APPLY_FOR_THRIFT_ERROR_CODES(TStatusError)       \
+    TStatusError(PUBLISH_TIMEOUT, false);                \
+    TStatusError(MEM_ALLOC_FAILED, true);                \
+    TStatusError(BUFFER_ALLOCATION_FAILED, true);        \
+    TStatusError(INVALID_ARGUMENT, false);               \
+    TStatusError(INVALID_JSON_PATH, false);              \
+    TStatusError(MINIMUM_RESERVATION_UNAVAILABLE, true); \
+    TStatusError(CORRUPTION, true);                      \
+    TStatusError(IO_ERROR, true);                        \
+    TStatusError(NOT_FOUND, true);                       \
+    TStatusError(ALREADY_EXIST, true);                   \
+    TStatusError(NOT_IMPLEMENTED_ERROR, true);           \
+    TStatusError(END_OF_FILE, false);                    \
+    TStatusError(INTERNAL_ERROR, true);                  \
+    TStatusError(RUNTIME_ERROR, true);                   \
+    TStatusError(CANCELLED, false);                      \
+    TStatusError(MEM_LIMIT_EXCEEDED, false);             \
+    TStatusError(THRIFT_RPC_ERROR, true);                \
+    TStatusError(TIMEOUT, true);                         \
+    TStatusError(TOO_MANY_TASKS, true);                  \
+    TStatusError(UNINITIALIZED, false);                  \
+    TStatusError(ABORTED, true);                         \
+    TStatusError(DATA_QUALITY_ERROR, false);             \
+    TStatusError(LABEL_ALREADY_EXISTS, true);            \
+    TStatusError(NOT_AUTHORIZED, true);                  \
+    TStatusError(HTTP_ERROR, true);                      \
+    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
+// E error_name, error_code, print_stacktrace
+#define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
+    E(OK, 0, false);                                         \
+    E(OS_ERROR, -100, true);                                 \
+    E(DIR_NOT_EXIST, -101, true);                            \
+    E(FILE_NOT_EXIST, -102, true);                           \
+    E(CREATE_FILE_ERROR, -103, true);                        \
+    E(STL_ERROR, -105, true);                                \
+    E(MUTEX_ERROR, -107, true);                              \
+    E(PTHREAD_ERROR, -108, true);                            \
+    E(NETWORK_ERROR, -109, true);                            \
+    E(UB_FUNC_ERROR, -110, true);                            \
+    E(COMPRESS_ERROR, -111, true);                           \
+    E(DECOMPRESS_ERROR, -112, true);                         \
+    E(UNKNOWN_COMPRESSION_TYPE, -113, true);                 \
+    E(MMAP_ERROR, -114, true);                               \
+    E(CANNOT_CREATE_DIR, -117, true);                        \
+    E(UB_NETWORK_ERROR, -118, true);                         \
+    E(FILE_FORMAT_ERROR, -119, true);                        \
+    E(EVAL_CONJUNCTS_ERROR, -120, true);                     \
+    E(COPY_FILE_ERROR, -121, true);                          \
+    E(FILE_ALREADY_EXIST, -122, true);                       \
+    E(BAD_CAST, -123, true);                                 \
+    E(ARITHMETIC_OVERFLOW_ERRROR, -124, false);              \
+    E(PERMISSION_DENIED, -125, false);                       \
+    E(CALL_SEQUENCE_ERROR, -202, true);                      \
+    E(BUFFER_OVERFLOW, -204, true);                          \
+    E(CONFIG_ERROR, -205, true);                             \
+    E(INIT_FAILED, -206, true);                              \
+    E(INVALID_SCHEMA, -207, true);                           \
+    E(CHECKSUM_ERROR, -208, true);                           \
+    E(SIGNATURE_ERROR, -209, true);                          \
+    E(CATCH_EXCEPTION, -210, true);                          \
+    E(PARSE_PROTOBUF_ERROR, -211, true);                     \
+    E(SERIALIZE_PROTOBUF_ERROR, -212, true);                 \
+    E(WRITE_PROTOBUF_ERROR, -213, true);                     \
+    E(VERSION_NOT_EXIST, -214, false);                       \
+    E(TABLE_NOT_FOUND, -215, true);                          \
+    E(TRY_LOCK_FAILED, -216, false);                         \
+    E(EXCEEDED_LIMIT, -217, false);                          \
+    E(OUT_OF_BOUND, -218, false);                            \
+    E(INVALID_ROOT_PATH, -222, true);                        \
+    E(NO_AVAILABLE_ROOT_PATH, -223, true);                   \
+    E(CHECK_LINES_ERROR, -224, true);                        \
+    E(INVALID_CLUSTER_INFO, -225, true);                     \
+    E(TRANSACTION_NOT_EXIST, -226, false);                   \
+    E(DISK_FAILURE, -227, true);                             \
+    E(TRANSACTION_ALREADY_COMMITTED, -228, false);           \
+    E(TRANSACTION_ALREADY_VISIBLE, -229, false);             \
+    E(VERSION_ALREADY_MERGED, -230, true);                   \
+    E(LZO_DISABLED, -231, true);                             \
+    E(DISK_REACH_CAPACITY_LIMIT, -232, true);                \
+    E(TOO_MANY_TRANSACTIONS, -233, false);                   \
+    E(INVALID_SNAPSHOT_VERSION, -234, true);                 \
+    E(TOO_MANY_VERSION, -235, false);                        \
+    E(NOT_INITIALIZED, -236, true);                          \
+    E(ALREADY_CANCELLED, -237, false);                       \
+    E(TOO_MANY_SEGMENTS, -238, false);                       \
+    E(ALREADY_CLOSED, -239, false);                          \
+    E(SERVICE_UNAVAILABLE, -240, true);                      \
+    E(NEED_SEND_AGAIN, -241, false);                         \
+    E(CE_CMD_PARAMS_ERROR, -300, true);                      \
+    E(CE_BUFFER_TOO_SMALL, -301, true);                      \
+    E(CE_CMD_NOT_VALID, -302, true);                         \
+    E(CE_LOAD_TABLE_ERROR, -303, true);                      \
+    E(CE_NOT_FINISHED, -304, true);                          \
+    E(CE_TABLET_ID_EXIST, -305, true);                       \
+    E(TABLE_VERSION_DUPLICATE_ERROR, -400, true);            \
+    E(TABLE_VERSION_INDEX_MISMATCH_ERROR, -401, true);       \
+    E(TABLE_INDEX_VALIDATE_ERROR, -402, true);               \
+    E(TABLE_INDEX_FIND_ERROR, -403, true);                   \
+    E(TABLE_CREATE_FROM_HEADER_ERROR, -404, true);           \
+    E(TABLE_CREATE_META_ERROR, -405, true);                  \
+    E(TABLE_ALREADY_DELETED_ERROR, -406, false);             \
+    E(ENGINE_INSERT_EXISTS_TABLE, -500, true);               \
+    E(ENGINE_DROP_NOEXISTS_TABLE, -501, true);               \
+    E(ENGINE_LOAD_INDEX_TABLE_ERROR, -502, true);            \
+    E(TABLE_INSERT_DUPLICATION_ERROR, -503, true);           \
+    E(DELETE_VERSION_ERROR, -504, true);                     \
+    E(GC_SCAN_PATH_ERROR, -505, true);                       \
+    E(ENGINE_INSERT_OLD_TABLET, -506, true);                 \
+    E(FETCH_OTHER_ERROR, -600, true);                        \
+    E(FETCH_TABLE_NOT_EXIST, -601, true);                    \
+    E(FETCH_VERSION_ERROR, -602, true);                      \
+    E(FETCH_SCHEMA_ERROR, -603, true);                       \
+    E(FETCH_COMPRESSION_ERROR, -604, true);                  \
+    E(FETCH_CONTEXT_NOT_EXIST, -605, true);                  \
+    E(FETCH_GET_READER_PARAMS_ERR, -606, true);              \
+    E(FETCH_SAVE_SESSION_ERR, -607, true);                   \
+    E(FETCH_MEMORY_EXCEEDED, -608, true);                    \
+    E(READER_IS_UNINITIALIZED, -700, true);                  \
+    E(READER_GET_ITERATOR_ERROR, -701, true);                \
+    E(CAPTURE_ROWSET_READER_ERROR, -702, true);              \
+    E(READER_READING_ERROR, -703, true);                     \
+    E(READER_INITIALIZE_ERROR, -704, true);                  \
+    E(BE_VERSION_NOT_MATCH, -800, true);                     \
+    E(BE_REPLACE_VERSIONS_ERROR, -801, true);                \
+    E(BE_MERGE_ERROR, -802, true);                           \
+    E(CAPTURE_ROWSET_ERROR, -804, true);                     \
+    E(BE_SAVE_HEADER_ERROR, -805, true);                     \
+    E(BE_INIT_OLAP_DATA, -806, true);                        \
+    E(BE_TRY_OBTAIN_VERSION_LOCKS, -807, true);              \
+    E(BE_NO_SUITABLE_VERSION, -808, false);                  \
+    E(BE_INVALID_NEED_MERGED_VERSIONS, -810, true);          \
+    E(BE_ERROR_DELETE_ACTION, -811, true);                   \
+    E(BE_SEGMENTS_OVERLAPPING, -812, true);                  \
+    E(PUSH_INIT_ERROR, -900, true);                          \
+    E(PUSH_VERSION_INCORRECT, -902, true);                   \
+    E(PUSH_SCHEMA_MISMATCH, -903, true);                     \
+    E(PUSH_CHECKSUM_ERROR, -904, true);                      \
+    E(PUSH_ACQUIRE_DATASOURCE_ERROR, -905, true);            \
+    E(PUSH_CREAT_CUMULATIVE_ERROR, -906, true);              \
+    E(PUSH_BUILD_DELTA_ERROR, -907, true);                   \
+    E(PUSH_VERSION_ALREADY_EXIST, -908, false);              \
+    E(PUSH_TABLE_NOT_EXIST, -909, true);                     \
+    E(PUSH_INPUT_DATA_ERROR, -910, true);                    \
+    E(PUSH_TRANSACTION_ALREADY_EXIST, -911, false);          \
+    E(PUSH_BATCH_PROCESS_REMOVED, -912, true);               \
+    E(PUSH_COMMIT_ROWSET, -913, true);                       \
+    E(PUSH_ROWSET_NOT_FOUND, -914, true);                    \
+    E(INDEX_LOAD_ERROR, -1000, true);                        \
+    E(INDEX_CHECKSUM_ERROR, -1002, true);                    \
+    E(INDEX_DELTA_PRUNING, -1003, true);                     \
+    E(DATA_ROW_BLOCK_ERROR, -1100, true);                    \
+    E(DATA_FILE_TYPE_ERROR, -1101, true);                    \
+    E(WRITER_INDEX_WRITE_ERROR, -1200, true);                \
+    E(WRITER_DATA_WRITE_ERROR, -1201, true);                 \
+    E(WRITER_ROW_BLOCK_ERROR, -1202, true);                  \
+    E(WRITER_SEGMENT_NOT_FINALIZED, -1203, true);            \
+    E(ROWBLOCK_DECOMPRESS_ERROR, -1300, true);               \
+    E(ROWBLOCK_FIND_ROW_EXCEPTION, -1301, true);             \
+    E(HEADER_ADD_VERSION, -1400, true);                      \
+    E(HEADER_DELETE_VERSION, -1401, true);                   \
+    E(HEADER_ADD_PENDING_DELTA, -1402, true);                \
+    E(HEADER_ADD_INCREMENTAL_VERSION, -1403, true);          \
+    E(HEADER_INVALID_FLAG, -1404, true);                     \
+    E(HEADER_LOAD_INVALID_KEY, -1408, true);                 \
+    E(HEADER_LOAD_JSON_HEADER, -1410, true);                 \
+    E(HEADER_INIT_FAILED, -1411, true);                      \
+    E(HEADER_PB_PARSE_FAILED, -1412, true);                  \
+    E(HEADER_HAS_PENDING_DATA, -1413, true);                 \
+    E(SCHEMA_SCHEMA_INVALID, -1500, true);                   \
+    E(SCHEMA_SCHEMA_FIELD_INVALID, -1501, true);             \
+    E(ALTER_MULTI_TABLE_ERR, -1600, true);                   \
+    E(ALTER_DELTA_DOES_NOT_EXISTS, -1601, true);             \
+    E(ALTER_STATUS_ERR, -1602, true);                        \
+    E(PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED, -1603, true);     \
+    E(SCHEMA_CHANGE_INFO_INVALID, -1604, true);              \
+    E(QUERY_SPLIT_KEY_ERR, -1605, true);                     \
+    E(DATA_QUALITY_ERR, -1606, false);                       \
+    E(COLUMN_DATA_LOAD_BLOCK, -1700, true);                  \
+    E(COLUMN_DATA_RECORD_INDEX, -1701, true);                \
+    E(COLUMN_DATA_MAKE_FILE_HEADER, -1702, true);            \
+    E(COLUMN_DATA_READ_VAR_INT, -1703, true);                \
+    E(COLUMN_DATA_PATCH_LIST_NUM, -1704, true);              \
+    E(COLUMN_READ_STREAM, -1706, true);                      \
+    E(COLUMN_STREAM_NOT_EXIST, -1716, true);                 \
+    E(COLUMN_VALUE_NULL, -1717, true);                       \
+    E(COLUMN_SEEK_ERROR, -1719, true);                       \
+    E(COLUMN_NO_MATCH_OFFSETS_SIZE, -1720, true);            \
+    E(COLUMN_NO_MATCH_FILTER_SIZE, -1721, true);             \
+    E(DELETE_INVALID_CONDITION, -1900, true);                \
+    E(DELETE_UPDATE_HEADER_FAILED, -1901, true);             \
+    E(DELETE_SAVE_HEADER_FAILED, -1902, true);               \
+    E(DELETE_INVALID_PARAMETERS, -1903, true);               \
+    E(DELETE_INVALID_VERSION, -1904, true);                  \
+    E(CUMULATIVE_NO_SUITABLE_VERSION, -2000, false);         \
+    E(CUMULATIVE_REPEAT_INIT, -2001, true);                  \
+    E(CUMULATIVE_INVALID_PARAMETERS, -2002, true);           \
+    E(CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE, -2003, true);   \
+    E(CUMULATIVE_INVALID_NEED_MERGED_VERSIONS, -2004, true); \
+    E(CUMULATIVE_ERROR_DELETE_ACTION, -2005, true);          \
+    E(CUMULATIVE_MISS_VERSION, -2006, true);                 \
+    E(FULL_NO_SUITABLE_VERSION, -2008, false);               \
+    E(FULL_MISS_VERSION, -2009, true);                       \
+    E(META_INVALID_ARGUMENT, -3000, true);                   \
+    E(META_OPEN_DB_ERROR, -3001, true);                      \
+    E(META_KEY_NOT_FOUND, -3002, false);                     \
+    E(META_GET_ERROR, -3003, true);                          \
+    E(META_PUT_ERROR, -3004, true);                          \
+    E(META_ITERATOR_ERROR, -3005, true);                     \
+    E(META_DELETE_ERROR, -3006, true);                       \
+    E(META_ALREADY_EXIST, -3007, true);                      \
+    E(ROWSET_WRITER_INIT, -3100, true);                      \
+    E(ROWSET_SAVE_FAILED, -3101, true);                      \
+    E(ROWSET_GENERATE_ID_FAILED, -3102, true);               \
+    E(ROWSET_DELETE_FILE_FAILED, -3103, true);               \
+    E(ROWSET_BUILDER_INIT, -3104, true);                     \
+    E(ROWSET_TYPE_NOT_FOUND, -3105, true);                   \
+    E(ROWSET_ALREADY_EXIST, -3106, true);                    \
+    E(ROWSET_CREATE_READER, -3107, true);                    \
+    E(ROWSET_INVALID, -3108, true);                          \
+    E(ROWSET_READER_INIT, -3110, true);                      \
+    E(ROWSET_INVALID_STATE_TRANSITION, -3112, true);         \
+    E(STRING_OVERFLOW_IN_VEC_ENGINE, -3113, true);           \
+    E(ROWSET_ADD_MIGRATION_V2, -3114, true);                 \
+    E(PUBLISH_VERSION_NOT_CONTINUOUS, -3115, false);         \
+    E(ROWSET_RENAME_FILE_FAILED, -3116, false);              \
+    E(SEGCOMPACTION_INIT_READER, -3117, false);              \
+    E(SEGCOMPACTION_INIT_WRITER, -3118, false);              \
+    E(SEGCOMPACTION_FAILED, -3119, false);                   \
+    E(PIP_WAIT_FOR_RF, -3120, false);                        \
+    E(PIP_WAIT_FOR_SC, -3121, false);                        \
+    E(ROWSET_ADD_TO_BINLOG_FAILED, -3122, true);             \
+    E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123, true);      \
+    E(INVERTED_INDEX_INVALID_PARAMETERS, -6000, false);      \
+    E(INVERTED_INDEX_NOT_SUPPORTED, -6001, false);           \
+    E(INVERTED_INDEX_CLUCENE_ERROR, -6002, false);           \
+    E(INVERTED_INDEX_FILE_NOT_FOUND, -6003, false);          \
+    E(INVERTED_INDEX_BYPASS, -6004, false);                  \
+    E(INVERTED_INDEX_NO_TERMS, -6005, false);                \
+    E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006, true);       \
+    E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007, false);        \
+    E(INVERTED_INDEX_BUILD_WAITTING, -6008, false);          \
+    E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
+    E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
+    E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
+    E(KEY_NOT_FOUND, -7000, false);                          \
+    E(KEY_ALREADY_EXISTS, -7001, false);                     \
+    E(ENTRY_NOT_FOUND, -7002, false);                        \
+    E(INVALID_TABLET_STATE, -7211, false);                   \
+    E(ROWSETS_EXPIRED, -7311, false);
+
+// Define constexpr int error_code_name = error_code_value
+#define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
+APPLY_FOR_OLAP_ERROR_CODES(M)
+#undef M
+
+#define MM(name, ENABLESTACKTRACE) constexpr int name = TStatusCode::name;
+APPLY_FOR_THRIFT_ERROR_CODES(MM)
+#undef MM
+
+constexpr int MAX_ERROR_CODE_DEFINE_NUM = 65536;
+struct ErrorCodeState {
+    int16_t error_code = 0;
+    bool stacktrace = true;
+    std::string description;
+    size_t count = 0; // Used for count the number of error happens
+    std::mutex mutex; // lock guard for count state
+};
+extern ErrorCodeState error_states[MAX_ERROR_CODE_DEFINE_NUM];
+
+class ErrorCodeInitializer {
+public:
+    ErrorCodeInitializer() {
+#define M(NAME, ENABLESTACKTRACE) error_states[TStatusCode::NAME].stacktrace = ENABLESTACKTRACE;
+        APPLY_FOR_THRIFT_ERROR_CODES(M)
+#undef M
+#define M(NAME, ERRORCODE, ENABLESTACKTRACE) \
+    error_states[abs(ERRORCODE)].stacktrace = ENABLESTACKTRACE;
+        APPLY_FOR_OLAP_ERROR_CODES(M)
+#undef M
+    }
+};
+
+extern ErrorCodeInitializer error_code_init;
+} // namespace ErrorCode
 
 class [[nodiscard]] Status {
 public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
+
+    // used to convert Exception to Status
+    Status(int code, std::string msg, std::string stack) : _code(code) {
+        _err_msg = std::make_unique<ErrMsg>();
+        _err_msg->_msg = msg;
+#ifdef ENABLE_STACKTRACE
+        _err_msg->_stack = stack;
+#endif
+    }
 
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& rhs) { *this = rhs; }
@@ -379,7 +377,7 @@ public:
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
 #ifdef ENABLE_STACKTRACE
-        if constexpr (stacktrace && capture_stacktrace(code)) {
+        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             // Delete the first one frame pointers, which are inside the status.h
             status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
@@ -399,7 +397,7 @@ public:
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
 #ifdef ENABLE_STACKTRACE
-        if (stacktrace && capture_stacktrace(code)) {
+        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
@@ -419,6 +417,7 @@ public:
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
     ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR(InvalidJsonPath, INVALID_JSON_PATH)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
@@ -452,20 +451,13 @@ public:
 
     bool ok() const { return _code == ErrorCode::OK; }
 
-    // Convert into TStatus. Call this if 'status_container' contains an optional
-    // TStatus field named 'status'. This also sets __isset.status.
-    template <typename T>
-    void set_t_status(T* status_container) const {
-        to_thrift(&status_container->status);
-        status_container->__isset.status = true;
-    }
-
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;
     TStatus to_thrift() const;
     void to_protobuf(PStatus* status) const;
 
     std::string to_string() const;
+    std::string to_string_no_stack() const;
 
     /// @return A json representation of this status.
     std::string to_json() const;
@@ -503,7 +495,7 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
-    std::string msg() const { return _err_msg ? _err_msg->_msg : ""; }
+    std::string_view msg() const { return _err_msg ? _err_msg->_msg : std::string_view(""); }
 
 private:
     int _code;
@@ -538,12 +530,27 @@ inline std::string Status::to_string() const {
     return ss.str();
 }
 
+inline std::string Status::to_string_no_stack() const {
+    std::stringstream ss;
+    ss << '[' << code_as_string() << ']';
+    ss << msg();
+    return ss.str();
+}
+
 // some generally useful macros
 #define RETURN_IF_ERROR(stmt)           \
     do {                                \
         Status _status_ = (stmt);       \
         if (UNLIKELY(!_status_.ok())) { \
             return _status_;            \
+        }                               \
+    } while (false)
+
+#define THROW_IF_ERROR(stmt)            \
+    do {                                \
+        Status _status_ = (stmt);       \
+        if (UNLIKELY(!_status_.ok())) { \
+            throw Exception(_status_);  \
         }                               \
     } while (false)
 
@@ -565,6 +572,14 @@ inline std::string Status::to_string() const {
             LOG(ERROR) << _status_;     \
             exit(1);                    \
         }                               \
+    } while (false)
+
+#define RETURN_FALSE_IF_ERROR(stmt)   \
+    do {                              \
+        Status status = (stmt);       \
+        if (UNLIKELY(!status.ok())) { \
+            return false;             \
+        }                             \
     } while (false)
 
 /// @brief Emit a warning if @c to_call returns a bad status.
@@ -598,18 +613,15 @@ using ResultError = unexpected<Status>;
         }                                           \
     } while (false)
 
-// clang-format off
-#define DORIS_TRY(stmt)                                              \
-    ({                                                               \
-        auto&& res = (stmt);                                         \
-        using T = std::decay_t<decltype(res)>;                       \
-        static_assert(tl::detail::is_expected<T>::value);            \
-        if (!res.has_value()) [[unlikely]] {                         \
-            return std::forward<T>(res).error();                     \
-        }                                                            \
-        std::forward<T>(res).value();                                \
+#define DORIS_TRY(stmt)                          \
+    ({                                           \
+        auto&& res = (stmt);                     \
+        using T = std::decay_t<decltype(res)>;   \
+        if (!res.has_value()) [[unlikely]] {     \
+            return std::forward<T>(res).error(); \
+        }                                        \
+        std::forward<T>(res).value();            \
     });
-// clang-format on
 
 } // namespace doris
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.Test;
 public class StatisticDeriveTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
+        Config.enable_odbc_mysql_broker_table = true;
         // create database
         createDatabase("test");
 
@@ -162,7 +164,6 @@ public class StatisticDeriveTest extends TestWithFeService {
         Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "NESTED LOOP JOIN");
-        assertSQLPlanOrErrorMsgContains(sql, "ASSERT NUMBER OF ROWS");
         assertSQLPlanOrErrorMsgContains(sql, "EXCHANGE");
         assertSQLPlanOrErrorMsgContains(sql, "AGGREGATE");
         assertSQLPlanOrErrorMsgContains(sql, "OlapScanNode");

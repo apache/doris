@@ -40,6 +40,7 @@ suite("test_array_functions_by_literal") {
 
 
     // array_contains function
+    qt_sql "select array_contains([1.111, 2, 3.333], 2);"
     qt_sql "select array_contains([1,2,3], 1)"
     qt_sql "select array_contains([1,2,3], 4)"
     qt_sql "select array_contains([1,2,3,NULL], 1)"
@@ -54,6 +55,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_contains(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), cast (111.111 as decimalv3(6,3)))"
 
     // array_position function
+    qt_sql "select array_position([1.111, 2, 3.333], 2);"
     qt_sql "select array_position([1,2,3], 1)"
     qt_sql "select array_position([1,2,3], 3)"
     qt_sql "select array_position([1,2,3], 4)"

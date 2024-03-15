@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
@@ -189,8 +190,10 @@ public class BackupJob extends AbstractJob {
         taskProgress.remove(task.getTabletId());
         Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
         taskErrMsg.remove(task.getTabletId());
-        LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
-                info, unfinishedTaskIds.size(), (oldValue != null), this);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
+                    info, unfinishedTaskIds.size(), (oldValue != null), this);
+        }
 
         return oldValue != null;
     }
@@ -246,8 +249,10 @@ public class BackupJob extends AbstractJob {
         taskProgress.remove(task.getSignature());
         Long oldValue = unfinishedTaskIds.remove(task.getSignature());
         taskErrMsg.remove(task.getSignature());
-        LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
-                unfinishedTaskIds.size(), (oldValue != null), this);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
+                    unfinishedTaskIds.size(), (oldValue != null), this);
+        }
         return oldValue != null;
     }
 
@@ -270,6 +275,28 @@ public class BackupJob extends AbstractJob {
     @Override
     public boolean isCancelled() {
         return state == BackupJobState.CANCELLED;
+    }
+
+    @Override
+    public synchronized Status updateRepo(Repository repo) {
+        this.repo = repo;
+
+        if (this.state == BackupJobState.UPLOADING) {
+            for (Map.Entry<Long, Long> entry : unfinishedTaskIds.entrySet()) {
+                long signature = entry.getKey();
+                long beId = entry.getValue();
+                AgentTask task = AgentTaskQueue.getTask(beId, TTaskType.UPLOAD, signature);
+                if (task == null || task.getTaskType() != TTaskType.UPLOAD) {
+                    continue;
+                }
+                ((UploadTask) task).updateBrokerProperties(
+                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
+            }
+            LOG.info("finished to update upload job properties. {}", this);
+        }
+        LOG.info("finished to update repo of job. {}", this);
+        return Status.OK;
     }
 
     // Polling the job state and do the right things.
@@ -296,7 +323,9 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-        LOG.debug("run backup job: {}", this);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("run backup job: {}", this);
+        }
 
         // run job base on current state
         switch (state) {
@@ -376,17 +405,29 @@ public class BackupJob extends AbstractJob {
                 switch (tbl.getType()) {
                     case OLAP:
                         OlapTable olapTable = (OlapTable) tbl;
-                        checkOlapTable(olapTable, tableRef);
-                        if (getContent() == BackupContent.ALL) {
-                            prepareSnapshotTaskForOlapTableWithoutLock(db, (OlapTable) tbl, tableRef, batchTask);
+                        if (!checkOlapTable(olapTable, tableRef).ok()) {
+                            return;
                         }
-                        prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables);
+                        if (getContent() == BackupContent.ALL) {
+                            if (!prepareSnapshotTaskForOlapTableWithoutLock(
+                                                    db, (OlapTable) tbl, tableRef, batchTask).ok()) {
+                                return;
+                            }
+                        }
+                        if (!prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables).ok()) {
+                            return;
+                        }
                         break;
                     case VIEW:
-                        prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables);
+                        if (!prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables).ok()) {
+                            return;
+                        }
                         break;
                     case ODBC:
-                        prepareBackupMetaForOdbcTableWithoutLock((OdbcTable) tbl, copiedTables, copiedResources);
+                        if (!prepareBackupMetaForOdbcTableWithoutLock(
+                                                    (OdbcTable) tbl, copiedTables, copiedResources).ok()) {
+                            return;
+                        }
                         break;
                     default:
                         status = new Status(ErrCode.COMMON_ERROR,
@@ -413,7 +454,7 @@ public class BackupJob extends AbstractJob {
         LOG.info("finished to send snapshot tasks to backend. {}", this);
     }
 
-    private void checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
+    private Status checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
         olapTable.readLock();
         try {
             // check backup table again
@@ -423,16 +464,17 @@ public class BackupJob extends AbstractJob {
                     if (partition == null) {
                         status = new Status(ErrCode.NOT_FOUND, "partition " + partName
                                 + " does not exist  in table" + backupTableRef.getName().getTbl());
-                        return;
+                        return status;
                     }
                 }
             }
         }  finally {
             olapTable.readUnlock();
         }
+        return Status.OK;
     }
 
-    private void prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
+    private Status prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
             TableRef backupTableRef, AgentBatchTask batchTask) {
         // Add barrier editolog for barrier commit seq
         long dbId = db.getId();
@@ -452,7 +494,7 @@ public class BackupJob extends AbstractJob {
                 if (partition == null) {
                     status = new Status(ErrCode.NOT_FOUND, "partition " + partName
                             + " does not exist  in table" + backupTableRef.getName().getTbl());
-                    return;
+                    return status;
                 }
             }
         }
@@ -481,7 +523,7 @@ public class BackupJob extends AbstractJob {
                         status = new Status(ErrCode.COMMON_ERROR,
                                 "failed to choose replica to make snapshot for tablet " + tablet.getId()
                                         + ". visible version: " + visibleVersion);
-                        return;
+                        return status;
                     }
                     SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
                             jobId, dbId, olapTable.getId(), partition.getId(),
@@ -496,6 +538,7 @@ public class BackupJob extends AbstractJob {
             LOG.info("snapshot for partition {}, version: {}",
                     partition.getId(), visibleVersion);
         }
+        return Status.OK;
     }
 
     private void checkResourceForOdbcTable(OdbcTable odbcTable) {
@@ -511,7 +554,7 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    private void prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
+    private Status prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
                                                           List<Table> copiedTables) {
         // only copy visible indexes
         List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
@@ -519,28 +562,30 @@ public class BackupJob extends AbstractJob {
         OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, IndexExtState.VISIBLE, true);
         if (copiedTbl == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
-            return;
+            return status;
         }
 
         removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
+        return Status.OK;
     }
 
-    private void prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
+    private Status prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
         View copiedView = view.clone();
         if (copiedView == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy view: " + view.getName());
-            return;
+            return status;
         }
         copiedTables.add(copiedView);
+        return Status.OK;
     }
 
-    private void prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
+    private Status prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
             List<Resource> copiedResources) {
         OdbcTable copiedOdbcTable = odbcTable.clone();
         if (copiedOdbcTable == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + odbcTable.getName());
-            return;
+            return status;
         }
         copiedTables.add(copiedOdbcTable);
         if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
@@ -550,10 +595,11 @@ public class BackupJob extends AbstractJob {
             if (copiedResource == null) {
                 status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
                         + resource.getName());
-                return;
+                return status;
             }
             copiedResources.add(copiedResource);
         }
+        return Status.OK;
     }
 
     private void removeUnsupportProperties(OlapTable tbl) {
@@ -597,8 +643,7 @@ public class BackupJob extends AbstractJob {
         for (Long beId : beToSnapshots.keySet()) {
             List<SnapshotInfo> infos = beToSnapshots.get(beId);
             int totalNum = infos.size();
-            // each backend allot at most 3 tasks
-            int batchNum = Math.min(totalNum, 3);
+            int batchNum = Math.min(totalNum, Config.backup_upload_task_num_per_be);
             // each task contains several upload sub tasks
             int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
             LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
@@ -659,14 +704,17 @@ public class BackupJob extends AbstractJob {
             return;
         }
 
-        LOG.debug("waiting {} tablets to upload snapshot. {}", unfinishedTaskIds.size(), this);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("waiting {} tablets to upload snapshot. {}", unfinishedTaskIds.size(), this);
+        }
     }
 
     private void saveMetaInfo() {
         String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
-        // local job dir: backup/label__createtime/
+        // local job dir: backup/repo__repo_id/label__createtime/
+        // Add repo_id to isolate jobs from different repos.
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
-                                    label + "__" + createTimeStr).normalize();
+                                    "repo__" + repoId, label + "__" + createTimeStr).normalize();
 
         try {
             // 1. create local job dir of this backup job
@@ -708,7 +756,9 @@ public class BackupJob extends AbstractJob {
             }
             jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
                     getContent(), backupMeta, snapshotInfos, tableCommitSeqMap);
-            LOG.debug("job info: {}. {}", jobInfo, this);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("job info: {}. {}", jobInfo, this);
+            }
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
                 status = new Status(ErrCode.COMMON_ERROR, "Failed to create job info file: " + jobInfoFile.toString());
@@ -1014,4 +1064,3 @@ public class BackupJob extends AbstractJob {
         return sb.toString();
     }
 }
-

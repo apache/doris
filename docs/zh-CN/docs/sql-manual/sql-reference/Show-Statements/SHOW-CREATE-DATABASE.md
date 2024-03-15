@@ -32,7 +32,7 @@ SHOW CREATE DATABASE
 
 ### Description
 
-该语句查看doris数据库的创建情况。
+该语句查看 doris 内置数据库和 hms catalog 数据库的创建信息。
 
 语法：
 
@@ -42,7 +42,8 @@ SHOW CREATE DATABASE db_name;
 
 说明：
 
-- `db_name`: 为doris存在的数据库名称。
+- `db_name`: 为 内置数据库或 hms catalog 数据库的名称。
+- 如果查看 hms catalog 内数据库，返回信息和 hive 中同名命令结果一样。
 
 ### Example
 
@@ -57,7 +58,17 @@ SHOW CREATE DATABASE db_name;
    +----------+------------------------+
    1 row in set (0.00 sec)
    ```
+2. 查看 hive catalog 中数据库hdfs_text的创建信息
 
+    ```sql
+    mysql> show create database hdfs_text;                                                                                     
+    +-----------+------------------------------------------------------------------------------------+                         
+    | Database  | Create Database                                                                    |                         
+    +-----------+------------------------------------------------------------------------------------+                         
+    | hdfs_text | CREATE DATABASE `hdfs_text` LOCATION 'hdfs://HDFS1009138/hive/warehouse/hdfs_text' |                         
+    +-----------+------------------------------------------------------------------------------------+                         
+    1 row in set (0.01 sec)  
+    ```
 ### Keywords
 
     SHOW, CREATE, DATABASE

@@ -39,11 +39,17 @@ services:
       - ./init:/docker-entrypoint-initdb.d
     networks:
       - doris--mariadb
-  hello-world:
+  doris--mariadb-hello-world:
     image: hello-world
     depends_on:
       doris--mariadb:
         condition: service_healthy 
+    networks:
+      - doris--mariadb
 
 networks:
   doris--mariadb:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.39.0.0/24

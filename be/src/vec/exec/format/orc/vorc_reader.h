@@ -65,7 +65,7 @@ template <typename T>
 class ColumnVector;
 template <typename T>
 class DataTypeDecimal;
-template <typename T>
+template <DecimalNativeTypeConcept T>
 struct Decimal;
 } // namespace vectorized
 } // namespace doris
@@ -130,7 +130,8 @@ public:
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
-              io::IOContext* io_ctx, bool enable_lazy_mat = true);
+              io::IOContext* io_ctx, bool enable_lazy_mat = true,
+              std::vector<orc::TypeKind>* unsupported_pushdown_types = nullptr);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat = true);
@@ -191,16 +192,16 @@ public:
 
 private:
     struct OrcProfile {
-        RuntimeProfile::Counter* read_time;
-        RuntimeProfile::Counter* read_calls;
-        RuntimeProfile::Counter* read_bytes;
+        RuntimeProfile::Counter* read_time = nullptr;
+        RuntimeProfile::Counter* read_calls = nullptr;
+        RuntimeProfile::Counter* read_bytes = nullptr;
         RuntimeProfile::Counter* column_read_time;
-        RuntimeProfile::Counter* get_batch_time;
-        RuntimeProfile::Counter* create_reader_time;
-        RuntimeProfile::Counter* init_column_time;
-        RuntimeProfile::Counter* set_fill_column_time;
-        RuntimeProfile::Counter* decode_value_time;
-        RuntimeProfile::Counter* decode_null_map_time;
+        RuntimeProfile::Counter* get_batch_time = nullptr;
+        RuntimeProfile::Counter* create_reader_time = nullptr;
+        RuntimeProfile::Counter* init_column_time = nullptr;
+        RuntimeProfile::Counter* set_fill_column_time = nullptr;
+        RuntimeProfile::Counter* decode_value_time = nullptr;
+        RuntimeProfile::Counter* decode_null_map_time = nullptr;
     };
 
     class ORCFilterImpl : public orc::ORCFilter {
@@ -213,7 +214,7 @@ private:
         }
 
     private:
-        OrcReader* orcReader;
+        OrcReader* orcReader = nullptr;
     };
 
     class StringDictFilterImpl : public orc::StringDictFilter {
@@ -235,7 +236,7 @@ private:
         }
 
     private:
-        OrcReader* _orc_reader;
+        OrcReader* _orc_reader = nullptr;
     };
 
     // Create inner orc file,
@@ -247,7 +248,8 @@ private:
     Status _init_read_columns();
     void _init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
                         std::vector<std::string>& orc_cols_lower_case,
-                        std::unordered_map<std::string, const orc::Type*>& type_map);
+                        std::unordered_map<std::string, const orc::Type*>& type_map,
+                        bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
     TypeDescriptor _convert_to_doris_type(const orc::Type* orc_type);
@@ -287,7 +289,7 @@ private:
         if (scale_params.scale_type != DecimalScaleParams::NOT_INIT) {
             return;
         }
-        auto* decimal_type = reinterpret_cast<DataTypeDecimal<Decimal<DecimalPrimitiveType>>*>(
+        auto* decimal_type = reinterpret_cast<DataTypeDecimal<DecimalPrimitiveType>*>(
                 const_cast<IDataType*>(remove_nullable(data_type).get()));
         auto dest_scale = decimal_type->get_scale();
         if (dest_scale > orc_decimal_scale) {
@@ -324,7 +326,7 @@ private:
 
         auto* cvb_data = data->values.data();
         auto& column_data =
-                static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*data_column).get_data();
+                static_cast<ColumnDecimal<DecimalPrimitiveType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
 
@@ -483,6 +485,22 @@ private:
     int64_t get_remaining_rows() { return _remaining_rows; }
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
+    // check if the given name is like _col0, _col1, ...
+    static bool inline _is_hive1_col_name(const std::string& name) {
+        if (name.size() <= 4) {
+            return false;
+        }
+        if (name.substr(0, 4) != "_col") {
+            return false;
+        }
+        for (size_t i = 4; i < name.size(); ++i) {
+            if (!isdigit(name[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 private:
     // This is only for count(*) short circuit read.
     // save the total number of rows in range
@@ -509,8 +527,9 @@ private:
     // This is used for Hive 1.x which use internal column name in Orc file.
     // _col0, _col1...
     std::unordered_map<std::string, std::string> _removed_acid_file_col_name_to_schema_col;
-    // Flag for hive engine. True if the external table engine is Hive.
-    bool _is_hive = false;
+    // Flag for hive engine. True if the external table engine is Hive1.x with orc col name
+    // as _col1, col2, ...
+    bool _is_hive1_orc = false;
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
@@ -527,7 +546,7 @@ private:
 
     std::shared_ptr<io::FileSystem> _file_system;
 
-    io::IOContext* _io_ctx;
+    io::IOContext* _io_ctx = nullptr;
     bool _enable_lazy_mat = true;
 
     std::vector<DecimalScaleParams> _decimal_scale_params;
@@ -535,15 +554,15 @@ private:
 
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     bool _is_acid = false;
-    std::unique_ptr<IColumn::Filter> _filter = nullptr;
+    std::unique_ptr<IColumn::Filter> _filter;
     LazyReadContext _lazy_read_ctx;
     const TransactionalHiveReader::AcidRowIDSet* _delete_rows = nullptr;
-    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr = nullptr;
+    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
 
-    const TupleDescriptor* _tuple_descriptor;
-    const RowDescriptor* _row_descriptor;
+    const TupleDescriptor* _tuple_descriptor = nullptr;
+    const RowDescriptor* _row_descriptor = nullptr;
     VExprContextSPtrs _not_single_slot_filter_conjuncts;
-    const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
+    const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;
@@ -551,6 +570,9 @@ private:
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::shared_ptr<ObjectPool> _obj_pool;
     std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
+    bool _is_dict_cols_converted;
+    bool _has_complex_type = false;
+    std::vector<orc::TypeKind>* _unsupported_pushdown_types;
 };
 
 class ORCFileInputStream : public orc::InputStream {
@@ -583,9 +605,9 @@ private:
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
     // Owned by OrcReader
-    OrcReader::Statistics* _statistics;
-    const io::IOContext* _io_ctx;
-    RuntimeProfile* _profile;
+    OrcReader::Statistics* _statistics = nullptr;
+    const io::IOContext* _io_ctx = nullptr;
+    RuntimeProfile* _profile = nullptr;
 };
 
 } // namespace doris::vectorized

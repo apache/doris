@@ -26,10 +26,13 @@ Use doris compose to create doris docker compose clusters.
 1. The doris image should contains:
 
 ```
-/opt/apache-doris/{fe, be}
+/opt/apache-doris/{fe, be, cloud}
 ```
 
-if build doris use `sh build.sh`, then its output satisfy with this, then run command in doris root
+if don't create cloud cluster, the image no need to contains the cloud pkg.
+
+
+if build doris use `sh build.sh --fe --be --cloud`, then its output satisfy with all above, then run command in doris root
 
 ```
 docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
@@ -52,12 +55,28 @@ python -m pip install --user -r docker/runtime/doris-compose/requirements.txt
 python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?> 
     --add-fe-num  <add-fe-num>  --add-be-num <add-be-num>
     --fe-id <fd-id> --be-id <be-id>
-
+    ...
+    [ --cloud ]
 ```
 
 if it's a new cluster, must specific the image.
 
 add fe/be nodes with the specific image, or update existing nodes with `--fe-id`, `--be-id`
+
+
+For create a cloud cluster, steps are as below:
+1. Write cloud s3 store config file, its default path is '/tmp/doris/cloud.ini'.
+   It's defined in environment variable DORIS_CLOUD_CFG_FILE, user can change this env var to change its path.
+   A Example file is locate in 'docker/runtime/doris-compose/resource/cloud.ini.example'.
+2. Use doris compose up command with option '--cloud' to create a new cloud cluster.
+
+The simplest way to create a cloud cluster:
+
+```
+python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>  <image>  --cloud
+```
+
+It will create 1 fdb, 1 meta service server, 1 recycler, 3 fe and 3 be.
 
 ### Remove node from the cluster
 
@@ -83,14 +102,12 @@ python docker/runtime/doris-compose/doris-compose.py restart  <cluster-name>  --
 ### List doris cluster
 
 ```
-python docker/runtime/doris-compose/doris-compose.py ls <-a>  <multiple cluster names>
+python docker/runtime/doris-compose/doris-compose.py ls <multiple cluster names>
 ```
 
 if specific cluster names, it will list all the cluster's nodes.
 
-Otherwise it will just list summary of each clusters. If not specific -a, it will list only active clusters. 
-
-If specific `-a`, it will list the unactive clusters too.
+Otherwise it will just list summary of each clusters.
 
 There are more options about doris-compose. Just try 
 
@@ -98,5 +115,11 @@ There are more options about doris-compose. Just try
 python docker/runtime/doris-compose/doris-compose.py  <command> -h 
 ```
 
+### Generate regression custom conf file
 
+```
+python docker/runtime/doris-compose/doris-compose.py config <cluster-name>
+```
+
+Generate regression-conf-custom.groovy to connect to the specific docker cluster.
 

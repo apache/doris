@@ -45,25 +45,23 @@ namespace doris::vectorized {
 class DataTypeIPv6 final : public DataTypeNumberBase<IPv6> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::IPv6; }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::IPV6;
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_IPV6);
+    }
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_IPV6;
     }
     const char* get_family_name() const override { return "IPv6"; }
     std::string do_get_name() const override { return "IPv6"; }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    static std::string convert_ipv6_to_string(IPv6 ipv6);
-    static bool convert_string_to_ipv6(IPv6& x, std::string ipv6);
-
     Field get_field(const TExprNode& node) const override {
         IPv6 value;
-        if (!convert_string_to_ipv6(value, node.ipv6_literal.value)) {
+        if (!IPv6Value::from_string(value, node.ipv6_literal.value)) {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type IPv6", node.ipv6_literal.value);
         }

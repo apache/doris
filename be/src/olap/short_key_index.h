@@ -123,7 +123,7 @@ public:
     ssize_t ordinal() const { return _ordinal; }
 
 private:
-    const ShortKeyIndexDecoder* _decoder;
+    const ShortKeyIndexDecoder* _decoder = nullptr;
     ssize_t _ordinal;
 };
 

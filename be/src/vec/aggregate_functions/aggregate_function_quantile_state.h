@@ -22,7 +22,6 @@
 #include <memory>
 #include <string>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/quantile_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -112,7 +111,7 @@ public:
         return std::make_shared<DataTypeQuantileState>();
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (arg_is_nullable) {
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);

@@ -21,7 +21,7 @@ suite("test_agg_state_max") {
     sql """
             create table a_table(
             k1 int not null,
-            k2 agg_state max(int not null)
+            k2 agg_state<max(int not null)> generic
         )
         aggregate key (k1)
         distributed BY hash(k1)
@@ -30,7 +30,7 @@ suite("test_agg_state_max") {
 
     test {
         sql "insert into a_table values(100,max_state(null));"
-        exception "State function meet input nullable column"
+        exception "which is illegal for non_nullable"
     }
 
     sql """insert into a_table
@@ -60,7 +60,7 @@ suite("test_agg_state_max") {
     sql """
             create table a_table2(
             k1 int not null,
-            k2 agg_state max(int null)
+            k2 agg_state<max(int null)> generic
         )
         aggregate key (k1)
         distributed BY hash(k1)

@@ -28,6 +28,7 @@ namespace doris::vectorized {
 
 void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
@@ -60,6 +61,9 @@ void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -100,7 +104,12 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_replace_reader_load(instance);
         register_aggregate_function_window_lead_lag_first_last(instance);
         register_aggregate_function_HLL_union_agg(instance);
-        register_aggregate_function_percentile_approx(instance);
+
+        register_aggregate_functions_corr(instance);
+        register_aggregate_function_covar_pop(instance);
+        register_aggregate_function_covar_samp(instance);
+
+        register_aggregate_function_combinator_foreach(instance);
     });
     return instance;
 }

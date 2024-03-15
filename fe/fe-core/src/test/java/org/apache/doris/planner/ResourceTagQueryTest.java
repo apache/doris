@@ -192,11 +192,11 @@ public class ResourceTagQueryTest {
                 + ")\n"
                 + "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
-        Assert.assertEquals(1, userTags.size());
+        Assert.assertEquals(0, userTags.size());
 
         // set default tag for root
         String setPropStr = "set property for 'root' 'resource_tags.location' = 'default';";
@@ -225,7 +225,7 @@ public class ResourceTagQueryTest {
         Assert.assertTrue(connectContext.isResourceTagsSet());
         queryStr = "explain select * from test.tbl1";
         String error = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(error.contains("have no queryable replicas"));
+        Assert.assertTrue(error.contains("no queryable replicas"));
 
         // set [0, 1, 2] backends' tag to zone1, so that at least 1 replica can be queried.
         // set tag for all backends. 0-2 to zone1, 4 and 5 to zone2
@@ -280,7 +280,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(10, userProps.size());
+        Assert.assertEquals(12, userProps.size());
 
         // now :
         // be1 be2 be3 ==>tag1;
@@ -306,7 +306,7 @@ public class ResourceTagQueryTest {
                 .parseAndAnalyzeStmt(alterDbStmtStr, connectContext);
         Env.getCurrentEnv().alterDatabaseProperty(alterDbStmt);
         ExceptionChecker.expectThrowsNoException(() -> createTable(createTableStr2));
-        Database propDb = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test_prop");
+        Database propDb = Env.getCurrentInternalCatalog().getDbNullable("test_prop");
         OlapTable tbl2 = (OlapTable) propDb.getTableNullable("tbl2");
         // should same with db
         Map<Tag, Short> tbl2ExpectedAllocMap = Maps.newHashMap();
@@ -320,7 +320,7 @@ public class ResourceTagQueryTest {
         queryStr = "explain select * from test_prop.tbl2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("have no queryable replicas"));
+        Assert.assertTrue(explainString.contains("no queryable replicas"));
 
         // The priority of table is higher than db,should same with table
         String createTableStr3 = "create table test_prop.tbl3\n"

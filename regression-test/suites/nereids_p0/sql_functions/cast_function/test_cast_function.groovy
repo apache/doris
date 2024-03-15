@@ -24,7 +24,12 @@ suite("test_cast_function") {
     qt_sql """ select cast ("0.0000031417" as datetime) """
     qt_sql """ select cast (NULL AS CHAR(1)); """
     qt_sql """ select cast ('20190101' AS CHAR(2)); """
-    qt_sql """ select cast ('1.23' AS int); """
+    qt_sql """ select cast(cast(10000.00001 as double) as string); """
+    qt_sql """ select cast('123.123' as float); """
     qt_sql_null_cast_bitmap """ select cast (case when BITMAP_EMPTY() is NULL then null else null end as bitmap) is NULL; """
+    qt_sql_to_tiny """ select cast('1212.31' as tinyint);""" 
+    qt_sql_to_small """ select cast('1212.31' as smallint);""" 
+    qt_sql_to_int """ select cast('1212.31' as int);""" 
+    qt_sql_to_big """ select cast('1212.31' as bigint);""" 
 }
 

@@ -130,7 +130,7 @@ bool init_glog(const char* basename) {
     }
 
     // set verbose modules.
-    FLAGS_v = -1;
+    FLAGS_v = config::sys_log_verbose_flags_v;
     std::vector<std::string>& verbose_modules = config::sys_log_verbose_modules;
     int32_t vlog_level = config::sys_log_verbose_level;
     for (size_t i = 0; i < verbose_modules.size(); i++) {
@@ -149,6 +149,22 @@ bool init_glog(const char* basename) {
 void shutdown_logging() {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
     google::ShutdownGoogleLogging();
+}
+
+void update_logging(const std::string& name, const std::string& value) {
+    if ("sys_log_level" == name) {
+        if (iequals(value, "INFO")) {
+            FLAGS_minloglevel = 0;
+        } else if (iequals(value, "WARNING")) {
+            FLAGS_minloglevel = 1;
+        } else if (iequals(value, "ERROR")) {
+            FLAGS_minloglevel = 2;
+        } else if (iequals(value, "FATAL")) {
+            FLAGS_minloglevel = 3;
+        } else {
+            LOG(WARNING) << "update sys_log_level failed, need to be INFO, WARNING, ERROR, FATAL";
+        }
+    }
 }
 
 } // namespace doris

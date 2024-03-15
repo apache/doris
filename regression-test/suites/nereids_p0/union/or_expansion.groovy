@@ -19,12 +19,14 @@ suite("or_expansion") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_pipeline_engine = true"
+    
     sql "drop table if exists oe1"
     sql "drop table if exists oe2"
     sql """
         CREATE TABLE IF NOT EXISTS oe1 (
             k0 bigint,
-            k1 bigint
+            k1 bigint,
+            k2 bigint
         )
         DUPLICATE KEY(k0)
         DISTRIBUTED BY HASH(k0) BUCKETS 1
@@ -36,7 +38,8 @@ suite("or_expansion") {
     sql """
         CREATE TABLE IF NOT EXISTS oe2 (
             k0 bigint,
-            k1 bigint
+            k1 bigint,
+            k2 bigint
         )
         DUPLICATE KEY(k0)
         DISTRIBUTED BY HASH(k0) BUCKETS 1
@@ -57,47 +60,63 @@ suite("or_expansion") {
     sql """
     alter table oe2 modify column k1 set stats ('row_count'='1000', 'ndv'='1000', 'min_value'='1000', 'max_value'='2000', 'avg_size'='1000', 'max_size'='1000' )
     """
+    sql """
+    alter table oe1 modify column k2 set stats ('row_count'='1000', 'ndv'='1000', 'min_value'='1000', 'max_value'='2000', 'avg_size'='1000', 'max_size'='1000' )
+    """
+    sql """
+    alter table oe2 modify column k2 set stats ('row_count'='1000', 'ndv'='1000', 'min_value'='1000', 'max_value'='2000', 'avg_size'='1000', 'max_size'='1000' )
+    """
 
-    explain {
-        sql("""
-            select oe1.k0, oe2.k0
-            from oe1 inner join oe2
-            on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
-        """)
-        contains "VHASH JOIN"
-    }
+    // explain {
+    //     sql("""
+    //         select oe1.k0, oe2.k0
+    //         from oe1 inner join oe2
+    //         on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+    //     """)
+    //     contains "VHASH JOIN"
+    // }
 
-    explain {
-        sql("""
-            select oe1.k0
-            from oe1 left anti join oe2
-            on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
-        """)
-        contains "VHASH JOIN"
-    }
+    // explain {
+    //     sql("""
+    //         select oe1.k0
+    //         from oe1 left anti join oe2
+    //         on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+    //     """)
+    //     contains "VHASH JOIN"
+    // }
 
-    explain {
-        sql("""
-            select oe1.k0, oe2.k0
-            from oe1 left outer join oe2
-            on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
-        """)
-        contains "VHASH JOIN"
-    }
+    // explain {
+    //     sql("""
+    //         select oe1.k0, oe2.k0
+    //         from oe1 left outer join oe2
+    //         on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+    //     """)
+    //     contains "VHASH JOIN"
+    // }
 
-    explain {
-        sql("""
-            select oe1.k0, oe2.k0
-            from oe1 full outer join oe2
-            on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
-        """)
-        contains "VHASH JOIN"
-    }
+    // explain {
+    //     sql("""
+    //         select oe1.k0, oe2.k0
+    //         from oe1 full outer join oe2
+    //         on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+    //     """)
+    //     contains "VHASH JOIN"
+    // }
 
     for (int i = 0; i < 10; i++) {
-        sql "insert into oe1 values(${i}, ${i})"
-        sql "insert into oe2 values(${i+20}, ${i+20})"
+        sql "insert into oe1 values(${i}, ${i}, ${i})"
+        sql "insert into oe2 values(${i+20}, ${i+20}, ${i+20})"
     }
+    sql "insert into oe1 values(1, 1, 1)"
+    sql "insert into oe1 values(null, null, null)"
+    sql "insert into oe1 values(null, 1, 1)"
+    sql "insert into oe1 values(1, null, null)"
+    sql "insert into oe1 values(null, null, 1)"
+    sql "insert into oe2 values(1, 1, 1)"
+    sql "insert into oe2 values(null, null, null)"
+    sql "insert into oe2 values(null, 1, 1)"
+    sql "insert into oe2 values(1, null, null)"
+    sql "insert into oe2 values(null, null, 1)"
 
     qt_order_ij """
         select oe1.k0, oe2.k0
@@ -124,6 +143,61 @@ suite("or_expansion") {
             select oe1.k0, oe2.k0
             from oe1 full outer join oe2
             on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+            order by oe2.k0, oe1.k0
+        """
+
+    qt_order_ij_multi_cond """
+        select oe1.k0, oe2.k0
+        from oe1 inner join oe2
+        on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) and oe1.k2 = oe2.k2
+        order by oe2.k0, oe1.k0
+    """
+
+    qt_order_laj_multi_cond """
+            select oe1.k0
+            from oe1 left anti join oe2
+            on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) and oe1.k2 = oe2.k2
+            order by oe1.k0
+        """
+
+    qt_order_loj_multi_cond """
+            select oe1.k0, oe2.k0
+            from oe1 left outer join oe2
+            on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) and oe1.k2 = oe2.k2
+            order by oe2.k0, oe1.k0
+        """
+
+    qt_order_foj_multi_cond """
+            select oe1.k0, oe2.k0
+            from oe1 full outer join oe2
+            on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) and oe1.k2 = oe2.k2
+            order by oe2.k0, oe1.k0
+        """
+    
+    qt_order_loj_unary_cond """
+            select oe1.k0, oe2.k0
+            from oe1 left outer join oe2
+            on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) and oe1.k2 = 1
+            order by oe2.k0, oe1.k0
+        """
+
+    qt_order_foj_unary_cond """
+            select oe1.k0, oe2.k0
+            from oe1 full outer join oe2
+            on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) and oe1.k2 = 1
+            order by oe2.k0, oe1.k0
+        """
+    qt_order_loj_unary_cond """
+            select oe1.k0, oe2.k0
+            from oe1 left outer join oe2
+            on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) or oe1.k2 = 1
+            order by oe2.k0, oe1.k0
+        """
+
+    qt_order_foj_unary_cond """
+            select oe1.k0, oe2.k0
+            from oe1 full outer join oe2
+            on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) or oe1.k2 = 1
             order by oe2.k0, oe1.k0
         """
 }

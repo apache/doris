@@ -21,19 +21,24 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
-
-#include "agent/topic_subscriber.h"
 
 namespace doris {
 
+class TaskWorkerPoolIf;
 class TaskWorkerPool;
+class PriorTaskWorkerPool;
+class ReportWorker;
+class TopicSubscriber;
 class ExecEnv;
 class TAgentPublishRequest;
 class TAgentResult;
 class TAgentTaskRequest;
 class TMasterInfo;
 class TSnapshotRequest;
+class StorageEngine;
+class CloudStorageEngine;
 
 // Each method corresponds to one RPC from FE Master, see BackendService.
 class AgentServer {
@@ -41,12 +46,12 @@ public:
     explicit AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info);
     ~AgentServer();
 
+    void start_workers(StorageEngine& engine, ExecEnv* exec_env);
+
+    void cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_env);
+
     // Receive agent task from FE master
     void submit_tasks(TAgentResult& agent_result, const std::vector<TAgentTaskRequest>& tasks);
-
-    // TODO(lingbin): make the agent_result to be a pointer, because it will be modified.
-    void make_snapshot(TAgentResult& agent_result, const TSnapshotRequest& snapshot_request);
-    void release_snapshot(TAgentResult& agent_result, const std::string& snapshot_path);
 
     // Deprecated
     // TODO(lingbin): This method is deprecated, should be removed later.
@@ -56,43 +61,16 @@ public:
     TopicSubscriber* get_topic_subscriber() { return _topic_subscriber.get(); }
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(AgentServer);
-
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
 
-    std::unique_ptr<TaskWorkerPool> _create_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _drop_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _push_load_workers;
-    std::unique_ptr<TaskWorkerPool> _publish_version_workers;
-    std::unique_ptr<TaskWorkerPool> _clear_transaction_task_workers;
-    std::unique_ptr<TaskWorkerPool> _push_delete_workers;
-    std::unique_ptr<TaskWorkerPool> _alter_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _alter_inverted_index_workers;
-    std::unique_ptr<TaskWorkerPool> _push_cooldown_conf_workers;
-    std::unique_ptr<TaskWorkerPool> _clone_workers;
-    std::unique_ptr<TaskWorkerPool> _storage_medium_migrate_workers;
-    std::unique_ptr<TaskWorkerPool> _check_consistency_workers;
+    std::unordered_map<int64_t /* TTaskType */, std::unique_ptr<TaskWorkerPoolIf>> _workers;
 
-    // These 3 worker-pool do not accept tasks from FE.
-    // It is self triggered periodically and reports to Fe master
-    std::unique_ptr<TaskWorkerPool> _report_task_workers;
-    std::unique_ptr<TaskWorkerPool> _report_disk_state_workers;
-    std::unique_ptr<TaskWorkerPool> _report_tablet_workers;
+    // These workers do not accept tasks from FE.
+    // It is self triggered periodically and reports to FE master
+    std::vector<std::unique_ptr<ReportWorker>> _report_workers;
 
-    std::unique_ptr<TaskWorkerPool> _upload_workers;
-    std::unique_ptr<TaskWorkerPool> _download_workers;
-    std::unique_ptr<TaskWorkerPool> _make_snapshot_workers;
-    std::unique_ptr<TaskWorkerPool> _release_snapshot_workers;
-    std::unique_ptr<TaskWorkerPool> _move_dir_workers;
-    std::unique_ptr<TaskWorkerPool> _recover_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _update_tablet_meta_info_workers;
-
-    std::unique_ptr<TaskWorkerPool> _submit_table_compaction_workers;
-
-    std::unique_ptr<TaskWorkerPool> _push_storage_policy_workers;
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
-    std::unique_ptr<TaskWorkerPool> _gc_binlog_workers;
 };
 
 } // end namespace doris

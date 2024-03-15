@@ -115,7 +115,7 @@ suite("test_group_concat") {
               """
 
     sql """create view if not exists test_view as SELECT b1, group_concat(cast(abs(b3) as varchar) order by abs(b2) desc, b3 desc) FROM table_group_concat  group by b1 order by b1;"""
-    qt_select_group_concat_order_by_desc4 """
+    order_qt_select_group_concat_order_by_desc4 """
                 select * from test_view;
     """
     sql """drop view if exists test_view"""

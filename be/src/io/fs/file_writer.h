@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/path.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -34,6 +35,8 @@ struct FileWriterOptions {
     bool is_cold_data = false;
     bool sync_file_data = true;        // Whether flush data into storage system
     int64_t file_cache_expiration = 0; // Absolute time
+    // Whether to create empty file if no content
+    bool create_empty_file = true;
 };
 
 class FileWriter {
@@ -45,17 +48,15 @@ public:
 
     DISALLOW_COPY_AND_ASSIGN(FileWriter);
 
+    // Open the file for writing.
+    virtual Status open() { return Status::OK(); }
+
     // Normal close. Wait for all data to persist before returning.
     virtual Status close() = 0;
-
-    // Abnormal close and remove this file.
-    virtual Status abort() = 0;
 
     Status append(const Slice& data) { return appendv(&data, 1); }
 
     virtual Status appendv(const Slice* data, size_t data_cnt) = 0;
-
-    virtual Status write_at(size_t offset, const Slice& data) = 0;
 
     // Call this method when there is no more data to write.
     // FIXME(cyx): Does not seem to be an appropriate interface for file system?
@@ -75,6 +76,7 @@ protected:
     std::shared_ptr<FileSystem> _fs;
     bool _closed = false;
     bool _opened = false;
+    bool _create_empty_file = true;
 };
 
 using FileWriterPtr = std::unique_ptr<FileWriter>;

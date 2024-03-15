@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.analyzer.ComplexDataType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -33,10 +34,19 @@ import java.util.List;
 public interface IdenticalSignature extends ComputeSignature {
     /** isIdentical */
     static boolean isIdentical(DataType signatureType, DataType realType) {
+        return ComputeSignature.processComplexType(
+                signatureType, realType, IdenticalSignature::isPrimitiveIdentical);
+    }
+
+    /** isIdentical */
+    static boolean isPrimitiveIdentical(DataType signatureType, DataType realType) {
         try {
             // TODO: copy matchesType to DataType
             // TODO: resolve AnyDataType invoke toCatalogDataType
             if (signatureType instanceof AnyDataType || signatureType instanceof FollowToAnyDataType) {
+                return false;
+            }
+            if (signatureType instanceof ComplexDataType && !(realType instanceof ComplexDataType)) {
                 return false;
             }
             return realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());

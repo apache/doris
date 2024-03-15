@@ -22,10 +22,10 @@ package org.apache.doris.planner;
 
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.ProfileStatistics;
-import org.apache.doris.planner.external.odbc.OdbcTableSink;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.odbc.sink.OdbcTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TExplainLevel;
 
@@ -49,14 +49,6 @@ public abstract class DataSink {
      */
     public abstract String getExplainString(String prefix, TExplainLevel explainLevel);
 
-    public String getExplainStringToProfile(String prefix, TExplainLevel explainLevel, ProfileStatistics statistics,
-            int fragmentIdx) {
-        String dataSinkString = getExplainString(prefix, explainLevel);
-        StringBuilder expBuilder = new StringBuilder();
-        statistics.getDataSinkInfo(fragmentIdx, prefix + "  ", expBuilder);
-        return dataSinkString + "\n" + expBuilder.toString();
-    }
-
     protected abstract TDataSink toThrift();
 
     public void setFragment(PlanFragment fragment) {
@@ -71,11 +63,13 @@ public abstract class DataSink {
 
     public abstract DataPartition getOutputPartition();
 
-    public static DataSink createDataSink(Table table) throws AnalysisException {
+    public static DataSink createDataSink(TableIf table) throws AnalysisException {
         if (table instanceof MysqlTable) {
             return new MysqlTableSink((MysqlTable) table);
         } else if (table instanceof OdbcTable) {
             return new OdbcTableSink((OdbcTable) table);
+        } else if (table instanceof HMSExternalTable) {
+            return new HiveTableSink((HMSExternalTable) table);
         } else {
             throw new AnalysisException("Unknown table type " + table.getType());
         }

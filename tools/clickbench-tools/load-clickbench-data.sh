@@ -30,13 +30,18 @@ ROOT=$(
 
 CURDIR=${ROOT}
 DATA_DIR=$CURDIR/
-# DATA_DIR=/mnt/disk1/stephen/data/clickbench
 
 usage() {
     echo "
 This script is used to load ClickBench data, 
 will use mysql client to connect Doris server which is specified in conf/doris-cluster.conf file.
-Usage: $0 
+Usage: $0 <options>
+  Optional options:
+    -x              use transaction id. multi times of loading with the same id won't load duplicate data.
+
+  Eg.
+    $0              load data using default value.
+    $0 -x blabla    use transaction id \"blabla\".
   "
     exit 1
 }
@@ -44,11 +49,13 @@ Usage: $0
 OPTS=$(getopt \
     -n $0 \
     -o '' \
-    -o 'h' \
+    -o 'hx:' \
     -- "$@")
 eval set -- "$OPTS"
 
 HELP=0
+TXN_ID=""
+
 while true; do
     case "$1" in
     -h)
@@ -58,6 +65,10 @@ while true; do
     --)
         shift
         break
+        ;;
+    -x)
+        TXN_ID=$2
+        shift 2
         ;;
     *)
         echo "Internal error"
@@ -113,7 +124,6 @@ function load() {
         if [ ! -f "$DATA_DIR/hits_split${i}" ]; then
             echo "will download hits_split${i} to $DATA_DIR"
             wget --continue "https://doris-test-data.oss-cn-hongkong.aliyuncs.com/ClickBench/hits_split${i}" &
-            # wget --continue "https://doris-test-data.oss-cn-hongkong-internal.aliyuncs.com/ClickBench/hits_split${i}" &
             PID=$!
             wget_pids[${#wget_pids[@]}]=$PID
         fi
@@ -127,11 +137,20 @@ function load() {
     for i in $(seq 0 9); do
         echo -e "
         start loading hits_split${i}"
-        curl --location-trusted \
-            -u $USER:$PASSWORD \
-            -T "$DATA_DIR/hits_split${i}" \
-            -H "columns:WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
-            http://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
+        if [[ -z ${TXN_ID} ]]; then
+            curl --location-trusted \
+                -u $USER:$PASSWORD \
+                -T "$DATA_DIR/hits_split${i}" \
+                -H "columns:WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
+                http://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
+        else
+            curl --location-trusted \
+                -u $USER:$PASSWORD \
+                -T "$DATA_DIR/hits_split${i}" \
+                -H "label:${TXN_ID}_${i}" \
+                -H "columns:WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
+                http://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
+        fi
     done
 }
 

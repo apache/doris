@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -70,7 +71,7 @@ public class PlanTranslatorContext {
     private final DescriptorTable descTable = new DescriptorTable();
 
     private final RuntimeFilterTranslator translator;
-
+    private final TopnFilterContext topnFilterContext;
     /**
      * index from Nereids' slot to legacy slot.
      */
@@ -115,12 +116,14 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+        this.topnFilterContext = ctx.getTopnFilterContext();
     }
 
     @VisibleForTesting
     public PlanTranslatorContext() {
         this.connectContext = null;
         this.translator = null;
+        this.topnFilterContext = new TopnFilterContext();
     }
 
     /**
@@ -149,6 +152,10 @@ public class PlanTranslatorContext {
 
     public SessionVariable getSessionVariable() {
         return connectContext == null ? null : connectContext.getSessionVariable();
+    }
+
+    public ConnectContext getConnectContext() {
+        return connectContext;
     }
 
     public Set<ScanNode> getScanNodeWithUnknownColumnStats() {
@@ -183,6 +190,10 @@ public class PlanTranslatorContext {
         return Optional.ofNullable(translator);
     }
 
+    public TopnFilterContext getTopnFilterContext() {
+        return topnFilterContext;
+    }
+
     public PlanFragmentId nextFragmentId() {
         return fragmentIdGenerator.getNextId();
     }
@@ -208,9 +219,15 @@ public class PlanTranslatorContext {
         exprIdToColumnRef.put(exprId, columnRefExpr);
     }
 
+    /**
+     * merge source fragment info into target fragment.
+     * include runtime filter info and fragment attribute.
+     */
     public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
         srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
         srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
+        targetFragment.setHasColocatePlanNode(targetFragment.hasColocatePlanNode()
+                || srcFragment.hasColocatePlanNode());
         this.planFragments.remove(srcFragment);
     }
 
@@ -270,6 +287,11 @@ public class PlanTranslatorContext {
             slotDescriptor.setLabel(slotReference.getName());
         } else {
             slotRef = new SlotRef(slotDescriptor);
+            if (slotReference.hasSubColPath()) {
+                slotDescriptor.setSubColLables(slotReference.getSubColPath());
+                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName()
+                            + "." + String.join(".", slotReference.getSubColPath()));
+            }
         }
         slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());

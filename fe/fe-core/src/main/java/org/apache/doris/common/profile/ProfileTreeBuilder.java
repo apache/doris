@@ -56,7 +56,7 @@ public class ProfileTreeBuilder {
     private static final String PROFILE_NAME_VDATA_STREAM_SENDER = "VDataStreamSender";
     private static final String PROFILE_NAME_DATA_BUFFER_SENDER = "DataBufferSender";
     private static final String PROFILE_NAME_VDATA_BUFFER_SENDER = "VDataBufferSender";
-    private static final String PROFILE_NAME_OLAP_TABLE_SINK = "OlapTableSink";
+    private static final String PROFILE_NAME_VOLAP_TABLE_SINK = "VOlapTableSink";
     private static final String PROFILE_NAME_BLOCK_MGR = "BlockMgr";
     private static final String PROFILE_NAME_BUFFER_POOL = "Buffer pool";
     private static final String PROFILE_NAME_EXCHANGE_NODE = "EXCHANGE_NODE";
@@ -95,7 +95,8 @@ public class ProfileTreeBuilder {
 
     // Match string like:
     // Instance e0f7390f5363419e-b416a2a7999608b6
-    //   (host=TNetworkAddress(hostname:192.168.1.1, port:9060)):(Active: 1s858ms, % non-child: 0.02%)
+    // (host=TNetworkAddress(hostname:192.168.1.1, port:9060)):(Active: 1s858ms, %
+    // non-child: 0.02%)
     // Extract "e0f7390f5363419e-b416a2a7999608b6", "192.168.1.1", "9060"
     private static final String INSTANCE_PATTERN_STR = "^Instance (.*) \\(.*hostname:(.*), port:([0-9]+).*";
     private static final Pattern INSTANCE_PATTERN;
@@ -173,7 +174,8 @@ public class ProfileTreeBuilder {
     }
 
     private void analyzeAndBuildLoadChannel(RuntimeProfile loadChannelsProfil) throws UserException {
-        // TODO, `show load profile` add load channel profile, or add `show load channel profile`.
+        // TODO, `show load profile` add load channel profile, or add `show load channel
+        // profile`.
     }
 
     private void analyzeAndBuildFragmentTrees(RuntimeProfile fragmentsProfile) throws UserException {
@@ -209,7 +211,8 @@ public class ProfileTreeBuilder {
                 RuntimeProfile.printCounter(maxActiveTimeNs, TUnit.TIME_NS), instanceIdToInstance));
 
         // 2. Build tree for all fragments
-        //    All instance in a fragment are same, so use first instance to build the fragment tree
+        // All instance in a fragment are same, so use first instance to build the
+        // fragment tree
         RuntimeProfile instanceProfile = fragmentChildren.get(0).first;
         ProfileTreeNode instanceTreeRoot = buildSingleInstanceTree(instanceProfile, fragmentId, null);
         instanceTreeRoot.setMaxInstanceActiveTime(RuntimeProfile.printCounter(maxActiveTimeNs, TUnit.TIME_NS));
@@ -229,10 +232,11 @@ public class ProfileTreeBuilder {
         this.instanceTreeMap.put(fragmentId, instanceTrees);
     }
 
-    // If instanceId is null, which means this profile tree node is for building the entire fragment tree.
+    // If instanceId is null, which means this profile tree node is for building the
+    // entire fragment tree.
     // So that we need to add sender and exchange node to the auxiliary structure.
     private ProfileTreeNode buildSingleInstanceTree(RuntimeProfile instanceProfile, String fragmentId,
-                                                    String instanceId) throws UserException {
+            String instanceId) throws UserException {
         List<Pair<RuntimeProfile, Boolean>> instanceChildren = instanceProfile.getChildList();
         ProfileTreeNode senderNode = null;
         List<ProfileTreeNode> childrenNodes = Lists.newArrayList();
@@ -242,7 +246,7 @@ public class ProfileTreeBuilder {
                     || profile.getName().startsWith(PROFILE_NAME_VDATA_STREAM_SENDER)
                     || profile.getName().startsWith(PROFILE_NAME_VDATA_BUFFER_SENDER)
                     || profile.getName().startsWith(PROFILE_NAME_DATA_BUFFER_SENDER)
-                    || profile.getName().startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
+                    || profile.getName().startsWith(PROFILE_NAME_VOLAP_TABLE_SINK)) {
                 senderNode = buildTreeNode(profile, null, fragmentId, instanceId);
                 if (instanceId == null) {
                     senderNodes.add(senderNode);
@@ -257,8 +261,10 @@ public class ProfileTreeBuilder {
             }
         }
         if (senderNode == null || childrenNodes.isEmpty()) {
-            // FE will constantly update the total profile after receiving the instance profile reported by BE.
-            // Writing a profile will result in an empty instance profile until all instance profiles are received
+            // FE will constantly update the total profile after receiving the instance
+            // profile reported by BE.
+            // Writing a profile will result in an empty instance profile until all instance
+            // profiles are received
             // at least once.
             // Issue: https://github.com/apache/doris/issues/10095
             StringBuilder sb = new StringBuilder();
@@ -266,10 +272,10 @@ public class ProfileTreeBuilder {
             if (LOG.isDebugEnabled()) {
                 LOG.debug(
                         "Invalid instance profile, sender is null: {},"
-                        + "childrenNodes is empty: {}, instance profile: {}",
+                                + "childrenNodes is empty: {}, instance profile: {}",
                         (senderNode == null), childrenNodes.isEmpty(), sb.toString());
             }
-            throw new UserException("Invalid instance profile, without sender or exec node: " + instanceProfile);
+            throw new UserException("Invalid instance profile, without sender or exec node: \n" + instanceProfile);
         }
         for (ProfileTreeNode execNode : childrenNodes) {
             senderNode.addChild(execNode);
@@ -283,7 +289,7 @@ public class ProfileTreeBuilder {
     }
 
     private ProfileTreeNode buildTreeNode(RuntimeProfile profile, ProfileTreeNode root,
-                                          String fragmentId, String instanceId) {
+            String fragmentId, String instanceId) {
         String name = profile.getName();
         if (name.startsWith(PROFILE_NAME_BUFFER_POOL)) {
             // skip Buffer pool, and buffer pool does not has child
@@ -295,7 +301,8 @@ public class ProfileTreeBuilder {
         String extractId;
         if ((!m.find() && finalSenderName == null) || m.groupCount() != 2) {
             // DataStreamBuffer name like:
-            // "DataBufferSender (dst_fragment_instance_id=d95356f9219b4831-986b4602b41683ca):"
+            // "DataBufferSender
+            // (dst_fragment_instance_id=d95356f9219b4831-986b4602b41683ca):"
             // So it has no id.
             // Other profile should has id like:
             // EXCHANGE_NODE (id=3):(Active: 103.899ms, % non-child: 2.27%)
@@ -316,7 +323,7 @@ public class ProfileTreeBuilder {
         if (!profile.getInfoStrings().isEmpty()) {
             ArrayList<String> infoStrings = new ArrayList<String>();
             for (Map.Entry<String, String> entry : profile.getInfoStrings().entrySet()) {
-                infoStrings.add(entry.getKey() +  ": " + entry.getValue());
+                infoStrings.add(entry.getKey() + ": " + entry.getValue());
             }
             node.setInfoStrings(infoStrings);
         }
@@ -347,13 +354,14 @@ public class ProfileTreeBuilder {
         return node;
     }
 
-    // Check if the given node name is from final node, like DATA_BUFFER_SENDER or OLAP_TABLE_SINK
+    // Check if the given node name is from final node, like DATA_BUFFER_SENDER or
+    // OLAP_TABLE_SINK
     // If yes, return that name, if not, return null;
     private String checkAndGetFinalSenderName(String name) {
         if (name.startsWith(PROFILE_NAME_DATA_BUFFER_SENDER)) {
             return PROFILE_NAME_DATA_BUFFER_SENDER;
-        } else if (name.startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
-            return PROFILE_NAME_OLAP_TABLE_SINK;
+        } else if (name.startsWith(PROFILE_NAME_VOLAP_TABLE_SINK)) {
+            return PROFILE_NAME_VOLAP_TABLE_SINK;
         } else if (name.startsWith(PROFILE_NAME_VDATA_BUFFER_SENDER)) {
             return PROFILE_NAME_VDATA_BUFFER_SENDER;
         } else {

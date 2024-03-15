@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
@@ -36,6 +38,7 @@ import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -54,6 +57,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class BinlogManager {
     private static final int BUFFER_SIZE = 16 * 1024;
+    private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("Name")
+            .add("Type").add("Id").add("Dropped").add("BinlogLength").add("FirstBinlogCommittedTime")
+            .add("ReadableFirstBinlogCommittedTime").add("LastBinlogCommittedTime")
+            .add("ReadableLastBinlogCommittedTime").add("BinlogTtlSeconds")
+            .build();
 
     private static final Logger LOG = LogManager.getLogger(BinlogManager.class);
 
@@ -213,7 +221,8 @@ public class BinlogManager {
         tableIds.add(alterJob.getTableId());
         long timestamp = -1;
         TBinlogType type = TBinlogType.ALTER_JOB;
-        String data = alterJob.toJson();
+        AlterJobRecord alterJobRecord = new AlterJobRecord(alterJob);
+        String data = alterJobRecord.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
@@ -303,7 +312,8 @@ public class BinlogManager {
         tableIds.add(info.getTblId());
         long timestamp = -1;
         TBinlogType type = TBinlogType.TRUNCATE_TABLE;
-        String data = info.toJson();
+        TruncateTableRecord record = new TruncateTableRecord(info);
+        String data = record.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
@@ -387,6 +397,10 @@ public class BinlogManager {
         for (BinlogTombstone tombstone : binlogGcInfo.getTombstones()) {
             long dbId = tombstone.getDbId();
             DBBinlog dbBinlog = gcDbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                LOG.warn("dbBinlog not found. dbId: {}", dbId);
+                continue;
+            }
             dbBinlog.replayGc(tombstone);
         }
     }
@@ -457,10 +471,22 @@ public class BinlogManager {
         int length = dis.readInt();
         byte[] data = new byte[length];
         dis.readFully(data);
-        TMemoryInputTransport transport = new TMemoryInputTransport(data);
+        Boolean isLargeBinlog = length > 8 * 1024 * 1024;
+        if (isLargeBinlog) {
+            LOG.info("a large binlog length {}", length);
+        }
+
+        TMemoryInputTransport transport = new TMemoryInputTransport();
+        transport.getConfiguration().setMaxMessageSize(Config.max_binlog_messsage_size);
+        transport.reset(data);
+
         TBinaryProtocol protocol = new TBinaryProtocol(transport);
         TBinlog binlog = new TBinlog();
         binlog.read(protocol);
+
+        if (isLargeBinlog) {
+            LOG.info("a large binlog length {} type {}", length, binlog.type);
+        }
         return binlog;
     }
 
@@ -529,6 +555,22 @@ public class BinlogManager {
         }
 
         return checksum;
+    }
+
+    public ProcResult getBinlogInfo() {
+        BaseProcResult result = new BaseProcResult();
+        result.setNames(TITLE_NAMES);
+
+        lock.readLock().lock();
+        try {
+            for (DBBinlog dbBinlog : dbBinlogMap.values()) {
+                dbBinlog.getBinlogInfo(result);
+            }
+        } finally {
+            lock.readLock().unlock();
+        }
+
+        return result;
     }
 
     // remove DB

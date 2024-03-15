@@ -56,22 +56,20 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
     return Status::OK();
 }
 
-Status VExplodeTableFunction::process_row(size_t row_idx) {
+void VExplodeTableFunction::process_row(size_t row_idx) {
     DCHECK(row_idx < _array_column->size());
-    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+    TableFunction::process_row(row_idx);
 
     if (!_detail.array_nullmap_data || !_detail.array_nullmap_data[row_idx]) {
         _array_offset = (*_detail.offsets_ptr)[row_idx - 1];
         _cur_size = (*_detail.offsets_ptr)[row_idx] - _array_offset;
     }
-    return Status::OK();
 }
 
-Status VExplodeTableFunction::process_close() {
+void VExplodeTableFunction::process_close() {
     _array_column = nullptr;
     _detail.reset();
     _array_offset = 0;
-    return Status::OK();
 }
 
 void VExplodeTableFunction::get_value(MutableColumnPtr& column) {

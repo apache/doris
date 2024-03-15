@@ -66,6 +66,10 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     // construct the proper function_name
     std::string head(_is_not_in ? "not_" : "");
     std::string real_function_name = head + std::string(function_name);
+    auto arg_type = remove_nullable(argument_template[0].type);
+    if (is_struct(arg_type) || is_array(arg_type) || is_map(arg_type)) {
+        real_function_name = "collection_" + real_function_name;
+    }
     _function = SimpleFunctionFactory::instance().get_function(real_function_name,
                                                                argument_template, _data_type);
     if (_function == nullptr) {
@@ -73,11 +77,13 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
 
     VExpr::register_function_context(state, context);
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VInPredicate::open(RuntimeState* state, VExprContext* context,
                           FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->open(state, context, scope));
     }
@@ -85,6 +91,7 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -94,6 +101,10 @@ void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateSc
 }
 
 Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return get_result_from_const(block, _expr_name, result_column_id);
+    }
+    DCHECK(_open_finished || _getting_const_col);
     // TODO: not execute const expr again, but use the const column in function context
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {

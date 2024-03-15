@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -48,6 +50,8 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 
+import java.util.Collections;
+
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     // for a join, skew = leftRowCount/rightRowCount
@@ -56,17 +60,23 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
+    static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
     private final int beNumber;
+    private final int parallelInstance;
 
     public CostModelV1(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         if (sessionVariable.isPlayNereidsDump()) {
             // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
             beNumber = 1;
+            parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
         } else if (sessionVariable.getBeNumberForTest() != -1) {
+            // shape test, fix the BE number and instance number
             beNumber = sessionVariable.getBeNumberForTest();
+            parallelInstance = 8;
         } else {
-            beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+            beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
+            parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
         }
     }
 
@@ -124,6 +134,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalJdbcScan(PhysicalJdbcScan physicalJdbcScan, PlanContext context) {
+        Statistics statistics = context.getStatisticsWithCheck();
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+    }
+
+    @Override
+    public Cost visitPhysicalOdbcScan(PhysicalOdbcScan physicalOdbcScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
     }
@@ -217,10 +233,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         }
 
         // any
+        // cost of random shuffle is lower than hash shuffle.
         return CostV1.of(context.getSessionVariable(),
-                intputRowCount,
                 0,
-                0);
+                0,
+                intputRowCount * childStatistics.dataSizeFactor() * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumber);
     }
 
     @Override
@@ -260,6 +277,17 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
+        if (leftRowCount == rightRowCount
+                && physicalHashJoin.getGroupExpression().isPresent()
+                && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
+                && !physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()) {
+            int leftConnectivity = computeConnectivity(physicalHashJoin.left(), context);
+            int rightConnectivity = computeConnectivity(physicalHashJoin.right(), context);
+            if (rightConnectivity < leftConnectivity) {
+                leftRowCount += 1;
+            }
+        }
+
         /*
         pattern1: L join1 (Agg1() join2 Agg2())
         result number of join2 may much less than Agg1.
@@ -285,20 +313,15 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             //                    on the output rows, taken on outputRowCount()
             double probeSideFactor = 1.0;
             double buildSideFactor = context.getSessionVariable().getBroadcastRightTableScaleFactor();
-            int parallelInstance = Math.max(1, context.getSessionVariable().getParallelExecInstanceNum());
             int totalInstanceNumber = parallelInstance * beNumber;
             if (buildSideFactor <= 1.0) {
-                // use totalInstanceNumber to the power of 2 as the default factor value
-                buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
-            }
-            // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
-            // will refine this in next generation cost model.
-            if (!context.isStatsReliable()) {
-                // forbid broadcast join when stats is unknown
-                return CostV1.of(context.getSessionVariable(), rightRowCount * buildSideFactor + 1 / leftRowCount,
-                        rightRowCount,
-                        0
-                );
+                if (buildStats.computeSize() < 1024 * 1024) {
+                    // no penalty to broadcast if build side is small
+                    buildSideFactor = 1.0;
+                } else {
+                    // use totalInstanceNumber to the power of 2 as the default factor value
+                    buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
+                }
             }
             return CostV1.of(context.getSessionVariable(),
                     leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
@@ -306,16 +329,24 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     0
             );
         }
-        if (!context.isStatsReliable()) {
-            return CostV1.of(context.getSessionVariable(),
-                    rightRowCount + 1 / leftRowCount,
-                    rightRowCount,
-                    0);
-        }
         return CostV1.of(context.getSessionVariable(), leftRowCount + rightRowCount + outputRowCount,
                 rightRowCount,
                 0
         );
+    }
+
+    /*
+    in a join cluster graph, if a node has higher connectivity, it is more likely to be reduced
+    by runtime filters, and it is also more likely to produce effective runtime filters.
+    Thus, we prefer to put the node with higher connectivity on the join right side.
+     */
+    private int computeConnectivity(
+            Plan plan, PlanContext context) {
+        int connectCount = 0;
+        for (Expression expr : context.getStatementContext().getJoinFilters()) {
+            connectCount += Collections.disjoint(expr.getInputSlots(), plan.getOutputSet()) ? 0 : 1;
+        }
+        return connectCount;
     }
 
     @Override
@@ -326,12 +357,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
-        if (!context.isStatsReliable()) {
-            return CostV1.of(context.getSessionVariable(),
-                    rightStatistics.getRowCount() + 1 / leftStatistics.getRowCount(),
-                    rightStatistics.getRowCount(),
-                    0);
-        }
         return CostV1.of(context.getSessionVariable(),
                 leftStatistics.getRowCount() * rightStatistics.getRowCount(),
                 rightStatistics.getRowCount(),

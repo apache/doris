@@ -2,7 +2,7 @@
 -- !desc_tb --
 user_id	LARGEINT	No	true	\N	
 city	VARCHAR(20)	Yes	true	\N	
-value1	BIGINT	Yes	false	\N	REPLACE
+value1	BIGINT	Yes	false	\N	NONE
 
 -- !select_tb --
 1	Beijing	21474836478
@@ -10,9 +10,10 @@ value1	BIGINT	Yes	false	\N	REPLACE
 -- !desc_tb --
 user_id	LARGEINT	No	true	\N	
 city	VARCHAR(20)	Yes	true	\N	
-value1	BIGINT	Yes	false	\N	REPLACE
-value2	BIGINT	Yes	false	\N	REPLACE
+value1	BIGINT	Yes	false	\N	NONE
+value2	BIGINT	Yes	false	\N	NONE
 
 -- !select_tb --
 1	Beijing	21474836478	\N
 2	Beijing	21474836478	21474836478
+

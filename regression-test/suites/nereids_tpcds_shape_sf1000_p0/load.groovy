@@ -807,6 +807,26 @@ suite("load") {
     )
     '''
 
+    sql '''
+    alter table customer add constraint customer_pk primary key (c_customer_sk);
+    '''
+    
+    sql '''
+    alter table customer add constraint customer_uk unique (c_customer_id);
+    '''
+
+    sql '''
+    alter table store_sales add constraint ss_fk foreign key(ss_customer_sk) references customer(c_customer_sk);
+    '''
+
+    sql '''
+    alter table web_sales add constraint ws_fk foreign key(ws_bill_customer_sk) references customer(c_customer_sk);
+    '''
+
+    sql '''
+    alter table catalog_sales add constraint cs_fk foreign key(cs_bill_customer_sk) references customer(c_customer_sk);
+    '''
+
     sql """
     alter table customer_demographics modify column cd_dep_employed_count set stats ('row_count'='1920800', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='7683200')
     """

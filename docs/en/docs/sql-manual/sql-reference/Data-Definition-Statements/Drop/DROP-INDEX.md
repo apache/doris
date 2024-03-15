@@ -32,7 +32,7 @@ DROP INDEX
 
 ### Description
 
-This statement is used to delete the index of the specified name from a table. Currently, only bitmap indexes are supported.
+This statement is used to delete the index of the specified name from a table.
 grammar:
 
 ```sql

@@ -18,22 +18,13 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import io.grpc.CallOptions;
-import io.grpc.Channel;
-import io.grpc.ClientCall;
-import io.grpc.ClientInterceptor;
 import io.grpc.ConnectivityState;
-import io.grpc.ForwardingClientCall;
 import io.grpc.ManagedChannel;
-import io.grpc.Metadata;
-import io.grpc.MethodDescriptor;
 import io.grpc.netty.NettyChannelBuilder;
-import io.opentelemetry.context.Context;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,7 +49,7 @@ public class BackendServiceClient {
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
                 .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
-                .intercept(new OpenTelemetryClientInterceptor()).usePlaintext().build();
+                .usePlaintext().build();
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
         // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
@@ -69,8 +60,8 @@ public class BackendServiceClient {
     public boolean isNormalState() {
         ConnectivityState state = channel.getState(false);
         return state == ConnectivityState.CONNECTING
-            || state == ConnectivityState.IDLE
-            || state == ConnectivityState.READY;
+                || state == ConnectivityState.IDLE
+                || state == ConnectivityState.READY;
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
@@ -119,6 +110,11 @@ public class BackendServiceClient {
         return stub.fetchTableSchema(request);
     }
 
+    public Future<InternalService.PJdbcTestConnectionResult> testJdbcConnection(
+            InternalService.PJdbcTestConnectionRequest request) {
+        return stub.testJdbcConnection(request);
+    }
+
     public Future<InternalService.PCacheResponse> updateCache(InternalService.PUpdateCacheRequest request) {
         return stub.updateCache(request);
     }
@@ -161,6 +157,11 @@ public class BackendServiceClient {
         return stub.reportStreamLoadStatus(request);
     }
 
+    public Future<InternalService.PFetchRemoteSchemaResponse> fetchRemoteTabletSchemaAsync(
+            InternalService.PFetchRemoteSchemaRequest request) {
+        return stub.fetchRemoteTabletSchema(request);
+    }
+
     public Future<InternalService.PGlobResponse> glob(InternalService.PGlobRequest request) {
         return stub.glob(request);
     }
@@ -170,7 +171,15 @@ public class BackendServiceClient {
         return stub.groupCommitInsert(request);
     }
 
+    public Future<InternalService.PGetWalQueueSizeResponse> getWalQueueSize(
+            InternalService.PGetWalQueueSizeRequest request) {
+        return stub.getWalQueueSize(request);
+    }
+
+
     public void shutdown() {
+        ConnectivityState state = channel.getState(false);
+        LOG.warn("shut down backend service client: {}, channel state: {}", address, state);
         if (!channel.isShutdown()) {
             channel.shutdown();
             try {
@@ -191,29 +200,6 @@ public class BackendServiceClient {
             } catch (InterruptedException e) {
                 return;
             }
-        }
-
-        LOG.warn("shut down backend service client: {}", address);
-    }
-
-    /**
-     * OpenTelemetry span interceptor.
-     */
-    public static class OpenTelemetryClientInterceptor implements ClientInterceptor {
-        @Override
-        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(MethodDescriptor<ReqT, RespT> methodDescriptor,
-                CallOptions callOptions, Channel channel) {
-            return new ForwardingClientCall.SimpleForwardingClientCall<ReqT, RespT>(
-                    channel.newCall(methodDescriptor, callOptions)) {
-                @Override
-                public void start(Listener<RespT> responseListener, Metadata headers) {
-                    // Inject the request with the current context
-                    Telemetry.getOpenTelemetry().getPropagators().getTextMapPropagator()
-                            .inject(Context.current(), headers, (carrier, key, value) -> carrier.put(
-                                    Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value));
-                    super.start(responseListener, headers);
-                }
-            };
         }
     }
 }

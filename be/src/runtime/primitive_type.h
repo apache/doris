@@ -122,166 +122,165 @@ constexpr PrimitiveType PredicateEvaluateType = is_variant_string_type(type) ? T
 template <PrimitiveType type>
 struct PrimitiveTypeTraits;
 
+/// CppType as type on compute layer
+/// StorageFieldType as type on storage layer
 template <>
 struct PrimitiveTypeTraits<TYPE_BOOLEAN> {
     using CppType = bool;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnUInt8;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TINYINT> {
     using CppType = int8_t;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnInt8;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_SMALLINT> {
     using CppType = int16_t;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnInt16;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_INT> {
     using CppType = int32_t;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnInt32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_BIGINT> {
     using CppType = int64_t;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnInt64;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_FLOAT> {
     using CppType = float;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnFloat32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TIME> {
     using CppType = double;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnFloat64;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using CppType = double;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnFloat64;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DOUBLE> {
     using CppType = double;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnFloat64;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATE> {
     using CppType = doris::VecDateTimeValue;
+    /// Different with compute layer, the DateV1 was stored as uint24_t(3 bytes).
+    using StorageFieldType = uint24_t;
     using ColumnType = vectorized::ColumnVector<vectorized::Int64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIME> {
     using CppType = doris::VecDateTimeValue;
+    using StorageFieldType = uint64_t;
     using ColumnType = vectorized::ColumnVector<vectorized::Int64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using CppType = DateV2Value<DateTimeV2ValueType>;
+    using StorageFieldType = uint64_t;
     using ColumnType = vectorized::ColumnVector<vectorized::UInt64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using CppType = DateV2Value<DateV2ValueType>;
+    using StorageFieldType = uint32_t;
     using ColumnType = vectorized::ColumnVector<vectorized::UInt32>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using CppType = DecimalV2Value;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128>;
+    /// Different with compute layer, the DecimalV1 was stored as decimal12_t(12 bytes).
+    using StorageFieldType = decimal12_t;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V2>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
     using CppType = vectorized::Decimal32;
+    using StorageFieldType = vectorized::Int32;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal32>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
     using CppType = vectorized::Decimal64;
+    using StorageFieldType = vectorized::Int64;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
-    using CppType = vectorized::Decimal128I;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
+    using CppType = vectorized::Decimal128V3;
+    using StorageFieldType = vectorized::Int128;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V3>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
     using CppType = vectorized::Decimal256;
+    using StorageFieldType = wide::Int256;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal256>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_LARGEINT> {
     using CppType = __int128_t;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnInt128;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV4> {
     using CppType = vectorized::IPv4;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnIPv4;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV6> {
     using CppType = vectorized::IPv6;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnIPv6;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_CHAR> {
     using CppType = StringRef;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARCHAR> {
     using CppType = StringRef;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRING> {
     using CppType = StringRef;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_HLL> {
     using CppType = StringRef;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_JSONB> {
     using CppType = JsonBinaryValue;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnString;
-};
-
-// only for adapt get_predicate_column_ptr
-template <PrimitiveType type>
-struct PredicatePrimitiveTypeTraits {
-    using PredicateFieldType = typename PrimitiveTypeTraits<type>::CppType;
-};
-
-template <>
-struct PredicatePrimitiveTypeTraits<TYPE_DECIMALV2> {
-    using PredicateFieldType = decimal12_t;
-};
-
-template <>
-struct PredicatePrimitiveTypeTraits<TYPE_DATE> {
-    using PredicateFieldType = uint32_t;
-};
-
-template <>
-struct PredicatePrimitiveTypeTraits<TYPE_DATETIME> {
-    using PredicateFieldType = uint64_t;
-};
-
-template <>
-struct PredicatePrimitiveTypeTraits<TYPE_DATEV2> {
-    using PredicateFieldType = uint32_t;
-};
-
-template <>
-struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
-    using PredicateFieldType = uint64_t;
 };
 
 template <typename Traits>
@@ -307,5 +306,49 @@ inline size_t get_primitive_type_size(PrimitiveType t) {
                                      END_OF_PRIMITIVE_TYPE, PrimitiveTypeSizeReducer>::run(t, size);
     return size;
 }
+
+template <PrimitiveType PT>
+struct PrimitiveTypeConvertor {
+    using CppType = typename PrimitiveTypeTraits<PT>::CppType;
+    using StorageFieldType = typename PrimitiveTypeTraits<PT>::StorageFieldType;
+
+    static inline StorageFieldType&& to_storage_field_type(CppType&& value) {
+        return static_cast<StorageFieldType&&>(std::forward<CppType>(value));
+    }
+
+    static inline const StorageFieldType& to_storage_field_type(const CppType& value) {
+        return *reinterpret_cast<const StorageFieldType*>(&value);
+    }
+};
+
+template <>
+struct PrimitiveTypeConvertor<TYPE_DATE> {
+    using CppType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
+    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType;
+
+    static inline StorageFieldType to_storage_field_type(const CppType& value) {
+        return value.to_olap_date();
+    }
+};
+
+template <>
+struct PrimitiveTypeConvertor<TYPE_DATETIME> {
+    using CppType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
+    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATETIME>::StorageFieldType;
+
+    static inline StorageFieldType to_storage_field_type(const CppType& value) {
+        return value.to_olap_datetime();
+    }
+};
+
+template <>
+struct PrimitiveTypeConvertor<TYPE_DECIMALV2> {
+    using CppType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
+    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::StorageFieldType;
+
+    static inline StorageFieldType to_storage_field_type(const CppType& value) {
+        return {value.int_value(), value.frac_value()};
+    }
+};
 
 } // namespace doris

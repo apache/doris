@@ -30,6 +30,19 @@ Stream load is a synchronous way of importing. Users import local files or data 
 
 Stream load is mainly suitable for importing local files or data from data streams through procedures.
 
+:::tip
+
+In comparison to single-threaded load using `curl`, Doris Streamloader is a client tool designed for loading data into Apache Doris. it reduces the ingestion latency of large datasets by its concurrent loading capabilities. It comes with the following features:
+
+- **Parallel loading**: multi-threaded load for the Stream Load method. You can set the parallelism level using the `workers` parameter.
+- **Multi-file load:** simultaneously load of multiple files and directories with one shot. It supports recursive file fetching and allows you to specify file names with wildcard characters.
+- **Path traversal support:** support path traversal when the source files are in directories
+- **Resilience and continuity:** in case of partial load failures, it can resume data loading from the point of failure.
+- **Automatic retry mechanism:** in case of loading failures, it can automatically retry a default number of times. If the loading remains unsuccessful, it will print the command for manual retry.
+
+See [Doris Streamloader](https://doris.apache.org/docs/ecosystem/doris-streamloader) for detailed instructions and best practices.
+:::
+
 ## Basic Principles
 
 The following figure shows the main flow of Stream load, omitting some import details.
@@ -166,9 +179,11 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
   
 + format
 
-  Specify the import data format, support csv, json, the default is csv
+  Specify the import data format, support csv, json, arrow, the default is csv
 
-  <version since="1.2">supports `csv_with_names` (csv file line header filter), `csv_with_names_and_types` (csv file first two lines filter), parquet, orc</version>
+  <version since="1.2">supports `csv_with_names` (csv file line header filter), `csv_with_names_and_types` (csv file first two lines filter), parquet, orc.</version>
+
+  <version since="2.1.0">supports `arrow` format.</version>
 
 + exec\_mem\_limit
 
@@ -294,7 +309,7 @@ curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -
 Examples：
 
 ```
-curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream(\"format\" = \"CSV\", \"column_separator\" = \",\" ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
 ```
 
 ### Return results

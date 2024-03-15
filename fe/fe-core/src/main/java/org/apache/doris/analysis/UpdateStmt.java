@@ -35,6 +35,7 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -189,8 +190,12 @@ public class UpdateStmt extends DdlStmt {
 
         // step3: generate select list and insert column name list in insert stmt
         boolean isMow = ((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite();
+        boolean hasVariant = false;
         int setExprCnt = 0;
         for (Column column : targetTable.getColumns()) {
+            if (column.getType().isVariantType()) {
+                hasVariant = true;
+            }
             for (BinaryPredicate setExpr : setExprs) {
                 Expr lhs = setExpr.getChild(0);
                 if (((SlotRef) lhs).getColumn().equals(column)) {
@@ -198,18 +203,32 @@ public class UpdateStmt extends DdlStmt {
                 }
             }
         }
-        // table with sequence col cannot use partial update cause in MOW, we encode pk
+        // 1.table with sequence col cannot use partial update cause in MOW, we encode pk
         // with seq column but we don't know which column is sequence in update
+        // 2. variant column update schema during load, so implement partial update is complicated,
+        //  just ignore it at present
         if (isMow && ((OlapTable) targetTable).getSequenceCol() == null
-                && setExprCnt <= targetTable.getColumns().size() * 3 / 10) {
+                && setExprCnt <= targetTable.getColumns().size() * 3 / 10
+                && !hasVariant) {
             isPartialUpdate = true;
+        }
+        Optional<Column> sequenceMapCol = Optional.empty();
+        OlapTable olapTable = (OlapTable) targetTable;
+        if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null) {
+            sequenceMapCol = olapTable.getFullSchema().stream()
+                    .filter(col -> col.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())).findFirst();
         }
         for (Column column : targetTable.getColumns()) {
             Expr expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             boolean existInExpr = false;
             for (BinaryPredicate setExpr : setExprs) {
                 Expr lhs = setExpr.getChild(0);
-                if (((SlotRef) lhs).getColumn().equals(column)) {
+                Column exprColumn = ((SlotRef) lhs).getColumn();
+                // when updating the sequence map column, the real sequence column need to set with the same value.
+                boolean isSequenceMapColumn = sequenceMapCol.isPresent()
+                        && exprColumn.equals(sequenceMapCol.get());
+                if (exprColumn.equals(column) || (olapTable.hasSequenceCol()
+                        && column.equals(olapTable.getSequenceCol()) && isSequenceMapColumn)) {
                     expr = setExpr.getChild(1);
                     existInExpr = true;
                 }

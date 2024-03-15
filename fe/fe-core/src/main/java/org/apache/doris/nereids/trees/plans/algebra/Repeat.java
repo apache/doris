@@ -60,13 +60,13 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
 
     static VirtualSlotReference generateVirtualGroupingIdSlot() {
         return new VirtualSlotReference(COL_GROUPING_ID, BigIntType.INSTANCE, Optional.empty(),
-                shapes -> shapes.computeVirtualGroupingIdValue());
+                GroupingSetShapes::computeVirtualGroupingIdValue);
     }
 
     static VirtualSlotReference generateVirtualSlotByFunction(GroupingScalarFunction function) {
         return new VirtualSlotReference(
                 generateVirtualSlotName(function), function.getDataType(), Optional.of(function),
-                shapes -> function.computeVirtualSlotValue(shapes));
+                function::computeVirtualSlotValue);
     }
 
     /**
@@ -175,7 +175,7 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
                 if (index == null) {
                     throw new AnalysisException("Can not find grouping set expression in output: " + expression);
                 }
-                if (groupingSetsIndex.contains(index)) {
+                if (groupingSetIndex.contains(index)) {
                     throw new AnalysisException("expression duplicate in grouping set: " + expression);
                 }
                 groupingSetIndex.add(index);
@@ -228,19 +228,18 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
             this.shapes = ImmutableList.copyOf(shapes);
         }
 
-        public GroupingSetShape getGroupingSetShape(int index) {
-            return shapes.get(index);
-        }
-
-        public Expression getExpression(int index) {
-            return flattenGroupingSetExpression.get(index);
-        }
-
-        // compute a long value that backend need to fill to the GROUPING_ID slot
+        /**compute a long value that backend need to fill to the GROUPING_ID slot*/
         public List<Long> computeVirtualGroupingIdValue() {
-            return shapes.stream()
-                    .map(GroupingSetShape::computeLongValue)
-                    .collect(ImmutableList.toImmutableList());
+            Set<Long> res = Sets.newLinkedHashSet();
+            long k = (long) Math.pow(2, flattenGroupingSetExpression.size());
+            for (GroupingSetShape shape : shapes) {
+                Long val = shape.computeLongValue();
+                while (res.contains(val)) {
+                    val += k;
+                }
+                res.add(val);
+            }
+            return ImmutableList.copyOf(res);
         }
 
         public int indexOf(Expression expression) {

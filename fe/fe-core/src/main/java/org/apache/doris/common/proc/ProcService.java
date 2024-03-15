@@ -57,6 +57,8 @@ public final class ProcService {
         root.register("stream_loads", new StreamLoadProcNode());
         root.register("colocation_group", new ColocationGroupProcDir());
         root.register("bdbje", new BDBJEProcDir());
+        root.register("diagnose", new DiagnoseProcDir());
+        root.register("binlog", new BinlogProcDir());
     }
 
     // 通过指定的路径获得对应的PROC Node

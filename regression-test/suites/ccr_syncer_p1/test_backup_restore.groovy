@@ -50,8 +50,9 @@ suite("test_backup_restore") {
                INSERT INTO ${tableName} VALUES (${test_num}, ${i})
             """ 
     }
+    sql " sync "
     def res = sql "SELECT * FROM ${tableName}"
-    assertTrue(res.size() == insert_num)
+    assertEquals(res.size(), insert_num)
     sql """ 
             BACKUP SNAPSHOT ${context.dbName}.${snapshotName} 
             TO `__keep_on_local__` 
@@ -66,6 +67,7 @@ suite("test_backup_restore") {
     while (syncer.checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
+    target_sql " sync "
     res = target_sql "SELECT * FROM ${tableName}"
-    assertTrue(res.size() == insert_num)
+    assertEquals(res.size(), insert_num)
 }

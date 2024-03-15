@@ -180,13 +180,15 @@ java_version="$(
     set -e
     jdk_version "${JAVA}"
 )"
-final_java_opt="${JAVA_OPTS}"
-if [[ "${java_version}" -gt 8 ]]; then
-    if [[ -z "${JAVA_OPTS_FOR_JDK_9}" ]]; then
-        echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >>"${LOG_DIR}/fe.out"
+if [[ "${java_version}" -eq 17 ]]; then
+    if [[ -z "${JAVA_OPTS_FOR_JDK_17}" ]]; then
+        echo "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf" >>"${LOG_DIR}/fe.out"
         exit 1
     fi
-    final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
+    final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
+else
+    echo "ERROR: The jdk_version is ${java_version}, it must be 17." >>"${LOG_DIR}/fe.out"
+    exit 1
 fi
 echo "using java version ${java_version}" >>"${LOG_DIR}/fe.out"
 echo "${final_java_opt}" >>"${LOG_DIR}/fe.out"
@@ -218,7 +220,7 @@ export CLASSPATH="${DORIS_HOME}/conf:${CLASSPATH}:${DORIS_HOME}/lib"
 
 pidfile="${PID_DIR}/fe.pid"
 
-if [[ -f "${pidfile}" ]]; then
+if [[ -f "${pidfile}" ]] && [[ "${OPT_VERSION}" == "" ]]; then
     if kill -0 "$(cat "${pidfile}")" >/dev/null 2>&1; then
         echo "Frontend running as process $(cat "${pidfile}"). Stop it first."
         exit 1
@@ -245,7 +247,7 @@ fi
 
 if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
     if [[ -n "${IMAGE_PATH}" ]]; then
-        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE -i "${IMAGE_PATH} ${METADATA_FAILURE_RECOVERY}"
+        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE -i "${IMAGE_PATH}"
     else
         echo "Internal Error. USE IMAGE_TOOL like : ./start_fe.sh --image image_path"
     fi
@@ -255,7 +257,10 @@ elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" </dev/null
 else
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null
 fi
 
+if [[ "${OPT_VERSION}" != "" ]]; then
+    exit 0
+fi
 echo $! >"${pidfile}"

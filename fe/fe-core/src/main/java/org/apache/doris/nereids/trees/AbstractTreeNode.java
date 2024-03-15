@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees;
 
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
@@ -34,11 +34,15 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     // https://github.com/apache/doris/pull/9807#discussion_r884829067
 
     protected AbstractTreeNode(NODE_TYPE... children) {
-        this.children = ImmutableList.copyOf(children);
+        // NOTE: ImmutableList.copyOf has additional clone of the list, so here we
+        //       direct generate a ImmutableList
+        this.children = Utils.fastToImmutableList(children);
     }
 
     protected AbstractTreeNode(List<NODE_TYPE> children) {
-        this.children = ImmutableList.copyOf(children);
+        // NOTE: ImmutableList.copyOf has additional clone of the list, so here we
+        //       direct generate a ImmutableList
+        this.children = Utils.fastToImmutableList(children);
     }
 
     @Override

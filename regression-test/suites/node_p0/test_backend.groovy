@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backend") {
+suite("test_backend", "nonConcurrent") {
     def address = "127.0.0.1"
     def notExistPort = 12346
 
@@ -28,9 +28,46 @@ suite("test_backend") {
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
 
+        sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
+        sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
+
+        result = sql """SHOW BACKENDS;"""
+        logger.info("result:${result}")
+
         sql """ALTER SYSTEM DROPP BACKEND "${address}:${notExistPort}";"""
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
+    }
+
+    if (context.config.jdbcUser.equals("root")) {
+        try {
+            try_sql """admin set frontend config("drop_backend_after_decommission" = "false")"""
+            def result = sql_return_maparray """SHOW BACKENDS;"""
+            logger.info("show backends result:${result}")
+            def beId1 = null
+            for (def res : result) {
+                beId1 = res.BackendId
+                break
+            }
+            result = sql """ALTER SYSTEM DECOMMISSION BACKEND "${beId1}" """
+            logger.info("ALTER SYSTEM DECOMMISSION BACKEND ${result}")
+            result = sql_return_maparray """SHOW BACKENDS;"""
+            for (def res : result) {
+                if (res.BackendId == "${beId1}") {
+                    assertTrue(res.SystemDecommissioned.toBoolean())
+                }
+            }
+            result = sql """CANCEL DECOMMISSION BACKEND "${beId1}" """
+            logger.info("CANCEL DECOMMISSION BACKEND ${result}")
+            result = sql_return_maparray """SHOW BACKENDS;"""
+            for (def res : result) {
+                if (res.BackendId == "${beId1}") {
+                    assertFalse(res.SystemDecommissioned.toBoolean())
+                }
+            }
+        } finally {
+            try_sql """admin set frontend config("drop_backend_after_decommission" = "true")"""
+        }
     }
 }

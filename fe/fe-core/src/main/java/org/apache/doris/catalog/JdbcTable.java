@@ -27,6 +27,8 @@ import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import lombok.Setter;
@@ -47,9 +49,13 @@ import java.util.stream.Collectors;
 public class JdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(JdbcTable.class);
 
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    private static final String CATALOG_ID = "catalog_id";
     private static final String TABLE = "table";
-    private static final String REAL_DATABASE = "real_database";
-    private static final String REAL_TABLE = "real_table";
+    private static final String REMOTE_DATABASE = "remote_database";
+    private static final String REMOTE_TABLE = "remote_table";
+    private static final String REMOTE_COLUMNS = "remote_columns";
     private static final String RESOURCE = "resource";
     private static final String TABLE_TYPE = "table_type";
     private static final String URL = "jdbc_url";
@@ -63,8 +69,9 @@ public class JdbcTable extends Table {
     private String externalTableName;
 
     // real name only for jdbc catalog
-    private String realDatabaseName;
-    private String realTableName;
+    private String remoteDatabaseName;
+    private String remoteTableName;
+    private Map<String, String> remoteColumnNames;
 
     private String jdbcTypeName;
 
@@ -74,6 +81,14 @@ public class JdbcTable extends Table {
     private String driverClass;
     private String driverUrl;
     private String checkSum;
+
+    private long catalogId = -1;
+
+    private int connectionPoolMinSize;
+    private int connectionPoolMaxSize;
+    private int connectionPoolMaxWaitTime;
+    private int connectionPoolMaxLifeTime;
+    private boolean connectionPoolKeepAlive;
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
@@ -88,6 +103,7 @@ public class JdbcTable extends Table {
         tempMap.put("presto", TOdbcTableType.PRESTO);
         tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
         tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
+        tempMap.put("db2", TOdbcTableType.DB2);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -107,10 +123,10 @@ public class JdbcTable extends Table {
 
     public String getInsertSql(List<String> insertCols) {
         StringBuilder sb = new StringBuilder("INSERT INTO ");
-        sb.append(getProperRealFullTableName(TABLE_TYPE_MAP.get(getTableTypeName())));
+        sb.append(getProperRemoteFullTableName(TABLE_TYPE_MAP.get(getTableTypeName())));
         sb.append("(");
         List<String> transformedInsertCols = insertCols.stream()
-                .map(col -> databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
+                .map(col -> getProperRemoteColumnName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
                 .collect(Collectors.toList());
         sb.append(String.join(",", transformedInsertCols));
         sb.append(")");
@@ -157,6 +173,35 @@ public class JdbcTable extends Table {
         return getFromJdbcResourceOrDefault(JdbcResource.DRIVER_URL, driverUrl);
     }
 
+    public long getCatalogId() {
+        return catalogId;
+    }
+
+    public int getConnectionPoolMinSize() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MIN_SIZE,
+                String.valueOf(connectionPoolMinSize)));
+    }
+
+    public int getConnectionPoolMaxSize() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MAX_SIZE,
+                String.valueOf(connectionPoolMaxSize)));
+    }
+
+    public int getConnectionPoolMaxWaitTime() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MAX_WAIT_TIME,
+                String.valueOf(connectionPoolMaxWaitTime)));
+    }
+
+    public int getConnectionPoolMaxLifeTime() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME,
+                String.valueOf(connectionPoolMaxLifeTime)));
+    }
+
+    public boolean isConnectionPoolKeepAlive() {
+        return Boolean.parseBoolean(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_KEEP_ALIVE,
+                String.valueOf(connectionPoolKeepAlive)));
+    }
+
     private String getFromJdbcResourceOrDefault(String key, String defaultVal) {
         if (Strings.isNullOrEmpty(resourceName)) {
             return defaultVal;
@@ -171,6 +216,7 @@ public class JdbcTable extends Table {
     @Override
     public TTableDescriptor toThrift() {
         TJdbcTable tJdbcTable = new TJdbcTable();
+        tJdbcTable.setCatalogId(catalogId);
         tJdbcTable.setJdbcUrl(getJdbcUrl());
         tJdbcTable.setJdbcUser(getJdbcUser());
         tJdbcTable.setJdbcPassword(getJdbcPasswd());
@@ -179,6 +225,11 @@ public class JdbcTable extends Table {
         tJdbcTable.setJdbcDriverUrl(getDriverUrl());
         tJdbcTable.setJdbcResourceName(resourceName);
         tJdbcTable.setJdbcDriverChecksum(checkSum);
+        tJdbcTable.setConnectionPoolMinSize(getConnectionPoolMinSize());
+        tJdbcTable.setConnectionPoolMaxSize(getConnectionPoolMaxSize());
+        tJdbcTable.setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime());
+        tJdbcTable.setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime());
+        tJdbcTable.setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.JDBC_TABLE, fullSchema.size(), 0,
                 getName(), "");
         tTableDescriptor.setJdbcTable(tJdbcTable);
@@ -189,6 +240,7 @@ public class JdbcTable extends Table {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         Map<String, String> serializeMap = Maps.newHashMap();
+        serializeMap.put(CATALOG_ID, String.valueOf(catalogId));
         serializeMap.put(TABLE, externalTableName);
         serializeMap.put(RESOURCE, resourceName);
         serializeMap.put(TABLE_TYPE, jdbcTypeName);
@@ -198,8 +250,9 @@ public class JdbcTable extends Table {
         serializeMap.put(DRIVER_CLASS, driverClass);
         serializeMap.put(DRIVER_URL, driverUrl);
         serializeMap.put(CHECK_SUM, checkSum);
-        serializeMap.put(REAL_DATABASE, realDatabaseName);
-        serializeMap.put(REAL_TABLE, realTableName);
+        serializeMap.put(REMOTE_DATABASE, remoteDatabaseName);
+        serializeMap.put(REMOTE_TABLE, remoteTableName);
+        serializeMap.put(REMOTE_COLUMNS, objectMapper.writeValueAsString(remoteColumnNames));
 
         int size = (int) serializeMap.values().stream().filter(v -> {
             return v != null;
@@ -225,6 +278,7 @@ public class JdbcTable extends Table {
             String value = Text.readString(in);
             serializeMap.put(key, value);
         }
+        catalogId = serializeMap.get(CATALOG_ID) != null ? Long.parseLong(serializeMap.get(CATALOG_ID)) : -1;
         externalTableName = serializeMap.get(TABLE);
         resourceName = serializeMap.get(RESOURCE);
         jdbcTypeName = serializeMap.get(TABLE_TYPE);
@@ -234,8 +288,15 @@ public class JdbcTable extends Table {
         driverClass = serializeMap.get(DRIVER_CLASS);
         driverUrl = serializeMap.get(DRIVER_URL);
         checkSum = serializeMap.get(CHECK_SUM);
-        realDatabaseName = serializeMap.get(REAL_DATABASE);
-        realTableName = serializeMap.get(REAL_TABLE);
+        remoteDatabaseName = serializeMap.get(REMOTE_DATABASE);
+        remoteTableName = serializeMap.get(REMOTE_TABLE);
+        String realColumnNamesJson = serializeMap.get(REMOTE_COLUMNS);
+        if (realColumnNamesJson != null) {
+            remoteColumnNames = objectMapper.readValue(realColumnNamesJson, new TypeReference<Map<String, String>>() {
+            });
+        } else {
+            remoteColumnNames = Maps.newHashMap();
+        }
     }
 
     public String getResourceName() {
@@ -246,20 +307,28 @@ public class JdbcTable extends Table {
         return externalTableName;
     }
 
-    public String getRealDatabaseName() {
-        return realDatabaseName;
+    public String getRemoteDatabaseName() {
+        return remoteDatabaseName;
     }
 
-    public String getRealTableName() {
-        return realTableName;
+    public String getRemoteTableName() {
+        return remoteTableName;
     }
 
-    public String getProperRealFullTableName(TOdbcTableType tableType) {
-        if (realDatabaseName == null || realTableName == null) {
+    public String getProperRemoteFullTableName(TOdbcTableType tableType) {
+        if (remoteDatabaseName == null || remoteTableName == null) {
             return databaseProperName(tableType, externalTableName);
         } else {
-            return properNameWithRealName(tableType, realDatabaseName) + "." + properNameWithRealName(tableType,
-                    realTableName);
+            return properNameWithRemoteName(tableType, remoteDatabaseName) + "." + properNameWithRemoteName(tableType,
+                    remoteTableName);
+        }
+    }
+
+    public String getProperRemoteColumnName(TOdbcTableType tableType, String columnName) {
+        if (remoteColumnNames == null || remoteColumnNames.isEmpty() || !remoteColumnNames.containsKey(columnName)) {
+            return databaseProperName(tableType, columnName);
+        } else {
+            return properNameWithRemoteName(tableType, remoteColumnNames.get(columnName));
         }
     }
 
@@ -286,7 +355,9 @@ public class JdbcTable extends Table {
         sb.append(checkSum);
 
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
+        }
         return md5;
     }
 
@@ -340,6 +411,14 @@ public class JdbcTable extends Table {
         driverClass = jdbcResource.getProperty(DRIVER_CLASS);
         driverUrl = jdbcResource.getProperty(DRIVER_URL);
         checkSum = jdbcResource.getProperty(CHECK_SUM);
+        connectionPoolMinSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MIN_SIZE));
+        connectionPoolMaxSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_SIZE));
+        connectionPoolMaxWaitTime = Integer.parseInt(
+                jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_WAIT_TIME));
+        connectionPoolMaxLifeTime = Integer.parseInt(
+                jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME));
+        connectionPoolKeepAlive = Boolean.parseBoolean(
+                jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_KEEP_ALIVE));
 
         String urlType = jdbcUrl.split(":")[1];
         if (!jdbcTypeName.equalsIgnoreCase(urlType)) {
@@ -358,14 +437,13 @@ public class JdbcTable extends Table {
      * @param wrapEnd The character(s) to be added at the end of each name component.
      * @param toUpperCase If true, convert the name to upper case.
      * @param toLowerCase If true, convert the name to lower case.
-     * <p>
-     * Note: If both toUpperCase and toLowerCase are true, the name will ultimately be converted to lower case.
-     * <p>
-     * The name is expected to be in the format of 'schemaName.tableName'. If there is no '.',
-     * the function will treat the entire string as one name component.
-     * If there is a '.', the function will treat the string before the first '.' as the schema name
-     * and the string after the '.' as the table name.
-     *
+     *         <p>
+     *         Note: If both toUpperCase and toLowerCase are true, the name will ultimately be converted to lower case.
+     *         <p>
+     *         The name is expected to be in the format of 'schemaName.tableName'. If there is no '.',
+     *         the function will treat the entire string as one name component.
+     *         If there is a '.', the function will treat the string before the first '.' as the schema name
+     *         and the string after the '.' as the table name.
      * @return The formatted name.
      */
     public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase,
@@ -386,18 +464,18 @@ public class JdbcTable extends Table {
 
     /**
      * Formats a database name according to the database type.
-     *
+     * <p>
      * Rules:
      * - MYSQL, OCEANBASE: Wrap with backticks (`), case unchanged. Example: mySchema.myTable -> `mySchema.myTable`
      * - SQLSERVER: Wrap with square brackets ([]), case unchanged. Example: mySchema.myTable -> [mySchema].[myTable]
      * - POSTGRESQL, CLICKHOUSE, TRINO, OCEANBASE_ORACLE, SAP_HANA: Wrap with double quotes ("), case unchanged.
-     *   Example: mySchema.myTable -> "mySchema"."myTable"
+     * Example: mySchema.myTable -> "mySchema"."myTable"
      * - ORACLE: Wrap with double quotes ("), convert to upper case. Example: mySchema.myTable -> "MYSCHEMA"."MYTABLE"
      * For other types, the name is returned as is.
      *
      * @param tableType The database type.
      * @param name The name to be formatted, expected in 'schemaName.tableName' format. If no '.', treats entire string
-     *   as one name component. If '.', treats string before first '.' as schema name and after as table name.
+     *         as one name component. If '.', treats string before first '.' as schema name and after as table name.
      * @return The formatted name.
      */
     public static String databaseProperName(TOdbcTableType tableType, String name) {
@@ -415,19 +493,20 @@ public class JdbcTable extends Table {
             case SAP_HANA:
                 return formatName(name, "\"", "\"", false, false);
             case ORACLE:
+            case DB2:
                 return formatName(name, "\"", "\"", true, false);
             default:
                 return name;
         }
     }
 
-    public static String properNameWithRealName(TOdbcTableType tableType, String name) {
+    public static String properNameWithRemoteName(TOdbcTableType tableType, String remoteName) {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
-                return formatNameWithRealName(name, "`", "`");
+                return formatNameWithRemoteName(remoteName, "`", "`");
             case SQLSERVER:
-                return formatNameWithRealName(name, "[", "]");
+                return formatNameWithRemoteName(remoteName, "[", "]");
             case POSTGRESQL:
             case CLICKHOUSE:
             case TRINO:
@@ -435,13 +514,14 @@ public class JdbcTable extends Table {
             case OCEANBASE_ORACLE:
             case ORACLE:
             case SAP_HANA:
-                return formatNameWithRealName(name, "\"", "\"");
+            case DB2:
+                return formatNameWithRemoteName(remoteName, "\"", "\"");
             default:
-                return name;
+                return remoteName;
         }
     }
 
-    public static String formatNameWithRealName(String name, String wrapStart, String wrapEnd) {
-        return wrapStart + name + wrapEnd;
+    public static String formatNameWithRemoteName(String remoteName, String wrapStart, String wrapEnd) {
+        return wrapStart + remoteName + wrapEnd;
     }
 }

@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
@@ -58,7 +59,11 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 /*
  * Repository represents a remote storage for backup to or restore from
@@ -251,7 +256,7 @@ public class Repository implements Writable {
             }
 
             // exist, download and parse the repo info file
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + System.currentTimeMillis();
+            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + allocLocalFileSuffix();
             try {
                 st = fileSystem.downloadWithFileSize(repoInfoFilePath, localFilePath, remoteFile.getSize());
                 if (!st.ok()) {
@@ -261,6 +266,11 @@ public class Repository implements Writable {
                 byte[] bytes = Files.readAllBytes(Paths.get(localFilePath));
                 String json = new String(bytes, StandardCharsets.UTF_8);
                 JSONObject root = (JSONObject) JSONValue.parse(json);
+                if (name.compareTo((String) root.get("name")) != 0) {
+                    return new Status(ErrCode.COMMON_ERROR,
+                            "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
+                                + (String) root.get("name") + "' from " + repoInfoFilePath);
+                }
                 name = (String) root.get("name");
                 createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
                 if (createTime == -1) {
@@ -286,6 +296,37 @@ public class Repository implements Writable {
             root.put("create_time", TimeUtils.longToTimeString(createTime));
             String repoInfoContent = root.toString();
             return fileSystem.directUpload(repoInfoContent, repoInfoFilePath);
+        }
+    }
+
+    public Status alterRepositoryS3Properties(Map<String, String> properties) {
+        if (fileSystem instanceof S3FileSystem) {
+            Map<String, String> oldProperties = new HashMap<>(this.getRemoteFileSystem().getProperties());
+            oldProperties.remove(S3Properties.ACCESS_KEY);
+            oldProperties.remove(S3Properties.SECRET_KEY);
+            oldProperties.remove(S3Properties.SESSION_TOKEN);
+            oldProperties.remove(S3Properties.Env.ACCESS_KEY);
+            oldProperties.remove(S3Properties.Env.SECRET_KEY);
+            oldProperties.remove(S3Properties.Env.TOKEN);
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                if (Objects.equals(entry.getKey(), S3Properties.ACCESS_KEY)
+                        || Objects.equals(entry.getKey(), S3Properties.Env.ACCESS_KEY)) {
+                    oldProperties.putIfAbsent(S3Properties.ACCESS_KEY, entry.getValue());
+                }
+                if (Objects.equals(entry.getKey(), S3Properties.SECRET_KEY)
+                        || Objects.equals(entry.getKey(), S3Properties.Env.SECRET_KEY)) {
+                    oldProperties.putIfAbsent(S3Properties.SECRET_KEY, entry.getValue());
+                }
+                if (Objects.equals(entry.getKey(), S3Properties.SESSION_TOKEN)
+                        || Objects.equals(entry.getKey(), S3Properties.Env.TOKEN)) {
+                    oldProperties.putIfAbsent(S3Properties.SESSION_TOKEN, entry.getValue());
+                }
+            }
+            properties.clear();
+            properties.putAll(oldProperties);
+            return Status.OK;
+        } else {
+            return new Status(ErrCode.COMMON_ERROR, "Only support alter s3 repository");
         }
     }
 
@@ -383,7 +424,9 @@ public class Repository implements Writable {
 
         for (RemoteFile remoteFile : result) {
             if (remoteFile.isFile()) {
-                LOG.debug("get snapshot path{} which is not a dir", remoteFile);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get snapshot path{} which is not a dir", remoteFile);
+                }
                 continue;
             }
 
@@ -412,14 +455,16 @@ public class Repository implements Writable {
                 joinPrefix(PREFIX_IDX, info.getIndexId()),
                 joinPrefix(PREFIX_COMMON, info.getTabletId()),
                 joinPrefix(PREFIX_COMMON, info.getSchemaHash()));
-        LOG.debug("get remote tablet snapshot path: {}", path);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get remote tablet snapshot path: {}", path);
+        }
         return path;
     }
 
     public Status getSnapshotInfoFile(String label, String backupTimestamp, List<BackupJobInfo> infos) {
         String remoteInfoFilePath = assembleJobInfoFilePath(label, -1) + backupTimestamp;
         File localInfoFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "info_" + System.currentTimeMillis());
+                + "info_" + allocLocalFileSuffix());
         try {
             Status st = download(remoteInfoFilePath, localInfoFile.getPath());
             if (!st.ok()) {
@@ -441,7 +486,7 @@ public class Repository implements Writable {
     public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas, int metaVersion) {
         String remoteMetaFilePath = assembleMetaInfoFilePath(label);
         File localMetaFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "meta_" + System.currentTimeMillis());
+                + "meta_" + allocLocalFileSuffix());
 
         try {
             Status st = download(remoteMetaFilePath, localMetaFile.getAbsolutePath());
@@ -487,8 +532,10 @@ public class Repository implements Writable {
         if (fileSystem instanceof BrokerFileSystem) {
             // this may be a retry, so we should first delete remote file
             String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
-            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}",
-                    localFilePath, tmpRemotePath, finalRemotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}",
+                        localFilePath, tmpRemotePath, finalRemotePath);
+            }
             st = fileSystem.delete(tmpRemotePath);
             if (!st.ok()) {
                 return st;
@@ -511,7 +558,9 @@ public class Repository implements Writable {
                 return st;
             }
         } else if (fileSystem instanceof S3FileSystem) {
-            LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            }
             st = fileSystem.delete(finalRemotePath);
             if (!st.ok()) {
                 return st;
@@ -523,7 +572,9 @@ public class Repository implements Writable {
                 return st;
             }
         } else if (fileSystem instanceof DFSFileSystem) {
-            LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            }
             st = fileSystem.delete(finalRemotePath);
             if (!st.ok()) {
                 return st;
@@ -558,7 +609,9 @@ public class Repository implements Writable {
 
         String remoteFilePathWithChecksum = replaceFileNameWithChecksumFileName(remoteFilePath,
                 remoteFiles.get(0).getName());
-        LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
+        }
 
         // 1. get checksum from remote file name
         Pair<String, String> pair = decodeFileNameWithChecksum(remoteFilePathWithChecksum);
@@ -691,7 +744,7 @@ public class Repository implements Writable {
 
         stmtBuilder.append("\nPROPERTIES\n(");
         stmtBuilder.append(new PrintableMap<>(this.getRemoteFileSystem().getProperties(), " = ",
-                true, true));
+                true, true, true));
         stmtBuilder.append("\n)");
         return stmtBuilder.toString();
     }
@@ -702,7 +755,9 @@ public class Repository implements Writable {
             // get all timestamp
             // path eg: /location/__palo_repository_repo_name/__ss_my_snap/__info_*
             String infoFilePath = assembleJobInfoFilePath(snapshotName, -1);
-            LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
+            }
             List<RemoteFile> results = Lists.newArrayList();
             Status st = fileSystem.list(infoFilePath + "*", results);
             if (!st.ok()) {
@@ -732,9 +787,9 @@ public class Repository implements Writable {
                 }
             }
         } else {
-            // get specified timestamp
-            // path eg: /path/to/backup/__info_2081-04-19-12-59-11
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/" + Repository.PREFIX_JOB_INFO + timestamp;
+            // get specified timestamp, different repos might have snapshots with same timestamp.
+            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/"
+                    + Repository.PREFIX_JOB_INFO + allocLocalFileSuffix();
             try {
                 String remoteInfoFilePath = assembleJobInfoFilePath(snapshotName, -1) + timestamp;
                 Status st = download(remoteInfoFilePath, localFilePath);
@@ -770,6 +825,11 @@ public class Repository implements Writable {
         }
 
         return info;
+    }
+
+    // Allocate an unique suffix.
+    private String allocLocalFileSuffix() {
+        return System.currentTimeMillis() + UUID.randomUUID().toString().replace("-", "_");
     }
 
     @Override

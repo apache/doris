@@ -27,6 +27,7 @@ import com.google.common.base.Suppliers;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -56,8 +57,11 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
-    protected String getExpressionName() {
-        return Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME);
+    public String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
+        }
+        return this.exprName.get();
     }
 
     public FunctionSignature getSignature() {
@@ -70,15 +74,8 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        BoundFunction that = (BoundFunction) o;
-        return Objects.equals(name, that.name) && Objects.equals(children, that.children);
+    protected boolean extraEquals(Expression that) {
+        return Objects.equals(name, ((BoundFunction) that).name);
     }
 
     @Override
@@ -88,11 +85,16 @@ public abstract class BoundFunction extends Function implements ComputeSignature
 
     @Override
     public String toSql() throws UnboundException {
-        String args = children()
-                .stream()
-                .map(Expression::toSql)
-                .collect(Collectors.joining(", "));
-        return name + "(" + args + ")";
+        StringBuilder sql = new StringBuilder(name).append("(");
+        int arity = arity();
+        for (int i = 0; i < arity; i++) {
+            Expression arg = child(i);
+            sql.append(arg.toSql());
+            if (i + 1 < arity) {
+                sql.append(", ");
+            }
+        }
+        return sql.append(")").toString();
     }
 
     @Override

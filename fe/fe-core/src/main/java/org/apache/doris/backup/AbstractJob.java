@@ -155,6 +155,8 @@ public abstract class AbstractJob implements Writable {
 
     public abstract boolean isCancelled();
 
+    public abstract Status updateRepo(Repository repo);
+
     public static AbstractJob read(DataInput in) throws IOException {
         AbstractJob job = null;
         JobType type = JobType.valueOf(Text.readString(in));

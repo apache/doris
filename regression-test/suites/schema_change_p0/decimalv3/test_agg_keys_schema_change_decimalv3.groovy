@@ -89,7 +89,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
             sleep(3000)
             break
         } else {
-            sleep(100)
+            sleep(1000)
             if (max_try_time < 1){
                 assertEquals(1,2)
             }
@@ -108,7 +108,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
             sleep(3000)
             break
         } else {
-            sleep(100)
+            sleep(1000)
             if (max_try_time < 1){
                 assertEquals(1,2)
             }
@@ -121,11 +121,11 @@ suite("test_agg_keys_schema_change_decimalv3") {
     max_try_time = 1000
     while (max_try_time--){
         String result = getJobState(tbName)
-        if (result == "FINISHED") {
+        if (result == "CANCELLED") {
             sleep(3000)
             break
         } else {
-            sleep(100)
+            sleep(1000)
             if (max_try_time < 1){
                 assertEquals(1,2)
             }
@@ -139,11 +139,11 @@ suite("test_agg_keys_schema_change_decimalv3") {
     max_try_time = 1000
     while (max_try_time--){
         String result = getJobState(tbName)
-        if (result == "FINISHED") {
+        if (result == "CANCELLED") {
             sleep(3000)
             break
         } else {
-            sleep(100)
+            sleep(1000)
             if (max_try_time < 1){
                 assertEquals(1,2)
             }
@@ -157,11 +157,11 @@ suite("test_agg_keys_schema_change_decimalv3") {
     max_try_time = 1000
     while (max_try_time--){
         String result = getJobState(tbName)
-        if (result == "FINISHED") {
+        if (result == "CANCELLED") {
             sleep(3000)
             break
         } else {
-            sleep(100)
+            sleep(1000)
             if (max_try_time < 1){
                 assertEquals(1,2)
             }

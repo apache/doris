@@ -17,6 +17,7 @@
 
 #include "util/date_func.h"
 
+#include <fmt/compile.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <string.h>
@@ -28,7 +29,7 @@
 
 namespace doris {
 
-uint64_t timestamp_from_datetime(const std::string& datetime_str) {
+VecDateTimeValue timestamp_from_datetime(const std::string& datetime_str) {
     tm time_tm;
     char* res = strptime(datetime_str.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
 
@@ -43,10 +44,10 @@ uint64_t timestamp_from_datetime(const std::string& datetime_str) {
         value = 14000101000000;
     }
 
-    return value;
+    return VecDateTimeValue::create_from_olap_datetime(value);
 }
 
-uint32_t timestamp_from_date(const std::string& date_str) {
+VecDateTimeValue timestamp_from_date(const std::string& date_str) {
     tm time_tm;
     char* res = strptime(date_str.c_str(), "%Y-%m-%d", &time_tm);
 
@@ -60,10 +61,10 @@ uint32_t timestamp_from_date(const std::string& date_str) {
         value = 716833;
     }
 
-    return value;
+    return VecDateTimeValue::create_from_olap_date(value);
 }
 
-uint32_t timestamp_from_date_v2(const std::string& date_str) {
+DateV2Value<DateV2ValueType> timestamp_from_date_v2(const std::string& date_str) {
     tm time_tm;
     char* res = strptime(date_str.c_str(), "%Y-%m-%d", &time_tm);
 
@@ -74,15 +75,15 @@ uint32_t timestamp_from_date_v2(const std::string& date_str) {
         value = MIN_DATE_V2;
     }
 
-    return value;
+    return DateV2Value<DateV2ValueType>::create_from_olap_date(value);
 }
 
-uint64_t timestamp_from_datetime_v2(const std::string& date_str) {
+DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& date_str) {
     DateV2Value<DateTimeV2ValueType> val;
     std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
     val.from_date_format_str(date_format.data(), date_format.size(), date_str.data(),
                              date_str.size());
-    return val.to_date_int_val();
+    return val;
 }
 // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
 // the time value between '-838:59:59' and '838:59:59'
@@ -98,9 +99,7 @@ int32_t time_to_buffer_from_double(double time, char* buffer) {
     }
     int64_t hour = (int64_t)(time / 3600);
     if (hour >= 100) {
-        auto f = fmt::format_int(hour);
-        memcpy(buffer, f.data(), f.size());
-        buffer = buffer + f.size();
+        buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
     } else {
         *buffer++ = (char)('0' + (hour / 10));
         *buffer++ = (char)('0' + (hour % 10));
@@ -136,9 +135,7 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     m_time = check_over_max_time(m_time);
     int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
     if (hour >= 100) {
-        auto f = fmt::format_int(hour);
-        memcpy(buffer, f.data(), f.size());
-        buffer = buffer + f.size();
+        buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
     } else {
         *buffer++ = (char)('0' + (hour / 10));
         *buffer++ = (char)('0' + (hour % 10));

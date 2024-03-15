@@ -19,15 +19,18 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.tvf.source.MetadataScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.MetadataScanNode;
 import org.apache.doris.thrift.TMetaScanRange;
+import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 
 public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf {
-    public static Integer getColumnIndexFromColumnName(TMetadataType type, String columnName)
-                                    throws AnalysisException {
+
+    public static Integer getColumnIndexFromColumnName(TMetadataType type, String columnName,
+            TMetadataTableRequestParams params)
+            throws AnalysisException {
         switch (type) {
             case BACKENDS:
                 return BackendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
@@ -37,12 +40,16 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
                 return FrontendsDisksTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case ICEBERG:
                 return IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
-            case WORKLOAD_GROUPS:
-                return WorkloadGroupsTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case CATALOGS:
                 return CatalogsTableValuedFunction.getColumnIndexFromColumnName(columnName);
-            case QUERIES:
-                return QueriesTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case MATERIALIZED_VIEWS:
+                return MvInfosTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case JOBS:
+                return JobsTableValuedFunction.getColumnIndexFromColumnName(columnName, params);
+            case TASKS:
+                return TasksTableValuedFunction.getColumnIndexFromColumnName(columnName, params);
+            case WORKLOAD_SCHED_POLICY:
+                return WorkloadSchedPolicyTableValuedFunction.getColumnIndexFromColumnName(columnName);
             default:
                 throw new AnalysisException("Unknown Metadata TableValuedFunction type");
         }

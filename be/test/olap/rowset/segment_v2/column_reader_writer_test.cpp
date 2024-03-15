@@ -53,7 +53,10 @@ public:
 protected:
     void SetUp() override {
         config::disable_storage_page_cache = true;
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(TEST_DIR).ok());
+        auto st = io::global_local_filesystem()->delete_directory(TEST_DIR);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(TEST_DIR);
+        ASSERT_TRUE(st.ok()) << st;
     }
 
     void TearDown() override {
@@ -542,7 +545,7 @@ static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type)
     } else if (type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
         return vectorized::DataTypeDateTime().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
-        return vectorized::DataTypeDecimal<vectorized::Decimal128>(27, 9).create_column();
+        return vectorized::DataTypeDecimal<vectorized::Decimal128V2>(27, 9).create_column();
     }
     return vectorized::DataTypeNothing().create_column();
 }

@@ -17,13 +17,13 @@
 
 suite("test_arithmetic_expressions") {
 
-    def table1 = "test_arithmetic_expressions"
+    sql "set check_overflow_for_decimal=true;"
     sql "set enable_decimal256 = false;"
 
-    sql "drop table if exists ${table1}"
+    sql "drop table if exists test_arithmetic_expressions"
 
     sql """
-    CREATE TABLE IF NOT EXISTS `${table1}` (
+    CREATE TABLE IF NOT EXISTS `test_arithmetic_expressions` (
       `k1` decimalv3(38, 18) NULL COMMENT "",
       `k2` decimalv3(38, 18) NULL COMMENT "",
       `k3` decimalv3(38, 18) NULL COMMENT ""
@@ -37,37 +37,48 @@ suite("test_arithmetic_expressions") {
     )
     """
 
-    sql """insert into ${table1} values(1.1,1.2,1.3),
+    sql """insert into test_arithmetic_expressions values(1.1,1.2,1.3),
             (1.2,1.2,1.3),
             (1.5,1.2,1.3)
     """
-    qt_select_all "select * from ${table1} order by k1"
+    qt_select_all1 "select * from test_arithmetic_expressions order by k1"
 
-    qt_select "select k1 * k2 from ${table1} order by k1"
-    qt_select "select * from (select k1 * k2 from ${table1} union all select k3 from ${table1}) a order by 1"
+    qt_select1 "select k1 * k2 from test_arithmetic_expressions order by k1"
+    qt_select2 "select * from (select k1 * k2 from test_arithmetic_expressions union all select k3 from test_arithmetic_expressions) a order by 1"
 
-    qt_select "select k1 * k2 * k3 from ${table1} order by k1"
-    qt_select "select k1 * k2 * k3 * k1 * k2 * k3 from ${table1} order by k1"
-    qt_select "select k1 * k2 / k3 * k1 * k2 * k3 from ${table1} order by k1"
-    sql "drop table if exists ${table1}"
+    qt_select3 "select k1 * k2 * k3 from test_arithmetic_expressions order by k1"
+    qt_select4 "select k1 * k2 * k3 * k1 * k2 * k3 from test_arithmetic_expressions order by k1"
+    qt_select5 "select k1 * k2 / k3 * k1 * k2 * k3 from test_arithmetic_expressions order by k1"
+    sql "drop table if exists test_arithmetic_expressions"
 
     sql """
-        CREATE TABLE IF NOT EXISTS ${table1} (             `a` DECIMALV3(9, 3) NOT NULL, `b` DECIMALV3(9, 3) NOT NULL, `c` DECIMALV3(9, 3) NOT NULL, `d` DECIMALV3(9, 3) NOT NULL, `e` DECIMALV3(9, 3) NOT NULL, `f` DECIMALV3(9, 3) NOT
-        NULL, `g` DECIMALV3(9, 3) NOT NULL , `h` DECIMALV3(9, 3) NOT NULL, `i` DECIMALV3(9, 3) NOT NULL, `j` DECIMALV3(9, 3) NOT NULL, `k` DECIMALV3(9, 3) NOT NULL)            DISTRIBUTED BY HASH(a) PROPERTIES("replication_num" = "1");
+        CREATE TABLE IF NOT EXISTS test_arithmetic_expressions (
+            `a` DECIMALV3(9, 3) NOT NULL,
+            `b` DECIMALV3(9, 3) NOT NULL,
+            `c` DECIMALV3(9, 3) NOT NULL,
+            `d` DECIMALV3(9, 3) NOT NULL,
+            `e` DECIMALV3(9, 3) NOT NULL,
+            `f` DECIMALV3(9, 3) NOT NULL,
+            `g` DECIMALV3(9, 3) NOT NULL ,
+            `h` DECIMALV3(9, 3) NOT NULL,
+            `i` DECIMALV3(9, 3) NOT NULL,
+            `j` DECIMALV3(9, 3) NOT NULL,
+            `k` DECIMALV3(9, 3) NOT NULL)
+            DISTRIBUTED BY HASH(a) PROPERTIES("replication_num" = "1");
     """
 
     sql """
-    insert into ${table1} values(999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999);
+    insert into test_arithmetic_expressions values(999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999);
     """
-    qt_select_all "select * from ${table1} order by a"
+    qt_select_all2 "select * from test_arithmetic_expressions order by a"
 
     // TODO: test result is wrong, need to fix
-    qt_select_mix_calc_0 "select a + b + c from ${table1};"
-    qt_select_mix_calc_1 "select (a + b + c) * d from ${table1};"
-    qt_select_mix_calc_2 "select (a + b + c) / d from ${table1};"
-    qt_select_mix_calc_3 "select a + b + c + d + e + f + g + h + i + j + k from ${table1};"
+    qt_select_mix_calc_0 "select a + b + c from test_arithmetic_expressions;"
+    qt_select_mix_calc_1 "select (a + b + c) * d from test_arithmetic_expressions;"
+    qt_select_mix_calc_2 "select (a + b + c) / d from test_arithmetic_expressions;"
+    qt_select_mix_calc_3 "select a + b + c + d + e + f + g + h + i + j + k from test_arithmetic_expressions;"
 
-    sql "drop table if exists ${table1}"
+    sql "drop table if exists test_arithmetic_expressions"
 
     def table2 = "test_arithmetic_expressions"
 
@@ -137,6 +148,7 @@ suite("test_arithmetic_expressions") {
             (2, 499999999999.999999, 499999999999.999999),
             (3, 333333333333.333333, 333333333333.333333),
             (4, 4, 4);"""
+    sql "sync"
     // TODO: fix decimal cast
     // sql "select k3, CAST(k3 AS DECIMALV3(18, 10)) from test_arithmetic_expressions_64;"
 /*
@@ -155,10 +167,10 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(18, 10)) from test_arithmetic_expre
     // decimal128
     sql "DROP TABLE IF EXISTS `test_arithmetic_expressions_128_1`";
     sql """
-    CREATE TABLE IF NOT EXISTS `test_arithmetic_expressions_128_1` (
-      `k1` decimalv3(38, 6) NULL COMMENT "",
-      `k2` decimalv3(38, 6) NULL COMMENT "",
-      `k3` decimalv3(38, 6) NULL COMMENT ""
+    CREATE TABLE test_arithmetic_expressions_128_1 (
+      k1 decimalv3(38, 6) NULL,
+      k2 decimalv3(38, 6) NULL,
+      k3 decimalv3(38, 6) NULL
     ) ENGINE=OLAP
     COMMENT "OLAP"
     DISTRIBUTED BY HASH(`k1`, `k2`, `k3`) BUCKETS 8
@@ -166,51 +178,89 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(18, 10)) from test_arithmetic_expre
     "replication_allocation" = "tag.location.default: 1"
     );
     """
-    sql """insert into test_arithmetic_expressions_128_1 values(1, 99999999999999999999999999999999.999999, 99999999999999999999999999999999.999999),
+    sql """insert into test_arithmetic_expressions_128_1 values
+            (1, 99999999999999999999999999999999.999999, 99999999999999999999999999999999.999999),
             (2, 49999999999999999999999999999999.999999, 49999999999999999999999999999999.999999),
             (3, 33333333333333333333333333333333.333333, 33333333333333333333333333333333.333333),
             (4.444444, 2.222222, 3.333333);"""
+    sql "sync"
     qt_decimal128_select_all "select * from test_arithmetic_expressions_128_1 order by k1, k2;"
-    // fix cast
     // qt_decimal128_cast "select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expressions_128_1 order by 1, 2;"
-    /*
+    // int128 multiply overflow
     qt_decimal128_multiply_0 "select k1 * k2 a from test_arithmetic_expressions_128_1 order by 1;"
     qt_decimal128_arith_union "select * from (select k1 * k2 from test_arithmetic_expressions_128_1 union all select k3 from test_arithmetic_expressions_128_1) a order by 1"
-    qt_decimal128_multiply_1 "select k1 * k2 * k3 a from test_arithmetic_expressions_128_1 order by 1;"
-    qt_decimal128_multiply_2 "select k1 * k2 * k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by k1"
-    qt_decimal128_multiply_div "select k1 * k2 / k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by k1"
-    */
+
+    test {
+        sql """
+            select k1 * k2 * k3 a from test_arithmetic_expressions_128_1 order by 1;
+        """
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """
+            select k1 * k2 * k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by k1;
+        """
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """
+            select k1 * k2 / k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by k1;
+        """
+        exception "Arithmetic overflow"
+    }
 
     sql "DROP TABLE IF EXISTS `test_arithmetic_expressions_128_2`";
     sql """
-    CREATE TABLE IF NOT EXISTS test_arithmetic_expressions_128_2 (
-        `a` DECIMALV3(38, 3) NOT NULL,
-        `b` DECIMALV3(38, 3) NOT NULL,
-        `c` DECIMALV3(38, 3) NOT NULL,
-        `d` DECIMALV3(38, 3) NOT NULL,
-        `e` DECIMALV3(38, 3) NOT NULL,
-        `f` DECIMALV3(38, 3) NOT NULL,
-        `g` DECIMALV3(38, 3) NOT NULL,
-        `h` DECIMALV3(38, 3) NOT NULL,
-        `i` DECIMALV3(38, 3) NOT NULL,
-        `j` DECIMALV3(38, 3) NOT NULL,
-        `k` DECIMALV3(38, 3) NOT NULL
+    CREATE TABLE test_arithmetic_expressions_128_2 (
+        a DECIMALV3(38, 3) NOT NULL,
+        b DECIMALV3(38, 3) NOT NULL,
+        c DECIMALV3(38, 3) NOT NULL,
+        d DECIMALV3(38, 3) NOT NULL,
+        e DECIMALV3(38, 3) NOT NULL,
+        f DECIMALV3(38, 3) NOT NULL,
+        g DECIMALV3(38, 3) NOT NULL,
+        h DECIMALV3(38, 3) NOT NULL,
+        i DECIMALV3(38, 3) NOT NULL,
+        j DECIMALV3(38, 3) NOT NULL,
+        k DECIMALV3(38, 3) NOT NULL
     ) DISTRIBUTED BY HASH(a) PROPERTIES("replication_num" = "1");
     """
 
     sql """
     insert into test_arithmetic_expressions_128_2 values(999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999);
     """
+    sql "sync"
     qt_decimal128_select_all_2 "select * from test_arithmetic_expressions_128_2 order by a"
-    /*
     qt_decimal128_mixed_calc_0 "select a + b + c from test_arithmetic_expressions_128_2;"
     qt_decimal128_mixed_calc_1 "select (a + b + c) * d from test_arithmetic_expressions_128_2;"
     qt_decimal128_mixed_calc_2 "select (a + b + c) / d from test_arithmetic_expressions_128_2;"
     qt_decimal128_mixed_calc_3 "select a + b + c + d + e + f + g + h + i + j + k from test_arithmetic_expressions_128_2;"
-    */
 
     sql "set enable_nereids_planner = true;"
     sql "set enable_decimal256 = true;"
+
+    qt_decimal128_enable_decimal256_multiply_0 "select k1 * k2 a from test_arithmetic_expressions_128_1 order by 1;"
+    qt_decimal128_enable_decimal256_arith_union "select * from (select k1 * k2 from test_arithmetic_expressions_128_1 union all select k3 from test_arithmetic_expressions_128_1) a order by 1"
+    
+    test {
+        sql """
+        select k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by 1;
+        """
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """
+        select k1 * k2 * k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by k1
+        """
+        exception "Arithmetic overflow"
+    }
+    qt_decimal128_enable_decimal256_multiply_div "select k1 * k2 / k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by k1"
+
+    qt_decimal128_enable_decimal256_mixed_calc_0 "select a + b + c from test_arithmetic_expressions_128_2;"
+    qt_decimal128_enable_decimal256_mixed_calc_1 "select (a + b + c) * d from test_arithmetic_expressions_128_2;"
+    qt_decimal128_enable_decimal256_mixed_calc_2 "select (a + b + c) / d from test_arithmetic_expressions_128_2;"
+    qt_decimal128_enable_decimal256_mixed_calc_3 "select a + b + c + d + e + f + g + h + i + j + k from test_arithmetic_expressions_128_2;"
+
     qt_decimal128_cast256_cast "select k3, CAST(k3 AS DECIMALV3(76, 10)) from test_arithmetic_expressions_128_1 order by 1, 2;"
     qt_decimal128_cast256_calc_0 "select cast(k1 as decimalv3(76, 6)) + k2 a from test_arithmetic_expressions_128_1 order by 1;"
     qt_decimal128_cast256_calc_1 "select cast(k2 as decimalv3(76, 6)) - k1 a from test_arithmetic_expressions_128_1 order by 1;"
@@ -221,7 +271,12 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(18, 10)) from test_arithmetic_expre
     qt_decimal128_cast256_calc_6 "select * from (select cast(k1 as decimalv3(76, 6)) * k2 from test_arithmetic_expressions_128_1 union all select k3 from test_arithmetic_expressions_128_1) a order by 1"
     // overflow
     qt_decimal128_cast256_calc_7 "select cast(k1 as decimalv3(76, 6)) * k2 * k3 a from test_arithmetic_expressions_128_1 order by 1;"
-    qt_decimal128_cast256_calc_8 "select cast(k1 as decimalv3(76, 6)) * k2 * k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by 1"
+    test {
+        sql """
+        select cast(k1 as decimalv3(76, 6)) * k2 * k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by 1;
+        """
+        exception "Arithmetic overflow"
+    }
     // qt_decimal128_cast256_calc_9 "select cast(k1 as decimalv3(76, 6)) * k2 / k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by 1"
 
     qt_decimal128_cast256_mixed_calc_0 "select cast(a as decimalv3(39, 4)) + b + c from test_arithmetic_expressions_128_2 order by 1;"
@@ -258,7 +313,6 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expre
 | -5151654377011498561003149524047726679019988040430007836382.4035124889496445184 |
 +---------------------------------------------------------------------------------+
     */
-    /*
     sql "DROP TABLE IF EXISTS `test_arithmetic_expressions_256_1`"
     sql """
     CREATE TABLE IF NOT EXISTS `test_arithmetic_expressions_256_1` (
@@ -266,25 +320,52 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expre
       `k2` decimalv3(76, 10) NULL COMMENT "",
       `k3` decimalv3(76, 11) NULL COMMENT ""
     ) ENGINE=OLAP
-    DISTRIBUTED BY HASH(`k1`, `k2`, `k3`) BUCKETS 8
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 8
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );
     """
 
-    sql """insert into test_arithmetic_expressions_256_1 values(1, 999999999999999999999999999999999999999999999999999999999999999999.9999999999, 99999999999999999999999999999999999999999999999999999999999999999.99999999999),
+    sql """insert into test_arithmetic_expressions_256_1 values
+            (1, 999999999999999999999999999999999999999999999999999999999999999999.9999999999, 99999999999999999999999999999999999999999999999999999999999999999.99999999999),
             (2, 499999999999999999999999999999999999999999999999999999999999999999.9999999999, 49999999999999999999999999999999999999999999999999999999999999999.99999999999),
             (3, 333333333333333333333333333333333333333333333333333333333333333333.3333333333, 33333333333333333333333333333333333333333333333333333333333333333.33333333333);"""
+    sql "sync"
     qt_decimal256_arith_select_all "select * from test_arithmetic_expressions_256_1 order by k1, k2, k3;"
     qt_decimal256_arith_plus "select k1 + k2 from test_arithmetic_expressions_256_1 order by 1;"
     qt_decimal256_arith_minus "select k2 - k1 from test_arithmetic_expressions_256_1 order by 1;"
-    qt_decimal256_arith_multiply "select k1 * k2 from test_arithmetic_expressions_256_1 order by 1;"
-    qt_decimal256_arith_div "select k2 / k1 from test_arithmetic_expressions_256_1 order by 1;"
-    qt_decimal256_arith_union "select * from (select k1 * k2 from test_arithmetic_expressions_256_1 union all select k3 from test_arithmetic_expressions_256_1) a order by 1"
+    test {
+        sql """
+        select k1 * k2 from test_arithmetic_expressions_256_1 order by 1;
+        """
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """
+        select k2 / k1 from test_arithmetic_expressions_256_1 order by 1;
+        """
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """
+        select * from (select k1 * k2 from test_arithmetic_expressions_256_1 union all select k3 from test_arithmetic_expressions_256_1) a order by 1;
+        """
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """
+        select k1 * k2 * k3 a from test_arithmetic_expressions_256_1 order by 1;
+        """
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """
+        select k1 * k2 / k3 * k1 * k2 * k3 from test_arithmetic_expressions_256_1 order by k1;
+        """
+        exception "Arithmetic overflow"
+    }
 
-    qt_decimal256_multiply_1 "select k1 * k2 * k3 a from test_arithmetic_expressions_256_1 order by 1;"
-    qt_decimal256_multiply_2 "select k1 * k2 * k3 * k1 * k2 * k3 from test_arithmetic_expressions_256_1 order by k1"
-    qt_decimal256_multiply_div "select k1 * k2 / k3 * k1 * k2 * k3 from test_arithmetic_expressions_256_1 order by k1"
 
     qt_decimal256_arith_multiply_const "select k1 * 2.0 from test_arithmetic_expressions_256_1 order by 1;"
 
@@ -308,6 +389,7 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expre
     sql """
     insert into test_arithmetic_expressions_256_2 values(999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999);
     """
+    sql "sync"
     qt_decimal256_select_all_2 "select * from test_arithmetic_expressions_256_2 order by a"
 
     qt_decimal256_mixed_calc_0 "select a + b + c from test_arithmetic_expressions_256_2;"
@@ -330,6 +412,7 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expre
     sql """insert into test_arithmetic_expressions_256_3 values(1, 999999999999999999999999999999999999999999999999999999999999999999999999999.9, 99999999999999999999999999999999999999999999999999999999999999999999999999.99),
             (2, 499999999999999999999999999999999999999999999999999999999999999999999999999.9, 49999999999999999999999999999999999999999999999999999999999999999999999999.99),
             (3, 333333333333333333333333333333333333333333333333333333333333333333333333333.3, 33333333333333333333333333333333333333333333333333333333333333333333333333.33);"""
+    sql "sync"
     qt_decimal256_arith_3 "select k1, k2, k1 * k2 a from test_arithmetic_expressions_256_3 order by k1, k2;"
 
     sql "DROP TABLE IF EXISTS `test_arithmetic_expressions_256_4`"
@@ -348,6 +431,7 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expre
     sql """ insert into test_arithmetic_expressions_256_4 values (2,107684988.257976000,107684988.257976000,148981.0000000000); """
     sql """ insert into test_arithmetic_expressions_256_4 values (3,76891560.464178000,76891560.464178000,106161.0000000000); """
     sql """ insert into test_arithmetic_expressions_256_4 values (4,277170831.851350000,277170831.851350000,402344.0000000000); """
+    sql "sync"
 
     qt_decimal256_div_v2_v3 """ select id, fz/fm as dec,fzv3/fm as decv3 from test_arithmetic_expressions_256_4 ORDER BY id; """
 
@@ -367,8 +451,8 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expre
     sql """ insert into test_arithmetic_expressions_256_5 values (2,107684988.257976000,3,3); """
     sql """ insert into test_arithmetic_expressions_256_5 values (3,76891560.464178000,5,5); """
     sql """ insert into test_arithmetic_expressions_256_5 values (4,277170831.851350000,7,7); """
+    sql "sync"
 
     qt_decimal256_mod """ select v1, v2, v1 % v2, v1 % v3 from test_arithmetic_expressions_256_5 ORDER BY id; """
-    */
 
 }

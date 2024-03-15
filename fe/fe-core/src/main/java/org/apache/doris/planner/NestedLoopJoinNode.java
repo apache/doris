@@ -65,6 +65,8 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     private List<Expr> runtimeFilterExpr = Lists.newArrayList();
     private List<Expr> joinConjuncts;
 
+    private List<Expr> markJoinConjuncts;
+
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
         super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, outer, inner, innerRef);
         tupleIds.addAll(outer.getOutputTupleIds());
@@ -79,6 +81,10 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
     public void setJoinConjuncts(List<Expr> joinConjuncts) {
         this.joinConjuncts = joinConjuncts;
+    }
+
+    public void setMarkJoinConjuncts(List<Expr> markJoinConjuncts) {
+        this.markJoinConjuncts = markJoinConjuncts;
     }
 
     @Override
@@ -151,7 +157,9 @@ public class NestedLoopJoinNode extends JoinNodeBase {
                 cardinality = Math.round(((double) cardinality) * computeOldSelectivity());
             }
         }
-        LOG.debug("stats NestedLoopJoin: cardinality={}", Long.toString(cardinality));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats NestedLoopJoin: cardinality={}", Long.toString(cardinality));
+        }
     }
 
     @Override
@@ -171,6 +179,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         for (Expr conjunct : joinConjuncts) {
             msg.nested_loop_join_node.addToJoinConjuncts(conjunct.treeToThrift());
         }
+        if (markJoinConjuncts != null) {
+            for (Expr conjunct : markJoinConjuncts) {
+                msg.nested_loop_join_node.addToMarkJoinConjuncts(conjunct.treeToThrift());
+            }
+        }
+
         msg.nested_loop_join_node.setIsMark(isMarkJoin());
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
@@ -228,6 +242,11 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
         if (!joinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("join conjuncts: ").append(getExplainString(joinConjuncts)).append("\n");
+        }
+
+        if (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()) {
+            output.append(detailPrefix).append("mark join predicates: ")
+                    .append(getExplainString(markJoinConjuncts)).append("\n");
         }
 
         if (!conjuncts.isEmpty()) {

@@ -21,7 +21,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <array>
 #include <atomic>
@@ -37,7 +36,6 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
@@ -104,27 +102,10 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
-          _hash_table_compute_timer(nullptr),
-          _hash_table_input_counter(nullptr),
-          _build_timer(nullptr),
-          _expr_timer(nullptr),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
-          _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
-          _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
-          _is_merge(false),
-          _serialize_key_timer(nullptr),
-          _merge_timer(nullptr),
-          _get_results_timer(nullptr),
-          _serialize_data_timer(nullptr),
-          _serialize_result_timer(nullptr),
-          _deserialize_data_timer(nullptr),
-          _hash_table_iterate_timer(nullptr),
-          _insert_keys_to_column_timer(nullptr),
-          _streaming_agg_timer(nullptr),
-          _hash_table_size_counter(nullptr),
-          _max_row_size_counter(nullptr) {
+          _is_merge(false) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -252,7 +233,6 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _serialize_key_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
             "SerializeKeyArena", TUnit::BYTES, "MemoryUsage");
 
-    _build_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "BuildTime", 1);
     _build_table_convert_timer = ADD_TIMER(runtime_profile(), "BuildConvertToPartitionedTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTime");
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
@@ -295,7 +275,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
 
     // set profile timer to evaluators
     for (auto& evaluator : _aggregate_evaluators) {
-        evaluator->set_timer(_exec_timer, _merge_timer, _expr_timer);
+        evaluator->set_timer(_merge_timer, _expr_timer);
     }
 
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
@@ -406,7 +386,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                    _is_merge ? "true" : "false", _needs_finalize ? "true" : "false",
                    _is_streaming_preagg ? "true" : "false",
                    std::to_string(_aggregate_evaluators.size()), std::to_string(_limit));
-    runtime_profile()->add_info_string("AggInfos:", fmt::to_string(msg));
+    runtime_profile()->add_info_string("AggInfos", fmt::to_string(msg));
     return Status::OK();
 }
 
@@ -435,7 +415,7 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status(_agg_data->without_key)));
+        RETURN_IF_ERROR(_create_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = true;
     }
 
@@ -529,7 +509,7 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
     }
     if (eos) {
         if (_spill_context.has_data) {
-            static_cast<void>(_try_spill_disk(true));
+            RETURN_IF_ERROR(_try_spill_disk(true));
             RETURN_IF_ERROR(_spill_context.prepare_for_reading());
         }
         _can_read = true;
@@ -538,9 +518,6 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
 }
 
 void AggregationNode::release_resource(RuntimeState* state) {
-    for (auto* aggregate_evaluator : _aggregate_evaluators) {
-        aggregate_evaluator->close(state);
-    }
     if (_executor.close) {
         _executor.close();
     }
@@ -578,11 +555,10 @@ Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
     return Status::OK();
 }
 
-Status AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
+void AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->function()->destroy(data + _offsets_of_aggregate_states[i]);
     }
-    return Status::OK();
 }
 
 Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* block, bool* eos) {
@@ -600,7 +576,7 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
     }
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        auto column = columns[i].get();
+        auto* column = columns[i].get();
         _aggregate_evaluators[i]->insert_result_info(
                 _agg_data->without_key + _offsets_of_aggregate_states[i], column);
     }
@@ -677,7 +653,6 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
 
 Status AggregationNode::_execute_without_key(Block* block) {
     DCHECK(_agg_data->without_key != nullptr);
-    SCOPED_TIMER(_build_timer);
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_single_add(
                 block, _agg_data->without_key + _offsets_of_aggregate_states[i],
@@ -722,7 +697,7 @@ void AggregationNode::_close_without_key() {
     //but finally call close to destory agg data, if agg data has bitmapValue
     //will be core dump, it's not initialized
     if (_agg_data_created_without_key) {
-        static_cast<void>(_destroy_agg_status(_agg_data->without_key));
+        _destroy_agg_status(_agg_data->without_key);
         _agg_data_created_without_key = false;
     }
     release_tracker();
@@ -819,18 +794,18 @@ Status AggregationNode::_reset_hash_table() {
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
+                        _destroy_agg_status(mapped);
                         mapped = nullptr;
                     }
                 });
 
-                _aggregate_data_container.reset(new AggregateDataContainer(
+                _aggregate_data_container = std::make_unique<AggregateDataContainer>(
                         sizeof(typename HashTableType::key_type),
                         ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
                          _align_aggregate_states) *
-                                _align_aggregate_states));
-                hash_table = HashTableType();
-                _agg_arena_pool.reset(new Arena);
+                                _align_aggregate_states);
+                agg_method.hash_table.reset(new HashTableType());
+                _agg_arena_pool = std::make_unique<Arena>();
                 return Status::OK();
             },
             _agg_data->method_variant);
@@ -852,13 +827,20 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 agg_method.init_serialized_keys(key_columns, num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
-                    auto mapped = _aggregate_data_container->append_data(origin);
-                    auto st = _create_agg_status(mapped);
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
+                    try {
+                        HashMethodType::try_presis_key_and_origin(key, origin, *_agg_arena_pool);
+                        auto mapped = _aggregate_data_container->append_data(origin);
+                        auto st = _create_agg_status(mapped);
+                        if (!st) {
+                            throw Exception(st.code(), st.to_string());
+                        }
+                        ctor(key, mapped);
+                    } catch (...) {
+                        // Exception-safety - if it can not allocate memory or create status,
+                        // the destructors will not be called.
+                        ctor(key, nullptr);
+                        throw;
                     }
-                    ctor(key, mapped);
                 };
 
                 auto creator_for_null_key = [this](auto& mapped) {
@@ -903,7 +885,6 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
 
 Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                                      doris::vectorized::Block* out_block) {
-    SCOPED_TIMER(_build_timer);
     DCHECK(!_probe_expr_ctxs.empty());
 
     size_t key_size = _probe_expr_ctxs.size();
@@ -1527,16 +1508,12 @@ void AggregationNode::_close_with_serialized_key() {
                 auto& data = *agg_method.hash_table;
                 data.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
+                        _destroy_agg_status(mapped);
                         mapped = nullptr;
                     }
                 });
                 if (data.has_null_key_data()) {
-                    auto st = _destroy_agg_status(
-                            data.template get_null_key_data<AggregateDataPtr>());
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
-                    }
+                    _destroy_agg_status(data.template get_null_key_data<AggregateDataPtr>());
                 }
             },
             _agg_data->method_variant);

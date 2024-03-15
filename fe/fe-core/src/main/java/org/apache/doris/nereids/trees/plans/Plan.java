@@ -61,8 +61,20 @@ public interface Plan extends TreeNode<Plan> {
         return !(getLogicalProperties() instanceof UnboundLogicalProperties);
     }
 
+    /** hasUnboundExpression */
     default boolean hasUnboundExpression() {
-        return getExpressions().stream().anyMatch(Expression::hasUnbound);
+        for (Expression expression : getExpressions()) {
+            if (expression.hasUnbound()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    default boolean containsSlots(ImmutableSet<Slot> slots) {
+        return getExpressions().stream().anyMatch(
+                expression -> !Sets.intersection(slots, expression.getInputSlots()).isEmpty()
+                        || children().stream().anyMatch(plan -> plan.containsSlots(slots)));
     }
 
     default LogicalProperties computeLogicalProperties() {
@@ -157,9 +169,9 @@ public interface Plan extends TreeNode<Plan> {
      */
     default String shape(String prefix) {
         StringBuilder builder = new StringBuilder();
-        String me = shapeInfo();
+        String me = this.getClass().getSimpleName();
         String prefixTail = "";
-        if (! ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes().contains(me)) {
+        if (!ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes().contains(me)) {
             builder.append(prefix).append(shapeInfo()).append("\n");
             prefixTail += "--";
         }

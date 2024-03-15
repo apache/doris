@@ -32,17 +32,32 @@
 namespace doris::vectorized {
 
 template <template <typename> class AggregateFunctionTemplate,
-          template <typename ColVecType, bool, bool> class Data, template <typename> class Impl,
-          bool result_is_nullable, bool arg_is_nullable>
+          template <typename ColVecType, bool, bool> class Data,
+          template <typename, bool> class Impl, bool result_is_nullable, bool arg_is_nullable>
 AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
                                                          const DataTypes& argument_types) {
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 
-#define DISPATCH(TYPE, COLUMN_TYPE)                        \
-    if (which.idx == TypeIndex::TYPE)                      \
-        return std::make_shared<AggregateFunctionTemplate< \
-                Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>>>>(argument_types);
+    bool arg_ignore_null_value = false;
+    if (argument_types.size() == 2) {
+        DCHECK(name == "first_value" || name == "last_value") << "invalid function name: " << name;
+        arg_ignore_null_value = true;
+    }
+
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                        \
+    if (which.idx == TypeIndex::TYPE) {                                                    \
+        if (arg_ignore_null_value) {                                                       \
+            return std::make_shared<AggregateFunctionTemplate<                             \
+                    Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>, true>>>(  \
+                    argument_types);                                                       \
+        } else {                                                                           \
+            return std::make_shared<AggregateFunctionTemplate<                             \
+                    Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>, false>>>( \
+                    argument_types);                                                       \
+        }                                                                                  \
+    }
+
     TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 
@@ -87,8 +102,11 @@ CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_last,
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("dense_rank", creator_without_type::creator<WindowFunctionDenseRank>);
     factory.register_function("rank", creator_without_type::creator<WindowFunctionRank>);
+    factory.register_function("percent_rank",
+                              creator_without_type::creator<WindowFunctionPercentRank>);
     factory.register_function("row_number", creator_without_type::creator<WindowFunctionRowNumber>);
     factory.register_function("ntile", creator_without_type::creator<WindowFunctionNTile>);
+    factory.register_function("cume_dist", creator_without_type::creator<WindowFunctionCumeDist>);
 }
 
 void register_aggregate_function_window_lead_lag_first_last(

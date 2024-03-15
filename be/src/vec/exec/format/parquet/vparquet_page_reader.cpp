@@ -23,7 +23,6 @@
 
 #include <algorithm>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "io/fs/buffered_reader.h"
@@ -62,6 +61,9 @@ Status PageReader::next_page_header() {
     const size_t MAX_PAGE_HEADER_SIZE = config::parquet_header_max_size_mb << 20;
     uint32_t real_header_size = 0;
     while (true) {
+        if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+            return Status::EndOfFile("stop");
+        }
         header_size = std::min(header_size, max_size);
         RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size, _io_ctx));
         real_header_size = header_size;
@@ -81,14 +83,7 @@ Status PageReader::next_page_header() {
     }
 
     _offset += real_header_size;
-    if (_cur_page_header.__isset.data_page_header_v2) {
-        auto& page_v2 = _cur_page_header.data_page_header_v2;
-        _next_header_offset = _offset + _cur_page_header.compressed_page_size +
-                              page_v2.repetition_levels_byte_length +
-                              page_v2.definition_levels_byte_length;
-    } else {
-        _next_header_offset = _offset + _cur_page_header.compressed_page_size;
-    }
+    _next_header_offset = _offset + _cur_page_header.compressed_page_size;
     _state = HEADER_PARSED;
     return Status::OK();
 }
@@ -106,13 +101,10 @@ Status PageReader::get_page_data(Slice& slice) {
     if (UNLIKELY(_state != HEADER_PARSED)) {
         return Status::IOError("Should generate page header first to load current page data");
     }
-    if (_cur_page_header.__isset.data_page_header_v2) {
-        auto& page_v2 = _cur_page_header.data_page_header_v2;
-        slice.size = _cur_page_header.compressed_page_size + page_v2.repetition_levels_byte_length +
-                     page_v2.definition_levels_byte_length;
-    } else {
-        slice.size = _cur_page_header.compressed_page_size;
+    if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+        return Status::EndOfFile("stop");
     }
+    slice.size = _cur_page_header.compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset, _io_ctx));
     _offset += slice.size;
     _state = INITIALIZED;

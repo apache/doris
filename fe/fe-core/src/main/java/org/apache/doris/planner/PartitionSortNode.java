@@ -120,6 +120,10 @@ public class PartitionSortNode extends PlanNode {
         }
         output.append("\n");
 
+        if (!conjuncts.isEmpty()) {
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+        }
+
         // Add the limit information;
         output.append(prefix).append("has global limit: ").append(hasGlobalLimit).append("\n");
         output.append(prefix).append("partition limit: ").append(partitionLimit).append("\n");

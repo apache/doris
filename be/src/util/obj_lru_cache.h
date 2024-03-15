@@ -18,14 +18,14 @@
 #pragma once
 
 #include "olap/lru_cache.h"
+#include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
 
 // A common object cache depends on an Sharded LRU Cache.
 // It has a certain capacity, which determin how many objects it can cache.
 // Caller must hold a CacheHandle instance when visiting the cached object.
-// TODO shouble add gc prune
-class ObjLRUCache {
+class ObjLRUCache : public LRUCachePolicy {
 public:
     struct ObjKey {
         ObjKey(const std::string& key_) : key(key_) {}
@@ -33,10 +33,24 @@ public:
         std::string key;
     };
 
+    template <typename T>
+    class ObjValue : public LRUCacheValueBase {
+    public:
+        ObjValue(const T* value)
+                : LRUCacheValueBase(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE), value(value) {}
+        ~ObjValue() override {
+            T* v = (T*)value;
+            delete v;
+        }
+
+        const T* value;
+    };
+
     class CacheHandle {
     public:
         CacheHandle() = default;
-        CacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
+        CacheHandle(LRUCachePolicy* cache, Cache::Handle* handle)
+                : _cache(cache), _handle(handle) {}
         ~CacheHandle() {
             if (_handle != nullptr) {
                 _cache->release(_handle);
@@ -56,38 +70,32 @@ public:
 
         bool valid() { return _cache != nullptr && _handle != nullptr; }
 
-        Cache* cache() const { return _cache; }
-        void* data() const { return _cache->value(_handle); }
+        LRUCachePolicy* cache() const { return _cache; }
+        template <typename T>
+        void* data() const {
+            return (void*)((ObjValue<T>*)_cache->value(_handle))->value;
+        }
 
     private:
-        Cache* _cache = nullptr;
+        LRUCachePolicy* _cache = nullptr;
         Cache::Handle* _handle = nullptr;
 
         // Don't allow copy and assign
         DISALLOW_COPY_AND_ASSIGN(CacheHandle);
     };
 
-    ObjLRUCache(int64_t capacity, uint32_t num_shards = kDefaultNumShards);
+    ObjLRUCache(int64_t capacity, uint32_t num_shards = DEFAULT_LRU_CACHE_NUM_SHARDS);
 
     bool lookup(const ObjKey& key, CacheHandle* handle);
 
     template <typename T>
     void insert(const ObjKey& key, const T* value, CacheHandle* cache_handle) {
-        auto deleter = [](const doris::CacheKey& key, void* value) {
-            T* v = (T*)value;
-            delete v;
-        };
-        insert(key, value, cache_handle, deleter);
-    }
-
-    template <typename T>
-    void insert(const ObjKey& key, const T* value, CacheHandle* cache_handle,
-                void (*deleter)(const CacheKey& key, void* value)) {
         if (_enabled) {
             const std::string& encoded_key = key.key;
-            auto handle = _cache->insert(encoded_key, (void*)value, sizeof(T), deleter,
-                                         CachePriority::NORMAL, 1);
-            *cache_handle = CacheHandle {_cache.get(), handle};
+            auto* obj_value = new ObjValue<T>(value);
+            auto* handle = LRUCachePolicy::insert(encoded_key, obj_value, 1, sizeof(T),
+                                                  CachePriority::NORMAL);
+            *cache_handle = CacheHandle {this, handle};
         } else {
             cache_handle = nullptr;
         }
@@ -96,8 +104,6 @@ public:
     void erase(const ObjKey& key);
 
 private:
-    static constexpr uint32_t kDefaultNumShards = 16;
-    std::unique_ptr<Cache> _cache = nullptr;
     bool _enabled;
 };
 

@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.RuleType;
@@ -52,19 +54,25 @@ public class CustomRewriteJob implements RewriteJob {
         if (disableRules.contains(ruleType.type())) {
             return;
         }
-        Plan root = context.getCascadesContext().getRewritePlan();
+        CascadesContext cascadesContext = context.getCascadesContext();
+        Plan root = cascadesContext.getRewritePlan();
         // COUNTER_TRACER.log(CounterEvent.of(Memo.get=-StateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
         //         root));
         Plan rewrittenRoot = customRewriter.get().rewriteRoot(root, context);
+        if (rewrittenRoot == null) {
+            return;
+        }
 
         // don't remove this comment, it can help us to trace some bug when developing.
 
-        // if (!root.deepEquals(rewrittenRoot)) {
-        //     String traceBefore = root.treeString();
-        //     String traceAfter = root.treeString();
-        //     printTraceLog(ruleType, traceBefore, traceAfter);
-        // }
-        context.getCascadesContext().setRewritePlan(rewrittenRoot);
+        if (!root.deepEquals(rewrittenRoot)) {
+            if (cascadesContext.showPlanProcess()) {
+                PlanProcess planProcess = new PlanProcess(
+                        ruleType.name(), root.treeString(), rewrittenRoot.treeString());
+                cascadesContext.addPlanProcess(planProcess);
+            }
+        }
+        cascadesContext.setRewritePlan(rewrittenRoot);
     }
 
     @Override

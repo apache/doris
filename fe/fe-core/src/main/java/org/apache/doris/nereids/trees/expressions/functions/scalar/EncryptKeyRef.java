@@ -28,7 +28,7 @@ import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.hadoop.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 

@@ -19,21 +19,18 @@
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -206,7 +203,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     }
     _fn_place_ptr = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
                                                    _align_aggregate_states);
-    RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status()));
+    RETURN_IF_ERROR(_create_agg_status());
     _executor.insert_result =
             std::bind<void>(&VAnalyticEvalNode::_insert_result_info, this, std::placeholders::_1);
     _executor.execute =
@@ -214,7 +211,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
                             std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
     for (const auto& ctx : _agg_expr_ctxs) {
-        static_cast<void>(VExpr::prepare(ctx, state, child(0)->row_desc()));
+        RETURN_IF_ERROR(VExpr::prepare(ctx, state, child(0)->row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
@@ -277,9 +274,9 @@ Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block
             return Status::OK();
         }
         _next_partition = _init_next_partition(_found_partition_end);
-        static_cast<void>(_init_result_columns());
+        RETURN_IF_ERROR(_init_result_columns());
         size_t current_block_rows = _input_blocks[_output_block_index].rows();
-        static_cast<void>(_executor.get_next(current_block_rows));
+        RETURN_IF_ERROR(_executor.get_next(current_block_rows));
         if (_window_end_position == current_block_rows) {
             break;
         }
@@ -294,9 +291,6 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
     SCOPED_TIMER(_exec_timer);
     if (is_closed()) {
         return;
-    }
-    for (auto* agg_function : _agg_functions) {
-        agg_function->close(state);
     }
 
     static_cast<void>(_destroy_agg_status());
@@ -359,7 +353,7 @@ Status VAnalyticEvalNode::_get_next_for_range(size_t current_block_rows) {
            _window_end_position < current_block_rows) {
         if (_current_row_position >= _order_by_end.pos) {
             _update_order_by_range();
-            _executor.execute(_order_by_start.pos, _order_by_end.pos, _order_by_start.pos,
+            _executor.execute(_partition_by_start.pos, _partition_by_end.pos, _order_by_start.pos,
                               _order_by_end.pos);
         }
         _executor.insert_result(current_block_rows);
@@ -379,7 +373,7 @@ Status VAnalyticEvalNode::_get_next_for_rows(size_t current_block_rows) {
             range_end = _current_row_position +
                         1; //going on calculate,add up data, no need to reset state
         } else {
-            static_cast<void>(_reset_agg_status());
+            _reset_agg_status();
             if (!_window.__isset
                          .window_start) { //[preceding, offset]        --unbound: [preceding, following]
                 range_start = _partition_by_start.pos;
@@ -616,7 +610,7 @@ bool VAnalyticEvalNode::_init_next_partition(BlockRowPos found_partition_end) {
         _partition_by_start = _partition_by_end;
         _partition_by_end = found_partition_end;
         _current_row_position = _partition_by_start.pos;
-        static_cast<void>(_reset_agg_status());
+        _reset_agg_status();
         return true;
     }
     return false;
@@ -642,6 +636,19 @@ void VAnalyticEvalNode::_insert_result_info(int64_t current_block_rows) {
 
     for (int i = 0; i < _agg_functions_size; ++i) {
         for (int j = get_result_start; j < _window_end_position; ++j) {
+            if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
+                _result_window_columns[i]->is_nullable()) {
+                if (_current_window_empty) {
+                    _result_window_columns[i]->insert_default();
+                } else {
+                    auto* dst = assert_cast<ColumnNullable*>(_result_window_columns[i].get());
+                    dst->get_null_map_data().push_back(0);
+                    _agg_functions[i]->insert_result_info(
+                            _fn_place_ptr + _offsets_of_aggregate_states[i],
+                            &dst->get_nested_column());
+                }
+                continue;
+            }
             _agg_functions[i]->insert_result_info(_fn_place_ptr + _offsets_of_aggregate_states[i],
                                                   _result_window_columns[i].get());
         }
@@ -686,6 +693,10 @@ void VAnalyticEvalNode::_execute_for_win_func(int64_t partition_start, int64_t p
                 partition_start, partition_end, frame_start, frame_end,
                 _fn_place_ptr + _offsets_of_aggregate_states[i], _agg_columns.data(), nullptr);
     }
+
+    // If the end is not greater than the start, the current window should be empty.
+    _current_window_empty =
+            std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
 }
 
 //binary search for range to calculate peer group
@@ -719,11 +730,10 @@ Status VAnalyticEvalNode::_init_result_columns() {
     return Status::OK();
 }
 
-Status VAnalyticEvalNode::_reset_agg_status() {
+void VAnalyticEvalNode::_reset_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->reset(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }
-    return Status::OK();
 }
 
 Status VAnalyticEvalNode::_create_agg_status() {

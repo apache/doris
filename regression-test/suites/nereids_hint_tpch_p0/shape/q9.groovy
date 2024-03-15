@@ -22,7 +22,7 @@ suite("q9") {
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    sql "set runtime_filter_mode='GLOBAL'"
+    sql 'set runtime_filter_mode=OFF'
     sql 'set parallel_pipeline_task_num=8'
     sql 'set exec_mem_limit=21G' 
     sql 'SET enable_pipeline_engine = true'
@@ -32,13 +32,13 @@ sql 'set be_number_for_test=3'
     qt_select """
     explain shape plan
     select 
-    /*+ leading(orders {{lineitem part} {supplier nation}} partsupp) */
         nation,
         o_year,
         sum(amount) as sum_profit
     from
         (
             select
+		/*+ leading(orders shuffle {lineitem shuffle part} shuffle {supplier broadcast nation} shuffle partsupp) */
                 n_name as nation,
                 extract(year from o_orderdate) as o_year,
                 l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount

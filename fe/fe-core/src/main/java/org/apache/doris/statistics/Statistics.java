@@ -33,18 +33,19 @@ public class Statistics {
     private final double rowCount;
 
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
+    private final int widthInJoinCluster;
 
     // the byte size of one tuple
     private double tupleSize;
 
-    public Statistics(Statistics another) {
-        this.rowCount = another.rowCount;
-        this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
-        this.tupleSize = another.tupleSize;
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, 1, expressionToColumnStats);
     }
 
-    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
+    public Statistics(double rowCount, int widthInJoinCluster,
+                      Map<Expression, ColumnStatistic> expressionToColumnStats) {
         this.rowCount = rowCount;
+        this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
     }
 
@@ -61,14 +62,14 @@ public class Statistics {
     }
 
     public Statistics withRowCount(double rowCount) {
-        return new Statistics(rowCount, new HashMap<>(expressionToColumnStats));
+        return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
     /**
      * Update by count.
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
-        Statistics statistics = new Statistics(rowCount, expressionToColumnStats);
+        Statistics statistics = new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
         statistics.enforceValid();
         return statistics;
     }
@@ -94,12 +95,16 @@ public class Statistics {
     }
 
     public Statistics withSel(double sel) {
+        return withSel(sel, 0);
+    }
+
+    public Statistics withSel(double sel, double numNull) {
         sel = StatsMathUtil.minNonNaN(sel, 1);
         if (Double.isNaN(rowCount)) {
             return this;
         }
-        double newCount = rowCount * sel;
-        return new Statistics(newCount, new HashMap<>(expressionToColumnStats));
+        double newCount = rowCount * sel + numNull;
+        return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
@@ -129,7 +134,9 @@ public class Statistics {
     }
 
     public double dataSizeFactor() {
-        return computeTupleSize() / K_BYTES;
+        double lowerBound = 0.03;
+        double upperBound = 0.07;
+        return Math.min(Math.max(computeTupleSize() / K_BYTES, lowerBound), upperBound);
     }
 
     @Override
@@ -159,6 +166,10 @@ public class Statistics {
         return zero;
     }
 
+    public static double getValidSelectivity(double nullSel) {
+        return nullSel < 0 ? 0 : (nullSel > 1 ? 1 : nullSel);
+    }
+
     /**
      * merge this and other colStats.ndv, choose min
      */
@@ -179,10 +190,14 @@ public class Statistics {
         StringBuilder builder = new StringBuilder();
         builder.append(prefix).append("rows=").append(rowCount).append("\n");
         builder.append(prefix).append("tupleSize=").append(computeTupleSize()).append("\n");
-
+        builder.append(prefix).append("width=").append(widthInJoinCluster).append("\n");
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             builder.append(prefix).append(entry.getKey()).append(" -> ").append(entry.getValue()).append("\n");
         }
         return builder.toString();
+    }
+
+    public int getWidthInJoinCluster() {
+        return widthInJoinCluster;
     }
 }

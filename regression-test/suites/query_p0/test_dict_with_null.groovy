@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("dict_with_null", "query") {
+suite("dict_with_null", "query,arrow_flight_sql") {
     def tableName = "test_dict_with_null"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """

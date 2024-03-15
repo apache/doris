@@ -18,7 +18,7 @@
 suite("test_primary_key_partial_update_parallel", "p0") {
 
     // case 1: concurrent partial update
-    def tableName = "test_primary_key_partial_update"
+    def tableName = "test_primary_key_partial_update_parallel"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -92,7 +92,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
 
 
     // case 2: concurrent partial update with row store column
-    tableName = "test_primary_key_row_store_partial_update"
+    tableName = "test_primary_key_row_store_partial_update_parallel"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -166,7 +166,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
 
 
     // case 3: concurrent partial update with sequence column
-    tableName = "test_primary_key_seq_partial_update"
+    tableName = "test_primary_key_seq_partial_update_parallel"
 
     // create table
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -251,7 +251,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
 
 
     // case 4: concurrent partial update with row store column and sequence column
-    tableName = "test_primary_key_row_store_seq_partial_update"
+    tableName = "test_primary_key_row_store_seq_partial_update_parallel"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -333,7 +333,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     // case 5: partial update with delete sign in parallel
-    tableName = "test_primary_key_partial_update_delete_sign"
+    tableName = "test_primary_key_partial_update_parallel_delete_sign"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (

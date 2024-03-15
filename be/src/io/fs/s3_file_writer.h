@@ -48,14 +48,11 @@ public:
 
     Status close() override;
 
-    Status abort() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;
-    Status write_at(size_t offset, const Slice& data) override {
-        return Status::NotSupported("not support");
-    }
 
 private:
+    Status _abort();
     void _wait_until_finish(std::string_view task_name);
     Status _complete();
     Status _create_multi_upload_request();
@@ -76,13 +73,12 @@ private:
     std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
     IFileCache::Key _cache_key;
-    IFileCache* _cache;
+    IFileCache* _cache = nullptr;
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
     std::atomic_bool _failed = false;
     Status _st;
-    size_t _bytes_written = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
     int64_t _expiration_time;

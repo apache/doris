@@ -19,7 +19,9 @@
 
 #include <aws/core/Aws.h>
 #include <aws/core/client/ClientConfiguration.h>
+#include <bvar/bvar.h>
 #include <fmt/format.h>
+#include <gen_cpp/cloud.pb.h>
 #include <stdint.h>
 
 #include <map>
@@ -44,15 +46,15 @@ class Adder;
 namespace doris {
 
 namespace s3_bvar {
-extern bvar::Adder<uint64_t> s3_get_total;
-extern bvar::Adder<uint64_t> s3_put_total;
-extern bvar::Adder<uint64_t> s3_delete_total;
-extern bvar::Adder<uint64_t> s3_head_total;
-extern bvar::Adder<uint64_t> s3_multi_part_upload_total;
-extern bvar::Adder<uint64_t> s3_list_total;
-extern bvar::Adder<uint64_t> s3_list_object_versions_total;
-extern bvar::Adder<uint64_t> s3_get_bucket_version_total;
-extern bvar::Adder<uint64_t> s3_copy_object_total;
+extern bvar::LatencyRecorder s3_get_latency;
+extern bvar::LatencyRecorder s3_put_latency;
+extern bvar::LatencyRecorder s3_delete_latency;
+extern bvar::LatencyRecorder s3_head_latency;
+extern bvar::LatencyRecorder s3_multi_part_upload_latency;
+extern bvar::LatencyRecorder s3_list_latency;
+extern bvar::LatencyRecorder s3_list_object_versions_latency;
+extern bvar::LatencyRecorder s3_get_bucket_version_latency;
+extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 class S3URI;
@@ -69,6 +71,7 @@ const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
 struct S3Conf {
     std::string ak;
     std::string sk;
+    std::string token;
     std::string endpoint;
     std::string region;
     std::string bucket;
@@ -76,13 +79,18 @@ struct S3Conf {
     int max_connections = -1;
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
+
+    bool sse_enabled = false;
+    cloud::ObjectStoreInfoPB::Provider provider;
+
     bool use_virtual_addressing = true;
 
     std::string to_string() const {
         return fmt::format(
-                "(ak={}, sk=*, endpoint={}, region={}, bucket={}, prefix={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={})",
-                ak, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
+                "(ak={}, sk=*, token={}, endpoint={}, region={}, bucket={}, prefix={}, "
+                "max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, "
+                "use_virtual_addressing={})",
+                ak, token, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
                 connect_timeout_ms, use_virtual_addressing);
     }
 
@@ -90,6 +98,7 @@ struct S3Conf {
         uint64_t hash_code = 0;
         hash_code += Fingerprint(ak);
         hash_code += Fingerprint(sk);
+        hash_code += Fingerprint(token);
         hash_code += Fingerprint(endpoint);
         hash_code += Fingerprint(region);
         hash_code += Fingerprint(bucket);

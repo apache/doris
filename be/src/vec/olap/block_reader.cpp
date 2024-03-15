@@ -63,8 +63,10 @@ BlockReader::~BlockReader() {
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     auto res = (this->*_next_block_func)(block, eof);
-    if (!res.ok() && !res.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
-        static_cast<Tablet*>(_tablet.get())->report_error(res);
+    if (!config::is_cloud_mode()) {
+        if (!res.ok()) [[unlikely]] {
+            static_cast<Tablet*>(_tablet.get())->report_error(res);
+        }
     }
     return res;
 }
@@ -132,7 +134,6 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
-    _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
 
     for (int i = 0; i < read_params.rs_splits.size(); ++i) {
@@ -232,11 +233,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
     }
 
     auto status = _init_collect_iter(read_params);
-    if (!status.ok()) {
-        if (!status.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+    if (!status.ok()) [[unlikely]] {
+        if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
-
         return status;
     }
 
@@ -302,8 +302,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     auto target_block_row = 0;
     auto merged_row = 0;
     auto target_columns = block->mutate_columns();
-
-    _insert_data_normal(target_columns);
+    RETURN_IF_ERROR(_insert_data_normal(target_columns));
     target_block_row++;
     _append_agg_data(target_columns);
 
@@ -326,7 +325,8 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
             _agg_data_counters.push_back(_last_agg_data_counter);
             _last_agg_data_counter = 0;
 
-            _insert_data_normal(target_columns);
+            RETURN_IF_ERROR(_insert_data_normal(target_columns));
+
             target_block_row++;
         } else {
             merged_row++;
@@ -338,6 +338,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _agg_data_counters.push_back(_last_agg_data_counter);
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
+    block->set_columns(std::move(target_columns));
 
     _merged_rows += merged_row;
     return Status::OK();
@@ -356,7 +357,8 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     }
 
     do {
-        _insert_data_normal(target_columns);
+        RETURN_IF_ERROR(_insert_data_normal(target_columns));
+
         if (UNLIKELY(_reader_context.record_rowids)) {
             _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
         }
@@ -411,27 +413,34 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 }
             }
         }
-
+        auto target_columns_size = target_columns.size();
         ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};
+        block->set_columns(std::move(target_columns));
         block->insert(column_with_type_and_name);
-        RETURN_IF_ERROR(Block::filter_block(block, target_columns.size(), target_columns.size()));
+        RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
         _stats.rows_del_filtered += target_block_row - block->rows();
         DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
         if (UNLIKELY(_reader_context.record_rowids)) {
             DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
         }
+    } else {
+        block->set_columns(std::move(target_columns));
     }
     return Status::OK();
 }
 
-void BlockReader::_insert_data_normal(MutableColumns& columns) {
+Status BlockReader::_insert_data_normal(MutableColumns& columns) {
     auto block = _next_row.block.get();
-    for (auto idx : _normal_columns_idx) {
-        columns[_return_columns_loc[idx]]->insert_from(*block->get_by_position(idx).column,
-                                                       _next_row.row_pos);
-    }
+
+    RETURN_IF_CATCH_EXCEPTION({
+        for (auto idx : _normal_columns_idx) {
+            columns[_return_columns_loc[idx]]->insert_from(*block->get_by_position(idx).column,
+                                                           _next_row.row_pos);
+        }
+    });
+    return Status::OK();
 }
 
 void BlockReader::_append_agg_data(MutableColumns& columns) {
@@ -513,7 +522,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         AggregateFunctionPtr function = _agg_functions[i];
         AggregateDataPtr place = _agg_places[i];
-        auto column_ptr = _stored_data_columns[idx].get();
+        auto* column_ptr = _stored_data_columns[idx].get();
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
@@ -526,13 +535,16 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
             function->reset(place);
         }
     }
+    if (is_close) {
+        _arena.clear();
+    }
 }
 
 bool BlockReader::_get_next_row_same() {
     if (_next_row.is_same) {
         return true;
     } else {
-        auto block = _next_row.block.get();
+        auto* block = _next_row.block.get();
         return block->get_same_bit(_next_row.row_pos);
     }
 }

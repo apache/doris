@@ -19,7 +19,6 @@
 
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
@@ -100,6 +99,7 @@ Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) 
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     _child_expr.resize(p._child_expr.size());
+    _shared_state->data_queue.set_sink_dependency(_dependency, p._cur_child_id);
     for (size_t i = 0; i < p._child_expr.size(); i++) {
         RETURN_IF_ERROR(p._child_expr[i]->clone(state, _child_expr[i]));
     }
@@ -143,8 +143,7 @@ Status UnionSinkOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                SourceState source_state) {
+Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -167,7 +166,7 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
                                      _cur_child_id, _get_first_materialized_child_idx(),
                                      children_count());
     }
-    if (UNLIKELY(source_state == SourceState::FINISHED)) {
+    if (UNLIKELY(eos)) {
         //if _cur_child_id eos, need check to push block
         //Now here can't check _output_block rows, even it's row==0, also need push block
         //because maybe sink is eos and queue have none data, if not push block

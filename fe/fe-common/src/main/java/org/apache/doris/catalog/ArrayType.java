@@ -88,13 +88,11 @@ public class ArrayType extends Type {
             return false;
         }
 
-        // Array(Null) is a virtual Array type, can match any Array(...) type
-        if (itemType.isNull() || ((ArrayType) t).getItemType().isNull()) {
-            return true;
+        if (((ArrayType) t).getContainsNull() != getContainsNull()) {
+            return false;
         }
 
-        return itemType.matchesType(((ArrayType) t).itemType)
-                && (((ArrayType) t).containsNull || !containsNull);
+        return itemType.matchesType(((ArrayType) t).itemType);
     }
 
     @Override
@@ -104,7 +102,7 @@ public class ArrayType extends Type {
 
     @Override
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
-                                       boolean useSpecializedType) throws TypeException {
+                                       boolean useSpecializedType, boolean enableDecimal256) throws TypeException {
         ArrayType specificArrayType = null;
         if (specificType instanceof ArrayType) {
             specificArrayType = (ArrayType) specificType;
@@ -116,7 +114,7 @@ public class ArrayType extends Type {
         if (itemType.hasTemplateType()) {
             newItemType = itemType.specializeTemplateType(
                 specificArrayType != null ? specificArrayType.itemType : specificType,
-                specializedTypeMap, useSpecializedType);
+                specializedTypeMap, useSpecializedType, enableDecimal256);
         }
 
         return new ArrayType(newItemType);
@@ -161,6 +159,18 @@ public class ArrayType extends Type {
             return true;
         }
         return Type.canCastTo(type.getItemType(), targetType.getItemType());
+    }
+
+    public static Type getAssignmentCompatibleType(
+            ArrayType t1, ArrayType t2, boolean strict, boolean enableDecimal256) {
+        Type itemCompatibleType = Type.getAssignmentCompatibleType(t1.getItemType(), t2.getItemType(), strict,
+                enableDecimal256);
+
+        if (itemCompatibleType.isInvalid()) {
+            return ScalarType.INVALID;
+        }
+
+        return new ArrayType(itemCompatibleType, t1.getContainsNull() || t2.getContainsNull());
     }
 
     @Override

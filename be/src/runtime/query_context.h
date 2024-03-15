@@ -22,7 +22,6 @@
 
 #include <atomic>
 #include <memory>
-#include <sstream>
 #include <string>
 
 #include "common/config.h"
@@ -30,22 +29,27 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
-#include "task_group/task_group.h"
-#include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 #include "vec/runtime/shared_scanner_controller.h"
+#include "workload_group/workload_group.h"
 
 namespace doris {
+
+namespace pipeline {
+class PipelineFragmentContext;
+} // namespace pipeline
+
 struct ReportStatusRequest {
     bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile;
-    RuntimeProfile* load_channel_profile;
+    RuntimeProfile* profile = nullptr;
+    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -56,6 +60,7 @@ struct ReportStatusRequest {
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -65,38 +70,10 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options)
-            : fragment_num(total_fragment_num),
-              timeout_second(-1),
-              _query_id(query_id),
-              _exec_env(exec_env),
-              _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
-              _query_options(query_options) {
-        _start_time = VecDateTimeValue::local_time();
-        _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-        _shared_scanner_controller.reset(new vectorized::SharedScannerController());
-    }
+                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline,
+                 bool is_nereids);
 
-    ~QueryContext() {
-        // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
-        // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
-        // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
-        // on query mem tracker, released on other trackers.
-        std::string mem_tracker_msg {""};
-        if (query_mem_tracker->peak_consumption() != 0) {
-            mem_tracker_msg = fmt::format(
-                    ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
-                    "PeakUsed={}",
-                    print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
-                    MemTracker::print_bytes(query_mem_tracker->consumption()),
-                    MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
-        }
-        if (_task_group) {
-            _task_group->remove_mem_tracker_limiter(query_mem_tracker);
-        }
-
-        LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
-    }
+    ~QueryContext();
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
@@ -116,6 +93,8 @@ public:
         return false;
     }
 
+    int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
+
     void set_thread_token(int concurrency, bool is_serial) {
         _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
                 is_serial ? ThreadPool::ExecutionMode::SERIAL
@@ -125,29 +104,10 @@ public:
 
     ThreadPoolToken* get_token() { return _thread_token.get(); }
 
-    void set_ready_to_execute(bool is_cancelled) {
-        {
-            std::lock_guard<std::mutex> l(_start_lock);
-            _is_cancelled = is_cancelled;
-            _ready_to_execute = true;
-        }
-        if (query_mem_tracker && is_cancelled) {
-            query_mem_tracker->set_is_query_cancelled(is_cancelled);
-        }
-        _start_cond.notify_all();
-    }
+    void set_ready_to_execute(bool is_cancelled);
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
-    bool cancel(bool v, std::string msg, Status new_status) {
-        if (_is_cancelled) {
-            return false;
-        }
-        set_exec_status(new_status);
-        _is_cancelled.store(v);
-
-        set_ready_to_execute(true);
-        return true;
-    }
+    bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
         if (new_status.ok()) {
@@ -165,13 +125,7 @@ public:
         return _exec_status;
     }
 
-    void set_ready_to_execute_only() {
-        {
-            std::lock_guard<std::mutex> l(_start_lock);
-            _ready_to_execute = true;
-        }
-        _start_cond.notify_all();
-    }
+    void set_ready_to_execute_only();
 
     bool is_ready_to_execute() {
         std::lock_guard<std::mutex> l(_start_lock);
@@ -195,11 +149,21 @@ public:
         return _shared_scanner_controller;
     }
 
-    vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
+    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
+        DCHECK(_runtime_predicates.contains(source_node_id) || _runtime_predicates.contains(0));
+        if (_runtime_predicates.contains(source_node_id)) {
+            return _runtime_predicates[source_node_id];
+        }
+        return _runtime_predicates[0];
+    }
 
-    void set_task_group(taskgroup::TaskGroupPtr& tg) { _task_group = tg; }
+    void init_runtime_predicates(std::vector<int> source_node_ids) {
+        for (int id : source_node_ids) {
+            _runtime_predicates.try_emplace(id);
+        }
+    }
 
-    taskgroup::TaskGroup* get_task_group() const { return _task_group.get(); }
+    Status set_workload_group(WorkloadGroupPtr& tg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -210,9 +174,19 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
+    }
+
     bool enable_pipeline_exec() const {
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
+    }
+
+    bool enable_pipeline_x_exec() const {
+        return _query_options.__isset.enable_pipeline_x_engine &&
+               _query_options.enable_pipeline_x_engine;
     }
 
     int be_exec_version() const {
@@ -222,26 +196,49 @@ public:
         return _query_options.be_exec_version;
     }
 
-    [[nodiscard]] int64_t get_fe_process_uuid() const { return _query_options.fe_process_uuid; }
+    [[nodiscard]] int64_t get_fe_process_uuid() const {
+        return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
+    }
 
+    // global runtime filter mgr, the runtime filter have remote target or
+    // need local merge should regist here. before publish() or push_to_remote()
+    // the runtime filter should do the local merge work
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
     TUniqueId query_id() const { return _query_id; }
 
-    void set_task_scheduler(pipeline::TaskScheduler* task_scheduler) {
-        _task_scheduler = task_scheduler;
-    }
-
-    pipeline::TaskScheduler* get_task_scheduler() { return _task_scheduler; }
-
-    void set_scan_task_scheduler(vectorized::SimplifiedScanScheduler* scan_task_scheduler) {
-        _scan_task_scheduler = scan_task_scheduler;
-    }
-
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
-public:
-    DescriptorTbl* desc_tbl;
+    vectorized::SimplifiedScanScheduler* get_remote_scan_scheduler() {
+        return _remote_scan_task_scheduler;
+    }
+
+    pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
+
+    void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
+
+    std::shared_ptr<QueryStatistics> get_query_statistics();
+
+    void register_memory_statistics();
+
+    void register_cpu_statistics();
+
+    std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
+
+    doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
+
+    ThreadPool* get_non_pipe_exec_thread_pool();
+
+    int64_t mem_limit() const { return _bytes_limit; }
+
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
+
+    bool is_nereids() const { return _is_nereids; }
+
+    DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
     std::string group;
@@ -262,6 +259,8 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
     std::vector<TUniqueId> fragment_instance_ids;
+    std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
+    std::mutex pipeline_lock;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -269,8 +268,11 @@ public:
 
 private:
     TUniqueId _query_id;
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
+    int64_t _bytes_limit = 0;
+    bool _is_pipeline = false;
+    bool _is_nereids = false;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -288,9 +290,9 @@ private:
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
-    vectorized::RuntimePredicate _runtime_predicate;
+    std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
-    taskgroup::TaskGroupPtr _task_group;
+    WorkloadGroupPtr _workload_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 
@@ -299,8 +301,16 @@ private:
     // to report the real message if failed.
     Status _exec_status = Status::OK();
 
-    pipeline::TaskScheduler* _task_scheduler = nullptr;
+    doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
+    ThreadPool* _non_pipe_thread_pool = nullptr;
+    vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
+    std::unique_ptr<pipeline::Dependency> _execution_dependency;
+
+    std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
+    // This shared ptr is never used. It is just a reference to hold the object.
+    // There is a weak ptr in runtime filter manager to reference this object.
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 };
 
 } // namespace doris

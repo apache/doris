@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -39,7 +40,8 @@ import java.util.Optional;
  * e.g.
  * select * from tbl limit 0
  */
-public class LogicalEmptyRelation extends LogicalRelation implements EmptyRelation, OutputPrunable {
+public class LogicalEmptyRelation extends LogicalRelation
+        implements EmptyRelation, OutputPrunable, BlockFuncDepsPropagation {
 
     private final List<NamedExpression> projects;
 
@@ -64,7 +66,7 @@ public class LogicalEmptyRelation extends LogicalRelation implements EmptyRelati
     }
 
     public LogicalEmptyRelation withProjects(List<? extends NamedExpression> projects) {
-        return new LogicalEmptyRelation(relationId, projects, Optional.empty(), Optional.empty());
+        return new LogicalEmptyRelation(relationId, projects);
     }
 
     @Override

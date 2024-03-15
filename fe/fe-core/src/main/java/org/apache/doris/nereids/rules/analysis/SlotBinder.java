@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CascadesContext;
@@ -41,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.VariableVarConverters;
@@ -56,7 +55,7 @@ import java.util.stream.Collectors;
 /**
  * SlotBinder is used to bind slot
  */
-public class SlotBinder extends SubExprAnalyzer {
+public class SlotBinder extends SubExprAnalyzer<CascadesContext> {
     /*
     bounded={table.a, a}
     unbound=a
@@ -97,7 +96,7 @@ public class SlotBinder extends SubExprAnalyzer {
         } else if (unboundVariable.getType() == VariableType.GLOBAL) {
             literal = VariableMgr.getLiteral(sessionVariable, name, SetType.GLOBAL);
         } else if (unboundVariable.getType() == VariableType.USER) {
-            literal = VariableMgr.getLiteralForUserVar(name);
+            literal = ConnectContext.get().getLiteralForUserVar(name);
         }
         if (literal == null) {
             throw new AnalysisException("Unsupported system variable: " + unboundVariable.getName());
@@ -184,7 +183,8 @@ public class SlotBinder extends SubExprAnalyzer {
         List<Slot> slots = getScope().getSlots()
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
-                || (((SlotReference) slot).isVisible()) || showHidden)
+                        || (((SlotReference) slot).isVisible()) || showHidden)
+                .filter(slot -> !(((SlotReference) slot).hasSubColPath()))
                 .collect(Collectors.toList());
         switch (qualifier.size()) {
             case 0: // select *
@@ -229,11 +229,11 @@ public class SlotBinder extends SubExprAnalyzer {
                         case 1: // bound slot is `table`.`column`
                             return false;
                         case 2:// bound slot is `db`.`table`.`column`
-                            return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(0))
+                            return compareDbName(qualifierStar.get(0), boundSlotQualifier.get(0))
                                     && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1));
                         case 3:// bound slot is `catalog`.`db`.`table`.`column`
-                            return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(1))
-                                && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(2));
+                            return compareDbName(qualifierStar.get(0), boundSlotQualifier.get(1))
+                                    && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(2));
                         default:
                             throw new AnalysisException("Not supported qualifier: "
                                     + StringUtils.join(qualifierStar, ".") + ".*");
@@ -248,8 +248,8 @@ public class SlotBinder extends SubExprAnalyzer {
                             return false;
                         case 3:// bound slot is `catalog`.`db`.`table`.`column`
                             return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0))
-                                && compareDbNameIgnoreClusterName(qualifierStar.get(1), boundSlotQualifier.get(1))
-                                && qualifierStar.get(2).equalsIgnoreCase(boundSlotQualifier.get(2));
+                                    && compareDbName(qualifierStar.get(1), boundSlotQualifier.get(1))
+                                    && qualifierStar.get(2).equalsIgnoreCase(boundSlotQualifier.get(2));
                         default:
                             throw new AnalysisException("Not supported qualifier: "
                                 + StringUtils.join(qualifierStar, ".") + ".*");
@@ -260,23 +260,19 @@ public class SlotBinder extends SubExprAnalyzer {
             }
         }).collect(Collectors.toList());
 
+        if (slots.isEmpty()) {
+            throw new AnalysisException("unknown qualifier: " + StringUtils.join(qualifierStar, ".") + ".*");
+        }
         return new BoundStar(slots);
-    }
-
-    private boolean compareDbNameIgnoreClusterName(String unBoundDbName, String boundedDbName) {
-        if (unBoundDbName.equalsIgnoreCase(boundedDbName)) {
-            return true;
-        }
-        // boundedDbName example
-        int idx = boundedDbName.indexOf(ClusterNamespace.CLUSTER_DELIMITER);
-        if (idx > -1) {
-            return unBoundDbName.equalsIgnoreCase(boundedDbName.substring(idx + 1));
-        }
-        return false;
     }
 
     private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
         return boundSlots.stream().distinct().filter(boundSlot -> {
+            if (boundSlot instanceof SlotReference
+                    && ((SlotReference) boundSlot).hasSubColPath()) {
+                // already bounded
+                return false;
+            }
             List<String> nameParts = unboundSlot.getNameParts();
             int qualifierSize = boundSlot.getQualifier().size();
             int namePartsSize = nameParts.size();
@@ -294,7 +290,7 @@ public class SlotBinder extends SubExprAnalyzer {
             if (nameParts.size() == 3) {
                 String qualifierTableName = boundSlot.getQualifier().get(qualifierSize - 1);
                 String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 2);
-                return compareDbNameIgnoreClusterName(nameParts.get(0), qualifierDbName)
+                return compareDbName(nameParts.get(0), qualifierDbName)
                         && sameTableName(qualifierTableName, nameParts.get(1))
                         && boundSlot.getName().equalsIgnoreCase(nameParts.get(2));
             }
@@ -304,18 +300,24 @@ public class SlotBinder extends SubExprAnalyzer {
                 String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 2);
                 String qualifierCatalogName = boundSlot.getQualifier().get(qualifierSize - 3);
                 return qualifierCatalogName.equalsIgnoreCase(nameParts.get(0))
-                    && compareDbNameIgnoreClusterName(nameParts.get(1), qualifierDbName)
-                    && sameTableName(qualifierTableName, nameParts.get(2))
-                    && boundSlot.getName().equalsIgnoreCase(nameParts.get(3));
+                        && compareDbName(nameParts.get(1), qualifierDbName)
+                        && sameTableName(qualifierTableName, nameParts.get(2))
+                        && boundSlot.getName().equalsIgnoreCase(nameParts.get(3));
             }
             //TODO: handle name parts more than three.
             throw new AnalysisException("Not supported name: "
                     + StringUtils.join(nameParts, "."));
-        }).collect(Collectors.toList());
+        })
+                .map(s -> s.withName(unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)))
+                .collect(Collectors.toList());
     }
 
-    private boolean sameTableName(String boundSlot, String unboundSlot) {
-        if (Config.lower_case_table_names != 1) {
+    public static boolean compareDbName(String boundedDbName, String unBoundDbName) {
+        return unBoundDbName.equalsIgnoreCase(boundedDbName);
+    }
+
+    public static boolean sameTableName(String boundSlot, String unboundSlot) {
+        if (GlobalVariable.lowerCaseTableNames != 1) {
             return boundSlot.equals(unboundSlot);
         } else {
             return boundSlot.equalsIgnoreCase(unboundSlot);

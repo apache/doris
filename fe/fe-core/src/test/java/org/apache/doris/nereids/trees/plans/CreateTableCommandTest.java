@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -32,6 +37,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -40,13 +46,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 public class CreateTableCommandTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
     }
 
     @Override
@@ -209,7 +216,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                 + "'function_column.sequence_col' = 'v1');"));
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assertions.assertTrue(tbl6.getColumn("k1").isKey());
         Assertions.assertTrue(tbl6.getColumn("k2").isKey());
@@ -224,10 +231,10 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertTrue(tbl8.getColumn("k1").isKey());
         Assertions.assertTrue(tbl8.getColumn("k2").isKey());
         Assertions.assertFalse(tbl8.getColumn("v1").isKey());
-        Assertions.assertSame(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.REPLACE);
+        Assertions.assertSame(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.NONE);
 
         OlapTable tbl13 = (OlapTable) db.getTableOrDdlException("tbl13");
-        Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.REPLACE);
+        Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.NONE);
         Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getType(), Type.INT);
         Assertions.assertEquals(tbl13.getSequenceMapCol(), "v1");
     }
@@ -694,11 +701,135 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10), k3 VARCHAR, k4 VARCHAR(10))"
                         + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
         Assertions.assertEquals(1, tb.getColumn("k1").getStrLen());
         Assertions.assertEquals(10, tb.getColumn("k2").getStrLen());
         Assertions.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, tb.getColumn("k3").getStrLen());
         Assertions.assertEquals(10, tb.getColumn("k4").getStrLen());
+    }
+
+    @Test
+    public void testCreateTablePartitionForExternalCatalog() {
+
+        PartitionDesc par = null;
+
+        par = getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null)"
+                + "partition by (id, id3) () distributed by hash (id) properties (\"a\"=\"b\")");
+        Assertions.assertEquals("PARTITION BY LIST(`id`, `id3`)\n(\n\n)", par.toSql());
+
+        try {
+            getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null)"
+                    + "partition by (id, func1(id2, 1), func(3,id1), id3) () "
+                    + "distributed by hash (id) properties (\"a\"=\"b\")");
+        } catch (Exception e) {
+            Assertions.assertEquals(
+                    "internal catalog does not support functions in 'LIST' partition",
+                    e.getMessage());
+        }
+
+        try {
+            getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
+                    + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () "
+                    + "distributed by hash (id) properties (\"a\"=\"b\")");
+        } catch (Exception e) {
+            Assertions.assertEquals(
+                    "Iceberg doesn't support 'DISTRIBUTE BY', "
+                            + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.",
+                    e.getMessage());
+        }
+
+        par = getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
+                + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () properties (\"a\"=\"b\")");
+        Assertions.assertEquals(
+                "PARTITION BY LIST(`id`, func1(`id2`, '1'), func('3', `id1`), `id3`)\n" + "(\n" + "\n" + ")",
+                par.toSql());
+
+        try {
+            getCreateTableStmt(
+                    "create table tb1 (id int) "
+                    + "engine = iceberg rollup (ab (cd)) properties (\"a\"=\"b\")");
+        } catch (Exception e) {
+            Assertions.assertEquals(
+                    "iceberg catalog doesn't support rollup tables.",
+                     e.getMessage());
+        }
+
+        try {
+            getCreateTableStmt("create table tb1 (id int) engine = hive rollup (ab (cd)) properties (\"a\"=\"b\")");
+        } catch (Exception e) {
+            Assertions.assertEquals(
+                    "hive catalog doesn't support rollup tables.",
+                    e.getMessage());
+        }
+
+        // test with empty partitions
+        LogicalPlan plan = new NereidsParser().parseSingle(
+                "create table tb1 (id int) engine = iceberg properties (\"a\"=\"b\")");
+        Assertions.assertTrue(plan instanceof CreateTableCommand);
+        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
+        createTableInfo.validate(connectContext);
+        Assertions.assertNull(createTableInfo.translateToLegacyStmt().getPartitionDesc());
+
+        // test with multi partitions
+        LogicalPlan plan2 = new NereidsParser().parseSingle(
+                "create table tb1 (id int) engine = iceberg "
+                    + "partition by (val, bucket(2, id), par, day(ts), efg(a,b,c)) () properties (\"a\"=\"b\")");
+        Assertions.assertTrue(plan2 instanceof CreateTableCommand);
+        CreateTableInfo createTableInfo2 = ((CreateTableCommand) plan2).getCreateTableInfo();
+        createTableInfo2.validate(connectContext);
+        PartitionDesc partitionDesc2 = createTableInfo2.translateToLegacyStmt().getPartitionDesc();
+        List<Expr> partitionFields2 = partitionDesc2.getPartitionExprs();
+        Assertions.assertEquals(5, partitionFields2.size());
+
+        Expr expr0 = partitionFields2.get(0);
+        Assertions.assertInstanceOf(SlotRef.class, expr0);
+        Assertions.assertEquals("val", expr0.getExprName());
+
+        Expr expr1 = partitionFields2.get(1);
+        Assertions.assertInstanceOf(FunctionCallExpr.class, expr1);
+        List<Expr> params1 = ((FunctionCallExpr) expr1).getParams().exprs();
+        Assertions.assertEquals("bucket", expr1.getExprName());
+        Assertions.assertEquals(2, params1.size());
+        Assertions.assertInstanceOf(StringLiteral.class, params1.get(0));
+        Assertions.assertEquals("2", params1.get(0).getStringValue());
+        Assertions.assertInstanceOf(SlotRef.class, params1.get(1));
+        Assertions.assertEquals("id", params1.get(1).getExprName());
+
+        Expr expr2 = partitionFields2.get(2);
+        Assertions.assertInstanceOf(SlotRef.class, expr2);
+        Assertions.assertEquals("par", expr2.getExprName());
+
+        Expr expr3 = partitionFields2.get(3);
+        Assertions.assertInstanceOf(FunctionCallExpr.class, expr3);
+        List<Expr> params3 = ((FunctionCallExpr) expr3).getParams().exprs();
+        Assertions.assertEquals("day", expr3.getExprName());
+        Assertions.assertEquals(1, params3.size());
+        Assertions.assertInstanceOf(SlotRef.class, params3.get(0));
+        Assertions.assertEquals("ts", params3.get(0).getExprName());
+
+        Expr expr4 = partitionFields2.get(4);
+        Assertions.assertInstanceOf(FunctionCallExpr.class, expr4);
+        List<Expr> params4 = ((FunctionCallExpr) expr4).getParams().exprs();
+        Assertions.assertEquals("efg", expr4.getExprName());
+        Assertions.assertEquals(3, params4.size());
+        Assertions.assertInstanceOf(SlotRef.class, params4.get(0));
+        Assertions.assertEquals("a", params4.get(0).getExprName());
+        Assertions.assertInstanceOf(SlotRef.class, params4.get(1));
+        Assertions.assertEquals("b", params4.get(1).getExprName());
+        Assertions.assertInstanceOf(SlotRef.class, params4.get(2));
+        Assertions.assertEquals("c", params4.get(2).getExprName());
+
+        Assertions.assertEquals(
+                "PARTITION BY LIST(`val`, bucket('2', `id`), `par`, day(`ts`), efg(`a`, `b`, `c`))\n(\n\n)",
+                partitionDesc2.toSql());
+    }
+
+    private PartitionDesc getCreateTableStmt(String sql) {
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof CreateTableCommand);
+        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
+        createTableInfo.validate(connectContext);
+        return createTableInfo.translateToLegacyStmt().getPartitionDesc();
     }
 }

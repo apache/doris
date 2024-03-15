@@ -95,7 +95,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 9. strict_mode: 用户指定此次导入是否开启严格模式，默认为关闭。开启方式为 -H "strict_mode: true"。
 
-10. timezone: 指定本次导入所使用的时区。默认为东八区。该参数会影响所有导入涉及的和时区有关的函数结果。
+10. timezone: 指定本次导入所使用的时区。默认为东八区。在本次导入事务中，该变量起到了替代session variable `time_zone` 的作用。详情请见[最佳实践](#best-practice)中“涉及时区的导入”一节。
 
 11. exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
 
@@ -123,7 +123,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
     
 16. merge_type: 数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理， 示例：`-H "merge_type: MERGE" -H "delete: flag=1"`
 
-17. delete: 仅在 MERGE下有意义， 表示数据的删除条件
+17. delete: 仅在 MERGE下有意义，表示数据的删除条件
 
 18. function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
     
@@ -215,12 +215,12 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 10. 简单模式，导入json数据
     
     表结构：
-
+     ```
      `category` varchar(512) NULL COMMENT "",
      `author` varchar(512) NULL COMMENT "",
      `title` varchar(512) NULL COMMENT "",
      `price` double NULL COMMENT ""
-
+    ```
     json数据格式：
     ```
     {"category":"C++","author":"avc","title":"C++ primer","price":895}
@@ -446,3 +446,12 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
    Stream Load 适合导入几个GB以内的数据，因为数据为单线程传输处理，因此导入过大的数据性能得不到保证。当有大量本地数据需要导入时，可以并行提交多个导入任务。
 
    Doris 同时会限制集群内同时运行的导入任务数量，通常在 10-20 个不等。之后提交的导入作业会被拒绝。
+
+10. 涉及时区的导入
+
+    由于 Doris 目前没有内置时区的时间类型，所有 `DATETIME` 相关类型均只表示绝对的时间点，而不包含时区信息，不因 Doris 系统时区变化而发生变化。因此，对于带时区数据的导入，我们统一的处理方式为**将其转换为特定目标时区下的数据**。在 Doris 系统中，即 session variable `time_zone` 所代表的时区。
+
+    而在导入中，我们的目标时区通过参数 `timezone` 指定，该变量在发生时区转换、运算时区敏感函数时将会替代 session variable `time_zone`。因此，如果没有特殊情况，在导入事务中应当设定 `timezone` 与当前 Doris 集群的 `time_zone` 一致。此时意味着所有带时区的时间数据，均会发生向该时区的转换。
+    例如，Doris 系统时区为 "+08:00"，导入数据中的时间列包含两条数据，分别为 "2012-01-01 01:00:00Z" 和 "2015-12-12 12:12:12-08:00"，则我们在导入时通过 `-H "timezone: +08:00"` 指定导入事务的时区后，这两条数据都会向该时区发生转换，从而得到结果 "2012-01-01 09:00:00" 和 "2015-12-13 04:12:12"。
+
+    更详细的理解，请参阅[时区](../../../../advanced/time-zone)文档。

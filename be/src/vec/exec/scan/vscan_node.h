@@ -41,7 +41,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/scanner_context.h"
@@ -86,6 +85,21 @@ struct FilterPredicates {
     std::vector<std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
 
     std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
+};
+
+// We want to close scanner automatically, so using a delegate class
+// and call close method in the delegate class's dctor.
+class ScannerDelegate {
+public:
+    VScannerSPtr _scanner;
+    ScannerDelegate(VScannerSPtr& scanner_ptr) : _scanner(scanner_ptr) {}
+    ~ScannerDelegate() {
+        Status st = _scanner->close(_scanner->runtime_state());
+        if (!st.ok()) {
+            LOG(WARNING) << "close scanner failed, st = " << st;
+        }
+    }
+    ScannerDelegate(ScannerDelegate&&) = delete;
 };
 
 class VScanNode : public ExecNode, public RuntimeFilterConsumer {
@@ -157,8 +171,6 @@ public:
     Status alloc_resource(RuntimeState* state) override;
     void release_resource(RuntimeState* state) override;
 
-    Status try_close(RuntimeState* state);
-
     bool should_run_serial() const {
         return _should_run_serial || _state->enable_scan_node_run_serial();
     }
@@ -177,6 +189,20 @@ public:
     };
 
     RuntimeProfile* scanner_profile() { return _scanner_profile.get(); }
+
+    Status get_next_after_projects(
+            RuntimeState* state, vectorized::Block* block, bool* eos,
+            const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn,
+            bool clear_data = true) override {
+        Defer defer([block, this]() {
+            if (block && !block->empty()) {
+                COUNTER_UPDATE(_output_bytes_counter, block->allocated_bytes());
+                COUNTER_UPDATE(_block_count_counter, 1);
+            }
+        });
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+        return get_next(state, block, eos);
+    }
 
 protected:
     // Different data sources register different profiles by implementing this method
@@ -245,6 +271,11 @@ protected:
 
     Status _prepare_scanners(const int query_parallel_instance_num);
 
+    // For some conjunct there is chance to elimate cast operator
+    // Eg. Variant's sub column could eliminate cast in storage layer if
+    // cast dst column type equals storage column type
+    virtual void get_cast_types_for_variants() {}
+
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
 
@@ -252,15 +283,18 @@ protected:
     TupleId _output_tuple_id = -1;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
-    doris::Mutex _block_lock;
+    std::mutex _block_lock;
 
     // These two values are from query_options
     int _max_scan_key_num;
     int _max_pushdown_conditions_per_column;
 
-    // Each scan node will generates a ScannerContext to manage all Scanners.
-    // See comments of ScannerContext for more details
-    std::shared_ptr<ScannerContext> _scanner_ctx;
+    // ScanNode owns the ownership of scanner, scanner context only has its weakptr
+    std::list<std::shared_ptr<ScannerDelegate>> _scanners;
+
+    // Each scan node will generates a ScannerContext to do schedule work
+    // ScannerContext will be added to scanner scheduler
+    std::shared_ptr<ScannerContext> _scanner_ctx = nullptr;
 
     // indicate this scan node has no more data to return
     bool _eos = false;
@@ -271,10 +305,15 @@ protected:
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
 
+    // colname -> cast dst type
+    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
+    // slot id -> SlotDescriptor
+    phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
     // column -> ColumnValueRange
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
@@ -317,11 +356,11 @@ protected:
     std::shared_ptr<RuntimeProfile> _scanner_profile;
 
     // rows read from the scanner (including those discarded by (pre)filters)
-    RuntimeProfile::Counter* _rows_read_counter;
-    RuntimeProfile::Counter* _byte_read_counter;
+    RuntimeProfile::Counter* _rows_read_counter = nullptr;
+    RuntimeProfile::Counter* _byte_read_counter = nullptr;
     // Wall based aggregate read throughput [rows/sec]
-    RuntimeProfile::Counter* _total_throughput_counter;
-    RuntimeProfile::Counter* _num_scanners;
+    RuntimeProfile::Counter* _total_throughput_counter = nullptr;
+    RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _get_next_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -338,7 +377,6 @@ protected:
     RuntimeProfile::Counter* _filter_timer = nullptr;
 
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
-    RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
@@ -347,12 +385,11 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
-    std::vector<int> _col_distribute_ids;
 
     TPushAggOp::type _push_down_agg_type;
 
@@ -428,8 +465,8 @@ private:
                                       const std::string& fn_name, int slot_ref_child = -1);
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<VScannerSPtr>& scanners,
-                           const int query_parallel_instance_num);
+    void _start_scanners(const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
+                         const int query_parallel_instance_num);
 };
 
 } // namespace doris::vectorized

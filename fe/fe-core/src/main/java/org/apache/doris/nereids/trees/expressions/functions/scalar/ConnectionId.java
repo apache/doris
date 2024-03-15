@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.BigIntType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -35,7 +35,7 @@ public class ConnectionId extends ScalarFunction
         implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args()
+            FunctionSignature.ret(BigIntType.INSTANCE).args()
     );
 
     public ConnectionId() {

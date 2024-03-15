@@ -47,7 +47,6 @@ class DataSink;
 class DescriptorTbl;
 class ExecEnv;
 class ObjectPool;
-class QueryStatistics;
 struct ReportStatusRequest;
 
 namespace vectorized {
@@ -73,7 +72,7 @@ class Block;
 //
 // Aside from Cancel(), which may be called asynchronously, this class is not
 // thread-safe.
-class PlanFragmentExecutor {
+class PlanFragmentExecutor : public TaskExecutionContext {
 public:
     using report_status_callback = std::function<void(const ReportStatusRequest)>;
     // report_status_cb, if !empty(), is used to report the accumulated profile
@@ -135,18 +134,11 @@ public:
 
     void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
 
-    void set_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handler = handler;
-    }
-
     std::shared_ptr<QueryContext> get_query_ctx() { return _query_ctx; }
 
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
     TUniqueId query_id() const { return _query_ctx->query_id(); }
-
-    int fragment_id() const { return _fragment_id; }
 
     bool is_timeout(const VecDateTimeValue& now) const;
 
@@ -155,8 +147,8 @@ public:
     Status update_status(Status status);
 
 private:
-    ExecEnv* _exec_env; // not owned
-    ExecNode* _plan;    // lives in _runtime_state->obj_pool()
+    ExecEnv* _exec_env = nullptr; // not owned
+    ExecNode* _plan = nullptr;    // lives in _runtime_state->obj_pool()
     std::shared_ptr<QueryContext> _query_ctx;
     // Id of this instance
     TUniqueId _fragment_instance_id;
@@ -184,6 +176,9 @@ private:
 
     // true if prepare() returned OK
     bool _prepared;
+
+    // true if open() returned OK
+    bool _opened;
 
     // true if close() has been called
     bool _closed;
@@ -213,14 +208,12 @@ private:
     std::unique_ptr<DataSink> _sink;
 
     // Number of rows returned by this fragment
-    RuntimeProfile::Counter* _rows_produced_counter;
+    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
 
     // Number of blocks returned by this fragment
-    RuntimeProfile::Counter* _blocks_produced_counter;
+    RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    RuntimeProfile::Counter* _fragment_cpu_timer;
-
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+    RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
@@ -230,21 +223,11 @@ private:
 
     VecDateTimeValue _start_time;
 
-    // It is shared with BufferControlBlock and will be called in two different
-    // threads. But their calls are all at different time, there is no problem of
-    // multithreaded access.
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    bool _collect_query_statistics_with_every_batch;
-
     // Record the cancel information when calling the cancel() method, return it to FE
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
 
-    OpentelemetrySpan _span;
-
-    bool _group_commit = false;
-
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
@@ -278,9 +261,9 @@ private:
 
     const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
-    void _collect_query_statistics();
-
     void _collect_node_statistics();
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

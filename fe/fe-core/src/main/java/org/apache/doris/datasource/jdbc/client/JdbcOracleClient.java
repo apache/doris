@@ -46,77 +46,56 @@ public class JdbcOracleClient extends JdbcClient {
     }
 
     @Override
+    public String getTestQuery() {
+        return "SELECT 1 FROM dual";
+    }
+
+    @Override
     public List<String> getDatabaseNameList() {
         Connection conn = getConnection();
         ResultSet rs = null;
         if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
             return getSpecifiedDatabase(conn);
         }
-        List<String> databaseNames = Lists.newArrayList();
+        List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
             rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
-            List<String> tempDatabaseNames = Lists.newArrayList();
             while (rs.next()) {
-                String databaseName = rs.getString("TABLE_SCHEM");
-                if (isLowerCaseTableNames) {
-                    lowerDBToRealDB.put(databaseName.toLowerCase(), databaseName);
-                    databaseName = databaseName.toLowerCase();
-                }
-                tempDatabaseNames.add(databaseName);
-            }
-            if (isOnlySpecifiedDatabase) {
-                for (String db : tempDatabaseNames) {
-                    // Exclude database map take effect with higher priority over include database map
-                    if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(db)) {
-                        continue;
-                    }
-                    if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(db)) {
-                        continue;
-                    }
-                    databaseNames.add(db);
-                }
-            } else {
-                databaseNames = tempDatabaseNames;
+                remoteDatabaseNames.add(rs.getString("TABLE_SCHEM"));
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
             close(rs, conn);
         }
-        return databaseNames;
+        return filterDatabaseNames(remoteDatabaseNames);
     }
 
     @Override
-    public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        String currentDbName = dbName;
-        String currentTableName = tableName;
-        if (isLowerCaseTableNames) {
-            currentDbName = getRealDatabaseName(dbName);
-            currentTableName = getRealTableName(dbName, tableName);
-        }
-        String finalDbName = currentDbName;
-        String finalTableName = currentTableName;
+        String remoteDbName = getRemoteDatabaseName(localDbName);
+        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             String modifiedTableName;
             boolean isModify = false;
-            if (finalTableName.contains("/")) {
-                modifiedTableName = modifyTableNameIfNecessary(finalTableName);
-                isModify = !modifiedTableName.equals(finalTableName);
+            if (remoteTableName.contains("/")) {
+                modifiedTableName = modifyTableNameIfNecessary(remoteTableName);
+                isModify = !modifiedTableName.equals(remoteTableName);
                 if (isModify) {
-                    rs = getColumns(databaseMetaData, catalogName, finalDbName, modifiedTableName);
+                    rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, modifiedTableName);
                 } else {
-                    rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
+                    rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
                 }
             } else {
-                rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
+                rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             }
             while (rs.next()) {
-                if (isModify && isTableModified(rs.getString("TABLE_NAME"), finalTableName)) {
+                if (isModify && isTableModified(rs.getString("TABLE_NAME"), remoteTableName)) {
                     continue;
                 }
                 JdbcFieldSchema field = new JdbcFieldSchema();
@@ -127,7 +106,6 @@ public class JdbcOracleClient extends JdbcClient {
                    We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
                    we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
                 */
-                field.setKey(true);
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
@@ -143,7 +121,7 @@ public class JdbcOracleClient extends JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, finalTableName,
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, remoteTableName,
                 Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
@@ -152,8 +130,8 @@ public class JdbcOracleClient extends JdbcClient {
     }
 
     @Override
-    protected String modifyTableNameIfNecessary(String tableName) {
-        return tableName.replace("/", "%");
+    protected String modifyTableNameIfNecessary(String remoteTableName) {
+        return remoteTableName.replace("/", "%");
     }
 
     @Override

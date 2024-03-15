@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_index_failure_injection", "p0") {
+suite("test_index_failure_injection", "nonConcurrent") {
     // define a sql table
     def testTable_dup = "httplogs_dup"
     def testTable_unique = "httplogs_unique"
-    
+
     def create_httplogs_dup_table = {testTablex ->
         // multi-line sql
         def result = sql """
@@ -92,14 +92,14 @@ suite("test_index_failure_injection", "p0") {
                             );
                             """
         }
-    
+
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -130,18 +130,18 @@ suite("test_index_failure_injection", "p0") {
         create_httplogs_unique_table.call(testTable_unique)
 
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexWriter._set_fulltext_data_out_nullptr")
+            GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexWriter._set_bkd_data_out_nullptr")
             load_httplogs_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexWriter._set_fulltext_data_out_nullptr")
+            GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexWriter._set_bkd_data_out_nullptr")
         }
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexWriter._throw_clucene_error_in_bkd_writer_close")
+            GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close")
             load_httplogs_data.call(testTable_unique, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexWriter._throw_clucene_error_in_bkd_writer_close")
+            GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close")
         }
-        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"    
+        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

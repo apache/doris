@@ -18,12 +18,16 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -42,7 +46,7 @@ public class PullUpCteAnchor extends DefaultPlanRewriter<List<LogicalCTEProducer
         return rewriteRoot(plan, producers);
     }
 
-    private Plan rewriteRoot(Plan plan, List<LogicalCTEProducer<Plan>> producers) {
+    public Plan rewriteRoot(Plan plan, List<LogicalCTEProducer<Plan>> producers) {
         Plan root = plan.accept(this, producers);
         for (LogicalCTEProducer<Plan> producer : producers) {
             root = new LogicalCTEAnchor<>(producer.getCteId(), producer, root);
@@ -70,5 +74,31 @@ public class PullUpCteAnchor extends DefaultPlanRewriter<List<LogicalCTEProducer
         producers.add(newProducer);
         producers.addAll(childProducers);
         return newProducer;
+    }
+
+    @Override
+    public Plan visitLogicalApply(LogicalApply<? extends Plan, ? extends Plan> apply,
+            List<LogicalCTEProducer<Plan>> producers) {
+        SubqueryExpr subqueryExpr = apply.getSubqueryExpr();
+        PullUpCteAnchor pullSubqueryExpr = new PullUpCteAnchor();
+        List<LogicalCTEProducer<Plan>> subqueryExprProducers = Lists.newArrayList();
+        Plan newPlanInExpr = pullSubqueryExpr.rewriteRoot(subqueryExpr.getQueryPlan(), subqueryExprProducers);
+        while (newPlanInExpr instanceof LogicalCTEAnchor) {
+            newPlanInExpr = ((LogicalCTEAnchor<?, ?>) newPlanInExpr).right();
+        }
+        SubqueryExpr newSubqueryExpr = subqueryExpr.withSubquery((LogicalPlan) newPlanInExpr);
+
+        Plan newApplyLeft = apply.left().accept(this, producers);
+
+        Plan applyRight = apply.right();
+        PullUpCteAnchor pullApplyRight = new PullUpCteAnchor();
+        List<LogicalCTEProducer<Plan>> childProducers = Lists.newArrayList();
+        Plan newApplyRight = pullApplyRight.rewriteRoot(applyRight, childProducers);
+        while (newApplyRight instanceof LogicalCTEAnchor) {
+            newApplyRight = ((LogicalCTEAnchor<?, ?>) newApplyRight).right();
+        }
+        producers.addAll(childProducers);
+        return apply.withSubqueryExprAndChildren(newSubqueryExpr,
+                ImmutableList.of(newApplyLeft, newApplyRight));
     }
 }

@@ -22,6 +22,8 @@
 
 #include <assert.h>
 
+#include <string_view>
+
 #include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
@@ -46,11 +48,22 @@ PathInData::PathInData(const PathInData& other) : path(other.path) {
     build_parts(other.get_parts());
 }
 
+PathInData::PathInData(const std::string& root, const std::vector<std::string>& paths) {
+    PathInDataBuilder path_builder;
+    path_builder.append(root, false);
+    for (const std::string& path : paths) {
+        path_builder.append(path, false);
+    }
+    build_path(path_builder.get_parts());
+    build_parts(path_builder.get_parts());
+}
+
 PathInData::PathInData(const std::vector<std::string>& paths) {
     PathInDataBuilder path_builder;
     for (size_t i = 0; i < paths.size(); ++i) {
         path_builder.append(paths[i], false);
     }
+    build_path(path_builder.get_parts());
     build_parts(path_builder.get_parts());
 }
 
@@ -107,12 +120,15 @@ void PathInData::from_protobuf(const segment_v2::ColumnPathInfo& pb) {
     path = pb.path();
     has_nested = pb.has_has_nested();
     parts.reserve(pb.path_part_infos().size());
+    const char* begin = path.data();
     for (const segment_v2::ColumnPathPartInfo& part_info : pb.path_part_infos()) {
         Part part;
         part.is_nested = part_info.is_nested();
         part.anonymous_array_level = part_info.anonymous_array_level();
-        part.key = part_info.key();
+        // use string_view to ref data in path
+        part.key = std::string_view {begin, part_info.key().length()};
         parts.push_back(part);
+        begin += part.key.length() + 1;
     }
 }
 
@@ -150,11 +166,18 @@ size_t PathInData::Hash::operator()(const PathInData& value) const {
     return hash.low ^ hash.high;
 }
 
-PathInData PathInData::pop_front() const {
+PathInData PathInData::copy_pop_front() const {
+    return copy_pop_nfront(1);
+}
+
+PathInData PathInData::copy_pop_nfront(size_t n) const {
+    if (n >= parts.size()) {
+        return {};
+    }
     PathInData new_path;
     Parts new_parts;
     if (!parts.empty()) {
-        std::copy(parts.begin() + 1, parts.end(), std::back_inserter(new_parts));
+        std::copy(parts.begin() + n, parts.end(), std::back_inserter(new_parts));
     }
     new_path.build_path(new_parts);
     new_path.build_parts(new_parts);

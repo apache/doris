@@ -42,8 +42,8 @@ enum EncodingTypePB : int;
 // For better performance, some encodings (like BitShuffle) need to be decoded before being added to the PageCache.
 class DataPagePreDecoder {
 public:
-    virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice,
-                          size_t size_of_tail) = 0;
+    virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
+                          const std::shared_ptr<MemTrackerLimiter>& mem_tracker) = 0;
     virtual ~DataPagePreDecoder() = default;
 };
 
@@ -84,7 +84,7 @@ private:
 
     FieldType _type;
     EncodingTypePB _encoding;
-    std::unique_ptr<DataPagePreDecoder> _data_page_pre_decoder = nullptr;
+    std::unique_ptr<DataPagePreDecoder> _data_page_pre_decoder;
 };
 
 } // namespace segment_v2

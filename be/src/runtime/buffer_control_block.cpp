@@ -43,7 +43,6 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     status.to_protobuf(result->mutable_status());
     {
         // call by result sink
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         done->Run();
     }
     delete this;
@@ -57,10 +56,7 @@ void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics
     }
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
-    {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        done->Run();
-    }
+    { done->Run(); }
     delete this;
 }
 
@@ -85,10 +81,7 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
         result->set_eos(eos);
     }
     st.to_protobuf(result->mutable_status());
-    {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        done->Run();
-    }
+    { done->Run(); }
     delete this;
 }
 
@@ -98,10 +91,12 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
           _is_cancelled(false),
           _buffer_rows(0),
           _buffer_limit(buffer_size),
-          _packet_num(0) {}
+          _packet_num(0) {
+    _query_statistics = std::make_unique<QueryStatistics>();
+}
 
 BufferControlBlock::~BufferControlBlock() {
-    static_cast<void>(cancel());
+    cancel();
 }
 
 Status BufferControlBlock::init() {
@@ -262,7 +257,7 @@ Status BufferControlBlock::close(Status exec_status) {
     return Status::OK();
 }
 
-Status BufferControlBlock::cancel() {
+void BufferControlBlock::cancel() {
     std::unique_lock<std::mutex> l(_lock);
     _is_cancelled = true;
     _data_removal.notify_all();
@@ -271,65 +266,54 @@ Status BufferControlBlock::cancel() {
         ctx->on_failure(Status::Cancelled("Cancelled"));
     }
     _waiting_rpc.clear();
-    return Status::OK();
 }
 
 Status PipBufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) {
     RETURN_IF_ERROR(BufferControlBlock::add_batch(result));
-    if (_buffer_dependency && _buffer_rows >= _buffer_limit) {
-        _buffer_dependency->block_writing();
-    }
+    _update_dependency();
     return Status::OK();
 }
 
 Status PipBufferControlBlock::add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) {
     RETURN_IF_ERROR(BufferControlBlock::add_arrow_batch(result));
-    if (_buffer_dependency && _buffer_rows >= _buffer_limit) {
-        _buffer_dependency->block_writing();
-    }
+    _update_dependency();
     return Status::OK();
 }
 
 void PipBufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
     BufferControlBlock::get_batch(ctx);
-    if (_buffer_dependency && _buffer_rows < _buffer_limit) {
-        _buffer_dependency->set_ready_for_write();
-    }
+    _update_dependency();
 }
 
 Status PipBufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) {
     RETURN_IF_ERROR(BufferControlBlock::get_arrow_batch(result));
-    if (_buffer_dependency && _buffer_rows < _buffer_limit) {
-        _buffer_dependency->set_ready_for_write();
-    }
+    _update_dependency();
     return Status::OK();
 }
 
-Status PipBufferControlBlock::cancel() {
-    RETURN_IF_ERROR(BufferControlBlock::cancel());
-    if (_cancel_dependency) {
-        _cancel_dependency->set_ready_for_write();
-    }
-
-    return Status::OK();
+void PipBufferControlBlock::cancel() {
+    BufferControlBlock::cancel();
+    _update_dependency();
 }
 
 void PipBufferControlBlock::set_dependency(
-        std::shared_ptr<pipeline::ResultBufferDependency> buffer_dependency,
-        std::shared_ptr<pipeline::ResultQueueDependency> queue_dependency,
-        std::shared_ptr<pipeline::CancelDependency> cancel_dependency) {
-    _buffer_dependency = buffer_dependency;
-    _queue_dependency = queue_dependency;
-    _cancel_dependency = cancel_dependency;
+        std::shared_ptr<pipeline::Dependency> result_sink_dependency) {
+    _result_sink_dependency = result_sink_dependency;
+}
+
+void PipBufferControlBlock::_update_dependency() {
+    if (_result_sink_dependency &&
+        (_batch_queue_empty || _buffer_rows < _buffer_limit || _is_cancelled)) {
+        _result_sink_dependency->set_ready();
+    } else if (_result_sink_dependency &&
+               (!_batch_queue_empty && _buffer_rows < _buffer_limit && !_is_cancelled)) {
+        _result_sink_dependency->block();
+    }
 }
 
 void PipBufferControlBlock::_update_batch_queue_empty() {
     _batch_queue_empty = _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
-    if (_queue_dependency && _batch_queue_empty) {
-        _queue_dependency->set_ready_for_write();
-    } else if (_queue_dependency) {
-        _queue_dependency->block_writing();
-    }
+    _update_dependency();
 }
 
 } // namespace doris

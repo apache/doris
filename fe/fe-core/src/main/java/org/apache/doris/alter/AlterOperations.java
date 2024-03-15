@@ -48,6 +48,14 @@ public class AlterOperations {
         }
     }
 
+    public void checkMTMVAllow(List<AlterClause> alterClauses) throws DdlException {
+        for (AlterClause alterClause : alterClauses) {
+            if (!alterClause.getOpType().mtmvAllowOp()) {
+                throw new DdlException("Alter operation " + alterClause.getOpType() + " Not allowed to MTMV");
+            }
+        }
+    }
+
     // some operations take up disk space. so we need to check the disk capacity before processing.
     // return true if we see these kind of operations.
     public boolean needCheckCapacity() {

@@ -19,7 +19,6 @@
 
 #include <gen_cpp/DataSinks_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <time.h>
 
 #include <new>
@@ -30,11 +29,9 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
-class QueryStatistics;
 class TExpr;
 } // namespace doris
 
@@ -47,15 +44,13 @@ VResultFileSink::VResultFileSink(const RowDescriptor& row_desc,
 VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool, int sender_id,
                                  const RowDescriptor& row_desc, const TResultFileSink& sink,
                                  const std::vector<TPlanFragmentDestination>& destinations,
-                                 bool send_query_statistics_with_every_batch,
                                  const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
         : AsyncWriterSink<VFileResultWriter, VRESULT_FILE_SINK>(row_desc, t_output_expr),
           _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false) {
     _is_top_sink = false;
     CHECK_EQ(destinations.size(), 1);
     _stream_sender.reset(new VDataStreamSender(state, pool, sender_id, row_desc, sink.dest_node_id,
-                                               destinations,
-                                               send_query_statistics_with_every_batch));
+                                               destinations));
 }
 
 Status VResultFileSink::init(const TDataSink& tsink) {
@@ -118,23 +113,30 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
     }
 
     Status final_status = exec_status;
-    // close the writer
-    if (_writer && _writer->need_normal_close()) {
-        Status st = _writer->close();
-        if (!st.ok() && exec_status.ok()) {
-            // close file writer failed, should return this error to client
-            final_status = st;
+    Status writer_st = Status::OK();
+    if (_writer) {
+        // For pipeline engine, the writer is always closed in async thread process_block
+        if (state->enable_pipeline_exec()) {
+            writer_st = _writer->get_writer_status();
+        } else {
+            writer_st = _writer->close(exec_status);
         }
     }
+
+    if (!writer_st.ok() && exec_status.ok()) {
+        // close file writer failed, should return this error to client
+        final_status = writer_st;
+    }
+
     if (_is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
-            static_cast<void>(_sender->close(final_status));
+            _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+            RETURN_IF_ERROR(_sender->close(final_status));
         }
-        static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+        state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
-                state->fragment_instance_id()));
+                state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
             auto st = _stream_sender->send(state, _output_block.get(), true);
@@ -148,14 +150,6 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
 
     _closed = true;
     return Status::OK();
-}
-
-void VResultFileSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-    if (_is_top_sink) {
-        _sender->set_query_statistics(statistics);
-    } else {
-        _stream_sender->set_query_statistics(statistics);
-    }
 }
 
 } // namespace doris::vectorized

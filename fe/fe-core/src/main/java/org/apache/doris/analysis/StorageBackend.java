@@ -35,9 +35,10 @@ public class StorageBackend implements ParseNode {
     private String location;
     private StorageDesc storageDesc;
 
-    public static void checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
+    public static void checkPath(String path, StorageBackend.StorageType type, String exceptionMsg)
+            throws AnalysisException {
         if (Strings.isNullOrEmpty(path)) {
-            throw new AnalysisException("No destination path specified.");
+            throw new AnalysisException(exceptionMsg == null ? "No destination path specified." : exceptionMsg);
         }
         checkUri(URI.create(path), type);
     }
@@ -120,7 +121,7 @@ public class StorageBackend implements ParseNode {
         if (Strings.isNullOrEmpty(location)) {
             throw new AnalysisException("You must specify a location on the repository");
         }
-        checkPath(location, storageType);
+        checkPath(location, storageType, null);
     }
 
     @Override
@@ -132,7 +133,7 @@ public class StorageBackend implements ParseNode {
             sb.append(" `").append(storageDesc.getName()).append("`");
         }
         sb.append(" ON LOCATION ").append(location).append(" PROPERTIES(")
-            .append(new PrintableMap<>(storageDesc.getProperties(), " = ", true, false))
+            .append(new PrintableMap<>(storageDesc.getProperties(), " = ", true, false, true))
             .append(")");
         return sb.toString();
     }

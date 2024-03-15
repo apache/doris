@@ -17,16 +17,21 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hudi.source.HudiPartitionMgr;
+import org.apache.doris.datasource.hudi.source.HudiPartitionProcessor;
+import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
+import org.apache.doris.datasource.iceberg.IcebergMetadataCacheMgr;
+import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
+import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
 import org.apache.doris.fs.FileSystemCache;
-import org.apache.doris.planner.external.hudi.HudiPartitionMgr;
-import org.apache.doris.planner.external.hudi.HudiPartitionProcessor;
-import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
-import org.apache.doris.planner.external.iceberg.IcebergMetadataCacheMgr;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -39,7 +44,8 @@ import java.util.concurrent.ExecutorService;
 /**
  * Cache meta of external catalog
  * 1. Meta for hive meta store, mainly for partition.
- * 2. Table Schema cahce.
+ * 2. Table Schema cache.
+ * 3. Row count cache.
  */
 public class ExternalMetaCacheMgr {
     private static final Logger LOG = LogManager.getLogger(ExternalMetaCacheMgr.class);
@@ -53,7 +59,10 @@ public class ExternalMetaCacheMgr {
     private ExecutorService executor;
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
+    // all external table row count cache.
+    private ExternalRowCountCache rowCountCache;
     private final IcebergMetadataCacheMgr icebergMetadataCacheMgr;
+    private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
 
     public ExternalMetaCacheMgr() {
         executor = ThreadPoolManager.newDaemonFixedThreadPool(
@@ -62,7 +71,9 @@ public class ExternalMetaCacheMgr {
                 "ExternalMetaCacheMgr", 120, true);
         hudiPartitionMgr = HudiPartitionMgr.get(executor);
         fsCache = new FileSystemCache(executor);
+        rowCountCache = new ExternalRowCountCache(executor);
         icebergMetadataCacheMgr = new IcebergMetadataCacheMgr();
+        maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
@@ -99,8 +110,16 @@ public class ExternalMetaCacheMgr {
         return icebergMetadataCacheMgr.getIcebergMetadataCache();
     }
 
+    public MaxComputeMetadataCache getMaxComputeMetadataCache(long catalogId) {
+        return maxComputeMetadataCacheMgr.getMaxComputeMetadataCache(catalogId);
+    }
+
     public FileSystemCache getFsCache() {
         return fsCache;
+    }
+
+    public ExternalRowCountCache getRowCountCache() {
+        return rowCountCache;
     }
 
     public void removeCache(long catalogId) {
@@ -112,6 +131,7 @@ public class ExternalMetaCacheMgr {
         }
         hudiPartitionMgr.removePartitionProcessor(catalogId);
         icebergMetadataCacheMgr.removeCache(catalogId);
+        maxComputeMetadataCacheMgr.removeCache(catalogId);
     }
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
@@ -126,7 +146,10 @@ public class ExternalMetaCacheMgr {
         }
         hudiPartitionMgr.cleanTablePartitions(catalogId, dbName, tblName);
         icebergMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
-        LOG.debug("invalid table cache for {}.{} in catalog {}", dbName, tblName, catalogId);
+        maxComputeMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid table cache for {}.{} in catalog {}", dbName, tblName, catalogId);
+        }
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
@@ -141,7 +164,10 @@ public class ExternalMetaCacheMgr {
         }
         hudiPartitionMgr.cleanDatabasePartitions(catalogId, dbName);
         icebergMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
-        LOG.debug("invalid db cache for {} in catalog {}", dbName, catalogId);
+        maxComputeMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid db cache for {} in catalog {}", dbName, catalogId);
+        }
     }
 
     public void invalidateCatalogCache(long catalogId) {
@@ -155,16 +181,28 @@ public class ExternalMetaCacheMgr {
         }
         hudiPartitionMgr.cleanPartitionProcess(catalogId);
         icebergMetadataCacheMgr.invalidateCatalogCache(catalogId);
-        LOG.debug("invalid catalog cache for {}", catalogId);
+        maxComputeMetadataCacheMgr.invalidateCatalogCache(catalogId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid catalog cache for {}", catalogId);
+        }
     }
 
     public void addPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {
-            metaCache.addPartitionsCache(dbName, table.getName(), partitionNames, table.getPartitionColumnTypes());
+            List<Type> partitionColumnTypes;
+            try {
+                partitionColumnTypes = table.getPartitionColumnTypes();
+            } catch (NotSupportedException e) {
+                LOG.warn("Ignore not supported hms table, message: {} ", e.getMessage());
+                return;
+            }
+            metaCache.addPartitionsCache(dbName, table.getName(), partitionNames, partitionColumnTypes);
         }
-        LOG.debug("add partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("add partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
+        }
     }
 
     public void dropPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
@@ -173,7 +211,9 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.dropPartitionsCache(dbName, table.getName(), partitionNames, true);
         }
-        LOG.debug("drop partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("drop partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
+        }
     }
 
     public void invalidatePartitionsCache(long catalogId, String dbName, String tableName,
@@ -186,6 +226,8 @@ public class ExternalMetaCacheMgr {
             }
 
         }
-        LOG.debug("invalidate partition cache for {}.{} in catalog {}", dbName, tableName, catalogId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidate partition cache for {}.{} in catalog {}", dbName, tableName, catalogId);
+        }
     }
 }

@@ -21,6 +21,7 @@
 #include <gen_cpp/types.pb.h>
 
 #include <functional>
+#include <memory>
 #include <optional>
 
 #include "common/factory_creator.h"
@@ -29,6 +30,7 @@
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
@@ -48,7 +50,7 @@ struct SegmentStatistics {
               index_size(pb.index_size()),
               key_bounds(pb.key_bounds()) {}
 
-    void to_pb(SegmentStatisticsPB* segstat_pb) {
+    void to_pb(SegmentStatisticsPB* segstat_pb) const {
         segstat_pb->set_row_num(row_num);
         segstat_pb->set_data_size(data_size);
         segstat_pb->set_index_size(index_size);
@@ -114,7 +116,8 @@ public:
                 "RowsetWriter not support flush_single_block");
     }
 
-    virtual Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+    virtual Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
+                               TabletSchemaSPtr flush_schema) {
         return Status::NotSupported("RowsetWriter does not support add_segment");
     }
 
@@ -143,10 +146,6 @@ public:
 
     virtual int32_t allocate_segment_id() = 0;
 
-    virtual bool is_doing_segcompaction() const = 0;
-
-    virtual Status wait_flying_segcompaction() = 0;
-
     virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
     virtual int64_t delete_bitmap_ns() { return 0; }
@@ -157,8 +156,16 @@ public:
 
     virtual bool is_partial_update() = 0;
 
+    const RowsetWriterContext& context() { return _context; }
+
+    const RowsetMetaSharedPtr& rowset_meta() { return _rowset_meta; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
+
+protected:
+    RowsetWriterContext _context;
+    RowsetMetaSharedPtr _rowset_meta;
 };
 
 } // namespace doris

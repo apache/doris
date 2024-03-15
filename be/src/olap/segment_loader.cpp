@@ -29,30 +29,23 @@ SegmentLoader* SegmentLoader::instance() {
 }
 
 bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle* handle) {
-    auto lru_handle = _cache->lookup(key.encode());
+    auto* lru_handle = LRUCachePolicy::lookup(key.encode());
     if (lru_handle == nullptr) {
         return false;
     }
-    handle->push_segment(_cache.get(), lru_handle);
+    handle->push_segment(this, lru_handle);
     return true;
 }
 
 void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::CacheValue& value,
                           SegmentCacheHandle* handle) {
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        SegmentCache::CacheValue* cache_value = (SegmentCache::CacheValue*)value;
-        cache_value->segment.reset();
-        delete cache_value;
-    };
-
-    auto lru_handle =
-            _cache->insert(key.encode(), &value, sizeof(SegmentCache::CacheValue), deleter,
-                           CachePriority::NORMAL, value.segment->meta_mem_usage());
-    handle->push_segment(_cache.get(), lru_handle);
+    auto* lru_handle = LRUCachePolicy::insert(
+            key.encode(), &value, 1, value.segment->meta_mem_usage(), CachePriority::NORMAL);
+    handle->push_segment(this, lru_handle);
 }
 
 void SegmentCache::erase(const SegmentCache::CacheKey& key) {
-    _cache->erase(key.encode());
+    LRUCachePolicy::erase(key.encode());
 }
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
@@ -69,7 +62,7 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
         RETURN_IF_ERROR(rowset->load_segment(i, &segment));
         if (use_cache && !config::disable_segment_cache) {
             // memory of SegmentCache::CacheValue will be handled by SegmentCache
-            SegmentCache::CacheValue* cache_value = new SegmentCache::CacheValue();
+            auto* cache_value = new SegmentCache::CacheValue();
             cache_value->segment = std::move(segment);
             _segment_cache->insert(cache_key, *cache_value, cache_handle);
         } else {

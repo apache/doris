@@ -42,6 +42,8 @@
 #include "runtime/type_limit.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -55,7 +57,7 @@ std::string cast_to_string(T value, int scale) {
     } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
         return ((vectorized::Decimal<int128_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL256) {
-        return ((vectorized::Decimal<Int256>)value).to_string(scale);
+        return ((vectorized::Decimal<wide::Int256>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_TINYINT) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
@@ -68,6 +70,10 @@ std::string cast_to_string(T value, int scale) {
         std::stringstream ss;
         ss << buf;
         return ss.str();
+    } else if constexpr (primitive_type == TYPE_IPV4) {
+        return IPv4Value::to_string(value);
+    } else if constexpr (primitive_type == TYPE_IPV6) {
+        return IPv6Value::to_string(value);
     } else {
         return boost::lexical_cast<std::string>(value);
     }
@@ -304,6 +310,12 @@ public:
                 condition.__set_condition_op("match_all");
             } else if (value.first == MatchType::MATCH_PHRASE) {
                 condition.__set_condition_op("match_phrase");
+            } else if (value.first == MatchType::MATCH_PHRASE_PREFIX) {
+                condition.__set_condition_op("match_phrase_prefix");
+            } else if (value.first == MatchType::MATCH_REGEXP) {
+                condition.__set_condition_op("match_regexp");
+            } else if (value.first == MatchType::MATCH_PHRASE_EDGE) {
+                condition.__set_condition_op("match_phrase_edge");
             } else if (value.first == MatchType::MATCH_ELEMENT_EQ) {
                 condition.__set_condition_op("match_element_eq");
             } else if (value.first == MatchType::MATCH_ELEMENT_LT) {

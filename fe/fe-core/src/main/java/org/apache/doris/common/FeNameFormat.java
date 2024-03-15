@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.RoleManager;
@@ -126,12 +127,24 @@ public class FeNameFormat {
         }
     }
 
-    public static void checkResourceName(String resourceName) throws AnalysisException {
-        checkCommonName("resource", resourceName);
+    public static void checkResourceName(String resourceName, ResourceTypeEnum type) throws AnalysisException {
+        if (type == ResourceTypeEnum.GENERAL) {
+            checkCommonName("resource", resourceName);
+        } else {
+            checkCommonName("clusterName", resourceName);
+        }
+    }
+
+    public static void checkStorageVaultName(String vaultName) throws AnalysisException {
+        checkCommonName("vault", vaultName);
     }
 
     public static void checkWorkloadGroupName(String workloadGroupName) throws AnalysisException {
         checkCommonName("workload group", workloadGroupName);
+    }
+
+    public static void checkWorkloadSchedPolicyName(String policyName) throws AnalysisException {
+        checkCommonName("workload schedule policy", policyName);
     }
 
     public static void checkCommonName(String type, String name) throws AnalysisException {

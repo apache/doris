@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <butil/macros.h>
+#include <bvar/bvar.h>
 #include <glog/logging.h>
 #include <gtest/gtest_prod.h>
 #include <stdint.h>
@@ -19,12 +20,9 @@
 #include <string>
 #include <utility>
 
-#include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/thread_context.h"
+#include "runtime/memory/lru_cache_value_base.h"
 #include "util/doris_metrics.h"
-#include "util/lock.h"
 #include "util/metrics.h"
-#include "util/slice.h"
 
 namespace doris {
 
@@ -53,16 +51,17 @@ namespace doris {
     } while (0)
 
 class Cache;
+class LRUCachePolicy;
+struct LRUHandle;
 
 enum LRUCacheType {
-    SIZE,  // The capacity of cache is based on the size of cache entry.
-    NUMBER // The capacity of cache is based on the number of cache entry.
+    SIZE, // The capacity of cache is based on the memory size of cache entry, memory size = handle size + charge.
+    NUMBER // The capacity of cache is based on the number of cache entry, number = charge, the weight of an entry.
 };
 
-// Create a new cache with a specified name and capacity.
-// This implementation of Cache uses a least-recently-used eviction policy.
-extern Cache* new_lru_cache(const std::string& name, size_t capacity,
-                            LRUCacheType type = LRUCacheType::SIZE, uint32_t num_shards = 16);
+static constexpr LRUCacheType DEFAULT_LRU_CACHE_TYPE = LRUCacheType::SIZE;
+static constexpr uint32_t DEFAULT_LRU_CACHE_NUM_SHARDS = 16;
+static constexpr size_t DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY = 0;
 
 class CacheKey {
 public:
@@ -144,18 +143,22 @@ private:
         return result;
     }
 
-    const char* _data;
+    const char* _data = nullptr;
     size_t _size;
 };
 
 // The entry with smaller CachePriority will evict firstly
 enum class CachePriority { NORMAL = 0, DURABLE = 1 };
 
-using CacheValuePredicate = std::function<bool(const void*)>;
+using CachePrunePredicate = std::function<bool(const LRUHandle*)>;
 // CacheValueTimeExtractor can extract timestamp
 // in cache value through the specified function,
 // such as last_visit_time in InvertedIndexSearcherCache::CacheValue
 using CacheValueTimeExtractor = std::function<int64_t(const void*)>;
+struct PrunedInfo {
+    int64_t pruned_count = 0;
+    int64_t pruned_size = 0;
+};
 
 class Cache {
 public:
@@ -178,8 +181,7 @@ public:
     // When the inserted entry is no longer needed, the key and
     // value will be passed to "deleter".
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
-                           void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) = 0;
+                           CachePriority priority = CachePriority::NORMAL) = 0;
 
     // If the cache has no mapping for "key", returns nullptr.
     //
@@ -199,10 +201,6 @@ public:
     // REQUIRES: handle must have been returned by a method on *this.
     virtual void* value(Handle* handle) = 0;
 
-    // Return the value in Slice format encapsulated in the given handle
-    // returned by a successful lookup()
-    virtual Slice value_slice(Handle* handle) = 0;
-
     // If the cache contains entry for key, erase it.  Note that the
     // underlying entry will be kept around until all existing handles
     // to it have been released.
@@ -220,14 +218,12 @@ public:
     // encouraged to override the default implementation.  A future release of
     // leveldb may change prune() to a pure abstract method.
     // return num of entries being pruned.
-    virtual int64_t prune() { return 0; }
+    virtual PrunedInfo prune() { return {0, 0}; }
 
     // Same as prune(), but the entry will only be pruned if the predicate matched.
     // NOTICE: the predicate should be simple enough, or the prune_if() function
     // may hold lock for a long time to execute predicate.
-    virtual int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) { return 0; }
-
-    virtual int64_t mem_consumption() = 0;
+    virtual PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) { return {0, 0}; }
 
     virtual int64_t get_usage() = 0;
 
@@ -239,23 +235,24 @@ private:
 
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
+// Note: member variables can only be POD types and raw pointer,
+// cannot be class objects or smart pointers, because LRUHandle will be created using malloc.
 struct LRUHandle {
-    void* value;
-    void (*deleter)(const CacheKey&, void* value);
+    void* value = nullptr;
     struct LRUHandle* next_hash = nullptr; // next entry in hash table
     struct LRUHandle* next = nullptr;      // next entry in lru list
     struct LRUHandle* prev = nullptr;      // previous entry in lru list
     size_t charge;
     size_t key_length;
-    size_t total_size; // including key length
-    size_t bytes;      // Used by LRUCacheType::NUMBER, LRUCacheType::SIZE equal to total_size.
-    bool in_cache;     // Whether entry is in the cache.
+    size_t total_size; // Entry charge, used to limit cache capacity, LRUCacheType::SIZE including key length.
+    bool in_cache; // Whether entry is in the cache.
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
-    MemTrackerLimiter* mem_tracker;
     LRUCacheType type;
-    char key_data[1]; // Beginning of key
+    int64_t last_visit_time; // Save the last visit time of this cache entry.
+    char key_data[1];        // Beginning of key
+    // Note! key_data must be at the end.
 
     CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object
@@ -268,9 +265,9 @@ struct LRUHandle {
     }
 
     void free() {
-        (*deleter)(key(), value);
-        THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
-        DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes);
+        if (value != nullptr) { // value allows null pointer.
+            delete (LRUCacheValueBase*)value;
+        }
         ::free(this);
     }
 };
@@ -308,7 +305,7 @@ private:
     // a linked list of cache entries that hash into the bucket.
     uint32_t _length;
     uint32_t _elems;
-    LRUHandle** _list;
+    LRUHandle** _list = nullptr;
 
     // Return a pointer to slot that points to a cache entry that
     // matches key/hash.  If there is no such cache entry, return a
@@ -336,15 +333,14 @@ public:
     }
 
     // Like Cache methods, but with an extra "hash" parameter.
+    // Must call release on the returned handle pointer.
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
-                          void (*deleter)(const CacheKey& key, void* value),
-                          MemTrackerLimiter* tracker,
-                          CachePriority priority = CachePriority::NORMAL, size_t bytes = -1);
+                          CachePriority priority = CachePriority::NORMAL);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
-    int64_t prune();
-    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false);
+    PrunedInfo prune();
+    PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false);
 
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
@@ -370,7 +366,7 @@ private:
     size_t _capacity = 0;
 
     // _mutex protects the following state.
-    doris::Mutex _mutex;
+    std::mutex _mutex;
     size_t _usage = 0;
 
     // Dummy head of LRU list.
@@ -382,8 +378,8 @@ private:
 
     HandleTable _table;
 
-    uint64_t _lookup_count = 0; // cache查找总次数
-    uint64_t _hit_count = 0;    // 命中cache的总次数
+    uint64_t _lookup_count = 0; // number of cache lookups
+    uint64_t _hit_count = 0;    // number of cache hits
 
     CacheValueTimeExtractor _cache_value_time_extractor;
     bool _cache_value_check_timestamp = false;
@@ -395,31 +391,30 @@ private:
 
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards, uint32_t element_count_capacity = 0);
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards,
-                             CacheValueTimeExtractor cache_value_time_extractor,
-                             bool cache_value_check_timestamp, uint32_t element_count_capacity = 0);
-    // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
-                           void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL,
-                           size_t bytes = -1) override;
+                           CachePriority priority = CachePriority::NORMAL) override;
     virtual Handle* lookup(const CacheKey& key) override;
     virtual void release(Handle* handle) override;
     virtual void erase(const CacheKey& key) override;
     virtual void* value(Handle* handle) override;
-    Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id() override;
-    virtual int64_t prune() override;
-    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
-    int64_t mem_consumption() override;
+    PrunedInfo prune() override;
+    PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override;
     int64_t get_usage() override;
     size_t get_total_capacity() override { return _total_capacity; };
 
 private:
+    // LRUCache can only be created and managed with LRUCachePolicy.
+    friend class LRUCachePolicy;
+
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                             uint32_t num_shards, uint32_t element_count_capacity);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                             uint32_t num_shards,
+                             CacheValueTimeExtractor cache_value_time_extractor,
+                             bool cache_value_check_timestamp, uint32_t element_count_capacity);
+
     void update_cache_metrics() const;
 
 private:
@@ -431,12 +426,11 @@ private:
     std::string _name;
     const int _num_shard_bits;
     const uint32_t _num_shards;
-    LRUCache** _shards;
+    LRUCache** _shards = nullptr;
     std::atomic<uint64_t> _last_id;
     size_t _total_capacity;
 
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
-    std::shared_ptr<MetricEntity> _entity = nullptr;
+    std::shared_ptr<MetricEntity> _entity;
     IntGauge* cache_capacity = nullptr;
     IntGauge* cache_usage = nullptr;
     DoubleGauge* cache_usage_ratio = nullptr;
@@ -448,6 +442,25 @@ private:
     std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _hit_count_per_second;
     std::unique_ptr<bvar::Adder<uint64_t>> _lookup_count_bvar;
     std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second;
+};
+
+// Compatible with ShardedLRUCache usage, but will not actually cache.
+class DummyLRUCache : public Cache {
+public:
+    // Must call release on the returned handle pointer.
+    Handle* insert(const CacheKey& key, void* value, size_t charge,
+                   CachePriority priority = CachePriority::NORMAL) override;
+    Handle* lookup(const CacheKey& key) override { return nullptr; };
+    void release(Handle* handle) override;
+    void erase(const CacheKey& key) override {};
+    void* value(Handle* handle) override;
+    uint64_t new_id() override { return 0; };
+    PrunedInfo prune() override { return {0, 0}; };
+    PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override {
+        return {0, 0};
+    };
+    int64_t get_usage() override { return 0; };
+    size_t get_total_capacity() override { return 0; };
 };
 
 } // namespace doris

@@ -40,8 +40,13 @@ import java.util.stream.Collectors;
  * Rule for change inner join LAsscom (associative and commutive).
  */
 public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
-    public static final InnerJoinLAsscomProject INSTANCE = new InnerJoinLAsscomProject();
+    public static final InnerJoinLAsscomProject INSTANCE = new InnerJoinLAsscomProject(false);
+    public static final InnerJoinLAsscomProject LEFT_ZIG_ZAG = new InnerJoinLAsscomProject(true);
+    private final boolean enableLeftZigZag;
 
+    public InnerJoinLAsscomProject(boolean enableLeftZigZag) {
+        this.enableLeftZigZag = enableLeftZigZag;
+    }
     /*
      *        topJoin                   newTopJoin
      *        /     \                   /        \
@@ -51,12 +56,12 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
      *    /   \                     /   \
      *   A     B                   A     C
      */
+
     @Override
     public Rule build() {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
-                .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
-                .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
+                .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child(), enableLeftZigZag))
+                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
                 .when(join -> join.left().isAllSlots())
                 .then(topJoin -> {
                     /* ********** init ********** */
@@ -82,7 +87,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
 
                     /* ********** new Plan ********** */
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,
-                            newBottomOtherConjuncts, a, c);
+                            newBottomOtherConjuncts, a, c, null);
 
                     // merge newTopHashConjuncts newTopOtherConjuncts topJoin.getOutputExprIdSet()
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
@@ -92,7 +97,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     Plan right = CBOUtils.newProject(topUsedExprIds, b);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(newTopHashConjuncts,
-                            newTopOtherConjuncts, left, right);
+                            newTopOtherConjuncts, left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 

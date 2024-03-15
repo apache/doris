@@ -5,9 +5,9 @@
 
 -- !shape_1 --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----PhysicalWindow
-------PhysicalQuickSort
+------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
 ----------filter((T.a = 1))
 ------------PhysicalOlapScan[push_filter_through_window_tbl]
@@ -18,29 +18,29 @@ PhysicalResultSink
 
 -- !shape_2 --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------PhysicalWindow
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------filter((T.a = 1))
 ------------PhysicalOlapScan[push_filter_through_window_tbl]
 
 -- !4 --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----filter((T.b = 2))
 ------PhysicalWindow
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalOlapScan[push_filter_through_window_tbl]
 
 -- !5 --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------filter((T.b = 2))
 --------PhysicalWindow
-----------PhysicalQuickSort
-------------PhysicalDistribute
+----------PhysicalQuickSort[LOCAL_SORT]
+------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[push_filter_through_window_tbl]
 

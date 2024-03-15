@@ -44,7 +44,7 @@ private:
     void ping(const TNetworkAddress& addr);
     void ping_worker();
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::string _client_id;
     std::mutex _mutex;
     std::unordered_set<TNetworkAddress> _broker_set;

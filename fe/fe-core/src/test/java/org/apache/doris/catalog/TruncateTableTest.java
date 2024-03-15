@@ -85,12 +85,15 @@ public class TruncateTableTest {
     @Test
     public void testTruncateWithCaseInsensitivePartitionName() throws Exception {
         //now in order to support auto create partition, need set partition name is case sensitive
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = db.getOlapTableOrDdlException("case_sensitive_table");
         long p20211006Id = tbl.getPartition("p20211006").getId();
         long p20211007Id = tbl.getPartition("P20211007").getId();
         long p20211008Id = tbl.getPartition("P20211008").getId();
-        // truncate p20211008(real name is P20211008)
+        // truncate P20211008(real name is P20211008)
+        Partition p20211008 = tbl.getPartition("P20211008");
+        p20211008.updateVisibleVersion(2L);
+        p20211008.setNextVersion(p20211008.getVisibleVersion() + 1);
         String truncateStr = "TRUNCATE TABLE test.case_sensitive_table PARTITION P20211008; \n";
         TruncateTableStmt truncateTableStmt
                 = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
@@ -101,10 +104,11 @@ public class TruncateTableTest {
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Env.getCurrentEnv().truncateTable(truncateTableStmt);
         Assert.assertEquals(3, tbl.getPartitionInfo().idToDataProperty.size());
-        Assert.assertNotEquals(p20211007Id, tbl.getPartition("P20211007").getId());
         Assert.assertEquals(p20211006Id, tbl.getPartition("p20211006").getId());
+        Assert.assertEquals(p20211007Id, tbl.getPartition("P20211007").getId());
         Assert.assertNotNull(tbl.getPartition("p20211006"));
-        Assert.assertNotNull(tbl.getPartition("p20211006"));
+        Assert.assertNotNull(tbl.getPartition("P20211007"));
+        Assert.assertNotNull(tbl.getPartition("P20211008"));
     }
 
     @Test

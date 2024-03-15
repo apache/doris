@@ -27,13 +27,11 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -78,8 +76,7 @@ public:
                                       null_map_->assume_mutable());
     }
 
-    template <typename... Args,
-              typename = typename std::enable_if<IsMutableColumns<Args...>::value>::type>
+    template <typename... Args, typename = std::enable_if_t<IsMutableColumns<Args...>::value>>
     static MutablePtr create(Args&&... args) {
         return Base::create(std::forward<Args>(args)...);
     }
@@ -89,10 +86,11 @@ public:
     const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
-    size_t size() const override { return nested_column->size(); }
+    size_t size() const override { return assert_cast<const ColumnUInt8&>(*null_map).size(); }
     bool is_null_at(size_t n) const override {
         return assert_cast<const ColumnUInt8&>(*null_map).get_data()[n] != 0;
     }
+    bool is_default_at(size_t n) const override { return is_null_at(n); }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -121,8 +119,11 @@ public:
     void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
+    void insert_indices_from_not_has_null(const IColumn& src, const uint32_t* indices_begin,
+                                          const uint32_t* indices_end);
+
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 
@@ -212,15 +213,12 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
     void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
@@ -273,7 +271,8 @@ public:
     size_t size_of_value_if_fixed() const override {
         return null_map->size_of_value_if_fixed() + nested_column->size_of_value_if_fixed();
     }
-    bool only_null() const override { return nested_column->is_dummy(); }
+
+    bool only_null() const override { return size() == 1 && is_null_at(0); }
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)nested_column) = other; }
@@ -352,6 +351,10 @@ public:
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
         nested_column = get_nested_column().convert_to_predicate_column_if_dictionary();
         return get_ptr();
+    }
+
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return get_ratio_of_default_rows_impl<ColumnNullable>(sample_ratio);
     }
 
     void convert_dict_codes_if_necessary() override {

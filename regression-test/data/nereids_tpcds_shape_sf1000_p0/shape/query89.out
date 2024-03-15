@@ -2,35 +2,35 @@
 -- !ds_shape_89 --
 PhysicalResultSink
 --PhysicalProject
-----PhysicalTopN
-------PhysicalDistribute
---------PhysicalTopN
+----PhysicalTopN[MERGE_SORT]
+------PhysicalDistribute[DistributionSpecGather]
+--------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------filter((if(( not (avg_monthly_sales = 0.0000)), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1))
+------------filter((if(( not (avg_monthly_sales = 0.0000)), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000))
 --------------PhysicalWindow
-----------------PhysicalQuickSort
-------------------PhysicalDistribute
---------------------PhysicalProject
+----------------PhysicalQuickSort[LOCAL_SORT]
+------------------PhysicalProject
+--------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[GLOBAL]
-------------------------PhysicalDistribute
+------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales]
-----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------PhysicalProject
 --------------------------------------------filter(((i_category IN ('Books', 'Children', 'Electronics') AND i_class IN ('audio', 'history', 'school-uniforms')) OR (i_category IN ('Men', 'Shoes', 'Sports') AND i_class IN ('pants', 'tennis', 'womens'))))
 ----------------------------------------------PhysicalOlapScan[item]
-------------------------------------PhysicalDistribute
+------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_year = 2001))
 ------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
+--------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store]
 

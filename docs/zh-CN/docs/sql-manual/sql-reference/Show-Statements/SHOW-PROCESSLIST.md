@@ -43,7 +43,7 @@ SHOW [FULL] PROCESSLIST
 说明：
 
 - CurrentConnected: 是否为当前连接。
-- Id: 就是这个线程的唯一标识，当我们发现这个线程有问题的时候，可以通过 kill 命令，加上这个Id值将这个线程杀掉。前面我们说了show processlist 显示的信息时来自information_schema.processlist 表，所以这个Id就是这个表的主键。
+- Id: 就是这个线程的唯一标识，当我们发现这个线程有问题的时候，可以通过 kill 命令，加上这个Id值将这个线程杀掉。
 - User: 就是指启动这个线程的用户。
 - Host: 记录了发送请求的客户端的 IP 和 端口号。通过这些信息在排查问题的时候，我们可以定位到是哪个客户端的哪个进程发送的请求。
 - LoginTime: 建立连接的时间。

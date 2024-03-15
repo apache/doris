@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -108,7 +109,7 @@ public abstract class ExpressionRewriteTestHelper {
         return FunctionBinder.INSTANCE.rewrite(expression, null);
     }
 
-    private DataType getType(char t) {
+    protected DataType getType(char t) {
         switch (t) {
             case 'T':
                 return TinyIntType.INSTANCE;
@@ -124,6 +125,8 @@ public abstract class ExpressionRewriteTestHelper {
                 return BooleanType.INSTANCE;
             case 'C':
                 return DateV2Type.INSTANCE;
+            case 'M':
+                return DecimalV3Type.SYSTEM_DEFAULT;
             default:
                 return BigIntType.INSTANCE;
         }

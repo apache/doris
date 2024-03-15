@@ -41,8 +41,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class PartitionSortSourceOperator final
-        : public SourceOperator<PartitionSortSourceOperatorBuilder> {
+class PartitionSortSourceOperator final : public SourceOperator<vectorized::VPartitionSortNode> {
 public:
     PartitionSortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
             : SourceOperator(operator_builder, sort_node) {}
@@ -50,23 +49,21 @@ public:
 };
 
 class PartitionSortSourceOperatorX;
-class PartitionSortSourceLocalState final : public PipelineXLocalState<PartitionSortDependency> {
-    ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
-
+class PartitionSortSourceLocalState final
+        : public PipelineXLocalState<PartitionSortNodeSharedState> {
 public:
-    using Base = PipelineXLocalState<PartitionSortDependency>;
+    ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
+    using Base = PipelineXLocalState<PartitionSortNodeSharedState>;
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<PartitionSortDependency>(state, parent),
-              _get_sorted_timer(nullptr),
-              _get_next_timer(nullptr) {}
+            : PipelineXLocalState<PartitionSortNodeSharedState>(state, parent),
+              _get_sorted_timer(nullptr) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class PartitionSortSourceOperatorX;
     RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _get_next_timer;
-    int _sort_idx = 0;
+    std::atomic<int> _sort_idx = 0;
 };
 
 class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {
@@ -76,8 +73,7 @@ public:
                                  const DescriptorTbl& descs)
             : OperatorX<PartitionSortSourceLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

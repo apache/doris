@@ -27,15 +27,15 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     _shared_state->partition_by_column_idxs.resize(p._partition_by_eq_expr_ctxs.size());
     _shared_state->ordey_by_column_idxs.resize(p._order_by_eq_expr_ctxs.size());
 
-    _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
-    _blocks_memory_usage = _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage");
+    _blocks_memory_usage =
+            _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
 
     size_t agg_size = p._agg_expr_ctxs.size();
@@ -66,12 +66,135 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     return Status::OK();
 }
 
+bool AnalyticSinkLocalState::_whether_need_next_partition(
+        vectorized::BlockRowPos& found_partition_end) {
+    auto& shared_state = *_shared_state;
+    if (shared_state.input_eos ||
+        (shared_state.current_row_position <
+         shared_state.partition_by_end.pos)) { //now still have partition data
+        return false;
+    }
+    if ((shared_state.partition_by_eq_expr_ctxs.empty() && !shared_state.input_eos) ||
+        (found_partition_end.pos == 0)) { //no partition, get until fetch to EOS
+        return true;
+    }
+    if (!shared_state.partition_by_eq_expr_ctxs.empty() &&
+        found_partition_end.pos == shared_state.all_block_end.pos &&
+        !shared_state.input_eos) { //current partition data calculate done
+        return true;
+    }
+    return false;
+}
+
+//_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
+vectorized::BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(
+        int idx, vectorized::BlockRowPos start, vectorized::BlockRowPos end,
+        bool need_check_first) {
+    auto& shared_state = *_shared_state;
+    int64_t start_init_row_num = start.row_num;
+    vectorized::ColumnPtr start_column =
+            shared_state.input_blocks[start.block_num].get_by_position(idx).column;
+    vectorized::ColumnPtr start_next_block_column = start_column;
+
+    DCHECK_LE(start.block_num, end.block_num);
+    DCHECK_LE(start.block_num, shared_state.input_blocks.size() - 1);
+    int64_t start_block_num = start.block_num;
+    int64_t end_block_num = end.block_num;
+    int64_t mid_blcok_num = end.block_num;
+    // To fix this problem: https://github.com/apache/doris/issues/15951
+    // in this case, the partition by column is last row of block, so it's pointed to a new block at row = 0, range is: [left, right)
+    // From the perspective of order by column, the two values are exactly equal.
+    // so the range will be get wrong because it's compare_at == 0 with next block at row = 0
+    if (need_check_first && end.block_num > 0 && end.row_num == 0) {
+        end.block_num--;
+        end_block_num--;
+        end.row_num = shared_state.input_blocks[end_block_num].rows();
+    }
+    //binary search find in which block
+    while (start_block_num < end_block_num) {
+        mid_blcok_num = (start_block_num + end_block_num + 1) >> 1;
+        start_next_block_column =
+                shared_state.input_blocks[mid_blcok_num].get_by_position(idx).column;
+        //Compares (*this)[n] and rhs[m], this: start[init_row]  rhs: mid[0]
+        if (start_column->compare_at(start_init_row_num, 0, *start_next_block_column, 1) == 0) {
+            start_block_num = mid_blcok_num;
+        } else {
+            end_block_num = mid_blcok_num - 1;
+        }
+    }
+
+    // have check the start.block_num:  start_column[start_init_row_num] with mid_blcok_num start_next_block_column[0]
+    // now next block must not be result, so need check with end_block_num: start_next_block_column[last_row]
+    if (end_block_num == mid_blcok_num - 1) {
+        start_next_block_column =
+                shared_state.input_blocks[end_block_num].get_by_position(idx).column;
+        int64_t block_size = shared_state.input_blocks[end_block_num].rows();
+        if ((start_column->compare_at(start_init_row_num, block_size - 1, *start_next_block_column,
+                                      1) == 0)) {
+            start.block_num = end_block_num + 1;
+            start.row_num = 0;
+            return start;
+        }
+    }
+
+    //check whether need get column again, maybe same as first init
+    // if the start_block_num have move to forword, so need update start block num and compare it from row_num=0
+    if (start_block_num != start.block_num) {
+        start_init_row_num = 0;
+        start.block_num = start_block_num;
+        start_column = shared_state.input_blocks[start.block_num].get_by_position(idx).column;
+    }
+    //binary search, set start and end pos
+    int64_t start_pos = start_init_row_num;
+    int64_t end_pos = shared_state.input_blocks[start.block_num].rows();
+    //if end_block_num haven't moved, only start_block_num go to the end block
+    //so could use the end.row_num for binary search
+    if (start.block_num == end.block_num) {
+        end_pos = end.row_num;
+    }
+    while (start_pos < end_pos) {
+        int64_t mid_pos = (start_pos + end_pos) >> 1;
+        if (start_column->compare_at(start_init_row_num, mid_pos, *start_column, 1)) {
+            end_pos = mid_pos;
+        } else {
+            start_pos = mid_pos + 1;
+        }
+    }
+    start.row_num = start_pos; //update row num, return the find end
+    return start;
+}
+
+vectorized::BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
+    auto& shared_state = *_shared_state;
+    if (shared_state.current_row_position <
+        shared_state.partition_by_end.pos) { //still have data, return partition_by_end directly
+        return shared_state.partition_by_end;
+    }
+
+    if (shared_state.partition_by_eq_expr_ctxs.empty() ||
+        (shared_state.input_total_rows == 0)) { //no partition_by, the all block is end
+        return shared_state.all_block_end;
+    }
+
+    vectorized::BlockRowPos cal_end = shared_state.all_block_end;
+    for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
+         ++i) { //have partition_by, binary search the partiton end
+        cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
+                                           shared_state.partition_by_end, cal_end);
+    }
+    cal_end.pos = shared_state.input_block_first_row_positions[cal_end.block_num] + cal_end.row_num;
+    return cal_end;
+}
+
 AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
                                              const TPlanNode& tnode, const DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, tnode.node_id),
           _buffered_tuple_id(tnode.analytic_node.__isset.buffered_tuple_id
                                      ? tnode.analytic_node.buffered_tuple_id
-                                     : 0) {}
+                                     : 0),
+          _is_colocate(tnode.analytic_node.__isset.is_colocate && tnode.analytic_node.is_colocate),
+          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+                                                               : std::vector<TExpr> {}) {}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -103,7 +226,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 
 Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     for (const auto& ctx : _agg_expr_ctxs) {
-        static_cast<void>(vectorized::VExpr::prepare(ctx, state, _child_x->row_desc()));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child_x->row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
@@ -132,14 +255,14 @@ Status AnalyticSinkOperatorX::open(RuntimeState* state) {
 }
 
 Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* input_block,
-                                   SourceState source_state) {
+                                   bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
-    local_state._shared_state->input_eos = source_state == SourceState::FINISHED;
+    local_state._shared_state->input_eos = eos;
     if (local_state._shared_state->input_eos && input_block->rows() == 0) {
-        local_state._dependency->set_ready_for_read();
-        local_state._dependency->block_writing();
+        local_state._dependency->set_ready_to_read();
+        local_state._dependency->block();
         return Status::OK();
     }
 
@@ -192,10 +315,9 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     local_state._shared_state->input_blocks.emplace_back(std::move(*input_block));
     {
         SCOPED_TIMER(local_state._evaluation_timer);
-        local_state._shared_state->found_partition_end =
-                local_state._dependency->get_partition_by_end();
+        local_state._shared_state->found_partition_end = local_state._get_partition_by_end();
     }
-    local_state._dependency->refresh_need_more_input();
+    local_state._refresh_need_more_input();
     return Status::OK();
 }
 

@@ -27,4 +27,9 @@ suite("test_user_var") {
     qt_select3 'select @c1, @c2;'
     qt_select4 'select @d1, @d2;'
     qt_select5 'select @f1, @f2;'
+
+    sql "SET @A1=2"
+    qt_select6 'select @a1'
+    sql "SET @a1 = 1"
+    qt_select7 'select @A1'
 }

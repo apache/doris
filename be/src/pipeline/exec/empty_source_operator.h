@@ -46,7 +46,7 @@ public:
 
     OperatorPtr build_operator() override;
 
-    const RowDescriptor& row_desc() override { return _row_descriptor; }
+    const RowDescriptor& row_desc() const override { return _row_descriptor; }
 
 private:
     RowDescriptor _row_descriptor;
@@ -74,7 +74,7 @@ public:
     Status sink(RuntimeState*, vectorized::Block*, SourceState) override { return Status::OK(); }
 
     Status close(RuntimeState* state) override {
-        static_cast<void>(_exec_node->close(state));
+        RETURN_IF_ERROR(_exec_node->close(state));
         return Status::OK();
     }
 

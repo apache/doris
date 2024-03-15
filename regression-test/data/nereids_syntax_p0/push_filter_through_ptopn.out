@@ -5,10 +5,10 @@
 
 -- !shape_1 --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----filter((rn <= 2))
 ------PhysicalWindow
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalPartitionTopN
 ------------PhysicalProject
 --------------filter((T.a = 1))
@@ -20,32 +20,32 @@ PhysicalResultSink
 
 -- !shape_2 --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------filter((rn <= 2))
 --------PhysicalWindow
-----------PhysicalQuickSort
+----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalPartitionTopN
 --------------filter((T.a = 1))
 ----------------PhysicalOlapScan[push_filter_through_ptopn_tbl]
 
 -- !3 --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----filter((T.b = 2) and (rn <= 2))
 ------PhysicalWindow
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalPartitionTopN
 ------------PhysicalOlapScan[push_filter_through_ptopn_tbl]
 
 -- !4 --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------filter((T.b = 2) and (rn <= 2))
 --------PhysicalWindow
-----------PhysicalPartitionTopN
-------------PhysicalDistribute
+----------PhysicalQuickSort[LOCAL_SORT]
+------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalPartitionTopN
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[push_filter_through_ptopn_tbl]

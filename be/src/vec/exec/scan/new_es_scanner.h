@@ -82,7 +82,7 @@ private:
     bool _batch_eof;
 
     TupleId _tuple_id;
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
 
     std::unique_ptr<ESScanReader> _es_reader;
     std::unique_ptr<ScrollParser> _es_scroll_parser;

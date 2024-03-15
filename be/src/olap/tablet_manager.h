@@ -54,7 +54,7 @@ class TTabletInfo;
 // please uniformly name the method in "xxx_unlocked()" mode
 class TabletManager {
 public:
-    TabletManager(int32_t tablet_map_lock_shard_size);
+    TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size);
     ~TabletManager();
 
     bool check_tablet_id_exist(TTabletId tablet_id);
@@ -132,7 +132,7 @@ public:
     //        Status::Error<INVALID_ARGUMENT>(), if tables is null
     Status report_tablet_info(TTabletInfo* tablet_info);
 
-    Status build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
+    void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
     Status start_trash_sweep();
 
@@ -156,6 +156,7 @@ public:
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
     void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables,
+                              std::vector<RowsetSharedPtr>* rowsets,
                               std::function<bool(const TabletSharedPtr&)> skip_tablet);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
@@ -206,6 +207,8 @@ private:
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
+    bool _move_tablet_to_trash(const TabletSharedPtr& tablet);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
@@ -223,8 +226,10 @@ private:
         std::set<int64_t> tablets_under_clone;
     };
 
+    StorageEngine& _engine;
+
+    // TODO: memory size of TabletSchema cannot be accurately tracked.
     // trace the memory use by meta of tablet
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
@@ -237,11 +242,9 @@ private:
     std::shared_mutex _shutdown_tablets_lock;
     // partition_id => tablet_info
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
-    std::vector<TabletSharedPtr> _shutdown_tablets;
-
-    // gc thread will move _shutdown_tablets to _shutdown_deleting_tablets
-    std::shared_mutex _shutdown_deleting_tablets_lock;
-    std::list<TabletSharedPtr> _shutdown_deleting_tablets;
+    // the delete tablets. notice only allow function `start_trash_sweep` can erase tablets in _shutdown_tablets
+    std::list<TabletSharedPtr> _shutdown_tablets;
+    std::mutex _gc_tablets_lock;
 
     std::mutex _tablet_stat_cache_mutex;
     std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache =

@@ -181,17 +181,17 @@ bool lessOp(A a, B b) {
     /// int vs int
     if constexpr (wide::is_integer<A> && wide::is_integer<B>) {
         /// same signedness
-        if constexpr (wide::is_signed_v<A> == wide::is_signed_v<B>) {
+        if constexpr (std::is_signed_v<A> == std::is_signed_v<B>) {
             return a < b;
         }
 
         /// different signedness
 
-        if constexpr (wide::is_signed_v<A> && !wide::is_signed_v<B>) {
+        if constexpr (std::is_signed_v<A> && !std::is_signed_v<B>) {
             return a < 0 || static_cast<std::make_unsigned_t<A>>(a) < b;
         }
 
-        if constexpr (!wide::is_signed_v<A> && wide::is_signed_v<B>) {
+        if constexpr (!std::is_signed_v<A> && std::is_signed_v<B>) {
             return b >= 0 && a < static_cast<std::make_unsigned_t<B>>(b);
         }
     }
@@ -224,7 +224,7 @@ bool greaterOp(A a, B b) {
 }
 
 template <typename A, typename B>
-bool greaterOrEqualsOp(A a, B b) {
+inline bool_if_not_safe_conversion<A, B> greaterOrEqualsOp(A a, B b) {
     if (is_nan(a) || is_nan(b)) {
         return false;
     }
@@ -233,12 +233,22 @@ bool greaterOrEqualsOp(A a, B b) {
 }
 
 template <typename A, typename B>
-bool lessOrEqualsOp(A a, B b) {
+inline bool_if_safe_conversion<A, B> greaterOrEqualsOp(A a, B b) {
+    return a >= b;
+}
+
+template <typename A, typename B>
+inline bool_if_not_safe_conversion<A, B> lessOrEqualsOp(A a, B b) {
     if (is_nan(a) || is_nan(b)) {
         return false;
     }
 
     return !lessOp(b, a);
+}
+
+template <typename A, typename B>
+inline bool_if_safe_conversion<A, B> lessOrEqualsOp(A a, B b) {
+    return a <= b;
 }
 
 template <typename A, typename B>
@@ -260,17 +270,17 @@ bool equalsOp(A a, B b) {
     /// int vs int
     if constexpr (wide::is_integer<A> && wide::is_integer<B>) {
         /// same signedness
-        if constexpr (wide::is_signed_v<A> == wide::is_signed_v<B>) {
+        if constexpr (std::is_signed_v<A> == std::is_signed_v<B>) {
             return a == b;
         }
 
         /// different signedness
 
-        if constexpr (wide::is_signed_v<A> && !wide::is_signed_v<B>) {
+        if constexpr (std::is_signed_v<A> && !std::is_signed_v<B>) {
             return a >= 0 && static_cast<std::make_unsigned_t<A>>(a) == b;
         }
 
-        if constexpr (!wide::is_signed_v<A> && wide::is_signed_v<B>) {
+        if constexpr (!std::is_signed_v<A> && std::is_signed_v<B>) {
             return b >= 0 && a == static_cast<std::make_unsigned_t<B>>(b);
         }
     }

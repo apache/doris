@@ -64,10 +64,6 @@ public class ShowFunctionsStmtTest {
                 analyzer.getEnv();
                 minTimes = 0;
                 result = env;
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
             }
         };
     }

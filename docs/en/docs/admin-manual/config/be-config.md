@@ -188,13 +188,13 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying too the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-* Default value: 80%
+* Default value: 90%
 
 #### `cluster_id`
 
 * Type: int32
 * Description: Configure the cluster id to which the BE belongs.
-    - This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Drois cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
+    - This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Doris cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
 * Default value: -1
 
 #### `custom_config_dir`
@@ -215,7 +215,7 @@ There are two ways to configure BE configuration items:
 
 #### `es_scroll_keepalive`
 
-* Description: es scroll Keeplive hold time
+* Description: es scroll keep-alive hold time
 * Default value: 5 (m)
 
 #### `external_table_connect_timeout_sec`
@@ -266,7 +266,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_connect_timeout_seconds`
 
 * Description: The default thrift client connection timeout time
-* Default value: 3 (m)
+* Default value: 3 (s)
 
 #### `thrift_server_type_of_fe`
 
@@ -343,12 +343,6 @@ There are two ways to configure BE configuration items:
 * Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
 * Default value: 2048
 
-#### `doris_max_pushdown_conjuncts_return_rate`
-
-* Type: int32
-* Description:  When BE performs HashJoin, it will adopt a dynamic partitioning method to push the join condition to OlapScanner. When the data scanned by OlapScanner is larger than 32768 rows, BE will check the filter condition. If the filter rate of the filter condition is lower than this configuration, Doris will stop using the dynamic partition clipping condition for data filtering.
-* Default value: 90
-
 #### `doris_max_scan_key_num`
 
 * Type: int
@@ -396,18 +390,6 @@ There are two ways to configure BE configuration items:
 * Type: int32
 * Description: Max thread number of Remote scanner thread pool. Remote scanner thread pool is used for scan task of all external data sources.
 * Default: 512
-
-#### `enable_prefetch`
-
-* Type: bool
-* Description: When using PartitionedHashTable for aggregation and join calculations, whether to perform HashBuket prefetch. Recommended to be set to true
-* Default value: true
-
-#### `enable_quadratic_probing`
-
-* Type: bool
-* Description: When a Hash conflict occurs when using PartitionedHashTable, enable to use the square detection method to resolve the Hash conflict. If the value is false, linear detection is used to resolve the Hash conflict. For the square detection method, please refer to: [quadratic_probing](https://en.wikipedia.org/wiki/Quadratic_probing)
-* Default value: true
 
 #### `exchg_node_buffer_size_bytes`
 
@@ -482,9 +464,9 @@ There are two ways to configure BE configuration items:
 * Default value: 10485760
 
 #### `max_base_compaction_threads`
-
+git 
 * Type: int32
-* Description: The maximum of thread number in base compaction thread pool.
+* Description: The maximum of thread number in base compaction thread pool, -1 means one thread per disk.
 * Default value: 4
 
 #### `generate_compaction_tasks_interval_ms`
@@ -528,7 +510,7 @@ There are two ways to configure BE configuration items:
 * Type: int64
 * Description: If the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
   - Generally, the configuration is within 512m. If the configuration is too large, the size of the early base version is too small, and base compaction has not been performed.
-* Default value: 64
+* Default value: 128
 
 #### `compaction_min_size_mbytes`
 
@@ -625,8 +607,8 @@ BaseCompaction:546859:
 #### `max_cumu_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in cumulative compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in cumulative compaction thread pool, -1 means one thread per disk.
+* Default value: -1
 
 #### `enable_segcompaction`
 
@@ -637,7 +619,7 @@ BaseCompaction:546859:
 #### `segcompaction_batch_size`
 
 * Type: int32
-* Description: Max number of segments allowed in a single segcompaction task.
+* Description: Max number of segments allowed in a single segment compaction task.
 * Default value: 10
 
 #### `segcompaction_candidate_max_rows`
@@ -686,8 +668,8 @@ BaseCompaction:546859:
 #### `max_single_replica_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in single replica compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in single replica compaction thread pool. -1 means one thread per disk.
+* Default value: -1
 
 #### `update_replica_infos_interval_seconds`
 
@@ -721,12 +703,17 @@ BaseCompaction:546859:
 #### `enable_single_replica_load`
 
 * Description: Whether to enable the single-copy data import function
-* Default value: false
+* Default value: true
 
 #### `load_error_log_reserve_hours`
 
 * Description: The load error log will be deleted after this time
 * Default value: 48 (h)
+
+#### `load_error_log_limit_bytes`
+
+* Description: The loading error logs larger than this value will be truncated
+* Default value: 209715200 (byte)
 
 #### `load_process_max_memory_limit_percent`
 
@@ -736,7 +723,7 @@ BaseCompaction:546859:
 
 #### `load_process_soft_mem_limit_percent`
 
-* Description: The soft limit refers to the proportion of the load memory limit of a single node. For example, the load memory limit for all load tasks is 20GB, and the soft limit defaults to 50% of this value, that is, 10GB. When the load memory usage exceeds the soft limit, the job with the largest memory consuption will be selected to be flushed to release the memory space, the default is 50%
+* Description: The soft limit refers to the proportion of the load memory limit of a single node. For example, the load memory limit for all load tasks is 20GB, and the soft limit defaults to 50% of this value, that is, 10GB. When the load memory usage exceeds the soft limit, the job with the largest memory consumption will be selected to be flushed to release the memory space, the default is 50%
 * Default value: 50 (%)
 
 #### `routine_load_thread_pool_size`
@@ -773,6 +760,12 @@ BaseCompaction:546859:
 * Type: int32
 * Description: For single-stream-multi-table load. When receive a batch of messages from kafka, if the size of batch is more than this threshold, we will request plans for all related tables.
 * Default value: 200
+
+#### `multi_table_max_wait_tables`
+
+* Type: int32
+* Description: Used in single-stream-multi-table load. When receiving a batch of messages from Kafka, if the size of the table wait for plan is more than this threshold, we will request plans for all related tables.The param is aimed to avoid requesting and executing too many plans at once. Performing small batch processing on multiple tables during the loaded process can reduce the pressure of a single RPC and improve the real-time processing of data.
+* Default value: 5
 
 #### `single_replica_load_download_num_workers`
 
@@ -823,6 +816,16 @@ BaseCompaction:546859:
   - Some data formats, such as JSON, cannot be split. Doris must read all the data into the memory before parsing can begin. Therefore, this value is used to limit the maximum amount of data that can be loaded in a single Stream load.
 * Default value: 100
 * Dynamically modifiable: Yes
+
+#### `olap_table_sink_send_interval_microseconds`
+
+* Description: While loading data, there's a polling thread keep sending data to corresponding BE from Coordinator's sink node. This thread will check whether there's data to send every `olap_table_sink_send_interval_microseconds` microseconds.
+* Default value: 1000
+
+#### `olap_table_sink_send_interval_auto_partition_factor`
+
+* Description: If we load data to a table which enabled auto partition. the interval of `olap_table_sink_send_interval_microseconds` is too slow. In that case the real interval will multiply this factor.
+* Default value: 0.001
 
 ### Thread
 
@@ -965,12 +968,6 @@ BaseCompaction:546859:
 * Description: Interval in milliseconds between memtable flush mgr refresh iterations
 * Default value: 100
 
-#### `download_cache_buffer_size`
-
-* Type: int64
-* Description: The size of the buffer used to receive data when downloading the cache.
-* Default value: 10485760
-
 #### `zone_map_row_num_threshold`
 
 * Type: int32
@@ -986,7 +983,7 @@ BaseCompaction:546859:
 #### `memory_mode`
 
 * Type: string
-* Description: Control gc of tcmalloc, in performance mode doirs releases memory of tcmalloc cache when usgae >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
+* Description: Control gc of tcmalloc, in performance mode Doris releases memory of tcmalloc cache when usage >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
 * Default value: performance
 
 #### `max_sys_mem_available_low_water_mark_bytes`
@@ -1206,7 +1203,7 @@ BaseCompaction:546859:
 #### `sync_tablet_meta`
 
 * Description: Whether the storage engine opens sync and keeps it to the disk
-* Default value: false
+* Default value: true
 
 #### `pending_data_expire_time_sec`
 
@@ -1234,7 +1231,7 @@ BaseCompaction:546859:
 
 * Type: int
 * Description: Limit the number of versions of a single tablet. It is used to prevent a large number of version accumulation problems caused by too frequent import or untimely compaction. When the limit is exceeded, the import task will be rejected.
-* Default value: 500
+* Default value: 2000
 
 #### `number_tablet_writer_threads`
 
@@ -1290,7 +1287,7 @@ BaseCompaction:546859:
 * Description: The number of threads making schema changes
 * Default value: 3
 
-### `alter_index_worker_count`
+#### `alter_index_worker_count`
 
 * Description: The number of threads making index change
 * Default value: 3
@@ -1331,16 +1328,6 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Type: bool
 * Description: enable to use Snappy compression algorithm for data compression when serializing RowBatch
 * Default value: true
-
-<version since="1.2">
-
-#### `jvm_max_heap_size`
-
-* Type: string
-* Description: The maximum size of JVM heap memory used by BE, which is the `-Xmx` parameter of JVM
-* Default value: 1024M
-
-</version>
 
 ### Log
 
@@ -1464,11 +1451,6 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: Default dirs to put jdbc drivers.
 * Default value: `${DORIS_HOME}/jdbc_drivers`
 
-#### `enable_parse_multi_dimession_array`
-
-* Description: Whether parse multidimensional array, if false encountering will return ERROR
-* Default value: true
-
 #### `enable_simdjson_reader`
 
 * Description: Whether enable simdjson to parse json while stream load
@@ -1500,3 +1482,26 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
 * Default value: true
+
+#### `group_commit_wal_path`
+
+* The `WAL` directory of group commit.
+* Default: A directory named `wal` is created under each directory of the `storage_root_path`. Configuration examples:
+  ```
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
+  ```
+
+#### `group_commit_memory_rows_for_max_filter_ratio`
+
+* Description: The `max_filter_ratio` limit can only work if the total rows of `group commit` is less than this value. See [Group Commit](../../data-operate/import/import-way/group-commit-manual.md) for more details
+* Default: 10000
+
+#### `default_tzfiles_path`
+
+* Description: Doris comes with its own time zone database. If the time zone file is not found in the system directory, the data in that directory is enabled.
+* Default: "${DORIS_HOME}/zoneinfo"
+
+#### `use_doris_tzfile`
+
+* Description: Whether to use the time zone database that comes with Doris directly. Enabled to stop trying to find in  the system directory.
+* Default: false

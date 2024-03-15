@@ -33,7 +33,6 @@
 #include <thread>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -214,6 +213,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if (task.__isset.is_multi_table && task.is_multi_table) {
         ctx->is_multi_table = true;
     }
+    if (task.__isset.memtable_on_sink_node) {
+        ctx->memtable_on_sink_node = task.memtable_on_sink_node;
+    }
 
     // set execute plan params (only for non-single-stream-multi-table load)
     TStreamLoadPutResult put_result;
@@ -348,21 +350,12 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         HANDLE_ERROR(multi_table_pipe->request_and_exec_plans(),
                      "multi tables task executes plan error");
         // need memory order
-        multi_table_pipe->set_consume_finished();
+        multi_table_pipe->handle_consume_finished();
         HANDLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
     }
 
     // wait for all consumers finished
     HANDLE_ERROR(ctx->future.get(), "consume failed");
-
-    // check received and load rows
-    LOG(INFO) << "routine load task received rows: " << consumer_grp.get()->get_consumer_rows()
-              << " load total rows: " << ctx.get()->number_total_rows
-              << " loaded rows: " << ctx.get()->number_loaded_rows
-              << " filtered rows: " << ctx.get()->number_filtered_rows
-              << " unselected rows: " << ctx.get()->number_unselected_rows;
-    DCHECK(consumer_grp.get()->get_consumer_rows() == ctx.get()->number_total_rows);
-    consumer_grp.get()->set_consumer_rows(0);
 
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 

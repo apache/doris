@@ -23,6 +23,7 @@ import java.util.EnumSet;
 import java.util.Map;
 
 // MySQL protocol text command
+// Reused by arrow flight protocol
 public enum MysqlCommand {
     COM_SLEEP("Sleep", 0),
     COM_QUIT("Quit", 1),

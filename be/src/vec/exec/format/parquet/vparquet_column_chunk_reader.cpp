@@ -23,7 +23,6 @@
 
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/bit_util.h"
 #include "util/block_compression.h"
@@ -98,10 +97,12 @@ Status ColumnChunkReader::next_page() {
         return next_page();
     } else if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header_v2.num_values;
+        _chunk_parsed_values += _remaining_num_values;
         _state = HEADER_PARSED;
         return Status::OK();
     } else {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
+        _chunk_parsed_values += _remaining_num_values;
         _state = HEADER_PARSED;
         return Status::OK();
     }
@@ -122,14 +123,15 @@ Status ColumnChunkReader::load_page_data() {
         return Status::Corruption("Should parse page header");
     }
     const auto& header = *_page_reader->get_page_header();
-    // int32_t compressed_size = header.compressed_page_size;
     int32_t uncompressed_size = header.uncompressed_page_size;
 
     if (_block_compress_codec != nullptr) {
         Slice compressed_data;
         RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
         if (header.__isset.data_page_header_v2) {
-            tparquet::DataPageHeaderV2 header_v2 = header.data_page_header_v2;
+            const tparquet::DataPageHeaderV2& header_v2 = header.data_page_header_v2;
+            // uncompressed_size = rl + dl + uncompressed_data_size
+            // compressed_size = rl + dl + compressed_data_size
             uncompressed_size -= header_v2.repetition_levels_byte_length +
                                  header_v2.definition_levels_byte_length;
             _get_uncompressed_levels(header_v2, compressed_data);
@@ -150,8 +152,7 @@ Status ColumnChunkReader::load_page_data() {
     } else {
         RETURN_IF_ERROR(_page_reader->get_page_data(_page_data));
         if (header.__isset.data_page_header_v2) {
-            tparquet::DataPageHeaderV2 header_v2 = header.data_page_header_v2;
-            _get_uncompressed_levels(header_v2, _page_data);
+            _get_uncompressed_levels(header.data_page_header_v2, _page_data);
         }
     }
 

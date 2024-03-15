@@ -125,7 +125,7 @@ public class JvmStats {
         GarbageCollector[] collectors = new GarbageCollector[gcMxBeans.size()];
         for (int i = 0; i < collectors.length; i++) {
             GarbageCollectorMXBean gcMxBean = gcMxBeans.get(i);
-            collectors[i] = new GarbageCollector(GcNames.getByGcName(gcMxBean.getName(), gcMxBean.getName()),
+            collectors[i] = new GarbageCollector(gcMxBean.getName(),
                     gcMxBean.getCollectionCount(), gcMxBean.getCollectionTime());
         }
         GarbageCollectors garbageCollectors = new GarbageCollectors(collectors);

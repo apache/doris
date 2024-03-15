@@ -23,7 +23,7 @@ suite("test_array_column_delete") {
     sql """ insert into ${tableName} values(1, NULL),(2,[12,3]),(3,[]),(4,NULL),(5,NULL) """
     test {
         sql """ DELETE FROM ${tableName} WHERE c_array is NULL """
-        exception("java.sql.SQLException: errCode = 2, detailMessage = errCode = 2, detailMessage = Can not apply delete condition to column type: ARRAY<INT>")
+        exception("Can not apply delete condition to column type: ARRAY<INT>")
     }
     sql """ DELETE FROM ${tableName} WHERE id = 1; """
     qt_sql """ SELECT * FROM ${tableName} order by id """

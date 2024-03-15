@@ -135,10 +135,12 @@ public class MaterializedViewSelector {
             return null;
         }
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
-        LOG.debug("The best materialized view is {} for scan node {} in query {}, "
-                + "isPreAggregation: {}, reasonOfDisable: {}, cost {}",
-                bestIndexId, scanNode.getId(), selectStmt.toSql(), isPreAggregation, reasonOfDisable,
-                (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("The best materialized view is {} for scan node {} in query {}, "
+                    + "isPreAggregation: {}, reasonOfDisable: {}, cost {}",
+                    bestIndexId, scanNode.getId(), selectStmt.toSql(), isPreAggregation, reasonOfDisable,
+                    (System.currentTimeMillis() - start));
+        }
         return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
     }
 
@@ -202,6 +204,19 @@ public class MaterializedViewSelector {
         for (Map.Entry<Long, MaterializedIndexMeta> entry : candidateIndexIdToMeta.entrySet()) {
             result.put(entry.getKey(), entry.getValue().getSchema());
         }
+        // For query like `select v:a from tbl` when column v is variant type but v:a is not expicity
+        // in index, so the above check will filter all index. But we should at least choose the base
+        // index at present.TODO we should better handle it.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("result {}, has variant col {}, tuple {}", result,
+                        analyzer.getTupleDesc(scanNode.getTupleId()).hasVariantCol(),
+                        analyzer.getTupleDesc(scanNode.getTupleId()).toString());
+        }
+        if (result.keySet().size() == 0 && scanNode.getOlapTable()
+                    .getBaseSchema().stream().anyMatch(column -> column.getType().isVariantType())) {
+            LOG.info("Using base schema");
+            result.put(scanNode.getOlapTable().getBaseIndexId(), scanNode.getOlapTable().getBaseSchema());
+        }
         return result;
     }
 
@@ -263,16 +278,22 @@ public class MaterializedViewSelector {
             }
 
             if (prefixMatchCount == maxPrefixMatchCount) {
-                LOG.debug("find a equal prefix match index {}. match count: {}", indexId, prefixMatchCount);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("find a equal prefix match index {}. match count: {}", indexId, prefixMatchCount);
+                }
                 indexesMatchingBestPrefixIndex.add(indexId);
             } else if (prefixMatchCount > maxPrefixMatchCount) {
-                LOG.debug("find a better prefix match index {}. match count: {}", indexId, prefixMatchCount);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("find a better prefix match index {}. match count: {}", indexId, prefixMatchCount);
+                }
                 maxPrefixMatchCount = prefixMatchCount;
                 indexesMatchingBestPrefixIndex.clear();
                 indexesMatchingBestPrefixIndex.add(indexId);
             }
         }
-        LOG.debug("Those mv match the best prefix index:" + Joiner.on(",").join(indexesMatchingBestPrefixIndex));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Those mv match the best prefix index:" + Joiner.on(",").join(indexesMatchingBestPrefixIndex));
+        }
         return indexesMatchingBestPrefixIndex;
     }
 
@@ -285,7 +306,9 @@ public class MaterializedViewSelector {
             for (Long partitionId : partitionIds) {
                 rowCount += olapTable.getPartition(partitionId).getIndex(indexId).getRowCount();
             }
-            LOG.debug("rowCount={} for table={}", rowCount, indexId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("rowCount={} for table={}", rowCount, indexId);
+            }
             if (rowCount < minRowCount) {
                 minRowCount = rowCount;
                 selectedIndexId = indexId;
@@ -361,8 +384,10 @@ public class MaterializedViewSelector {
                 iterator.remove();
             }
         }
-        LOG.debug("Those mv pass the test of compensating predicates:"
-                + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Those mv pass the test of compensating predicates:"
+                    + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        }
     }
 
     /**
@@ -454,8 +479,10 @@ public class MaterializedViewSelector {
                 iterator.remove();
             }
         }
-        LOG.debug("Those mv pass the test of grouping:"
-                + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Those mv pass the test of grouping:"
+                    + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        }
     }
 
     // Step4: aggregation functions are available in the view output
@@ -513,8 +540,10 @@ public class MaterializedViewSelector {
                 iterator.remove();
             }
         }
-        LOG.debug("Those mv pass the test of aggregation function:"
-                + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Those mv pass the test of aggregation function:"
+                    + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        }
     }
 
     private boolean matchAllExpr(List<Expr> exprs, List<Expr> indexExprs, TupleId tid)
@@ -577,7 +606,10 @@ public class MaterializedViewSelector {
             candidateIndexSchema
                     .forEach(column -> indexColumnNames.add(CreateMaterializedViewStmt
                             .mvColumnBreaker(MaterializedIndexMeta.normalizeName(column.getName()))));
-
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("candidateIndexSchema {}, indexColumnNames {}, queryColumnNames {}",
+                                candidateIndexSchema, indexColumnNames, queryColumnNames);
+            }
             // Rollup index have no define expr.
             if (entry.getValue().getWhereClause() == null && indexExprs.isEmpty()
                     && !indexColumnNames.containsAll(queryColumnNames)) {
@@ -597,8 +629,10 @@ public class MaterializedViewSelector {
                 iterator.remove();
             }
         }
-        LOG.debug("Those mv pass the test of output columns:"
-                + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Those mv pass the test of output columns:"
+                    + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        }
     }
 
     private void compensateCandidateIndex(Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta,
@@ -612,8 +646,10 @@ public class MaterializedViewSelector {
                 candidateIndexIdToMeta.put(mvIndexId, index.getValue());
             }
         }
-        LOG.debug("Those mv pass the test of output columns:"
-                + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Those mv pass the test of output columns:"
+                    + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+        }
     }
 
     private void init() {

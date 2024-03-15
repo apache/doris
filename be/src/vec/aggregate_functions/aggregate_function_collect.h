@@ -301,8 +301,8 @@ struct AggregateFunctionArrayAggData {
     using ElementType = T;
     using ColVecType = ColumnVectorOrDecimal<ElementType>;
     MutableColumnPtr column_data;
-    ColVecType* nested_column;
-    NullMap* null_map;
+    ColVecType* nested_column = nullptr;
+    NullMap* null_map = nullptr;
 
     AggregateFunctionArrayAggData(const DataTypes& argument_types) {
         if constexpr (IsDecimalNumber<T>) {
@@ -369,8 +369,8 @@ struct AggregateFunctionArrayAggData<StringRef> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     MutableColumnPtr column_data;
-    ColVecType* nested_column;
-    NullMap* null_map;
+    ColVecType* nested_column = nullptr;
+    NullMap* null_map = nullptr;
 
     AggregateFunctionArrayAggData() {
         column_data = ColumnNullable::create(ColVecType::create(), ColumnUInt8::create());
@@ -469,7 +469,7 @@ public:
 
     bool allocates_memory_in_arena() const override { return ENABLE_ARENA; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         auto& data = this->data(place);
         if constexpr (HasLimit::value) {

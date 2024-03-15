@@ -18,9 +18,14 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.ExprFdItem;
+import org.apache.doris.nereids.properties.FdFactory;
+import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -30,10 +35,13 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Logical Union.
@@ -52,11 +60,17 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         this.constantExprsList = ImmutableList.of();
     }
 
+    public LogicalUnion(Qualifier qualifier, List<List<NamedExpression>> constantExprsList, List<Plan> children) {
+        super(PlanType.LOGICAL_UNION, qualifier, children);
+        this.hasPushedFilter = false;
+        this.constantExprsList = constantExprsList;
+    }
+
     public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
             List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs, children);
         this.hasPushedFilter = hasPushedFilter;
-        this.constantExprsList = ImmutableList.copyOf(
+        this.constantExprsList = Utils.fastToImmutableList(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
@@ -67,7 +81,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs,
                 groupExpression, logicalProperties, children);
         this.hasPushedFilter = hasPushedFilter;
-        this.constantExprsList = ImmutableList.copyOf(
+        this.constantExprsList = Utils.fastToImmutableList(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
@@ -151,6 +165,12 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                 hasPushedFilter, Optional.empty(), Optional.empty(), children);
     }
 
+    public LogicalUnion withNewOutputsAndConstExprsList(List<NamedExpression> newOutputs,
+            List<List<NamedExpression>> constantExprsList) {
+        return new LogicalUnion(qualifier, newOutputs, regularChildrenOutputs, constantExprsList,
+                hasPushedFilter, Optional.empty(), Optional.empty(), children);
+    }
+
     public LogicalUnion withChildrenAndConstExprsList(List<Plan> children,
             List<List<SlotReference>> childrenOutputs, List<List<NamedExpression>> constantExprsList) {
         return new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children);
@@ -161,13 +181,38 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                 Optional.empty(), Optional.empty(), children);
     }
 
-    public LogicalUnion withHasPushedFilter() {
-        return new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, true,
-                Optional.empty(), Optional.empty(), children);
-    }
-
     @Override
     public LogicalUnion pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withNewOutputs(prunedOutputs);
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        if (qualifier != Qualifier.DISTINCT) {
+            return FunctionalDependencies.EMPTY_FUNC_DEPS;
+        }
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
+        return builder.build();
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+
+        ImmutableSet<SlotReference> exprs = output.stream()
+                .filter(SlotReference.class::isInstance)
+                .map(SlotReference.class::cast)
+                .collect(ImmutableSet.toImmutableSet());
+
+        if (qualifier == Qualifier.DISTINCT) {
+            ExprFdItem fdItem = FdFactory.INSTANCE.createExprFdItem(exprs, true, exprs);
+            builder.add(fdItem);
+        }
+
+        return builder.build();
     }
 }

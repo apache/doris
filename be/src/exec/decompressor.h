@@ -28,11 +28,6 @@
 
 #include <string>
 
-#ifdef DORIS_WITH_LZO
-#include <lzo/lzo1x.h>
-#include <lzo/lzoconf.h>
-#endif
-
 #include "common/status.h"
 
 namespace doris {
@@ -140,7 +135,7 @@ private:
     size_t get_block_size(const LZ4F_frameInfo_t* info);
 
 private:
-    LZ4F_dctx* _dctx;
+    LZ4F_dctx* _dctx = nullptr;
     size_t _expect_dec_buf_size;
     const static unsigned DORIS_LZ4F_VERSION;
 };
@@ -177,7 +172,6 @@ private:
     Status init() override;
 };
 
-#ifdef DORIS_WITH_LZO
 class LzopDecompressor : public Decompressor {
 public:
     ~LzopDecompressor() override = default;
@@ -271,6 +265,5 @@ private:
     const static uint64_t F_CRC32_D;
     const static uint64_t F_ADLER32_D;
 };
-#endif // DORIS_WITH_LZO
 
 } // namespace doris

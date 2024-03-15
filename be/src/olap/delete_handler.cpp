@@ -22,8 +22,8 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <boost/regex.hpp>
 #include <limits>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -31,6 +31,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
@@ -42,11 +43,6 @@ using apache::thrift::ThriftDebugString;
 using std::vector;
 using std::string;
 using std::stringstream;
-
-using std::regex;
-using std::regex_error;
-using std::regex_match;
-using std::smatch;
 
 using ::google::protobuf::RepeatedPtrField;
 
@@ -63,11 +59,7 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
 
     // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
-        if (!check_condition_valid(schema, condition).ok()) {
-            // Error will print log, no need to do it manually.
-            return Status::Error<DELETE_INVALID_CONDITION>("invalid condition. condition={}",
-                                                           ThriftDebugString(condition));
-        }
+        RETURN_IF_ERROR(check_condition_valid(schema, condition));
     }
 
     // Store delete condition
@@ -296,7 +288,7 @@ Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCon
 
 Status DeleteHandler::parse_condition(const std::string& condition_str, TCondition* condition) {
     bool matched = true;
-    smatch what;
+    boost::smatch what;
 
     try {
         // Condition string format, the format is (column_name)(op)(value)
@@ -306,15 +298,15 @@ Status DeleteHandler::parse_condition(const std::string& condition_str, TConditi
         //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
         const char* const CONDITION_STR_PATTERN =
                 R"(([\w$#%]+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
-        regex ex(CONDITION_STR_PATTERN);
-        if (regex_match(condition_str, what, ex)) {
+        boost::regex ex(CONDITION_STR_PATTERN);
+        if (boost::regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {
                 matched = false;
             }
         } else {
             matched = false;
         }
-    } catch (regex_error& e) {
+    } catch (boost::regex_error& e) {
         VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what()
                     << "]";
         matched = false;
@@ -424,7 +416,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
     return Status::OK();
 }
 
-void DeleteHandler::finalize() {
+DeleteHandler::~DeleteHandler() {
     if (!_is_inited) {
         return;
     }
@@ -448,10 +440,10 @@ void DeleteHandler::get_delete_conditions_after_version(
             // now, only query support delete column predicate operator
             if (!del_cond.column_predicate_vec.empty()) {
                 if (del_cond.column_predicate_vec.size() == 1) {
-                    auto* single_column_block_predicate =
-                            new SingleColumnBlockPredicate(del_cond.column_predicate_vec[0]);
+                    auto single_column_block_predicate = SingleColumnBlockPredicate::create_unique(
+                            del_cond.column_predicate_vec[0]);
                     and_block_column_predicate_ptr->add_column_predicate(
-                            single_column_block_predicate);
+                            std::move(single_column_block_predicate));
                     if (del_predicates_for_zone_map->count(
                                 del_cond.column_predicate_vec[0]->column_id()) < 1) {
                         del_predicates_for_zone_map->insert(
@@ -461,7 +453,7 @@ void DeleteHandler::get_delete_conditions_after_version(
                     (*del_predicates_for_zone_map)[del_cond.column_predicate_vec[0]->column_id()]
                             .push_back(del_cond.column_predicate_vec[0]);
                 } else {
-                    auto* or_column_predicate = new OrBlockColumnPredicate();
+                    auto or_column_predicate = OrBlockColumnPredicate::create_unique();
 
                     // build or_column_predicate
                     // when delete from where a = 1 and b = 2, we can not use del_predicates_for_zone_map to filter zone page,
@@ -472,9 +464,10 @@ void DeleteHandler::get_delete_conditions_after_version(
                                   del_cond.column_predicate_vec.cend(),
                                   [&or_column_predicate](const ColumnPredicate* predicate) {
                                       or_column_predicate->add_column_predicate(
-                                              new SingleColumnBlockPredicate(predicate));
+                                              SingleColumnBlockPredicate::create_unique(predicate));
                                   });
-                    and_block_column_predicate_ptr->add_column_predicate(or_column_predicate);
+                    and_block_column_predicate_ptr->add_column_predicate(
+                            std::move(or_column_predicate));
                 }
             }
         }

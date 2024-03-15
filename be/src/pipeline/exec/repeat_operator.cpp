@@ -34,20 +34,17 @@ OPERATOR_CODE_GENERATOR(RepeatOperator, StatefulOperator)
 
 Status RepeatOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
-    _child_block.reset(_node->get_child_block());
+    _child_block = _node->get_child_block();
     return StatefulOperator::prepare(state);
 }
 
 Status RepeatOperator::close(doris::RuntimeState* state) {
-    _child_block.release();
     return StatefulOperator::close(state);
 }
 
 RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _child_block(vectorized::Block::create_unique()),
-          _child_source_state(SourceState::DEPEND_ON_SOURCE),
-          _child_eos(false),
           _repeat_id_idx(0) {}
 
 Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
@@ -159,6 +156,7 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
         cur_col++;
     }
 
+    const auto rows = child_block->rows();
     // Fill grouping ID to block
     for (auto slot_idx = 0; slot_idx < p._grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, p._output_tuple_desc->slots().size());
@@ -170,9 +168,7 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
         DCHECK(!p._output_slots[cur_col]->is_nullable());
 
         auto* col = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column_ptr);
-        for (size_t i = 0; i < child_block->rows(); ++i) {
-            col->insert_value(val);
-        }
+        col->insert_raw_integers(val, rows);
         cur_col++;
     }
 
@@ -181,15 +177,12 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
     return Status::OK();
 }
 
-Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
-                             SourceState source_state) const {
+Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block, bool eos) const {
     auto& local_state = get_local_state(state);
-    local_state._child_eos = source_state == SourceState::FINISHED;
+    local_state._child_eos = eos;
     auto& _intermediate_block = local_state._intermediate_block;
     auto& _expr_ctxs = local_state._expr_ctxs;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
-    DCHECK(!_expr_ctxs.empty());
-
     if (input_block->rows() > 0) {
         _intermediate_block = vectorized::Block::create_unique();
 
@@ -209,7 +202,7 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
 }
 
 Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                             SourceState& source_state) const {
+                             bool* eos) const {
     auto& local_state = get_local_state(state);
     auto& _repeat_id_idx = local_state._repeat_id_idx;
     auto& _child_block = *local_state._child_block;
@@ -234,13 +227,15 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
             _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
             _repeat_id_idx = 0;
         }
+    } else if (local_state._expr_ctxs.empty()) {
+        DCHECK(!_intermediate_block || (_intermediate_block && _intermediate_block->rows() == 0));
+        output_block->swap(_child_block);
+        _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
     }
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
                                                            output_block->columns()));
-    if (_child_eos && _child_block.rows() == 0) {
-        source_state = SourceState::FINISHED;
-    }
-    local_state.reached_limit(output_block, source_state);
+    *eos = _child_eos && _child_block.rows() == 0;
+    local_state.reached_limit(output_block, eos);
     COUNTER_SET(local_state._rows_returned_counter, local_state._num_rows_returned);
     return Status::OK();
 }

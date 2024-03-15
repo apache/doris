@@ -342,7 +342,7 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         Plan plan = PlanChecker.from(createCascadesContext(sql))
                 .analyze(sql)
                 .applyBottomUp(new PullUpProjectUnderApply())
-                .applyTopDown(new PushdownFilterThroughProject())
+                .applyTopDown(new PushDownFilterThroughProject())
                 .customRewrite(new EliminateUnnecessaryProject())
                 .customRewrite(new AggScalarSubQueryToWindowFunction())
                 .rewrite()

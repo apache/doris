@@ -42,6 +42,7 @@ namespace vectorized {
 class Block;
 
 template <typename Writer, const char* Name>
+    requires(std::is_base_of_v<AsyncResultWriter, Writer>)
 class AsyncWriterSink : public DataSink {
 public:
     AsyncWriterSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_exprs)
@@ -61,10 +62,9 @@ public:
         RETURN_IF_ERROR(DataSink::prepare(state));
         // Prepare the exprs to run.
         RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-        std::stringstream title;
-        title << _name << " (frag_id=" << state->fragment_instance_id() << ")";
         // create profile
-        _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
+        _profile = state->obj_pool()->add(new RuntimeProfile(_name));
+        init_sink_common_profile();
         return Status::OK();
     }
 
@@ -72,17 +72,28 @@ public:
         // Prepare the exprs to run.
         RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
         if (state->enable_pipeline_exec()) {
-            _writer->start_writer(state, _profile);
+            RETURN_IF_ERROR(_writer->start_writer(state, _profile));
         } else {
             RETURN_IF_ERROR(_writer->open(state, _profile));
         }
         return Status::OK();
     }
 
+    // Non-pipeline engine will call this api to send data to sink destination
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override {
-        return _writer->append_block(*block);
+        SCOPED_TIMER(_exec_timer);
+        COUNTER_UPDATE(_blocks_sent_counter, 1);
+        COUNTER_UPDATE(_output_rows_counter, block->rows());
+        Status st = _writer->write(*block);
+        // Should also check !state->is_cancelled()???, do not know which scenario?
+        if (st.ok() && eos) {
+            // If this is the last block, then call finish to flush the buffer or commit transctions.
+            st = _writer->finish(state);
+        }
+        return st;
     }
 
+    // Pipeline engine will call this api to send data to destination. This is an async API.
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) override {
         return _writer->sink(block, eos);
     }
@@ -92,26 +103,27 @@ public:
     Status close(RuntimeState* state, Status exec_status) override {
         // if the init failed, the _writer may be nullptr. so here need check
         if (_writer) {
-            if (_writer->need_normal_close()) {
-                if (exec_status.ok() && !state->is_cancelled()) {
-                    RETURN_IF_ERROR(_writer->commit_trans());
+            // For pipeline engine, the writer is always closed in async thread process_block
+            if (state->enable_pipeline_exec()) {
+                Status st = _writer->get_writer_status();
+                if (exec_status.ok()) {
+                    _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
+                                                               : Status::Cancelled("force close"));
+                } else {
+                    _writer->force_close(exec_status);
                 }
-                RETURN_IF_ERROR(_writer->close(exec_status));
+                // If there is an error in process_block thread, then we should get the writer
+                // status before call force_close. For example, the thread may failed in commit
+                // transaction.
+                RETURN_IF_ERROR(st);
             } else {
-                RETURN_IF_ERROR(_writer->get_writer_status());
+                RETURN_IF_ERROR(_writer->close(exec_status));
             }
         }
         return DataSink::close(state, exec_status);
     }
 
-    Status try_close(RuntimeState* state, Status exec_status) override {
-        if (state->is_cancelled() || !exec_status.ok()) {
-            _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));
-        }
-        return Status::OK();
-    }
-
-    bool is_close_done() override { return !_writer->is_pending_finish(); }
+    [[nodiscard]] bool is_pending_finish() const override { return _writer->is_pending_finish(); }
 
 protected:
     const std::vector<TExpr>& _t_output_expr;

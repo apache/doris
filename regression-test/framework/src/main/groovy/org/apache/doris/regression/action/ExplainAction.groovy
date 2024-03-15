@@ -28,17 +28,24 @@ import java.util.stream.Collectors
 @Slf4j
 class ExplainAction implements SuiteAction {
     private String sql
+    private boolean verbose = false
     private SuiteContext context
     private Set<String> containsStrings = new LinkedHashSet<>()
     private Set<String> notContainsStrings = new LinkedHashSet<>()
+    private String coonType
     private Closure checkFunction
 
-    ExplainAction(SuiteContext context) {
+    ExplainAction(SuiteContext context, String coonType = "JDBC") {
         this.context = context
+        this.coonType = coonType
     }
 
     void sql(String sql) {
         this.sql = sql
+    }
+
+    void verbose(boolean verbose) {
+        this.verbose = verbose
     }
 
     void sql(Closure<String> sqlSupplier) {
@@ -59,7 +66,7 @@ class ExplainAction implements SuiteAction {
 
     @Override
     void run() {
-        String explainSql = "explain\n" + sql
+        String explainSql = "explain\n" + (verbose ? "verbose\n" : "") + sql
         def result = doTest(explainSql)
         String explainString = result.result
         if (checkFunction != null) {
@@ -115,7 +122,11 @@ class ExplainAction implements SuiteAction {
         ResultSetMetaData meta = null
         try {
             def temp = null
-            (temp, meta) = JdbcUtils.executeToList(context.getConnection(), explainSql)
+            if (coonType == "JDBC") {
+                (temp, meta) = JdbcUtils.executeToList(context.getConnection(), explainSql)
+            } else if (coonType == "ARROW_FLIGHT_SQL") {
+                (temp, meta) = JdbcUtils.executeToList(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + explainSql))
+            }
             explainString = temp.stream().map({row -> row.get(0).toString()}).collect(Collectors.joining("\n"))
             return new ActionResult(explainString, null, startTime, System.currentTimeMillis(), meta)
         } catch (Throwable t) {

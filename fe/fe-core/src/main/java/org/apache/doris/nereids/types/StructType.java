@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.analyzer.ComplexDataType;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
@@ -36,7 +37,7 @@ import java.util.stream.Collectors;
  * Struct type in Nereids.
  */
 @Developing
-public class StructType extends DataType {
+public class StructType extends DataType implements ComplexDataType {
 
     public static final StructType SYSTEM_DEFAULT = new StructType();
 
@@ -119,11 +120,11 @@ public class StructType extends DataType {
 
     @Override
     public String toSql() {
-        return "STRUCT<" + fields.stream().map(StructField::toSql).collect(Collectors.joining(", ")) + ">";
+        return "STRUCT<" + fields.stream().map(StructField::toSql).collect(Collectors.joining(",")) + ">";
     }
 
     @Override
     public String toString() {
-        return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(", ")) + ">";
+        return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(",")) + ">";
     }
 }

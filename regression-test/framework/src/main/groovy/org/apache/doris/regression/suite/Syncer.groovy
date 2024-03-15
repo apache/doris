@@ -55,7 +55,7 @@ class Syncer {
 
     Syncer(Suite suite, Config config) {
         this.suite = suite
-        context = new SyncerContext(suite.context.dbName, config)
+        context = new SyncerContext(suite, suite.context.dbName, config)
     }
 
     enum ccrCluster {
@@ -64,7 +64,7 @@ class Syncer {
     }
 
     Boolean checkEnableFeatureBinlog() {
-        List<List<Object>> rows = suite.sql("ADMIN SHOW FRONTEND CONFIG LIKE \"%%enable_feature_binlog%%\"")
+        List<List<Object>> rows = suite.sql("SHOW FRONTEND CONFIG LIKE \"%%enable_feature_binlog%%\"")
         if (rows.size() >= 1 && (rows[0][0] as String).contains("enable_feature_binlog")) {
             return (rows[0][1] as String) == "true"
         }
@@ -72,7 +72,6 @@ class Syncer {
     }
 
     private Boolean checkBinlog(TBinlog binlog, String table, Boolean update) {
-
         // step 1: check binlog availability
         if (binlog == null) {
             return false
@@ -548,8 +547,8 @@ class Syncer {
         if (context.sourceDbId == -1) {
             sqlInfo = suite.sql(baseSQL + "'")
             for (List<Object> row : sqlInfo) {
-                String[] dbName = (row[1] as String).split(":")
-                if (dbName[1] == context.db) {
+                String dbName = (row[1] as String)
+                if (dbName == context.db) {
                     context.sourceDbId = row[0] as Long
                     break
                 }
@@ -570,8 +569,8 @@ class Syncer {
         if (context.targetDbId == -1) {
             sqlInfo = suite.target_sql(baseSQL + "'")
             for (List<Object> row : sqlInfo) {
-                String[] dbName = (row[1] as String).split(":")
-                if (dbName[1] == "TEST_" + context.db) {
+                String dbName = (row[1] as String)
+                if (dbName == "TEST_" + context.db) {
                     context.targetDbId = row[0] as Long
                     break
                 }
@@ -735,6 +734,7 @@ class Syncer {
                 if (!binlogRecords.contains(srcPartition.key)) {
                     continue
                 }
+
                 Iterator srcTabletIter = srcPartition.value.tabletMeta.iterator()
                 Iterator tarTabletIter = tarPartition.value.tabletMeta.iterator()
 
@@ -771,6 +771,7 @@ class Syncer {
                     logger.info("request -> ${request}")
                     TIngestBinlogResult result = tarClient.client.ingestBinlog(request)
                     if (!checkIngestBinlog(result)) {
+                        logger.error("Ingest binlog error! result: ${result}")
                         return false
                     }
 

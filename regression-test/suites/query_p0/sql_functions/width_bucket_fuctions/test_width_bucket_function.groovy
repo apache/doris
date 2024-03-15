@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_width_bucket_function") {
+suite("test_width_bucket_function", "arrow_flight_sql") {
     qt_sql "select width_bucket(1, 2, 3, 2)"
     qt_sql "select width_bucket(null, 2, 3, 2)"
     qt_sql "select width_bucket(6, 2, 6, 4)"

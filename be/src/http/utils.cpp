@@ -22,10 +22,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <memory>
 #include <ostream>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
@@ -37,6 +39,8 @@
 #include "http/http_status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "olap/wal/wal_manager.h"
+#include "runtime/exec_env.h"
 #include "util/path_util.h"
 #include "util/url_coding.h"
 
@@ -124,7 +128,8 @@ std::string get_content_type(const std::string& file_name) {
     return "";
 }
 
-void do_file_response(const std::string& file_path, HttpRequest* req) {
+void do_file_response(const std::string& file_path, HttpRequest* req,
+                      bufferevent_rate_limit_group* rate_limit_group) {
     if (file_path.find("..") != std::string::npos) {
         LOG(WARNING) << "Not allowed to read relative path: " << file_path;
         HttpChannel::send_error(req, HttpStatus::FORBIDDEN);
@@ -165,7 +170,7 @@ void do_file_response(const std::string& file_path, HttpRequest* req) {
         return;
     }
 
-    HttpChannel::send_file(req, fd, 0, file_size);
+    HttpChannel::send_file(req, fd, 0, file_size, rate_limit_group);
 }
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req) {
@@ -186,6 +191,17 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req) {
 
     std::string result_str = result.str();
     HttpChannel::send_reply(req, result_str);
+}
+
+bool load_size_smaller_than_wal_limit(int64_t content_length) {
+    // 1. req->header(HttpHeaders::CONTENT_LENGTH) will return streamload content length. If it is empty or equels to 0, it means this streamload
+    // is a chunked streamload and we are not sure its size.
+    // 2. if streamload content length is too large, like larger than 80% of the WAL constrain.
+    //
+    // This two cases, we are not certain that the Write-Ahead Logging (WAL) constraints allow for writing down
+    // these blocks within the limited space. So we need to set group_commit = false to avoid dead lock.
+    size_t max_available_size = ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
+    return (content_length < 0.8 * max_available_size);
 }
 
 } // namespace doris

@@ -66,7 +66,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
         if (this.microSecond >= 1000000) {
             LocalDateTime localDateTime = DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND,
-                            getStringValue()).plusSeconds(1);
+                    getStringValue()).plusSeconds(1);
             this.year = localDateTime.getYear();
             this.month = localDateTime.getMonthValue();
             this.day = localDateTime.getDayOfMonth();
@@ -75,6 +75,11 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             this.second = localDateTime.getSecond();
             this.microSecond -= 1000000;
         }
+    }
+
+    public String getFullMicroSecondValue() {
+        return String.format("%04d-%02d-%02d %02d:%02d:%02d.%06d",
+                year, month, day, hour, minute, second, microSecond);
     }
 
     @Override
@@ -103,6 +108,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return String.format("%04d-%02d-%02d %02d:%02d:%02d"
                         + (getDataType().getScale() > 0 ? ".%0" + getDataType().getScale() + "d" : ""),
                 year, month, day, hour, minute, second,
+                (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
+    }
+
+    public String getMicrosecondString() {
+        if (microSecond == 0) {
+            return "0";
+        }
+        return String.format("%0" + getDataType().getScale() + "d",
                 (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
     }
 
@@ -157,7 +170,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     public Expression plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getFullMicroSecondValue())
                         .plusNanos(microSeconds * 1000L), getDataType().getScale());
     }
 

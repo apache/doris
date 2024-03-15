@@ -25,29 +25,28 @@
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/compaction.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
 
 namespace doris {
 
-class FullCompaction : public Compaction {
+class FullCompaction final : public CompactionMixin {
 public:
-    FullCompaction(const TabletSharedPtr& tablet);
+    FullCompaction(StorageEngine& engine, const TabletSharedPtr& tablet);
+
     ~FullCompaction() override;
 
     Status prepare_compact() override;
-    Status execute_compact_impl() override;
-    Status modify_rowsets(const Merger::Statistics* stats = nullptr) override;
 
-    std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
+    Status execute_compact() override;
 
-protected:
-    Status pick_rowsets_to_compact() override;
-    std::string compaction_name() const override { return "full compaction"; }
+private:
+    Status pick_rowsets_to_compact();
+
+    Status modify_rowsets() override;
+
+    std::string_view compaction_name() const override { return "full compaction"; }
 
     ReaderType compaction_type() const override { return ReaderType::READER_FULL_COMPACTION; }
 
-private:
     Status _check_all_version(const std::vector<RowsetSharedPtr>& rowsets);
     Status _full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
                                                  RowsetWriter* rowset_writer);
@@ -55,8 +54,6 @@ private:
                                                const RowsetSharedPtr& rowset,
                                                const int64_t& cur_version,
                                                RowsetWriter* rowset_writer);
-
-    DISALLOW_COPY_AND_ASSIGN(FullCompaction);
 };
 
 } // namespace doris

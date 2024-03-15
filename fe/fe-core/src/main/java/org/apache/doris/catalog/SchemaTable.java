@@ -444,6 +444,43 @@ public class SchemaTable extends Table {
                             .column("SOURCE_FILE", ScalarType.createVarchar(20))
                             .column("SOURCE_LINE", ScalarType.createType(PrimitiveType.INT))
                             .build()))
+            .put("backend_active_tasks",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_active_tasks", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("FE_HOST", ScalarType.createVarchar(256))
+                                    .column("QUERY_ID", ScalarType.createVarchar(256))
+                                    .column("TASK_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TASK_CPU_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SCAN_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SCAN_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("BE_PEAK_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
+            .put("active_queries", new SchemaTable(SystemIdGenerator.getNextId(), "active_queries", TableType.SCHEMA,
+                    builder().column("QUERY_ID", ScalarType.createVarchar(256))
+                            .column("START_TIME", ScalarType.createVarchar(256))
+                            .column("QUERY_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("DATABASE", ScalarType.createVarchar(256))
+                            .column("FRONTEND_INSTANCE", ScalarType.createVarchar(256))
+                            .column("SQL", ScalarType.createStringType())
+                            .build()))
+            .put("workload_groups", new SchemaTable(SystemIdGenerator.getNextId(), "workload_groups", TableType.SCHEMA,
+                    builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("NAME", ScalarType.createVarchar(256))
+                            .column("CPU_SHARE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("MEMORY_LIMIT", ScalarType.createVarchar(256))
+                            .column("ENABLE_MEMORY_OVERCOMMIT", ScalarType.createVarchar(256))
+                            .column("MAX_CONCURRENCY", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("MAX_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("QUEUE_TIMEOUT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("CPU_HARD_LIMIT", ScalarType.createStringType())
+                            .column("SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("MAX_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                            .build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

@@ -37,6 +37,7 @@
 #include <set>
 #include <string>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -44,11 +45,13 @@
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
-#include "runtime/block_spill_manager.h"
+#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/task_group/task_group_manager.h"
+#include "runtime/runtime_query_statistics_mgr.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
@@ -62,6 +65,20 @@
 #include "util/time.h"
 
 namespace doris {
+namespace {
+
+void update_rowsets_and_segments_num_metrics() {
+    if (config::is_cloud_mode()) {
+        // TODO(plat1ko): CloudStorageEngine
+    } else {
+        StorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_local();
+        auto* metrics = DorisMetrics::instance();
+        metrics->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
+        metrics->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
+    }
+}
+
+} // namespace
 
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
@@ -336,20 +353,31 @@ void Daemon::calculate_metrics_thread() {
                 DorisMetrics::instance()->system_metrics()->get_network_traffic(
                         &lst_net_send_bytes, &lst_net_receive_bytes);
             }
-
-            DorisMetrics::instance()->all_rowsets_num->set_value(
-                    StorageEngine::instance()->tablet_manager()->get_rowset_nums());
-            DorisMetrics::instance()->all_segments_num->set_value(
-                    StorageEngine::instance()->tablet_manager()->get_segment_nums());
+            update_rowsets_and_segments_num_metrics();
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }
 
-// clean up stale spilled files
-void Daemon::block_spill_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
-        ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
+void Daemon::report_runtime_query_statistics_thread() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::report_query_statistics_interval_ms))) {
+        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->report_runtime_query_statistics();
     }
+}
+
+void Daemon::je_purge_dirty_pages_thread() const {
+    do {
+        std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
+        while (_stop_background_threads_latch.count() != 0 &&
+               !doris::MemInfo::je_purge_dirty_pages_notify.load(std::memory_order_relaxed)) {
+            doris::MemInfo::je_purge_dirty_pages_cv.wait_for(l, std::chrono::seconds(1));
+        }
+        if (_stop_background_threads_latch.count() == 0) {
+            break;
+        }
+        doris::MemInfo::je_purge_all_arena_dirty_pages();
+        doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
+    } while (true);
 }
 
 void Daemon::start() {
@@ -379,8 +407,11 @@ void Daemon::start() {
         CHECK(st.ok()) << st;
     }
     st = Thread::create(
-            "Daemon", "block_spill_gc_thread", [this]() { this->block_spill_gc_thread(); },
-            &_threads.emplace_back());
+            "Daemon", "je_purge_dirty_pages_thread",
+            [this]() { this->je_purge_dirty_pages_thread(); }, &_threads.emplace_back());
+    st = Thread::create(
+            "Daemon", "query_runtime_statistics_thread",
+            [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }
 

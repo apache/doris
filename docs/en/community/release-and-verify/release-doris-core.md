@@ -115,18 +115,18 @@ Organize all the previously obtained files into the following svn path:
 
 ```
 ./doris/
-|-- 0.11.0-rc1
-|   |-- apache-doris-0.11.0-incubating-src.tar.gz
-|   |-- apache-doris-0.11.0-incubating-src.tar.gz.asc
-|   `-- apache-doris-0.11.0-incubating-src.tar.gz.sha512
+|-- 0.9.0-rc1
+|   |-- apache-doris-0.9.0-incubating-src.tar.gz
+|   |-- apache-doris-0.9.0-incubating-src.tar.gz.asc
+|   `-- apache-doris-0.9.0-incubating-src.tar.gz.sha512
 `-- KEYS
 ```
 
 Upload these file:
 
 ```
-svn add 0.11.0-rc1
-svn commit -m "Add 0.11.0-rc1"
+svn add 0.9.0-rc1
+svn commit -m "Add 0.9.0-rc1"
 ```
 
 ### Email the community at dev@doris.apache.org to vote

@@ -315,23 +315,6 @@ if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
 fi
 echo "Finished patching ${ROCKSDB_SOURCE}"
 
-# opentelemetry patch is used to solve the problem that threadlocal depends on GLIBC_2.18
-# fix error: unknown type name 'uint64_t'
-# see: https://github.com/apache/doris/pull/7911
-if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.10.0" ]]; then
-    rm -rf "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"/*
-    cp -r "${TP_SOURCE_DIR}/${OPENTELEMETRY_PROTO_SOURCE}"/* "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"
-    mkdir -p "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto/.git"
-
-    cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.10.0.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-fi
-echo "Finished patching ${OPENTELEMETRY_SOURCE}"
-
 # arrow patch is used to get the raw orc reader for filter prune.
 if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-13.0.0" ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
@@ -344,10 +327,10 @@ fi
 echo "Finished patching ${ARROW_SOURCE}"
 
 # patch librdkafka to avoid crash
-if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-1.8.2" ]]; then
+if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-1.9.2" ]]; then
     cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p0 <"${TP_PATCH_DIR}/librdkafka-1.8.2.patch"
+        patch -p0 <"${TP_PATCH_DIR}/librdkafka-1.9.2.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
@@ -367,10 +350,10 @@ echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
-if [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.7" ]]; then
+if [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.11" ]]; then
     cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p0 <"${TP_PATCH_DIR}/vectorscan-5.4.7.patch"
+        patch -p1 <"${TP_PATCH_DIR}/vectorscan-5.4.11.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
@@ -416,3 +399,25 @@ if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
     cd -
 fi
 echo "Finished patching ${BRPC_SOURCE}"
+
+# patch ali sdk
+if [[ "${ALI_SDK_SOURCE}" = "aliyun-openapi-cpp-sdk-1.36.1586" ]]; then
+    cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/ali-sdk-1.36.1586.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${ALI_SDK_SOURCE}"
+
+# patch base64
+if [[ "${BASE64_SOURCE}" = "base64-0.5.2" ]]; then
+    cd "${TP_SOURCE_DIR}/${BASE64_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/base64-0.5.2.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${BASE64_SOURCE}"

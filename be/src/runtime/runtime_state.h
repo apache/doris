@@ -35,20 +35,21 @@
 #include <vector>
 
 #include "cctz/time_zone.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 
 namespace doris {
+class IRuntimeFilter;
 
 namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
+class PipelineXFragmentContext;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -70,15 +71,20 @@ public:
 
     RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                 ExecEnv* exec_env);
+                 ExecEnv* exec_env, QueryContext* ctx);
 
-    RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
-                 int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
+                 const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                 ExecEnv* exec_env, QueryContext* ctx);
+
+    // for only use in pipelineX
+    RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
@@ -102,11 +108,21 @@ public:
         return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
                                                            : _query_options.mem_limit / 20;
     }
+    int64_t query_mem_limit() const {
+        if (_query_options.__isset.mem_limit && (_query_options.mem_limit > 0)) {
+            return _query_options.mem_limit;
+        }
+        return 0;
+    }
+
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
     int batch_size() const { return _query_options.batch_size; }
+    int wait_full_block_schedule_times() const {
+        return _query_options.wait_full_block_schedule_times;
+    }
     bool abort_on_error() const { return _query_options.abort_on_error; }
     bool abort_on_default_limit_exceeded() const {
         return _query_options.abort_on_default_limit_exceeded;
@@ -118,10 +134,17 @@ public:
                                                         : _query_options.query_timeout;
     }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
-    int num_scanner_threads() const { return _query_options.num_scanner_threads; }
+    int num_scanner_threads() const {
+        return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
+    }
+    double scanner_scale_up_ratio() const {
+        return _query_options.__isset.scanner_scale_up_ratio ? _query_options.scanner_scale_up_ratio
+                                                             : 0;
+    }
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
+    // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     const std::string& user() const { return _user; }
@@ -175,14 +198,22 @@ public:
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
     [[nodiscard]] bool is_cancelled() const;
+    std::string cancel_reason() const;
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v, std::string msg) {
-        _is_cancelled.store(v);
-        // Create a error status, so that we could print error stack, and
-        // we could know which path call cancel.
-        LOG(WARNING) << "Task is cancelled, instance: "
-                     << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                     << " st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+    void set_is_cancelled(std::string msg) {
+        if (!_is_cancelled.exchange(true)) {
+            _cancel_reason = msg;
+            // Create a error status, so that we could print error stack, and
+            // we could know which path call cancel.
+            LOG(WARNING) << "Task is cancelled, instance: "
+                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
+                         << ", st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+        } else {
+            LOG(WARNING) << "Task is already cancelled, instance: "
+                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
+                         << ", original cancel msg: " << _cancel_reason
+                         << ", new cancel msg: " << Status::Error<ErrorCode::CANCELLED>(msg);
+        }
     }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
@@ -217,11 +248,6 @@ public:
     // generic "Memory limit exceeded" error.
     Status set_mem_limit_exceeded(const std::string& msg = "Memory limit exceeded");
 
-    // Returns a non-OK status if query execution should stop (e.g., the query was cancelled
-    // or a mem limit was exceeded). Exec nodes should check this periodically so execution
-    // doesn't continue if the query terminates abnormally.
-    Status check_query_state(const std::string& msg);
-
     std::vector<std::string>& output_files() { return _output_files; }
 
     void set_import_label(const std::string& import_label) { _import_label = import_label; }
@@ -236,7 +262,11 @@ public:
 
     void set_wal_id(int64_t wal_id) { _wal_id = wal_id; }
 
-    int64_t wal_id() { return _wal_id; }
+    int64_t wal_id() const { return _wal_id; }
+
+    void set_content_length(size_t content_length) { _content_length = content_length; }
+
+    size_t content_length() const { return _content_length; }
 
     const std::string& import_label() { return _import_label; }
 
@@ -307,6 +337,22 @@ public:
 
     int num_per_fragment_instances() const { return _num_per_fragment_instances; }
 
+    void set_load_stream_per_node(int load_stream_per_node) {
+        _load_stream_per_node = load_stream_per_node;
+    }
+
+    int load_stream_per_node() const { return _load_stream_per_node; }
+
+    void set_total_load_streams(int total_load_streams) {
+        _total_load_streams = total_load_streams;
+    }
+
+    int total_load_streams() const { return _total_load_streams; }
+
+    void set_num_local_sink(int num_local_sink) { _num_local_sink = num_local_sink; }
+
+    int num_local_sink() const { return _num_local_sink; }
+
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
@@ -315,6 +361,11 @@ public:
 
     int32_t runtime_filter_wait_time_ms() const {
         return _query_options.runtime_filter_wait_time_ms;
+    }
+
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
     }
 
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
@@ -328,6 +379,10 @@ public:
     bool enable_pipeline_exec() const {
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
+    }
+    bool enable_pipeline_x_exec() const {
+        return _query_options.__isset.enable_pipeline_x_engine &&
+               _query_options.enable_pipeline_x_engine;
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
@@ -349,9 +404,13 @@ public:
         if (_query_options.__isset.fragment_transmission_compression_codec) {
             if (_query_options.fragment_transmission_compression_codec == "lz4") {
                 return segment_v2::CompressionTypePB::LZ4;
+            } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
+                return segment_v2::CompressionTypePB::SNAPPY;
+            } else {
+                return segment_v2::CompressionTypePB::NO_COMPRESSION;
             }
         }
-        return segment_v2::CompressionTypePB::SNAPPY;
+        return segment_v2::CompressionTypePB::NO_COMPRESSION;
     }
 
     bool skip_storage_engine_merge() const {
@@ -365,6 +424,10 @@ public:
 
     bool skip_delete_bitmap() const {
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
+    }
+
+    bool skip_missing_version() const {
+        return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
     }
 
     bool enable_page_cache() const;
@@ -397,19 +460,28 @@ public:
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
 
-    RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+    // local runtime filter mgr, the runtime filter do not have remote target or
+    // not need local merge should regist here. the instance exec finish, the local
+    // runtime filter mgr can release the memory of local runtime filter
+    RuntimeFilterMgr* local_runtime_filter_mgr() {
+        if (_pipeline_x_runtime_filter_mgr) {
+            return _pipeline_x_runtime_filter_mgr;
+        } else {
+            return _runtime_filter_mgr.get();
+        }
+    }
 
-    void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
+    RuntimeFilterMgr* global_runtime_filter_mgr();
+
+    void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
+        _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
+    }
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
-
-    OpentelemetryTracer get_tracer() { return _tracer; }
-
-    void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
@@ -428,6 +500,22 @@ public:
     bool enable_hash_join_early_start_probe() const {
         return _query_options.__isset.enable_hash_join_early_start_probe &&
                _query_options.enable_hash_join_early_start_probe;
+    }
+
+    bool enable_parallel_scan() const {
+        return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    int parallel_scan_max_scanners_count() const {
+        return _query_options.__isset.parallel_scan_max_scanners_count
+                       ? _query_options.parallel_scan_max_scanners_count
+                       : 0;
+    }
+
+    int64_t parallel_scan_min_rows_per_scanner() const {
+        return _query_options.__isset.parallel_scan_min_rows_per_scanner
+                       ? _query_options.parallel_scan_min_rows_per_scanner
+                       : 0;
     }
 
     int repeat_max_num() const {
@@ -471,32 +559,89 @@ public:
 
     void emplace_sink_local_state(int id, std::unique_ptr<SinkLocalState> state);
 
-    SinkLocalState* get_sink_local_state(int id);
+    SinkLocalState* get_sink_local_state();
 
-    Result<SinkLocalState*> get_sink_local_state_result(int id);
+    Result<SinkLocalState*> get_sink_local_state_result();
 
-    void resize_op_id_to_local_state(int size);
+    void resize_op_id_to_local_state(int operator_size);
+
+    auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
+
+    void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
+        _task_execution_context_inited = true;
+        _task_execution_context = context;
+    }
+
+    std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
+        CHECK(_task_execution_context_inited)
+                << "_task_execution_context_inited == false, the ctx is not inited";
+        return _task_execution_context;
+    }
+
+    Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
+                                            bool need_local_merge,
+                                            doris::IRuntimeFilter** producer_filter,
+                                            bool build_bf_exactly);
+
+    Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
+                                            bool need_local_merge, int node_id,
+                                            doris::IRuntimeFilter** producer_filter);
+    bool is_nereids() const;
+
+    bool enable_join_spill() const {
+        return _query_options.__isset.enable_join_spill && _query_options.enable_join_spill;
+    }
+
+    bool enable_sort_spill() const {
+        return _query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill;
+    }
+
+    bool enable_agg_spill() const {
+        return _query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill;
+    }
+
+    int64_t min_revocable_mem() const {
+        if (_query_options.__isset.min_revocable_mem) {
+            return _query_options.min_revocable_mem;
+        }
+        return 0;
+    }
+
+    void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
+
+    int max_operator_id() const { return _max_operator_id; }
+
+    void set_task_id(int id) { _task_id = id; }
+
+    int task_id() const { return _task_id; }
 
 private:
     Status create_error_log_file();
 
-    static const int DEFAULT_BATCH_SIZE = 2048;
+    static const int DEFAULT_BATCH_SIZE = 4062;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+
+    // Could not find a better way to record if the weak ptr is inited, use a bool to record
+    // it. In some unit test cases, the runtime state's task ctx is not inited, then the test
+    // hang, it is very hard to debug.
+    bool _task_execution_context_inited = false;
+    // Hold execution context for other threads
+    std::weak_ptr<TaskExecutionContext> _task_execution_context;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
     RuntimeProfile _load_channel_profile;
 
-    const DescriptorTbl* _desc_tbl;
+    const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
 
     // runtime filter
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
 
-    // Protects _data_stream_recvrs_pool
-    std::mutex _data_stream_recvrs_lock;
+    // owned by PipelineXFragmentContext
+    RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
 
     // Data stream receivers created by a plan fragment are gathered here to make sure
     // they are destroyed before _obj_pool (class members are destroyed in reverse order).
@@ -532,9 +677,13 @@ private:
 
     // if true, execution should stop with a CANCELLED status
     std::atomic<bool> _is_cancelled;
+    std::string _cancel_reason;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
+    int _load_stream_per_node = 0;
+    int _total_load_streams = 0;
+    int _num_local_sink = 0;
 
     // The backend id on which this fragment instance runs
     int64_t _backend_id = -1;
@@ -565,6 +714,7 @@ private:
     std::string _load_dir;
     int64_t _load_job_id;
     int64_t _wal_id = -1;
+    size_t _content_length = 0;
 
     // mini load
     int64_t _normal_row_number;
@@ -573,17 +723,19 @@ private:
     std::ofstream* _error_log_file = nullptr; // error file path, absolute path
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
+    int _max_operator_id = 0;
+    int _task_id = -1;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
-    std::vector<std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
-            _op_id_to_sink_local_state;
+
+    std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
 
     QueryContext* _query_ctx = nullptr;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
 
-    OpentelemetryTracer _tracer = telemetry::get_noop_tracer();
+    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

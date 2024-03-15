@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.catalog.ListPartitionItem;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.CascadesContext;
@@ -30,14 +29,18 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.DateTimeType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 
 /**
@@ -91,20 +94,15 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
     }
 
+    /** prune */
     public List<Long> prune() {
-        return partitions.stream()
-                .filter(partitionEvaluator -> !canPrune(partitionEvaluator))
-                .map(OnePartitionEvaluator::getPartitionId)
-                .collect(ImmutableList.toImmutableList());
-    }
-
-    /**
-     * prune partition with `partitionInfo` as parameter.
-     */
-    public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
-            PartitionInfo partitionInfo, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
-        return prune(partitionSlots, partitionPredicate, partitionInfo.getIdToItem(false), cascadesContext,
-                partitionTableType);
+        Builder<Long> scanPartitionIds = ImmutableList.builder();
+        for (OnePartitionEvaluator partition : partitions) {
+            if (!canPrune(partition)) {
+                scanPartitionIds.add(partition.getPartitionId());
+            }
+        }
+        return scanPartitionIds.build();
     }
 
     /**
@@ -115,13 +113,15 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             PartitionTableType partitionTableType) {
         partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
+        partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
 
-        List<OnePartitionEvaluator> evaluators = idToPartitions.entrySet()
-                .stream()
-                .map(kv -> toPartitionEvaluator(kv.getKey(), kv.getValue(), partitionSlots, cascadesContext,
-                        partitionTableType))
-                .collect(ImmutableList.toImmutableList());
+        List<OnePartitionEvaluator> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
+        for (Entry<Long, PartitionItem> kv : idToPartitions.entrySet()) {
+            evaluators.add(toPartitionEvaluator(
+                    kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, partitionTableType));
+        }
 
+        partitionPredicate = OrToIn.INSTANCE.rewrite(partitionPredicate, null);
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
         //TODO: we keep default partition because it's too hard to prune it, we return false in canPrune().
         return partitionPruner.prune();
@@ -133,13 +133,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     public static final OnePartitionEvaluator toPartitionEvaluator(long id, PartitionItem partitionItem,
             List<Slot> partitionSlots, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
         if (partitionItem instanceof ListPartitionItem) {
-            if (partitionTableType == PartitionTableType.HIVE
-                    && ((ListPartitionItem) partitionItem).isHiveDefaultPartition()) {
-                return new HiveDefaultPartitionEvaluator(id, partitionSlots);
-            } else {
-                return new OneListPartitionEvaluator(
-                        id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
-            }
+            return new OneListPartitionEvaluator(
+                    id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
         } else if (partitionItem instanceof RangePartitionItem) {
             return new OneRangePartitionEvaluator(
                     id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext);
@@ -152,7 +147,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = evaluator.getOnePartitionInputs();
         for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
             Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
-            if (!result.equals(BooleanLiteral.FALSE)) {
+            if (!result.equals(BooleanLiteral.FALSE) && !(result instanceof NullLiteral)) {
                 return false;
             }
         }

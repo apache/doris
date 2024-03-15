@@ -21,11 +21,11 @@ import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
-import com.google.common.collect.Maps;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -34,17 +34,21 @@ import java.util.stream.Collectors;
  * represent in partition
  */
 public class InPartition extends PartitionDefinition {
-    private final String partitionName;
     private final List<List<Expression>> values;
 
-    public InPartition(String partitionName, List<List<Expression>> values) {
-        this.partitionName = partitionName;
+    public InPartition(boolean ifNotExists, String partitionName, List<List<Expression>> values) {
+        super(ifNotExists, partitionName);
         this.values = values;
     }
 
     @Override
     public void validate(Map<String, String> properties) {
         super.validate(properties);
+        try {
+            FeNameFormat.checkPartitionName(partitionName);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
         if (values.stream().anyMatch(l -> l.stream().anyMatch(MaxValue.class::isInstance))) {
             throw new AnalysisException("MAXVALUE cannot be used in 'in partition'");
         }
@@ -57,10 +61,16 @@ public class InPartition extends PartitionDefinition {
 
     @Override
     public AllPartitionDesc translateToCatalogStyle() {
+        if (values.isEmpty()) {
+            // add a empty list for default value process
+            values.add(new ArrayList<>());
+        }
         List<List<PartitionValue>> catalogValues = values.stream().map(l -> l.stream()
                 .map(this::toLegacyPartitionValueStmt)
                 .collect(Collectors.toList())).collect(Collectors.toList());
-        return new SinglePartitionDesc(false, partitionName, PartitionKeyDesc.createIn(catalogValues),
-                replicaAllocation, Maps.newHashMap());
+        return new SinglePartitionDesc(ifNotExists, partitionName,
+                PartitionKeyDesc.createIn(catalogValues), replicaAllocation, properties,
+                partitionDataProperty, isInMemory, tabletType, versionInfo, storagePolicy,
+                isMutable);
     }
 }

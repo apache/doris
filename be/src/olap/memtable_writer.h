@@ -20,9 +20,9 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -69,9 +69,9 @@ public:
 
     Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                bool unique_key_mow = false);
+                ThreadPool* wg_flush_pool_ptr, bool unique_key_mow = false);
 
-    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                  bool is_append = false);
 
     Status append(const vectorized::Block* block);
@@ -103,11 +103,13 @@ public:
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
-    int64_t tablet_id() { return _req.tablet_id; }
+    int64_t tablet_id() const { return _req.tablet_id; }
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
     const FlushStatistic& get_flush_token_stats();
+
+    uint64_t flush_running_count() const;
 
 private:
     // push a full memtable to flush executor
@@ -132,12 +134,13 @@ private:
     std::vector<std::shared_ptr<MemTracker>> _mem_table_insert_trackers;
     std::vector<std::shared_ptr<MemTracker>> _mem_table_flush_trackers;
     SpinLock _mem_table_tracker_lock;
+    SpinLock _mem_table_ptr_lock;
     std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;
 
     // total rows num written by MemTableWriter
-    int64_t _total_received_rows = 0;
+    std::atomic<int64_t> _total_received_rows = 0;
     int64_t _wait_flush_time_ns = 0;
     int64_t _close_wait_time_ns = 0;
     int64_t _segment_num = 0;

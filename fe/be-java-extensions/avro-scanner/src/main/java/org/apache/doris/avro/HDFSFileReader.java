@@ -18,61 +18,63 @@
 package org.apache.doris.avro;
 
 import org.apache.avro.Schema;
-import org.apache.avro.file.DataFileStream;
-import org.apache.avro.generic.GenericDatumReader;
-import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.mapred.AvroWrapper;
+import org.apache.avro.mapred.Pair;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Objects;
 
-public class HDFSFileReader implements AvroReader {
+public class HDFSFileReader extends AvroReader {
     private static final Logger LOG = LogManager.getLogger(HDFSFileReader.class);
-    private final Path filePath;
     private final String url;
-    private DataFileStream<GenericRecord> reader;
-    private BufferedInputStream inputStream;
+    private AvroWrapper<Pair<Integer, Long>> inputPair;
 
     public HDFSFileReader(String url) {
         this.url = url;
-        this.filePath = new Path(url);
+        this.path = new Path(url);
     }
 
     @Override
-    public void open(Configuration conf) throws IOException {
-        FileSystem fs = FileSystem.get(URI.create(url), conf);
-        inputStream = new BufferedInputStream(fs.open(filePath));
-        reader = new DataFileStream<>(inputStream, new GenericDatumReader<>());
+    public void open(AvroFileContext avroFileContext, boolean tableSchema) throws IOException {
+        fileSystem = FileSystem.get(URI.create(url), new Configuration());
+        openSchemaReader();
+        if (!tableSchema) {
+            avroFileContext.setSchema(schemaReader.getSchema());
+            openDataReader(avroFileContext);
+        }
     }
 
     @Override
     public Schema getSchema() {
-        return reader.getSchema();
+        return schemaReader.getSchema();
     }
 
     @Override
-    public boolean hasNext() {
-        return reader.hasNext();
+    public boolean hasNext(AvroWrapper<Pair<Integer, Long>> inputPair, NullWritable ignore) throws IOException {
+        this.inputPair = inputPair;
+        return dataReader.next(this.inputPair, ignore);
     }
 
     @Override
-    public Object getNext() throws IOException {
-        return reader.next();
+    public Object getNext() {
+        return inputPair.datum();
     }
 
     @Override
     public void close() throws IOException {
-        if (Objects.nonNull(inputStream)) {
-            inputStream.close();
+        if (Objects.nonNull(schemaReader)) {
+            schemaReader.close();
         }
-        if (Objects.nonNull(reader)) {
-            reader.close();
+        if (Objects.nonNull(dataReader)) {
+            dataReader.close();
         }
+        fileSystem.close();
     }
 }

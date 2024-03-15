@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
@@ -352,7 +351,9 @@ public class Util {
                 }
             }
         }
-        LOG.debug("get result from url {}: {}", urlStr, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get result from url {}: {}", urlStr, sb.toString());
+        }
         return sb.toString();
     }
 
@@ -513,15 +514,6 @@ public class Util {
         }
     }
 
-    public static boolean isS3CompatibleStorageSchema(String schema) {
-        for (String objectStorage : Config.s3_compatible_object_storages.split(",")) {
-            if (objectStorage.equalsIgnoreCase(schema)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
 
     public static String bytesToHex(byte[] bytes) {
@@ -564,8 +556,10 @@ public class Util {
                 // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
                 || lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
             return TFileFormatType.FORMAT_CSV_PLAIN;
-        } else if (lowerFileFormat.equals("wal")) {
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_WAL)) {
             return TFileFormatType.FORMAT_WAL;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
+            return TFileFormatType.FORMAT_ARROW;
         } else {
             return TFileFormatType.FORMAT_UNKNOWN;
         }

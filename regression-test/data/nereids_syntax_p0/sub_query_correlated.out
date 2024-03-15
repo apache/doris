@@ -465,3 +465,108 @@ true
 \N
 \N
 
+-- !cir_5218_in_ok --
+4
+
+-- !cir_5218_exists_ok_1 --
+13
+
+-- !cir_5218_exists_ok_2 --
+3
+
+-- !cir_5218_exists_ok_3 --
+5
+
+-- !cir_5218_exists_ok_4 --
+13
+
+-- !cir_5218_exists_ok_5 --
+13
+
+-- !cir_5218_exists_ok_6 --
+0
+
+-- !doris_7643 --
+3	3
+
+-- !select_exists1 --
+\N	\N	0
+\N	\N	100
+
+-- !select_exists2 --
+
+-- !select_exists3 --
+\N	\N	0
+\N	\N	100
+
+-- !select_exists4 --
+\N	\N	100
+
+-- !select_exists5 --
+true
+true
+
+-- !select_exists6 --
+false
+false
+
+-- !select_exists7 --
+true
+true
+
+-- !select_exists8 --
+false
+true
+
+-- !select_exists9 --
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+
+-- !select_exists10 --
+
+-- !select_exists11 --
+\N	\N	0
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+
+-- !select_exists12 --
+\N	\N	0
+

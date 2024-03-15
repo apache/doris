@@ -28,10 +28,15 @@ doris_jdbc_catalog
 6	doris6
 
 -- !base1 --
+\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 true	1	1	1	1	1	1.0	1.0	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
+
+-- !all_null --
+\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !arr1 --
 1	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1.00000]	[1.0000000000]	["2021-01-01"]	["2021-01-01 00:00:00.000"]	["a"]	["a"]	["a"]
+2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !tb1 --
 1	1
@@ -56,10 +61,68 @@ doris_jdbc_catalog
 6	1
 
 -- !base2 --
+\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 true	1	1	1	1	1	1.0	1.0	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
+
+-- !all_null2 --
+\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !arr2 --
 1	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1.00000]	[1.0000000000]	["2021-01-01"]	["2021-01-01 00:00:00.000"]	["a"]	["a"]	["a"]
+2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+
+-- !ctas_base --
+2
+
+-- !ctas_arr --
+2
+
+-- !desc_ctas_base --
+bool_col	BOOLEAN	Yes	true	\N	
+tinyint_col	TINYINT	Yes	true	\N	
+smallint_col	SMALLINT	Yes	true	\N	
+int_col	INT	Yes	false	\N	NONE
+bigint_col	BIGINT	Yes	false	\N	NONE
+largeint_col	LARGEINT	Yes	false	\N	NONE
+float_col	FLOAT	Yes	false	\N	NONE
+double_col	DOUBLE	Yes	false	\N	NONE
+decimal_col	DECIMAL(10, 5)	Yes	false	\N	NONE
+decimal_col2	DECIMAL(30, 10)	Yes	false	\N	NONE
+date_col	DATE	Yes	false	\N	NONE
+datetime_col	DATETIME(3)	Yes	false	\N	NONE
+char_col	TEXT	Yes	false	\N	NONE
+varchar_col	TEXT	Yes	false	\N	NONE
+json_col	TEXT	Yes	false	\N	NONE
+
+-- !desc_ctas_arr --
+int_col	INT	Yes	true	\N	
+arr_bool_col	ARRAY<BOOLEAN>	Yes	false	\N	NONE
+arr_tinyint_col	ARRAY<TINYINT>	Yes	false	\N	NONE
+arr_smallint_col	ARRAY<SMALLINT>	Yes	false	\N	NONE
+arr_int_col	ARRAY<INT>	Yes	false	\N	NONE
+arr_bigint_col	ARRAY<BIGINT>	Yes	false	\N	NONE
+arr_largeint_col	ARRAY<LARGEINT>	Yes	false	\N	NONE
+arr_float_col	ARRAY<FLOAT>	Yes	false	\N	NONE
+arr_double_col	ARRAY<DOUBLE>	Yes	false	\N	NONE
+arr_decimal1_col	ARRAY<DECIMAL(10, 5)>	Yes	false	\N	NONE
+arr_decimal2_col	ARRAY<DECIMAL(30, 10)>	Yes	false	\N	NONE
+arr_date_col	ARRAY<DATE>	Yes	false	\N	NONE
+arr_datetime_col	ARRAY<DATETIME(3)>	Yes	false	\N	NONE
+arr_char_col	ARRAY<TEXT>	Yes	false	\N	NONE
+arr_varchar_col	ARRAY<TEXT>	Yes	false	\N	NONE
+arr_string_col	ARRAY<TEXT>	Yes	false	\N	NONE
+
+-- !query_ctas_base --
+\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+true	1	1	1	1	1	1.0	1.0	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
+
+-- !query_ctas_arr --
+1	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1.00000]	[1.0000000000]	["2021-01-01"]	["2021-01-01 00:00:00.000"]	["a"]	["a"]	["a"]
+2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+
+-- !sql --
+g1	1	2	3	4	p1
+g2	1	2	3	4	p2
 
 -- !sql --
 doris_jdbc_catalog

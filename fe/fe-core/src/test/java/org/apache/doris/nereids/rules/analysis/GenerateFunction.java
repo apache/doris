@@ -1398,7 +1398,7 @@ public class GenerateFunction {
                     + "        Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(\n"
                     + "                getArgumentType(1).toCatalogDataType(),\n"
                     + "                getArgumentType(2).toCatalogDataType(),\n"
-                    + "                true);\n"
+                    + "                true, false);\n"
                     + "        return DataType.fromCatalogType(assignmentCompatibleType);\n"
                     + "    });\n"
                     + "\n";

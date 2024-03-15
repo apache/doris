@@ -30,7 +30,7 @@ public:
                           const RowDescriptor& row_descriptor, VExprContextSPtrs& conjuncts);
     ~RuntimeFilterConsumer() = default;
 
-    Status init(RuntimeState* state);
+    Status init(RuntimeState* state, bool need_local_merge = false);
 
     // Try to append late arrived runtime filters.
     // Return num of filters which are applied already.
@@ -42,11 +42,11 @@ public:
 
 protected:
     // Register and get all runtime filters at Init phase.
-    Status _register_runtime_filter();
+    Status _register_runtime_filter(bool need_local_merge);
     // Get all arrived runtime filters at Open phase.
     Status _acquire_runtime_filter();
     // Append late-arrival runtime filters to the vconjunct_ctx.
-    Status _append_rf_into_conjuncts(const VExprSPtrs& vexprs);
+    Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs);
 
     void _init_profile(RuntimeProfile* profile);
 
@@ -54,19 +54,18 @@ protected:
 
     // For runtime filters
     struct RuntimeFilterContext {
-        RuntimeFilterContext() : apply_mark(false), runtime_filter(nullptr) {}
-        RuntimeFilterContext(IRuntimeFilter* rf) : apply_mark(false), runtime_filter(rf) {}
+        RuntimeFilterContext(IRuntimeFilter* rf) : runtime_filter(rf) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
-        bool apply_mark;
-        IRuntimeFilter* runtime_filter;
+        bool apply_mark = false;
+        IRuntimeFilter* runtime_filter = nullptr;
     };
 
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
-    doris::Mutex _rf_locks;
+    std::mutex _rf_locks;
     phmap::flat_hash_set<VExprSPtr> _rf_vexpr_set;
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
 
 private:
     int32_t _filter_id;

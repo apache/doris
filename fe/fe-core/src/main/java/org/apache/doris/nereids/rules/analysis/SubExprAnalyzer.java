@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -31,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -47,8 +48,7 @@ import java.util.Optional;
 /**
  * Use the visitor to iterate sub expression.
  */
-class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
-
+class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     private final Scope scope;
     private final CascadesContext cascadesContext;
 
@@ -58,7 +58,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitNot(Not not, CascadesContext context) {
+    public Expression visitNot(Not not, T context) {
         Expression child = not.child();
         if (child instanceof Exists) {
             return visitExistsSubquery(
@@ -71,7 +71,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
+    public Expression visitExistsSubquery(Exists exists, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
         if (analyzedResult.rootIsLimitZero()) {
             return BooleanLiteral.of(exists.isNot());
@@ -85,12 +85,11 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitInSubquery(InSubquery expr, CascadesContext context) {
+    public Expression visitInSubquery(InSubquery expr, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
-        checkHasNotAgg(analyzedResult);
-        checkHasGroupBy(analyzedResult);
+        checkNoCorrelatedSlotsUnderAgg(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
         return new InSubquery(
@@ -100,21 +99,14 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitScalarSubquery(ScalarSubquery scalar, CascadesContext context) {
+    public Expression visitScalarSubquery(ScalarSubquery scalar, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkHasAgg(analyzedResult);
-        checkHasGroupBy(analyzedResult);
+        checkHasNoGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
-    }
-
-    private boolean childrenAtLeastOneInOrExistsSub(BinaryOperator binaryOperator) {
-        return binaryOperator.left().anyMatch(InSubquery.class::isInstance)
-                || binaryOperator.left().anyMatch(Exists.class::isInstance)
-                || binaryOperator.right().anyMatch(InSubquery.class::isInstance)
-                || binaryOperator.right().anyMatch(Exists.class::isInstance);
     }
 
     private void checkOutputColumn(LogicalPlan plan) {
@@ -135,7 +127,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
     }
 
-    private void checkHasGroupBy(AnalyzedResult analyzedResult) {
+    private void checkHasNoGroupBy(AnalyzedResult analyzedResult) {
         if (!analyzedResult.isCorrelated()) {
             return;
         }
@@ -145,13 +137,11 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
     }
 
-    private void checkHasNotAgg(AnalyzedResult analyzedResult) {
-        if (!analyzedResult.isCorrelated()) {
-            return;
-        }
-        if (analyzedResult.hasAgg()) {
-            throw new AnalysisException("Unsupported correlated subquery with grouping and/or aggregation "
-                + analyzedResult.getLogicalPlan());
+    private void checkNoCorrelatedSlotsUnderAgg(AnalyzedResult analyzedResult) {
+        if (analyzedResult.hasCorrelatedSlotsUnderAgg()) {
+            throw new AnalysisException(
+                    "Unsupported correlated subquery with grouping and/or aggregation "
+                            + analyzedResult.getLogicalPlan());
         }
     }
 
@@ -219,6 +209,29 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
                 return !((LogicalAggregate)
                         ((ImmutableSet) logicalPlan.collect(LogicalAggregate.class::isInstance)).asList().get(0))
                         .getGroupByExpressions().isEmpty();
+            }
+            return false;
+        }
+
+        public boolean hasCorrelatedSlotsUnderAgg() {
+            return correlatedSlots.isEmpty() ? false
+                    : findAggContainsCorrelatedSlots(logicalPlan, ImmutableSet.copyOf(correlatedSlots));
+        }
+
+        private boolean findAggContainsCorrelatedSlots(Plan rootPlan, ImmutableSet<Slot> slots) {
+            ArrayDeque<Plan> planQueue = new ArrayDeque<>();
+            planQueue.add(rootPlan);
+            while (!planQueue.isEmpty()) {
+                Plan plan = planQueue.poll();
+                if (plan instanceof LogicalAggregate) {
+                    if (plan.containsSlots(slots)) {
+                        return true;
+                    }
+                } else {
+                    for (Plan child : plan.children()) {
+                        planQueue.add(child);
+                    }
+                }
             }
             return false;
         }

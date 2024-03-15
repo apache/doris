@@ -39,7 +39,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AnalyticSourceOperator final : public SourceOperator<AnalyticSourceOperatorBuilder> {
+class AnalyticSourceOperator final : public SourceOperator<vectorized::VAnalyticEvalNode> {
 public:
     AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
 
@@ -47,7 +47,7 @@ public:
 };
 
 class AnalyticSourceOperatorX;
-class AnalyticLocalState final : public PipelineXLocalState<AnalyticDependency> {
+class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AnalyticLocalState);
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
@@ -55,7 +55,7 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
 
-    Status init_result_columns();
+    void init_result_columns();
 
     Status output_current_block(vectorized::Block* block);
 
@@ -71,10 +71,26 @@ private:
     void _insert_result_info(int64_t current_block_rows);
 
     void _update_order_by_range();
+    bool _refresh_need_more_input() {
+        auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
+        if (need_more_input) {
+            _dependency->block();
+            _dependency->set_ready_to_write();
+        } else {
+            _dependency->set_block_to_write();
+            _dependency->set_ready();
+        }
+        return need_more_input;
+    }
+    vectorized::BlockRowPos _get_partition_by_end();
+    vectorized::BlockRowPos _compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
+                                                     vectorized::BlockRowPos end,
+                                                     bool need_check_first = false);
+    bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
-    Status _reset_agg_status();
-    Status _create_agg_status();
-    Status _destroy_agg_status();
+    void _reset_agg_status();
+    void _create_agg_status();
+    void _destroy_agg_status();
 
     friend class AnalyticSourceOperatorX;
 
@@ -88,15 +104,16 @@ private:
     vectorized::AggregateDataPtr _fn_place_ptr;
     size_t _agg_functions_size;
     bool _agg_functions_created;
+    bool _current_window_empty = false;
+
     vectorized::BlockRowPos _order_by_start;
     vectorized::BlockRowPos _order_by_end;
     vectorized::BlockRowPos _partition_by_start;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _evaluation_timer;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _evaluation_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
     using vectorized_execute = std::function<void(int64_t peer_group_start, int64_t peer_group_end,
                                                   int64_t frame_start, int64_t frame_end)>;
@@ -117,8 +134,7 @@ public:
     AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                             const DescriptorTbl& descs);
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -143,8 +159,8 @@ private:
 
     vectorized::AnalyticFnScope _fn_scope;
 
-    TupleDescriptor* _intermediate_tuple_desc;
-    TupleDescriptor* _output_tuple_desc;
+    TupleDescriptor* _intermediate_tuple_desc = nullptr;
+    TupleDescriptor* _output_tuple_desc = nullptr;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;

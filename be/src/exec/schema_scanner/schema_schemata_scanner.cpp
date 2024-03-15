@@ -127,7 +127,7 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // DEFAULT_CHARACTER_SET_NAME
     {
-        std::string src = "utf8";
+        std::string src = "utf8mb4";
         StringRef str = StringRef(src.c_str(), src.size());
         for (int i = 0; i < dbs_num; ++i) {
             datas[i] = &str;
@@ -136,7 +136,7 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // DEFAULT_COLLATION_NAME
     {
-        std::string src = "utf8_general_ci";
+        std::string src = "utf8mb4_0900_bin";
         StringRef str = StringRef(src.c_str(), src.size());
         for (int i = 0; i < dbs_num; ++i) {
             datas[i] = &str;

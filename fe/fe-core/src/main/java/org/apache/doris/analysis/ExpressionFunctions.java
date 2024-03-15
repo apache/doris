@@ -52,13 +52,8 @@ public enum ExpressionFunctions {
     private static final Logger LOG = LogManager.getLogger(ExpressionFunctions.class);
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
     public static final Set<String> unfixedFn = ImmutableSet.of(
-            "now",
-            "current_time",
-            "current_date",
-            "utc_timestamp",
             "uuid",
-            "random",
-            "unix_timestamp"
+            "random"
     );
 
     private ExpressionFunctions() {
@@ -136,7 +131,9 @@ public enum ExpressionFunctions {
                     if (ConnectContext.get() != null) {
                         ConnectContext.get().getState().reset();
                     }
-                    LOG.debug("failed to invoke", e);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("failed to invoke", e);
+                    }
                     return constExpr;
                 }
             }
@@ -283,8 +280,10 @@ public enum ExpressionFunctions {
             LiteralExpr[] exprs;
             if (argType.isStringType()) {
                 exprs = new StringLiteral[args.size()];
-            } else if (argType.isFixedPointType()) {
+            } else if (argType.isIntegerType()) {
                 exprs = new IntLiteral[args.size()];
+            } else if (argType.isLargeIntType()) {
+                exprs = new LargeIntLiteral[args.size()];
             } else if (argType.isDateType()) {
                 exprs = new DateLiteral[args.size()];
             } else if (argType.isDecimalV2() || argType.isDecimalV3()) {

@@ -33,6 +33,7 @@ public class FileFormatConstants {
     public static final String FORMAT_JSON = "json";
     public static final String FORMAT_AVRO = "avro";
     public static final String FORMAT_WAL = "wal";
+    public static final String FORMAT_ARROW = "arrow";
 
     public static final String PROP_FORMAT = "format";
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";

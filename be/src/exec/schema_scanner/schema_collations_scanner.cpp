@@ -41,7 +41,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaCollationsScanner::_s_cols_columns 
 };
 
 SchemaCollationsScanner::CollationStruct SchemaCollationsScanner::_s_collations[] = {
-        {"utf8_general_ci", "utf8", 33, "Yes", "Yes", 1},
+        {"utf8mb4_0900_bin", "utf8mb4", 309, "Yes", "Yes", 1},
         {nullptr, nullptr, 0, nullptr, nullptr, 0},
 };
 

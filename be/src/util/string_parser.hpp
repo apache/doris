@@ -35,7 +35,6 @@
 #include <type_traits>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/large_int_value.h"
@@ -44,10 +43,11 @@
 #include "vec/core/extended_types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/number_traits.h"
 
 namespace doris {
 namespace vectorized {
-template <typename T>
+template <DecimalNativeTypeConcept T>
 struct Decimal;
 } // namespace vectorized
 
@@ -74,14 +74,6 @@ public:
     enum ParseResult { PARSE_SUCCESS = 0, PARSE_FAILURE, PARSE_OVERFLOW, PARSE_UNDERFLOW };
 
     template <typename T>
-    class StringParseTraits {
-    public:
-        /// Returns the maximum ascii string length for this type.
-        /// e.g. the max/min int8_t has 3 characters.
-        static int max_ascii_len();
-    };
-
-    template <typename T>
     static T numeric_limits(bool negative) {
         if constexpr (std::is_same_v<T, __int128>) {
             return negative ? MIN_INT128 : MAX_INT128;
@@ -93,7 +85,7 @@ public:
     template <typename T>
     static T get_scale_multiplier(int scale) {
         static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
-                              std::is_same_v<T, __int128> || std::is_same_v<T, Int256>,
+                              std::is_same_v<T, __int128> || std::is_same_v<T, wide::Int256>,
                       "You can only instantiate as int32_t, int64_t, __int128.");
         if constexpr (std::is_same_v<T, int32_t>) {
             return common::exp10_i32(scale);
@@ -101,7 +93,7 @@ public:
             return common::exp10_i64(scale);
         } else if constexpr (std::is_same_v<T, __int128>) {
             return common::exp10_i128(scale);
-        } else if constexpr (std::is_same_v<T, Int256>) {
+        } else if constexpr (std::is_same_v<T, wide::Int256>) {
             return common::exp10_i256(scale);
         }
     }
@@ -110,7 +102,7 @@ public:
     // In the case of overflow, the max/min value for the data type will be returned.
     // Assumes s represents a decimal number.
     template <typename T>
-    static inline T string_to_int(const char* s, int len, ParseResult* result) {
+    static inline T string_to_int(const char* __restrict s, int len, ParseResult* result) {
         T ans = string_to_int_internal<T>(s, len, result);
         if (LIKELY(*result == PARSE_SUCCESS)) {
             return ans;
@@ -124,7 +116,7 @@ public:
     // In the case of overflow, the max/min value for the data type will be returned.
     // Assumes s represents a decimal number.
     template <typename T>
-    static inline T string_to_unsigned_int(const char* s, int len, ParseResult* result) {
+    static inline T string_to_unsigned_int(const char* __restrict s, int len, ParseResult* result) {
         T ans = string_to_unsigned_int_internal<T>(s, len, result);
         if (LIKELY(*result == PARSE_SUCCESS)) {
             return ans;
@@ -136,7 +128,8 @@ public:
 
     // Convert a string s representing a number in given base into a decimal number.
     template <typename T>
-    static inline T string_to_int(const char* s, int len, int base, ParseResult* result) {
+    static inline T string_to_int(const char* __restrict s, int len, int base,
+                                  ParseResult* result) {
         T ans = string_to_int_internal<T>(s, len, base, result);
         if (LIKELY(*result == PARSE_SUCCESS)) {
             return ans;
@@ -147,12 +140,12 @@ public:
     }
 
     template <typename T>
-    static inline T string_to_float(const char* s, int len, ParseResult* result) {
+    static inline T string_to_float(const char* __restrict s, int len, ParseResult* result) {
         return string_to_float_internal<T>(s, len, result);
     }
 
     // Parses a string for 'true' or 'false', case insensitive.
-    static inline bool string_to_bool(const char* s, int len, ParseResult* result) {
+    static inline bool string_to_bool(const char* __restrict s, int len, ParseResult* result) {
         bool ans = string_to_bool_internal(s, len, result);
         if (LIKELY(*result == PARSE_SUCCESS)) {
             return ans;
@@ -162,9 +155,10 @@ public:
         return string_to_bool_internal(s + i, len - i, result);
     }
 
-    template <PrimitiveType P, typename T = PrimitiveTypeTraits<P>::CppType::NativeType>
-    static inline T string_to_decimal(const char* s, int len, int type_precision, int type_scale,
-                                      ParseResult* result);
+    template <PrimitiveType P, typename T = PrimitiveTypeTraits<P>::CppType::NativeType,
+              typename DecimalType = PrimitiveTypeTraits<P>::ColumnType::value_type>
+    static inline T string_to_decimal(const char* __restrict s, int len, int type_precision,
+                                      int type_scale, ParseResult* result);
 
     template <typename T>
     static Status split_string_to_map(const std::string& base, const T element_separator,
@@ -200,25 +194,28 @@ private:
     // Assumes s represents a decimal number.
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
     template <typename T>
-    static inline T string_to_int_internal(const char* s, int len, ParseResult* result);
+    static inline T string_to_int_internal(const char* __restrict s, int len, ParseResult* result);
 
     // This is considerably faster than glibc's implementation.
     // In the case of overflow, the max/min value for the data type will be returned.
     // Assumes s represents a decimal number.
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
     template <typename T>
-    static inline T string_to_unsigned_int_internal(const char* s, int len, ParseResult* result);
+    static inline T string_to_unsigned_int_internal(const char* __restrict s, int len,
+                                                    ParseResult* result);
 
     // Convert a string s representing a number in given base into a decimal number.
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
     template <typename T>
-    static inline T string_to_int_internal(const char* s, int len, int base, ParseResult* result);
+    static inline T string_to_int_internal(const char* __restrict s, int len, int base,
+                                           ParseResult* result);
 
     // Converts an ascii string to an integer of type T assuming it cannot overflow
     // and the number is positive.
     // Leading whitespace is not allowed. Trailing whitespace will be skipped.
     template <typename T>
-    static inline T string_to_int_no_overflow(const char* s, int len, ParseResult* result);
+    static inline T string_to_int_no_overflow(const char* __restrict s, int len,
+                                              ParseResult* result);
 
     // This is considerably faster than glibc's implementation (>100x why???)
     // No special case handling needs to be done for overflows, the floating point spec
@@ -228,14 +225,16 @@ private:
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
     // TODO: Investigate using intrinsics to speed up the slow strtod path.
     template <typename T>
-    static inline T string_to_float_internal(const char* s, int len, ParseResult* result);
+    static inline T string_to_float_internal(const char* __restrict s, int len,
+                                             ParseResult* result);
 
     // parses a string for 'true' or 'false', case insensitive
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
-    static inline bool string_to_bool_internal(const char* s, int len, ParseResult* result);
+    static inline bool string_to_bool_internal(const char* __restrict s, int len,
+                                               ParseResult* result);
 
     // Returns true if s only contains whitespace.
-    static inline bool is_all_whitespace(const char* s, int len) {
+    static inline bool is_all_whitespace(const char* __restrict s, int len) {
         for (int i = 0; i < len; ++i) {
             if (!LIKELY(is_whitespace(s[i]))) {
                 return false;
@@ -245,7 +244,7 @@ private:
     }
 
     // Returns the position of the first non-whitespace character in s.
-    static inline int skip_leading_whitespace(const char* s, int len) {
+    static inline int skip_leading_whitespace(const char* __restrict s, int len) {
         int i = 0;
         while (i < len && is_whitespace(s[i])) {
             ++i;
@@ -262,7 +261,7 @@ private:
 }; // end of class StringParser
 
 template <typename T>
-T StringParser::string_to_int_internal(const char* s, int len, ParseResult* result) {
+T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseResult* result) {
     if (UNLIKELY(len <= 0)) {
         *result = PARSE_FAILURE;
         return 0;
@@ -283,7 +282,7 @@ T StringParser::string_to_int_internal(const char* s, int len, ParseResult* resu
     }
 
     // This is the fast path where the string cannot overflow.
-    if (LIKELY(len - i < StringParseTraits<T>::max_ascii_len())) {
+    if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<T>())) {
         val = string_to_int_no_overflow<UnsignedT>(s + i, len - i, result);
         return static_cast<T>(negative ? -val : val);
     }
@@ -318,7 +317,8 @@ T StringParser::string_to_int_internal(const char* s, int len, ParseResult* resu
 }
 
 template <typename T>
-T StringParser::string_to_unsigned_int_internal(const char* s, int len, ParseResult* result) {
+T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int len,
+                                                ParseResult* result) {
     if (UNLIKELY(len <= 0)) {
         *result = PARSE_FAILURE;
         return 0;
@@ -330,7 +330,7 @@ T StringParser::string_to_unsigned_int_internal(const char* s, int len, ParseRes
 
     typedef typename std::make_signed<T>::type signedT;
     // This is the fast path where the string cannot overflow.
-    if (LIKELY(len - i < StringParseTraits<signedT>::max_ascii_len())) {
+    if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<signedT>())) {
         val = string_to_int_no_overflow<T>(s + i, len - i, result);
         return val;
     }
@@ -365,7 +365,8 @@ T StringParser::string_to_unsigned_int_internal(const char* s, int len, ParseRes
 }
 
 template <typename T>
-T StringParser::string_to_int_internal(const char* s, int len, int base, ParseResult* result) {
+T StringParser::string_to_int_internal(const char* __restrict s, int len, int base,
+                                       ParseResult* result) {
     typedef typename std::make_unsigned<T>::type UnsignedT;
     UnsignedT val = 0;
     UnsignedT max_val = StringParser::numeric_limits<T>(false);
@@ -424,7 +425,7 @@ T StringParser::string_to_int_internal(const char* s, int len, int base, ParseRe
 }
 
 template <typename T>
-T StringParser::string_to_int_no_overflow(const char* s, int len, ParseResult* result) {
+T StringParser::string_to_int_no_overflow(const char* __restrict s, int len, ParseResult* result) {
     T val = 0;
     if (UNLIKELY(len == 0)) {
         *result = PARSE_SUCCESS;
@@ -455,7 +456,7 @@ T StringParser::string_to_int_no_overflow(const char* s, int len, ParseResult* r
 }
 
 template <typename T>
-T StringParser::string_to_float_internal(const char* s, int len, ParseResult* result) {
+T StringParser::string_to_float_internal(const char* __restrict s, int len, ParseResult* result) {
     int i = 0;
     // skip leading spaces
     for (; i < len; ++i) {
@@ -506,7 +507,8 @@ T StringParser::string_to_float_internal(const char* s, int len, ParseResult* re
     return 0;
 }
 
-inline bool StringParser::string_to_bool_internal(const char* s, int len, ParseResult* result) {
+inline bool StringParser::string_to_bool_internal(const char* __restrict s, int len,
+                                                  ParseResult* result) {
     *result = PARSE_SUCCESS;
 
     if (len >= 4 && (s[0] == 't' || s[0] == 'T')) {
@@ -527,59 +529,13 @@ inline bool StringParser::string_to_bool_internal(const char* s, int len, ParseR
     return false;
 }
 
-template <>
-inline int StringParser::StringParseTraits<uint8_t>::max_ascii_len() {
-    return 3;
-}
-
-template <>
-inline int StringParser::StringParseTraits<uint16_t>::max_ascii_len() {
-    return 5;
-}
-
-template <>
-inline int StringParser::StringParseTraits<uint32_t>::max_ascii_len() {
-    return 10;
-}
-
-template <>
-inline int StringParser::StringParseTraits<uint64_t>::max_ascii_len() {
-    return 20;
-}
-
-template <>
-inline int StringParser::StringParseTraits<int8_t>::max_ascii_len() {
-    return 3;
-}
-
-template <>
-inline int StringParser::StringParseTraits<int16_t>::max_ascii_len() {
-    return 5;
-}
-
-template <>
-inline int StringParser::StringParseTraits<int32_t>::max_ascii_len() {
-    return 10;
-}
-
-template <>
-inline int StringParser::StringParseTraits<int64_t>::max_ascii_len() {
-    return 19;
-}
-
-template <>
-inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
-    return 39;
-}
-
-template <>
-inline int StringParser::StringParseTraits<wide::Int256>::max_ascii_len() {
-    return 78;
-}
-
-template <PrimitiveType P, typename T>
-T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
-                                  ParseResult* result) {
+template <PrimitiveType P, typename T, typename DecimalType>
+T StringParser::string_to_decimal(const char* __restrict s, int len, int type_precision,
+                                  int type_scale, ParseResult* result) {
+    static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
+                          std::is_same_v<T, __int128> || std::is_same_v<T, wide::Int256>,
+                  "Cast string to decimal only support target type int32_t, int64_t, __int128 or "
+                  "wide::Int256.");
     // Special cases:
     //   1) '' == Fail, an empty string fails to parse.
     //   2) '   #   ' == #, leading and trailing white space is ignored.
@@ -652,8 +608,9 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
                 } else {
                     *result = StringParser::PARSE_OVERFLOW;
-                    value = is_negative ? type_limit<DecimalV2Value>::min()
-                                        : type_limit<DecimalV2Value>::max();
+                    value = is_negative
+                                    ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                                    : vectorized::max_decimal_value<DecimalType>(type_precision);
                     return value;
                 }
                 DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
@@ -700,10 +657,9 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     cur_digit = precision - scale;
                 } else if (!found_dot && max_digit < (precision - scale)) {
                     *result = StringParser::PARSE_OVERFLOW;
-                    value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision)
-                                        : vectorized::max_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision);
+                    value = is_negative
+                                    ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                                    : vectorized::max_decimal_value<DecimalType>(type_precision);
                     return value;
                 } else if (found_dot && scale >= type_scale && !has_round) {
                     // make rounding cases
@@ -743,11 +699,10 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     if (!is_numeric_ascii(c)) {
                         if (cur_digit > type_precision) {
                             *result = StringParser::PARSE_OVERFLOW;
-                            value = is_negative
-                                            ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
-                                                      type_precision)
-                                            : vectorized::max_decimal_value<vectorized::Decimal<T>>(
-                                                      type_precision);
+                            value = is_negative ? vectorized::min_decimal_value<DecimalType>(
+                                                          type_precision)
+                                                : vectorized::max_decimal_value<DecimalType>(
+                                                          type_precision);
                             return value;
                         }
                         return is_negative ? T(-value) : T(value);
@@ -786,25 +741,21 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
         *result = StringParser::PARSE_OVERFLOW;
         if constexpr (TYPE_DECIMALV2 != P) {
             // decimalv3 overflow will return max min value for type precision
-            value = is_negative
-                            ? vectorized::min_decimal_value<vectorized::Decimal<T>>(type_precision)
-                            : vectorized::max_decimal_value<vectorized::Decimal<T>>(type_precision);
+            value = is_negative ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                                : vectorized::max_decimal_value<DecimalType>(type_precision);
             return value;
         }
     } else if (UNLIKELY(scale > type_scale)) {
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;
-        if (shift > 0) {
-            T divisor = get_scale_multiplier<T>(shift);
-            if (LIKELY(divisor > 0)) {
-                T remainder = value % divisor;
-                value /= divisor;
-                if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
-                    value += 1;
-                }
-            } else {
-                DCHECK(divisor == -1 || divisor == 0); // //DCHECK_EQ doesn't work with __int128.
-                value = 0;
+        T divisor = get_scale_multiplier<T>(shift);
+        if (UNLIKELY(divisor == std::numeric_limits<T>::max())) {
+            value = 0;
+        } else {
+            T remainder = value % divisor;
+            value /= divisor;
+            if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
+                value += 1;
             }
         }
         DCHECK(value >= 0); // //DCHECK_GE doesn't work with __int128.

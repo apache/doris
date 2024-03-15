@@ -24,6 +24,7 @@
 #include <exception>
 #include <ostream>
 
+#include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
 #include "orc/MemoryPool.hh"
@@ -48,6 +49,9 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -160,10 +164,12 @@ Status VOrcTransformer::write(const Block& block) {
 
     size_t sz = block.rows();
     auto row_batch = _create_row_batch(sz);
-    orc::StructVectorBatch* root = dynamic_cast<orc::StructVectorBatch*>(row_batch.get());
+    auto* root = dynamic_cast<orc::StructVectorBatch*>(row_batch.get());
     try {
         for (size_t i = 0; i < block.columns(); i++) {
-            auto& raw_column = block.get_by_position(i).column;
+            const auto& col = block.get_by_position(i);
+            const auto& raw_column = col.column;
+            RETURN_IF_ERROR(_resize_row_batch(col.type, *raw_column, root->fields[i]));
             RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(
                     _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, buffer_list));
         }
@@ -175,6 +181,65 @@ Status VOrcTransformer::write(const Block& block) {
     _writer->add(*row_batch);
     _cur_written_rows += sz;
 
+    return Status::OK();
+}
+
+Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn& column,
+                                          orc::ColumnVectorBatch* orc_col_batch) {
+    auto real_type = remove_nullable(type);
+    WhichDataType which(real_type);
+
+    if (which.is_struct()) {
+        auto* struct_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
+        const auto& struct_col =
+                column.is_nullable()
+                        ? assert_cast<const ColumnStruct&>(
+                                  assert_cast<const ColumnNullable&>(column).get_nested_column())
+                        : assert_cast<const ColumnStruct&>(column);
+        int idx = 0;
+        for (auto* child : struct_batch->fields) {
+            const IColumn& child_column = struct_col.get_column(idx);
+            child->resize(child_column.size());
+            auto child_type = assert_cast<const vectorized::DataTypeStruct*>(real_type.get())
+                                      ->get_element(idx);
+            ++idx;
+            RETURN_IF_ERROR(_resize_row_batch(child_type, child_column, child));
+        }
+    } else if (which.is_map()) {
+        auto* map_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
+        const auto& map_column =
+                column.is_nullable()
+                        ? assert_cast<const ColumnMap&>(
+                                  assert_cast<const ColumnNullable&>(column).get_nested_column())
+                        : assert_cast<const ColumnMap&>(column);
+
+        // key of map
+        const IColumn& nested_keys_column = map_column.get_keys();
+        map_batch->keys->resize(nested_keys_column.size());
+        auto key_type =
+                assert_cast<const vectorized::DataTypeMap*>(real_type.get())->get_key_type();
+        RETURN_IF_ERROR(_resize_row_batch(key_type, nested_keys_column, map_batch->keys.get()));
+
+        // value of map
+        const IColumn& nested_values_column = map_column.get_values();
+        map_batch->elements->resize(nested_values_column.size());
+        auto value_type =
+                assert_cast<const vectorized::DataTypeMap*>(real_type.get())->get_value_type();
+        RETURN_IF_ERROR(
+                _resize_row_batch(value_type, nested_values_column, map_batch->elements.get()));
+    } else if (which.is_array()) {
+        auto* list_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
+        const auto& array_col =
+                column.is_nullable()
+                        ? assert_cast<const ColumnArray&>(
+                                  assert_cast<const ColumnNullable&>(column).get_nested_column())
+                        : assert_cast<const ColumnArray&>(column);
+        const IColumn& nested_column = array_col.get_data();
+        list_batch->elements->resize(nested_column.size());
+        auto child_type =
+                assert_cast<const vectorized::DataTypeArray*>(real_type.get())->get_nested_type();
+        RETURN_IF_ERROR(_resize_row_batch(child_type, nested_column, list_batch->elements.get()));
+    }
     return Status::OK();
 }
 

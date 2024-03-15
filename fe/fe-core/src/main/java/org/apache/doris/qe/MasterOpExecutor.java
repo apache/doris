@@ -21,7 +21,7 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.telemetry.Telemetry;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -29,16 +29,14 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.context.Context;
-import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
 import java.nio.ByteBuffer;
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 public class MasterOpExecutor {
@@ -77,17 +75,7 @@ public class MasterOpExecutor {
     }
 
     public void execute() throws Exception {
-        Span forwardSpan =
-                ctx.getTracer().spanBuilder("forward").setParent(Context.current())
-                        .startSpan();
-        try (Scope ignored = forwardSpan.makeCurrent()) {
-            result = forward(buildStmtForwardParams());
-        } catch (Exception e) {
-            forwardSpan.recordException(e);
-            throw e;
-        } finally {
-            forwardSpan.end();
-        }
+        result = forward(buildStmtForwardParams());
         waitOnReplaying();
     }
 
@@ -103,9 +91,7 @@ public class MasterOpExecutor {
 
     // Send request to Master
     private TMasterOpResult forward(TMasterOpRequest params) throws Exception {
-        if (!ctx.getEnv().isReady()) {
-            throw new Exception("Node catalog is not ready, please wait for a while.");
-        }
+        ctx.getEnv().checkReadyOrThrow();
         String masterHost = ctx.getEnv().getMasterHost();
         int masterRpcPort = ctx.getEnv().getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
@@ -160,10 +146,9 @@ public class MasterOpExecutor {
 
     private TMasterOpRequest buildStmtForwardParams() {
         TMasterOpRequest params = new TMasterOpRequest();
-        //node ident
+        // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        params.setCluster(ctx.getClusterName());
         params.setSql(originStmt.originStmt);
         params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
@@ -179,14 +164,6 @@ public class MasterOpExecutor {
         // session variables
         params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
 
-        // create a trace carrier
-        Map<String, String> traceCarrier = new HashMap<>();
-        // Inject the request with the current context
-        Telemetry.getOpenTelemetry().getPropagators().getTextMapPropagator()
-                .inject(Context.current(), traceCarrier, (carrier, key, value) -> carrier.put(key, value));
-        // carrier send tracing to master
-        params.setTraceCarrier(traceCarrier);
-
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
@@ -195,7 +172,7 @@ public class MasterOpExecutor {
 
     private TMasterOpRequest buildSyncJournalParmas() {
         final TMasterOpRequest params = new TMasterOpRequest();
-        //node ident
+        // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setSyncJournalOnly(true);
@@ -232,6 +209,23 @@ public class MasterOpExecutor {
         }
     }
 
+    public int getProxyStatusCode() {
+        if (result == null || !result.isSetStatusCode()) {
+            return ErrorCode.ERR_UNKNOWN_ERROR.getCode();
+        }
+        return result.getStatusCode();
+    }
+
+    public String getProxyErrMsg() {
+        if (result == null) {
+            return ErrorCode.ERR_UNKNOWN_ERROR.getErrorMsg();
+        }
+        if (!result.isSetErrMessage()) {
+            return "";
+        }
+        return result.getErrMessage();
+    }
+
     public ShowResultSet getProxyResultSet() {
         if (result == null) {
             return null;
@@ -241,6 +235,10 @@ public class MasterOpExecutor {
         } else {
             return null;
         }
+    }
+
+    public List<ByteBuffer> getQueryResultBufList() {
+        return result.isSetQueryResultBufList() ? result.getQueryResultBufList() : Collections.emptyList();
     }
 
     public void setResult(TMasterOpResult result) {
@@ -262,7 +260,7 @@ public class MasterOpExecutor {
         private final String msg;
 
         public ForwardToMasterException(String msg, TTransportException exception) {
-            this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType());
+            this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType()) + ", " + exception.getMessage();
         }
 
         @Override

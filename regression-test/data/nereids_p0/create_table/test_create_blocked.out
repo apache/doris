@@ -2,6 +2,6 @@
 -- !create --
 k1	CHAR(1)	Yes	true	\N	
 K2	CHAR(10)	Yes	false	\N	NONE
-K3	VARCHAR(*)	Yes	false	\N	NONE
+K3	VARCHAR(65533)	Yes	false	\N	NONE
 K4	VARCHAR(10)	Yes	false	\N	NONE
 

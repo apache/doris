@@ -26,7 +26,6 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
@@ -142,11 +141,13 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
             _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
             _file_writer_impl));
+    RETURN_IF_ERROR(_file_writer_impl->open());
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
-        _vfile_writer.reset(new VCSVTransformer(
-                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _output_object_data,
-                _header_type, _header, _file_opts->column_separator, _file_opts->line_delimiter));
+        _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
+                                                _vec_output_expr_ctxs, _output_object_data,
+                                                _header_type, _header, _file_opts->column_separator,
+                                                _file_opts->line_delimiter, _file_opts->with_bom));
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetTransformer(
@@ -198,7 +199,7 @@ Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
 // S3: {file_path}{fragment_instance_id}_
 // BROKER: {file_path}{fragment_instance_id}_
 
-Status VFileResultWriter::_get_file_url(std::string* file_url) {
+void VFileResultWriter::_get_file_url(std::string* file_url) {
     std::stringstream ss;
     if (_storage_type == TStorageBackendType::LOCAL) {
         ss << "file:///" << BackendOptions::get_localhost();
@@ -206,7 +207,6 @@ Status VFileResultWriter::_get_file_url(std::string* file_url) {
     ss << _file_opts->file_path;
     ss << print_id(_fragment_instance_id) << "_";
     *file_url = ss.str();
-    return Status::OK();
 }
 
 std::string VFileResultWriter::_file_format_to_name() {
@@ -222,7 +222,7 @@ std::string VFileResultWriter::_file_format_to_name() {
     }
 }
 
-Status VFileResultWriter::append_block(Block& block) {
+Status VFileResultWriter::write(Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -305,7 +305,10 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string file_url;
-    static_cast<void>(_get_file_url(&file_url));
+    _get_file_url(&file_url);
+    std::stringstream ss;
+    ss << file_url << "*";
+    file_url = ss.str();
     row_buffer.push_string(file_url.c_str(), file_url.length()); // url
 
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
@@ -394,8 +397,8 @@ Status VFileResultWriter::_delete_dir() {
     case TStorageBackendType::HDFS: {
         THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
         std::shared_ptr<io::HdfsFileSystem> hdfs_fs = nullptr;
-        RETURN_IF_ERROR(
-                io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &hdfs_fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr,
+                                                   &hdfs_fs));
         file_system = hdfs_fs;
         break;
     }
@@ -417,17 +420,21 @@ Status VFileResultWriter::_delete_dir() {
     return Status::OK();
 }
 
-Status VFileResultWriter::close(Status) {
-    // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
-    // must be outside the `_close_file_writer()`.
-    // because `_close_file_writer()` may be called in deconstructor,
-    // at that time, the RuntimeState may already been deconstructed,
-    // so does the profile in RuntimeState.
-    if (_written_rows_counter) {
-        COUNTER_SET(_written_rows_counter, _written_rows);
-        SCOPED_TIMER(_writer_close_timer);
+Status VFileResultWriter::close(Status exec_status) {
+    Status st = exec_status;
+    if (st.ok()) {
+        // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
+        // must be outside the `_close_file_writer()`.
+        // because `_close_file_writer()` may be called in deconstructor,
+        // at that time, the RuntimeState may already been deconstructed,
+        // so does the profile in RuntimeState.
+        if (_written_rows_counter) {
+            COUNTER_SET(_written_rows_counter, _written_rows);
+            SCOPED_TIMER(_writer_close_timer);
+        }
+        st = _close_file_writer(true);
     }
-    return _close_file_writer(true);
+    return st;
 }
 
 } // namespace doris::vectorized

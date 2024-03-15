@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -43,34 +44,36 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
                         .when(topJoin -> (topJoin.left().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isLeftOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().hasJoinHint()
-                                || topJoin.left().isMarkJoin())
-                        .whenNot(LogicalJoin::isMarkJoin)
+                        .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.left().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
+                            if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
+                                return null;
+                            }
                             GroupPlan a = bottomJoin.left();
                             GroupPlan b = bottomJoin.right();
                             GroupPlan c = topJoin.right();
 
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c);
-                            return bottomJoin.withChildrenNoContext(newBottomJoin, b);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
+                            return bottomJoin.withChildrenNoContext(newBottomJoin, b, null);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_LEFT),
 
                 logicalJoin(group(), logicalJoin())
                         .when(topJoin -> (topJoin.right().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isRightOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.right().hasJoinHint()
-                                || topJoin.right().isMarkJoin())
-                        .whenNot(LogicalJoin::isMarkJoin)
+                        .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.right().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right();
+                            if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
+                                return null;
+                            }
                             GroupPlan a = topJoin.left();
                             GroupPlan b = bottomJoin.left();
                             GroupPlan c = bottomJoin.right();
 
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b);
-                            return bottomJoin.withChildrenNoContext(newBottomJoin, c);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b, null);
+                            return bottomJoin.withChildrenNoContext(newBottomJoin, c, null);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_RIGHT)
         );
     }
