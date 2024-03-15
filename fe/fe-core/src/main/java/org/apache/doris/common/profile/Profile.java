@@ -44,7 +44,7 @@ import java.util.Map;
  *
  * ExecutionProfile1: Fragment 0: Fragment 1: ...
  * ExecutionProfile2: Fragment 0: Fragment 1: ...
- * 
+ *
  */
 public class Profile {
     private static final Logger LOG = LogManager.getLogger(Profile.class);
