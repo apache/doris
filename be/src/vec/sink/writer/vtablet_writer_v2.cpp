@@ -566,46 +566,8 @@ Status VTabletWriterV2::close(Status exec_status) {
             }
         }
 
-        std::unordered_map<int64_t, int> failed_tablets;
-
         std::vector<TTabletCommitInfo> tablet_commit_infos;
-        for (const auto& [node_id, streams] : _streams_for_node) {
-            for (const auto& stream : streams->streams()) {
-                std::unordered_set<int64_t> known_tablets;
-                for (auto [tablet_id, _] : stream->failed_tablets()) {
-                    if (known_tablets.contains(tablet_id)) {
-                        continue;
-                    }
-                    known_tablets.insert(tablet_id);
-                    failed_tablets[tablet_id]++;
-                }
-                for (auto tablet_id : stream->success_tablets()) {
-                    if (known_tablets.contains(tablet_id)) {
-                        continue;
-                    }
-                    known_tablets.insert(tablet_id);
-                    TTabletCommitInfo commit_info;
-                    commit_info.tabletId = tablet_id;
-                    commit_info.backendId = node_id;
-                    tablet_commit_infos.emplace_back(std::move(commit_info));
-                }
-            }
-        }
-        for (auto [tablet_id, replicas] : failed_tablets) {
-            if (replicas <= (_num_replicas - 1) / 2) {
-                continue;
-            }
-            auto backends = _location->find_tablet(tablet_id)->node_ids;
-            for (auto& backend_id : backends) {
-                for (const auto& stream : _streams_for_node[backend_id]->streams()) {
-                    const auto& failed_tablets = stream->failed_tablets();
-                    if (failed_tablets.contains(tablet_id)) {
-                        return failed_tablets.at(tablet_id);
-                    }
-                }
-            }
-            DCHECK(false) << "failed tablet " << tablet_id << " should have failed reason";
-        }
+        RETURN_IF_ERROR(_generate_commit_info(tablet_commit_infos, _streams_for_node, _num_replicas));
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),
                                              std::make_move_iterator(tablet_commit_infos.end()));
@@ -628,6 +590,44 @@ Status VTabletWriterV2::close(Status exec_status) {
     _is_closed = true;
     _close_status = status;
     return status;
+}
+
+Status VTabletWriterV2::_generate_commit_info(
+        std::vector<TTabletCommitInfo>& tablet_commit_infos,
+        std::unordered_map<int64_t, std::shared_ptr<LoadStreams>> streams_for_node,
+        int num_replicas) {
+    std::unordered_map<int64_t, int> failed_tablets;
+    std::unordered_map<int64_t, Status> failed_reason;
+    for (const auto& [node_id, streams] : streams_for_node) {
+        for (const auto& stream : streams->streams()) {
+            std::unordered_set<int64_t> known_tablets;
+            for (auto [tablet_id, reason] : stream->failed_tablets()) {
+                if (known_tablets.contains(tablet_id)) {
+                    continue;
+                }
+                known_tablets.insert(tablet_id);
+                failed_tablets[tablet_id]++;
+                failed_reason[tablet_id] = reason;
+            }
+            for (auto tablet_id : stream->success_tablets()) {
+                if (known_tablets.contains(tablet_id)) {
+                    continue;
+                }
+                known_tablets.insert(tablet_id);
+                TTabletCommitInfo commit_info;
+                commit_info.tabletId = tablet_id;
+                commit_info.backendId = node_id;
+                tablet_commit_infos.emplace_back(std::move(commit_info));
+            }
+        }
+    }
+    for (auto [tablet_id, replicas] : failed_tablets) {
+        if (replicas > (num_replicas - 1) / 2) {
+            LOG(INFO) << "tablet " << tablet_id << " failed, reason: " << failed_reason[tablet_id];
+            return failed_reason[tablet_id];
+        }
+    }
+    return Status::OK();
 }
 
 Status VTabletWriterV2::_close_load(const Streams& streams) {
