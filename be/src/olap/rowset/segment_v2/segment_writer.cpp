@@ -33,6 +33,7 @@
 #include "common/logging.h" // LOG
 #include "common/status.h"
 #include "gutil/port.h"
+#include "inverted_index_fs_directory.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
@@ -41,6 +42,7 @@
 #include "olap/row_cursor.h"                      // RowCursor // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -132,6 +134,12 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             }
         }
     }
+    if (_tablet_schema->has_inverted_index()) {
+        _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                _file_writer->fs(), _file_writer->path().parent_path(),
+                _file_writer->path().filename(),
+                _tablet_schema->get_inverted_index_storage_format());
+    }
 }
 
 SegmentWriter::~SegmentWriter() {
@@ -214,15 +222,17 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             skip_inverted_index = true;
         }
         // indexes for this column
-        opts.indexes = _tablet_schema->get_indexes_for_column(column);
+        opts.indexes = std::move(_tablet_schema->get_indexes_for_column(column));
         if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
             (column.is_extracted_column() && column.is_array_type())) {
             // variant and jsonb type skip write index
             opts.indexes.clear();
         }
+        opts.inverted_index_file_writer = _inverted_index_file_writer.get();
         for (auto index : opts.indexes) {
-            if (!skip_inverted_index && index && index->index_type() == IndexType::INVERTED) {
+            if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
                 opts.inverted_index = index;
+                opts.need_inverted_index = true;
                 // TODO support multiple inverted index
                 break;
             }
@@ -985,11 +995,10 @@ uint64_t SegmentWriter::estimate_segment_size() {
 }
 
 size_t SegmentWriter::try_get_inverted_index_file_size() {
-    size_t total_size = 0;
-    for (auto& column_writer : _column_writers) {
-        total_size += column_writer->get_inverted_index_size();
+    if (_inverted_index_file_writer != nullptr) {
+        return _inverted_index_file_writer->get_index_file_size();
     }
-    return total_size;
+    return 0;
 }
 
 Status SegmentWriter::finalize_columns_data() {
@@ -1042,7 +1051,6 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
             *index_size = _file_writer->bytes_appended() - index_start;
         }
     }
-    _inverted_index_file_size = try_get_inverted_index_file_size();
     // reset all column writers and data_conveter
     clear();
 
@@ -1057,6 +1065,10 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
+    if (_inverted_index_file_writer != nullptr) {
+        RETURN_IF_ERROR(_inverted_index_file_writer->close());
+    }
+    _inverted_index_file_size = try_get_inverted_index_file_size();
     return Status::OK();
 }
 

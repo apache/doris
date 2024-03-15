@@ -18,7 +18,6 @@
 #pragma once
 
 #include <CLucene/util/bkd/bkd_reader.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
@@ -71,17 +70,15 @@ namespace segment_v2 {
 
 class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
+class InvertedIndexFileReader;
 
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
-    explicit InvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
-                                 const TabletIndex* index_meta)
-            : _fs(fs), _path(path), _index_meta(*index_meta) {
-        io::Path io_path(_path);
-        _index_dir = io_path.parent_path();
-        _index_file_name = InvertedIndexDescriptor::get_index_file_name(
-                io_path.filename(), index_meta->index_id(), index_meta->get_index_suffix());
-    }
+    explicit InvertedIndexReader(
+            const TabletIndex* index_meta,
+            std::shared_ptr<InvertedIndexFileReader> inverted_index_file_reader)
+            : _inverted_index_file_reader(std::move(inverted_index_file_reader)),
+              _index_meta(*index_meta) {}
     virtual ~InvertedIndexReader() = default;
 
     // create a new column iterator. Client should delete returned iterator
@@ -106,6 +103,7 @@ public:
     }
 
     [[nodiscard]] bool has_null() const { return _has_null; }
+    void set_has_null(bool has_null) { _has_null = has_null; }
 
     static void get_analyse_result(std::vector<std::string>& analyse_result,
                                    lucene::util::Reader* reader,
@@ -135,28 +133,25 @@ public:
     virtual Status handle_searcher_cache(InvertedIndexCacheHandle* inverted_index_cache_handle,
                                          OlapReaderStatistics* stats);
 
-    static Status create_index_searcher(IndexSearcherPtr* searcher, io::FileSystemSPtr fs,
-                                        const io::Path& index_dir,
-                                        const std::string& index_file_name, MemTracker* mem_tracker,
+    static Status create_index_searcher(lucene::store::Directory* dir, IndexSearcherPtr* searcher,
+                                        MemTracker* mem_tracker,
                                         InvertedIndexReaderType reader_type);
 
 protected:
     friend class InvertedIndexIterator;
-    io::FileSystemSPtr _fs;
-    const std::string& _path;
+    std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
     TabletIndex _index_meta;
-    std::string _index_file_name;
-    io::Path _index_dir;
-    bool _has_null {true};
+    bool _has_null = true;
 };
 
 class FullTextIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(FullTextIndexReader);
 
 public:
-    explicit FullTextIndexReader(io::FileSystemSPtr fs, const std::string& path,
-                                 const TabletIndex* index_meta)
-            : InvertedIndexReader(fs, path, index_meta) {}
+    explicit FullTextIndexReader(
+            const TabletIndex* index_meta,
+            std::shared_ptr<InvertedIndexFileReader>& inverted_index_file_reader)
+            : InvertedIndexReader(index_meta, inverted_index_file_reader) {}
     ~FullTextIndexReader() override = default;
 
     Status new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
@@ -179,18 +174,16 @@ private:
                               const std::vector<std::string>& analyse_result,
                               const FulltextIndexSearcherPtr& index_searcher,
                               const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
-
-    void check_null_bitmap(const FulltextIndexSearcherPtr& index_searcher,
-                           bool& null_bitmap_already_read);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(StringTypeInvertedIndexReader);
 
 public:
-    explicit StringTypeInvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
-                                           const TabletIndex* index_meta)
-            : InvertedIndexReader(fs, path, index_meta) {}
+    explicit StringTypeInvertedIndexReader(
+            const TabletIndex* index_meta,
+            std::shared_ptr<InvertedIndexFileReader>& inverted_index_file_reader)
+            : InvertedIndexReader(index_meta, inverted_index_file_reader) {}
     ~StringTypeInvertedIndexReader() override = default;
 
     Status new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
@@ -246,9 +239,9 @@ class BkdIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(BkdIndexReader);
 
 public:
-    explicit BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
-                            const TabletIndex* index_meta)
-            : InvertedIndexReader(fs, path, index_meta) {}
+    explicit BkdIndexReader(const TabletIndex* index_meta,
+                            std::shared_ptr<InvertedIndexFileReader>& inverted_index_file_reader)
+            : InvertedIndexReader(index_meta, inverted_index_file_reader) {}
     ~BkdIndexReader() override = default;
 
     Status new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
@@ -284,7 +277,7 @@ class InvertedIndexIterator {
 public:
     InvertedIndexIterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                           std::shared_ptr<InvertedIndexReader> reader)
-            : _stats(stats), _runtime_state(runtime_state), _reader(reader) {}
+            : _stats(stats), _runtime_state(runtime_state), _reader(std::move(reader)) {}
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                     InvertedIndexQueryType query_type, uint32_t segment_num_rows,
