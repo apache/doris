@@ -18,10 +18,6 @@
 import org.apache.doris.regression.suite.ClusterOptions
 
 suite('test_storage_medium_has_disk') {
-    if (isCloudMode()) {
-        return
-    }
-
     def checkPartitionMedium = { table, isHdd ->
         def partitions = sql_return_maparray "SHOW PARTITIONS FROM ${table}"
         assertTrue(partitions.size() > 0)

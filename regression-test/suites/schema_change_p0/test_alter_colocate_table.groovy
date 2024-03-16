@@ -16,9 +16,6 @@
 // under the License.
 
 suite ("test_alter_colocate_table") {
-    if (isCloudMode()) {
-        return
-    }
     def tbls = ["col_tbl1", "col_tbl2", "col_tbl3"]
     for (def tbl : tbls) {
         sql """

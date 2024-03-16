@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
@@ -846,10 +845,6 @@ public class ColocateTableIndex implements Writable {
 
             if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
                     || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
-                if (Config.isCloudMode()) {
-                    throw new DdlException("Cann't modify colocate group replication in cloud mode");
-                }
-
                 ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
                 Preconditions.checkState(!replicaAlloc.isNotSet());
                 Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
