@@ -26,8 +26,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;
@@ -57,7 +55,7 @@ public class ShowDataStmtTest {
 
     @Before
     public void setUp() throws UserException {
-        accessManager = new AccessControllerManager(new Auth());
+        accessManager = AccessTestUtil.fetchAdminAccess();
         new Expectations() {
             {
                 Env.getCurrentInvertedIndex();
@@ -74,10 +72,6 @@ public class ShowDataStmtTest {
                 analyzer.getDefaultDb();
                 minTimes = 0;
                 result = "testDb";
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
 
                 Env.getCurrentEnv();
                 minTimes = 0;
@@ -112,29 +106,6 @@ public class ShowDataStmtTest {
                 result = "192.168.1.1";
             }
         };
-
-        new Expectations() {
-            {
-                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-
-                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString,
-                        (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-            }
-        };
-
-        AccessTestUtil.fetchAdminAccess();
     }
 
     @Test
