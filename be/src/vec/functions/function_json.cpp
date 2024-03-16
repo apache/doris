@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "exprs/json_functions.h"
+#include "vec/io/io_helper.h"
 #ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
 #else
@@ -350,7 +351,7 @@ struct GetJsonString {
             rapidjson::Value* root = nullptr;
 
             root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
-            const int max_string_len = (l_size <= 65535) ? 65535 : (l_size + 1);
+            const int max_string_len = DEFAULT_MAX_JSON_SIZE;
 
             if (root == nullptr || root->IsNull()) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
