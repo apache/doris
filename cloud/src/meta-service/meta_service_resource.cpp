@@ -307,7 +307,7 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
     return std::to_string(prev + 1);
 }
 
-static int add_hdfs_storage_valut(InstanceInfoPB& instance, Transaction* txn,
+static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   StorageVaultPB hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
     if (!hdfs_param.has_hdfs_info()) {
@@ -334,7 +334,7 @@ static int add_hdfs_storage_valut(InstanceInfoPB& instance, Transaction* txn,
     return 0;
 }
 
-static int remove_hdfs_storage_valut(InstanceInfoPB& instance, Transaction* txn,
+static int remove_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                      const StorageVaultPB& hdfs_info, MetaServiceCode& code,
                                      std::string& msg) {
     std::string_view vault_name = hdfs_info.name();
@@ -556,14 +556,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
-        if (auto ret = add_hdfs_storage_valut(instance, txn.get(), request->hdfs(), code, msg);
+        if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
             ret != 0) {
             return;
         }
         break;
     }
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
-        if (auto ret = remove_hdfs_storage_valut(instance, txn.get(), request->hdfs(), code, msg);
+        if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
             ret != 0) {
             return;
         }
@@ -923,7 +923,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         StorageVaultPB hdfs_param;
         hdfs_param.set_name("Default");
         hdfs_param.mutable_hdfs_info()->MergeFrom(request->hdfs_info());
-        if (0 != add_hdfs_storage_valut(instance, txn.get(), std::move(hdfs_param), code, msg)) {
+        if (0 != add_hdfs_storage_vault(instance, txn.get(), std::move(hdfs_param), code, msg)) {
             return;
         }
     }
