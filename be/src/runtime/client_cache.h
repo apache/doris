@@ -67,11 +67,11 @@ namespace doris {
 // TODO: limits on total number of clients, and clients per-backend
 class ClientCacheHelper {
 public:
-    ~ClientCacheHelper();
+    ~ClientCacheHelper() = default;
     // Callback method which produces a client object when one cannot be
     // found in the cache. Supplied by the ClientCache wrapper.
     using ClientFactory =
-            std::function<ThriftClientImpl*(const TNetworkAddress& hostport, void** client_key)>;
+            std::function<std::unique_ptr<ThriftClientImpl>(const TNetworkAddress& hostport, void** client_key)>;
 
     // Return client for specific host/port in 'client'. If a client
     // is not available, the client parameter is set to nullptr.
@@ -113,7 +113,7 @@ private:
     void _get_client_from_cache(const TNetworkAddress& hostport, void** client_key);
 
     // Map from client key back to its associated ThriftClientImpl transport
-    using ClientMap = std::unordered_map<void*, ThriftClientImpl*>;
+    using ClientMap = std::unordered_map<void*, std::shared_ptr<ThriftClientImpl>>;
     ClientMap _client_map;
 
     bool _metrics_enabled;
@@ -205,13 +205,13 @@ public:
 
     ClientCache() {
         _client_factory =
-                std::bind<ThriftClientImpl*>(std::mem_fn(&ClientCache::make_client), this,
+                std::bind<std::unique_ptr<ThriftClientImpl>>(std::mem_fn(&ClientCache::make_client), this,
                                              std::placeholders::_1, std::placeholders::_2);
     }
 
     ClientCache(int max_cache_size) : _client_cache_helper(max_cache_size) {
         _client_factory =
-                std::bind<ThriftClientImpl*>(std::mem_fn(&ClientCache::make_client), this,
+                std::bind<std::unique_ptr<ThriftClientImpl>>(std::mem_fn(&ClientCache::make_client), this,
                                              std::placeholders::_1, std::placeholders::_2);
     }
 
@@ -259,9 +259,9 @@ private:
     }
 
     // Factory method to produce a new ThriftClient<T> for the wrapped cache
-    ThriftClientImpl* make_client(const TNetworkAddress& hostport, void** client_key) {
+    std::unique_ptr<ThriftClientImpl> make_client(const TNetworkAddress& hostport, void** client_key) {
         static ThriftServer::ServerType server_type = get_thrift_server_type();
-        Client* client = new Client(hostport.hostname, hostport.port, server_type);
+        auto client = std::make_unique<Client>(hostport.hostname, hostport.port, server_type);
         *client_key = reinterpret_cast<void*>(client->iface());
         return client;
     }
