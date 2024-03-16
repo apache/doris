@@ -70,6 +70,9 @@ suite("test_insert_random_distribution_table", "p0") {
     def rowCount4 = sql "select count() from ${tableName} tablet(${tabletId4})"
     def rowCount5 = sql "select count() from ${tableName} tablet(${tabletId5})"
 
+    log.info("rowCount1: ${rowCount1}, rowCount2: ${rowCount2}, rowCount3: ${rowCount3}, " +
+             "rowCount4: ${rowCount4}, rowCount5: ${rowCount5}")
+
     assertEquals(rowCount1[0][0], 3)
     assertEquals(rowCount2[0][0], 1)
     assertEquals(rowCount3[0][0], 0)

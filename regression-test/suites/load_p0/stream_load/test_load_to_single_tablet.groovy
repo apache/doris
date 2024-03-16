@@ -64,6 +64,9 @@ suite("test_load_to_single_tablet", "p0") {
     def rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
     def rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
 
+    log.info("tablet1: ${tablet1}, rowCount1: ${rowCount1}, tablet2: ${tablet2}, " +
+             "rowCount2: ${rowCount2}, tablet3: ${tablet3}, rowCount3: ${rowCount3}")
+
     assertEquals(10, rowCount1[0][0])
     assertEquals(0, rowCount2[0][0])
     assertEquals(0, rowCount3[0][0])
