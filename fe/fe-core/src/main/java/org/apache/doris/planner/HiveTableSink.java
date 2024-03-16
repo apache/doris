@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -85,7 +86,14 @@ public class HiveTableSink extends DataSink {
         return DataPartition.RANDOM;
     }
 
-    public void bindDataSink(List<Column> insertCols, Optional<InsertCommandContext> insertCtx) {
+    /**
+     * check sink params and generate thrift data sink to BE
+     * @param insertCols target table columns
+     * @param insertCtx insert info context
+     * @throws AnalysisException if source file format cannot be read
+     */
+    public void bindDataSink(List<Column> insertCols, Optional<InsertCommandContext> insertCtx)
+            throws AnalysisException {
         THiveTableSink tSink = new THiveTableSink();
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
@@ -172,12 +180,15 @@ public class HiveTableSink extends DataSink {
             tSink.setCompressionType(TFileCompressType.ZLIB);
         } else if ("zstd".equalsIgnoreCase(compressType)) {
             tSink.setCompressionType(TFileCompressType.ZSTD);
+        } else if ("uncompressed".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(TFileCompressType.PLAIN);
         } else {
+            // try to use plain type to decompress parquet or orc file
             tSink.setCompressionType(TFileCompressType.PLAIN);
         }
     }
 
-    private void setPartitionValues(THiveTableSink tSink) {
+    private void setPartitionValues(THiveTableSink tSink) throws AnalysisException {
         List<THivePartition> partitions = new ArrayList<>();
         List<org.apache.hadoop.hive.metastore.api.Partition> hivePartitions =
                 ((HMSExternalCatalog) targetTable.getCatalog())
@@ -200,12 +211,16 @@ public class HiveTableSink extends DataSink {
         tSink.setPartitions(partitions);
     }
 
-    private TFileFormatType getFileFormatType(StorageDescriptor sd) {
+    private TFileFormatType getFileFormatType(StorageDescriptor sd) throws AnalysisException {
         TFileFormatType fileFormatType;
         if (sd.getInputFormat().toLowerCase().contains("orc")) {
             fileFormatType = TFileFormatType.FORMAT_ORC;
-        } else {
+        } else if (sd.getInputFormat().toLowerCase().contains("parquet")) {
             fileFormatType = TFileFormatType.FORMAT_PARQUET;
+        } else if (sd.getInputFormat().toLowerCase().contains("text")) {
+            fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+        } else {
+            throw new AnalysisException("Unsupported input format type: " + sd.getInputFormat());
         }
         return fileFormatType;
     }

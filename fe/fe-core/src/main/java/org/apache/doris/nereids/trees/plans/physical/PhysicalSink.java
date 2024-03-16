@@ -56,6 +56,7 @@ public abstract class PhysicalSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     public PhysicalProperties getRequirePhysicalProperties() {
-        return PhysicalProperties.ANY;
+        // olap and hive sink
+        return PhysicalProperties.GATHER;
     }
 }

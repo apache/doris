@@ -30,18 +30,13 @@ import java.util.Optional;
 
 /** abstract logical sink */
 public abstract class UnboundLogicalSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> {
-
+    protected final List<String> nameParts;
     protected final List<String> colNames;
     protected final DMLCommandType dmlCommandType;
 
-    public UnboundLogicalSink(PlanType type, List<NamedExpression> outputExprs,
-                              List<String> colNames,
-                              DMLCommandType dmlCommandType,
-                              CHILD_TYPE child) {
-        this(type, outputExprs, Optional.empty(), Optional.empty(), colNames, dmlCommandType, child);
-    }
-
-    public UnboundLogicalSink(PlanType type, List<NamedExpression> outputExprs,
+    public UnboundLogicalSink(List<String> nameParts,
+                              PlanType type,
+                              List<NamedExpression> outputExprs,
                               Optional<GroupExpression> groupExpression,
                               Optional<LogicalProperties> logicalProperties,
                               List<String> colNames,
@@ -50,6 +45,7 @@ public abstract class UnboundLogicalSink<CHILD_TYPE extends Plan> extends Logica
         super(type, outputExprs, groupExpression, logicalProperties, child);
         this.colNames = Utils.copyRequiredList(colNames);
         this.dmlCommandType = dmlCommandType;
+        this.nameParts = Utils.copyRequiredList(nameParts);
     }
 
     public DMLCommandType getDMLCommandType() {
@@ -58,5 +54,9 @@ public abstract class UnboundLogicalSink<CHILD_TYPE extends Plan> extends Logica
 
     public List<String> getColNames() {
         return colNames;
+    }
+
+    public List<String> getNameParts() {
+        return nameParts;
     }
 }

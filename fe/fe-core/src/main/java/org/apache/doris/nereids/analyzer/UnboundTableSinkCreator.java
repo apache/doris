@@ -38,7 +38,7 @@ import java.util.Optional;
 public class UnboundTableSinkCreator {
 
     /**
-     * create unbound sink
+     * create unbound sink without DML command
      */
     public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
                 List<String> colNames, List<String> hints, List<String> partitions, Plan query)
@@ -54,7 +54,7 @@ public class UnboundTableSinkCreator {
     }
 
     /**
-     * create unbound sink
+     * create unbound sink for DML plan
      */
     public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
                 List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,

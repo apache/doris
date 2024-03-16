@@ -45,8 +45,6 @@ import java.util.Optional;
  */
 public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSink<CHILD_TYPE>
         implements Unbound, Sink, BlockFuncDepsPropagation {
-
-    private final List<String> nameParts;
     private final List<String> hints;
     private final boolean temporaryPartition;
     private final List<String> partitions;
@@ -67,18 +65,13 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
             boolean isPartialUpdate, DMLCommandType dmlCommandType,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, ImmutableList.of(), groupExpression, logicalProperties,
-                colNames, dmlCommandType, child);
-        this.nameParts = Utils.copyRequiredList(nameParts);
+        super(nameParts, PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, ImmutableList.of(), groupExpression,
+                logicalProperties, colNames, dmlCommandType, child);
         this.hints = Utils.copyRequiredList(hints);
         this.temporaryPartition = temporaryPartition;
         this.partitions = Utils.copyRequiredList(partitions);
         this.isPartialUpdate = isPartialUpdate;
         this.dmlCommandType = dmlCommandType;
-    }
-
-    public List<String> getNameParts() {
-        return nameParts;
     }
 
     public boolean isTemporaryPartition() {

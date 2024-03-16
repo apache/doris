@@ -45,7 +45,6 @@ import java.util.Optional;
  */
 public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSink<CHILD_TYPE>
         implements Unbound, Sink, BlockFuncDepsPropagation {
-    private final List<String> nameParts;
     private final List<String> hints;
     private final List<String> partitions;
 
@@ -64,19 +63,14 @@ public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends UnboundLogica
                                 Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties,
                                 CHILD_TYPE child) {
-        super(PlanType.LOGICAL_UNBOUND_HIVE_TABLE_SINK, ImmutableList.of(), groupExpression,
+        super(nameParts, PlanType.LOGICAL_UNBOUND_HIVE_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child);
-        this.nameParts = Utils.copyRequiredList(nameParts);
         this.hints = Utils.copyRequiredList(hints);
         this.partitions = Utils.copyRequiredList(partitions);
     }
 
     public List<String> getColNames() {
         return colNames;
-    }
-
-    public List<String> getNameParts() {
-        return nameParts;
     }
 
     public List<String> getPartitions() {

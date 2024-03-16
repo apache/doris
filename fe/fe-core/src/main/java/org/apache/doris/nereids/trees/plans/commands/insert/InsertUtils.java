@@ -347,17 +347,17 @@ public class InsertUtils {
      * get target table from names.
      */
     public static TableIf getTargetTable(Plan plan, ConnectContext ctx) {
+        UnboundLogicalSink<? extends Plan> unboundTableSink;
         if (plan instanceof UnboundTableSink) {
-            UnboundTableSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
-            List<String> tableQualifier = RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
-            return RelationUtil.getDbAndTable(tableQualifier, ctx.getEnv()).second;
+            unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundHiveTableSink) {
-            UnboundHiveTableSink<? extends Plan> unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
-            List<String> tableQualifier = RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
-            return RelationUtil.getDbAndTable(tableQualifier, ctx.getEnv()).second;
+            unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
+        } else {
+            throw new AnalysisException("the root of plan should be UnboundTableSink or UnboundHiveTableSink"
+                    + " but it is " + plan.getType());
         }
-        throw new AnalysisException("the root of plan should be UnboundTableSink or UnboundHiveTableSink"
-                + " but it is " + plan.getType());
+        List<String> tableQualifier = RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
+        return RelationUtil.getDbAndTable(tableQualifier, ctx.getEnv()).second;
     }
 
     private static NamedExpression generateDefaultExpression(Column column) {

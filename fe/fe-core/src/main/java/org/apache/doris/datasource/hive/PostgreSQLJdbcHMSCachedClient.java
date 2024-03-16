@@ -183,8 +183,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
                             + " \"PART_NAME\", \"PARTITIONS\".\"SD_ID\" FROM \"PARTITIONS\""
                             + " join \"TBLS\" on \"TBLS\".\"TBL_ID\" = \"PARTITIONS\".\"TBL_ID\""
                             + " join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\""
-                            + " WHERE \"DBS\".\"NAME\" = '%s' AND \"TBLS\".\"TBL_NAME\"='%s'"
-                            + " AND \"PART_NAME\";",
+                            + " WHERE \"DBS\".\"NAME\" = '%s' AND \"TBLS\".\"TBL_NAME\"='%s';",
                     dbName, tblName);
         } else {
             String partitionNamesString = Joiner.on(", ").join(partitionNamesWithQuote);

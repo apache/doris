@@ -31,7 +31,7 @@ public class DistributionSpecTableSinkHashPartitioned extends DistributionSpec {
 
     private List<ExprId> outputColExprIds;
 
-    private DistributionSpecTableSinkHashPartitioned() {
+    public DistributionSpecTableSinkHashPartitioned() {
         super();
     }
 

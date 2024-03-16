@@ -153,14 +153,12 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
                     columnIdx.add(i);
                 }
             }
-            DistributionSpecTableSinkHashPartitioned shuffleInfo =
-                    (DistributionSpecTableSinkHashPartitioned) PhysicalProperties.SINK_HASH_PARTITIONED
-                            .getDistributionSpec();
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
+            DistributionSpecTableSinkHashPartitioned shuffleInfo = new DistributionSpecTableSinkHashPartitioned();
             shuffleInfo.setOutputColExprIds(exprIds);
-            return PhysicalProperties.SINK_HASH_PARTITIONED;
+            return new PhysicalProperties(shuffleInfo);
         }
         return PhysicalProperties.SINK_RANDOM_PARTITIONED;
     }

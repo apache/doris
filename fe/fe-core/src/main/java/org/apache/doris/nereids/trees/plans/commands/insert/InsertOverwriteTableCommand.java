@@ -190,7 +190,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             insertCtx = new HiveInsertCommandContext();
             ((HiveInsertCommandContext) insertCtx).setOverwrite(false);
         } else {
-            throw new RuntimeException("Current catalog has not supported insert overwrite yet.");
+            throw new RuntimeException("Current catalog does not support insert overwrite yet.");
         }
         InsertIntoTableCommand insertCommand =
                 new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
