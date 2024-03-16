@@ -118,11 +118,45 @@ using LikeFn = std::function<doris::Status(LikeSearchState*, const ColumnString&
 using ScalarLikeFn = std::function<doris::Status(LikeSearchState*, const StringRef&,
                                                  const StringRef&, unsigned char*)>;
 
+using VectorLikeFn = std::function<doris::Status(const ColumnString&, const ColumnString&,
+                                                 ColumnUInt8::Container&)>;
+
 struct LikeState {
     LikeSearchState search_state;
     LikeFn function;
     ScalarLikeFn scalar_function;
 };
+
+class FunctionLikeBase;
+class FunctionLike;
+
+enum class PatternType {
+    ALLPASS,
+    EQUAL,
+    SUBSTRING,
+    STARTS_WITH,
+    ENDS_WITH,
+    REGEXP
+};
+
+struct VectorLikeSearchState {
+    PatternType _pattern_type;
+    MutableColumnPtr _search_strings;
+    VectorLikeFn _vector_function;
+    bool _pattern_matched;
+
+    VectorLikeSearchState(PatternType pattern_type, VectorLikeFn vector_function) 
+                            : _pattern_type(pattern_type),
+                              _search_strings(ColumnString::create()),
+                              _vector_function(vector_function),
+                              _pattern_matched(true) {}
+
+    virtual ~VectorLikeSearchState() = default;
+
+    virtual void pattern_match(const std::string& pattern_str) = 0;
+};
+
+using VLikeSearchStateSPtr = std::shared_ptr<VectorLikeSearchState>;
 
 class FunctionLikeBase : public IFunction {
 public:
@@ -137,53 +171,80 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
+    friend struct VectorAllpassSearchState;
+    friend struct VectorEqualSearchState;
+    friend struct VectorSubStringSearchState;
+    friend struct VectorStartsWithSearchState;
+    friend struct VectorEndsWithSearchState;
+
 protected:
     Status vector_const(const ColumnString& values, const StringRef* pattern_val,
                         ColumnUInt8::Container& result, const LikeFn& function,
                         LikeSearchState* search_state) const;
 
+    Status vector_non_const(const ColumnString& values, const ColumnString& patterns,
+                            ColumnUInt8::Container& result, const ScalarLikeFn& function,
+                            LikeSearchState* search_state, size_t input_rows_count) const;
+
     Status execute_substring(const ColumnString::Chars& values,
                              const ColumnString::Offsets& value_offsets,
                              ColumnUInt8::Container& result, LikeSearchState* search_state) const;
 
+    static VLikeSearchStateSPtr pattern_type_recognition(const ColumnString& patterns);
+
     static Status constant_allpass_fn(LikeSearchState* state, const ColumnString& val,
                                       const StringRef& pattern, ColumnUInt8::Container& result);
-
-    static Status constant_starts_with_fn(LikeSearchState* state, const ColumnString& val,
-                                          const StringRef& pattern, ColumnUInt8::Container& result);
-
-    static Status constant_ends_with_fn(LikeSearchState* state, const ColumnString& val,
-                                        const StringRef& pattern, ColumnUInt8::Container& result);
-
-    static Status constant_equals_fn(LikeSearchState* state, const ColumnString& val,
-                                     const StringRef& pattern, ColumnUInt8::Container& result);
-
-    static Status constant_substring_fn(LikeSearchState* state, const ColumnString& val,
-                                        const StringRef& pattern, ColumnUInt8::Container& result);
-
-    static Status constant_regex_fn(LikeSearchState* state, const ColumnString& val,
-                                    const StringRef& pattern, ColumnUInt8::Container& result);
-
-    static Status regexp_fn(LikeSearchState* state, const ColumnString& val,
-                            const StringRef& pattern, ColumnUInt8::Container& result);
 
     static Status constant_allpass_fn_scalar(LikeSearchState* state, const StringRef& val,
                                              const StringRef& pattern, unsigned char* result);
 
+    static Status vector_allpass_fn(const ColumnString& vals, const ColumnString& search_strings,
+                                    ColumnUInt8::Container& result);
+
+    static Status constant_starts_with_fn(LikeSearchState* state, const ColumnString& val,
+                                          const StringRef& pattern, ColumnUInt8::Container& result);
+
     static Status constant_starts_with_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                  const StringRef& pattern, unsigned char* result);
+
+    static Status vector_starts_with_fn(const ColumnString& vals, const ColumnString& search_strings,
+                                        ColumnUInt8::Container& result);
+
+    static Status constant_ends_with_fn(LikeSearchState* state, const ColumnString& val,
+                                        const StringRef& pattern, ColumnUInt8::Container& result);
 
     static Status constant_ends_with_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                const StringRef& pattern, unsigned char* result);
 
+    static Status vector_ends_with_fn(const ColumnString& vals, const ColumnString& search_strings,
+                                      ColumnUInt8::Container& result);
+
+    static Status constant_equals_fn(LikeSearchState* state, const ColumnString& val,
+                                     const StringRef& pattern, ColumnUInt8::Container& result);
+
     static Status constant_equals_fn_scalar(LikeSearchState* state, const StringRef& val,
                                             const StringRef& pattern, unsigned char* result);
+
+    static Status vector_equals_fn(const ColumnString& vals, const ColumnString& search_strings,
+                                   ColumnUInt8::Container& result);
+
+    static Status constant_substring_fn(LikeSearchState* state, const ColumnString& val,
+                                        const StringRef& pattern, ColumnUInt8::Container& result);
 
     static Status constant_substring_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                const StringRef& pattern, unsigned char* result);
 
+    static Status vector_substring_fn(const ColumnString& vals, const ColumnString& search_strings,
+                                      ColumnUInt8::Container& result);
+
+    static Status constant_regex_fn(LikeSearchState* state, const ColumnString& val,
+                                    const StringRef& pattern, ColumnUInt8::Container& result);
+
     static Status constant_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
                                            const StringRef& pattern, unsigned char* result);
+
+    static Status regexp_fn(LikeSearchState* state, const ColumnString& val,
+                            const StringRef& pattern, ColumnUInt8::Container& result);
 
     static Status regexp_fn_scalar(LikeSearchState* state, const StringRef& val,
                                    const StringRef& pattern, unsigned char* result);
@@ -204,6 +265,11 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     friend struct LikeSearchState;
+    friend struct VectorAllpassSearchState;
+    friend struct VectorEqualSearchState;
+    friend struct VectorSubStringSearchState;
+    friend struct VectorStartsWithSearchState;
+    friend struct VectorEndsWithSearchState;
 
 private:
     static Status like_fn(LikeSearchState* state, const ColumnString& val, const StringRef& pattern,
