@@ -17,6 +17,11 @@
 
 #include "join_probe_operator.h"
 
+#include <memory>
+
+#include "common/exception.h"
+#include "common/logging.h"
+#include "common/status.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/operator.h"
@@ -104,7 +109,7 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
     auto insert_column_datas = [keep_origin](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (keep_origin || !from->is_exclusive()) {
-                auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
+                auto& null_column = assert_cast<vectorized::ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);
                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
             } else {
@@ -118,6 +123,35 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
             }
         }
     };
+
+    LOG_WARNING("yxc test empty copy");
+
+    auto print = [](vectorized::VExprContextSPtrs& ctxs) {
+        std::string s = "[    ";
+        for (auto& ctx : ctxs) {
+            s += ctx->root()->debug_string() + "\t\t\t";
+        }
+        return s + "    ]";
+    };
+
+    auto print_desc = [](std::unique_ptr<RowDescriptor>& desc) {
+        std::string ret;
+        if (!desc) {
+            ret = "is null";
+        } else {
+            ret = desc->debug_string();
+        }
+        return ret;
+    };
+
+    LOG_WARNING("yxc  test  ")
+            .tag("Base::_projections", print(Base::_projections))
+            .tag("_output_expr_ctxs", print(_output_expr_ctxs))
+            .tag("output_block", mutable_block.dump_names() + "   " + mutable_block.dump_types())
+            .tag("orgin block ", origin_block->dump_structure())
+            .tag("_intermediate_row_desc", print_desc(p._intermediate_row_desc))
+            .tag("plan node", print_desc(p._output_row_descriptor))
+            .tag("join node", print_desc(p._output_row_desc));
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
@@ -208,7 +242,13 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
         if (!Base::_output_row_descriptor) {
             _output_row_desc.reset(
                     new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+        } else {
+            if (tnode.hash_join_node.__isset.voutput_tuple_id) {
+                throw Exception {ErrorCode::INTERNAL_ERROR,
+                                 "yxc test error .__isset.voutput_tuple_id"};
+            }
         }
+
     } else if (tnode.__isset.nested_loop_join_node) {
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list,
