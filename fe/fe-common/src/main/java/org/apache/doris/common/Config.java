@@ -2532,6 +2532,9 @@ public class Config extends ConfigBase {
     })
     public static String inverted_index_storage_format = "V1";
 
+    @ConfField
+    public static boolean enable_proxy_protocol = false;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
