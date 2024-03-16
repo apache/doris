@@ -80,10 +80,10 @@ public class HashJoinNode extends JoinNodeBase {
     private List<Expr> markJoinConjuncts;
 
     private DistributionMode distrMode;
-    private boolean isColocate = false; //the flag for colocate join
+    private boolean isColocate = false; // the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
 
-    private Set<SlotId> hashOutputSlotIds = Sets.newHashSet(); //init for nereids
+    private Set<SlotId> hashOutputSlotIds = Sets.newHashSet(); // init for nereids
 
     private Map<ExprId, SlotId> hashOutputExprSlotIdMap = Maps.newHashMap();
 
@@ -251,12 +251,15 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     /**
-     * Calculate the slots output after going through the hash table in the hash join node.
-     * The most essential difference between 'hashOutputSlots' and 'outputSlots' is that
+     * Calculate the slots output after going through the hash table in the hash
+     * join node.
+     * The most essential difference between 'hashOutputSlots' and 'outputSlots' is
+     * that
      * it's output needs to contain other conjunct and conjunct columns.
      * hash output slots = output slots + conjunct slots + other conjunct slots
      * For example:
-     * select b.k1 from test.t1 a right join test.t1 b on a.k1=b.k1 and b.k2>1 where a.k2>1;
+     * select b.k1 from test.t1 a right join test.t1 b on a.k1=b.k1 and b.k2>1 where
+     * a.k2>1;
      * output slots: b.k1
      * other conjuncts: a.k2>1
      * conjuncts: b.k2>1
@@ -328,18 +331,16 @@ public class HashJoinNode extends JoinNodeBase {
 
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
         List<Expr> newEqJoinConjuncts = Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
-        eqJoinConjuncts =
-                newEqJoinConjuncts.stream().map(entity -> {
-                            BinaryPredicate predicate = (BinaryPredicate) entity;
-                            if (predicate.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
-                                Preconditions.checkArgument(predicate.getChildren().size() == 2);
-                                if (!predicate.getChild(0).isNullable() || !predicate.getChild(1).isNullable()) {
-                                    predicate.setOp(BinaryPredicate.Operator.EQ);
-                                }
-                            }
-                            return predicate;
-                        }
-                ).collect(Collectors.toList());
+        eqJoinConjuncts = newEqJoinConjuncts.stream().map(entity -> {
+            BinaryPredicate predicate = (BinaryPredicate) entity;
+            if (predicate.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
+                Preconditions.checkArgument(predicate.getChildren().size() == 2);
+                if (!predicate.getChild(0).isNullable() || !predicate.getChild(1).isNullable()) {
+                    predicate.setOp(BinaryPredicate.Operator.EQ);
+                }
+            }
+            return predicate;
+        }).collect(Collectors.toList());
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
         computeOutputTuple(analyzer);
@@ -384,7 +385,8 @@ public class HashJoinNode extends JoinNodeBase {
             this.rhs = rhs;
         }
 
-        // Convenience functions. They return double to avoid excessive casts in callers.
+        // Convenience functions. They return double to avoid excessive casts in
+        // callers.
         public double lhsNdv() {
             // return the estimated number of rows in this partition (-1 if unknown)
             return Math.min(lhs.getStats().getNumDistinctValues(), lhsNumRows());
@@ -415,8 +417,10 @@ public class HashJoinNode extends JoinNodeBase {
         }
 
         /**
-         * Returns a new EqJoinConjunctScanSlots for the given equi-join conjunct or null if
-         * the given conjunct is not of the form <SlotRef> = <SlotRef> or if the underlying
+         * Returns a new EqJoinConjunctScanSlots for the given equi-join conjunct or
+         * null if
+         * the given conjunct is not of the form <SlotRef> = <SlotRef> or if the
+         * underlying
          * table/column of at least one side is missing stats.
          */
         public static EqJoinConjunctScanSlots create(Expr eqJoinConjunct) {
@@ -478,7 +482,8 @@ public class HashJoinNode extends JoinNodeBase {
             return lhsCard;
         }
 
-        // Collect join conjuncts that are eligible to participate in cardinality estimation.
+        // Collect join conjuncts that are eligible to participate in cardinality
+        // estimation.
         List<EqJoinConjunctScanSlots> eqJoinConjunctSlots = new ArrayList<>();
         for (Expr eqJoinConjunct : eqJoinConjuncts) {
             EqJoinConjunctScanSlots slots = EqJoinConjunctScanSlots.create(eqJoinConjunct);
@@ -496,10 +501,13 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     /**
-     * Returns the estimated join cardinality of a generic N:M inner or outer join based
-     * on the given list of equi-join conjunct slots and the join input cardinalities.
+     * Returns the estimated join cardinality of a generic N:M inner or outer join
+     * based
+     * on the given list of equi-join conjunct slots and the join input
+     * cardinalities.
      * The returned result is >= 0.
-     * The list of join conjuncts must be non-empty and the cardinalities must be >= 0.
+     * The list of join conjuncts must be non-empty and the cardinalities must be >=
+     * 0.
      * <p>
      * Generic estimation:
      * cardinality = |child(0)| * |child(1)| / max(NDV(L.c), NDV(R.d))
@@ -518,7 +526,8 @@ public class HashJoinNode extends JoinNodeBase {
 
         long result = -1;
         for (EqJoinConjunctScanSlots slots : eqJoinConjunctSlots) {
-            // Adjust the NDVs on both sides to account for predicates. Intuitively, the NDVs
+            // Adjust the NDVs on both sides to account for predicates. Intuitively, the
+            // NDVs
             // should only decrease. We ignore adjustments that would lead to an increase.
             double lhsAdjNdv = slots.lhsNdv();
             if (slots.lhsNumRows() > lhsCard) {
@@ -542,7 +551,6 @@ public class HashJoinNode extends JoinNodeBase {
         return result;
     }
 
-
     @Override
     public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
@@ -553,25 +561,28 @@ public class HashJoinNode extends JoinNodeBase {
 
     @Override
     protected void computeOldCardinality() {
-        // For a join between child(0) and child(1), we look for join conditions "L.c = R.d"
+        // For a join between child(0) and child(1), we look for join conditions "L.c =
+        // R.d"
         // (with L being from child(0) and R from child(1)) and use as the cardinality
         // estimate the maximum of
-        //   child(0).cardinality * R.cardinality / # distinct values for R.d
-        //     * child(1).cardinality / R.cardinality
+        // child(0).cardinality * R.cardinality / # distinct values for R.d
+        // * child(1).cardinality / R.cardinality
         // across all suitable join conditions, which simplifies to
-        //   child(0).cardinality * child(1).cardinality / # distinct values for R.d
+        // child(0).cardinality * child(1).cardinality / # distinct values for R.d
         // The reasoning is that
         // - each row in child(0) joins with R.cardinality/#DV_R.d rows in R
         // - each row in R is 'present' in child(1).cardinality / R.cardinality rows in
-        //   child(1)
+        // child(1)
         //
         // This handles the very frequent case of a fact table/dimension table join
-        // (aka foreign key/primary key join) if the primary key is a single column, with
+        // (aka foreign key/primary key join) if the primary key is a single column,
+        // with
         // possible additional predicates against the dimension table. An example:
-        // FROM FactTbl F JOIN Customers C D ON (F.cust_id = C.id) ... WHERE C.region = 'US'
+        // FROM FactTbl F JOIN Customers C D ON (F.cust_id = C.id) ... WHERE C.region =
+        // 'US'
         // - if there are 5 regions, the selectivity of "C.region = 'US'" would be 0.2
-        //   and the output cardinality of the Customers scan would be 0.2 * # rows in
-        //   Customers
+        // and the output cardinality of the Customers scan would be 0.2 * # rows in
+        // Customers
         // - # rows in Customers == # of distinct values for Customers.id
         // - the output cardinality of the join would be F.cardinality * 0.2
 
@@ -596,12 +607,12 @@ public class HashJoinNode extends JoinNodeBase {
             }
             long numDistinct = stats.getNumDistinctValues();
             // TODO rownum
-            //Table rhsTbl = slotDesc.getParent().getTableFamilyGroup().getBaseTable();
+            // Table rhsTbl = slotDesc.getParent().getTableFamilyGroup().getBaseTable();
             // if (rhsTbl != null && rhsTbl.getNumRows() != -1) {
             // we can't have more distinct values than rows in the table, even though
             // the metastore stats may think so
             // LOG.info(
-            //   "#distinct=" + numDistinct + " #rows=" + Long.toString(rhsTbl.getNumRows()));
+            // "#distinct=" + numDistinct + " #rows=" + Long.toString(rhsTbl.getNumRows()));
             // numDistinct = Math.min(numDistinct, rhsTbl.getNumRows());
             // }
             maxNumDistinct = Math.max(maxNumDistinct, numDistinct);
@@ -650,7 +661,8 @@ public class HashJoinNode extends JoinNodeBase {
     /**
      * Returns the estimated cardinality of a semi join node.
      * For a left semi join between child(0) and child(1), we look for equality join
-     * conditions "L.c = R.d" (with L being from child(0) and R from child(1)) and use as
+     * conditions "L.c = R.d" (with L being from child(0) and R from child(1)) and
+     * use as
      * the cardinality estimate the minimum of
      * |child(0)| * Min(NDV(L.c), NDV(R.d)) / NDV(L.c)
      * over all suitable join conditions. The reasoning is that:
@@ -666,7 +678,8 @@ public class HashJoinNode extends JoinNodeBase {
      * in child(1) is (NDV(L.c) - NDV(R.d)) / NDV(L.c)
      * - otherwise, we conservatively use |L| to avoid underestimation
      * <p>
-     * We analogously estimate the cardinality for right semi/anti joins, and treat the
+     * We analogously estimate the cardinality for right semi/anti joins, and treat
+     * the
      * null-aware anti join like a regular anti join
      */
     private long getSemiJoinCardinality() {
@@ -753,7 +766,7 @@ public class HashJoinNode extends JoinNodeBase {
         }
     }
 
-    //nereids only
+    // nereids only
     public void addSlotIdToHashOutputSlotIds(SlotId slotId) {
         hashOutputSlotIds.add(slotId);
     }
@@ -803,11 +816,11 @@ public class HashJoinNode extends JoinNodeBase {
         }
         if (ConnectContext.get() != null && !ConnectContext.get().getState().isNereids()) {
             if (vSrcToOutputSMap != null && vSrcToOutputSMap.getLhs() != null
-                && outputTupleDesc != null) {
+                    && outputTupleDesc != null) {
                 List<Expr> lhs = vSrcToOutputSMap.getLhs();
                 if (outputTupleDesc.getSlots().size() == outputTupleDesc.getSlots().size()) {
                     boolean match = true;
-                    for (int i=0 ; i< vSrcToOutputSMap.size(); i++) {
+                    for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                         if (!outputTupleDesc.getSlots().get(i).getType().equals(lhs.get(i).getType())) {
                             match = false;
                             break;
@@ -841,9 +854,9 @@ public class HashJoinNode extends JoinNodeBase {
         } else {
             distrModeStr = distrMode.toString();
         }
-        StringBuilder output =
-                new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("(")
-                        .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
+        StringBuilder output = new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString())
+                .append("(")
+                .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(
                     String.format("cardinality=%,d", cardinality)).append("\n");
