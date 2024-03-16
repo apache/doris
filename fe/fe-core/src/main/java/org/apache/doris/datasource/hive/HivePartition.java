@@ -42,6 +42,7 @@ public class HivePartition {
     private String serde;
     private List<FieldSchema> columns;
 
+    // If you want to read the data under a partition, you can use this constructor
     public HivePartition(String dbName, String tblName, boolean isDummyPartition,
             String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters) {
         this.dbName = dbName;
@@ -56,6 +57,8 @@ public class HivePartition {
         this.parameters = parameters;
     }
 
+    // If you want to update hms with partition, then you can use this constructor,
+    // as updating hms requires some additional information, such as outputFormat and so on
     public HivePartition(String dbName, String tblName, boolean isDummyPartition,
                          String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters,
                          String outputFormat, String serde, List<FieldSchema> columns) {
