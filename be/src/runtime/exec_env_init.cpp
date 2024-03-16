@@ -464,7 +464,7 @@ Status ExecEnv::_init_mem_env() {
         inverted_index_cache_limit = inverted_index_cache_limit / 2;
     }
     _inverted_index_searcher_cache =
-            InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit);
+            InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit, 256);
     LOG(INFO) << "Inverted index searcher cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_searcher_cache_limit;
@@ -478,7 +478,7 @@ Status ExecEnv::_init_mem_env() {
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
     _inverted_index_query_cache =
-            InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit);
+            InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 256);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
