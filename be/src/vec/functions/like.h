@@ -130,14 +130,7 @@ struct LikeState {
 class FunctionLikeBase;
 class FunctionLike;
 
-enum class PatternType {
-    ALLPASS,
-    EQUAL,
-    SUBSTRING,
-    STARTS_WITH,
-    ENDS_WITH,
-    REGEXP
-};
+enum class PatternType { ALLPASS, EQUAL, SUBSTRING, STARTS_WITH, ENDS_WITH, REGEXP };
 
 struct VectorLikeSearchState {
     PatternType _pattern_type;
@@ -145,11 +138,11 @@ struct VectorLikeSearchState {
     VectorLikeFn _vector_function;
     bool _pattern_matched;
 
-    VectorLikeSearchState(PatternType pattern_type, VectorLikeFn vector_function) 
-                            : _pattern_type(pattern_type),
-                              _search_strings(ColumnString::create()),
-                              _vector_function(vector_function),
-                              _pattern_matched(true) {}
+    VectorLikeSearchState(PatternType pattern_type, VectorLikeFn vector_function)
+            : _pattern_type(pattern_type),
+              _search_strings(ColumnString::create()),
+              _vector_function(vector_function),
+              _pattern_matched(true) {}
 
     virtual ~VectorLikeSearchState() = default;
 
@@ -207,7 +200,8 @@ protected:
     static Status constant_starts_with_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                  const StringRef& pattern, unsigned char* result);
 
-    static Status vector_starts_with_fn(const ColumnString& vals, const ColumnString& search_strings,
+    static Status vector_starts_with_fn(const ColumnString& vals,
+                                        const ColumnString& search_strings,
                                         ColumnUInt8::Container& result);
 
     static Status constant_ends_with_fn(LikeSearchState* state, const ColumnString& val,

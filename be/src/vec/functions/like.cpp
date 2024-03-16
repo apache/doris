@@ -61,7 +61,8 @@ static const re2::RE2 LIKE_EQUALS_RE("(((\\\\_)|([^%_]))+)");
 static const re2::RE2 LIKE_ALLPASS_RE("%+");
 
 struct VectorAllpassSearchState : public VectorLikeSearchState {
-    VectorAllpassSearchState() : VectorLikeSearchState(PatternType::ALLPASS, FunctionLikeBase::vector_allpass_fn) {}
+    VectorAllpassSearchState()
+            : VectorLikeSearchState(PatternType::ALLPASS, FunctionLikeBase::vector_allpass_fn) {}
 
     ~VectorAllpassSearchState() = default;
 
@@ -75,7 +76,8 @@ struct VectorAllpassSearchState : public VectorLikeSearchState {
 };
 
 struct VectorEqualSearchState : public VectorLikeSearchState {
-    VectorEqualSearchState() : VectorLikeSearchState(PatternType::EQUAL, FunctionLikeBase::vector_equals_fn) {}
+    VectorEqualSearchState()
+            : VectorLikeSearchState(PatternType::EQUAL, FunctionLikeBase::vector_equals_fn) {}
 
     ~VectorEqualSearchState() = default;
 
@@ -91,7 +93,9 @@ struct VectorEqualSearchState : public VectorLikeSearchState {
 };
 
 struct VectorSubStringSearchState : public VectorLikeSearchState {
-    VectorSubStringSearchState() : VectorLikeSearchState(PatternType::SUBSTRING, FunctionLikeBase::vector_substring_fn) {}
+    VectorSubStringSearchState()
+            : VectorLikeSearchState(PatternType::SUBSTRING, FunctionLikeBase::vector_substring_fn) {
+    }
 
     ~VectorSubStringSearchState() = default;
 
@@ -107,7 +111,9 @@ struct VectorSubStringSearchState : public VectorLikeSearchState {
 };
 
 struct VectorStartsWithSearchState : public VectorLikeSearchState {
-    VectorStartsWithSearchState() : VectorLikeSearchState(PatternType::STARTS_WITH, FunctionLikeBase::vector_starts_with_fn) {}
+    VectorStartsWithSearchState()
+            : VectorLikeSearchState(PatternType::STARTS_WITH,
+                                    FunctionLikeBase::vector_starts_with_fn) {}
 
     ~VectorStartsWithSearchState() = default;
 
@@ -123,7 +129,9 @@ struct VectorStartsWithSearchState : public VectorLikeSearchState {
 };
 
 struct VectorEndsWithSearchState : public VectorLikeSearchState {
-    VectorEndsWithSearchState() : VectorLikeSearchState(PatternType::ENDS_WITH, FunctionLikeBase::vector_ends_with_fn) {}
+    VectorEndsWithSearchState()
+            : VectorLikeSearchState(PatternType::ENDS_WITH, FunctionLikeBase::vector_ends_with_fn) {
+    }
 
     ~VectorEndsWithSearchState() = default;
 
@@ -184,7 +192,8 @@ Status FunctionLikeBase::constant_allpass_fn_scalar(LikeSearchState* state, cons
     return Status::OK();
 }
 
-Status FunctionLikeBase::vector_allpass_fn(const ColumnString& vals, const ColumnString& search_strings,
+Status FunctionLikeBase::vector_allpass_fn(const ColumnString& vals,
+                                           const ColumnString& search_strings,
                                            ColumnUInt8::Container& result) {
     DCHECK(vals.size() == search_strings.size());
     DCHECK(vals.size() == result.size());
@@ -216,7 +225,8 @@ Status FunctionLikeBase::constant_starts_with_fn_scalar(LikeSearchState* state,
     return Status::OK();
 }
 
-Status FunctionLikeBase::vector_starts_with_fn(const ColumnString& vals, const ColumnString& search_strings,
+Status FunctionLikeBase::vector_starts_with_fn(const ColumnString& vals,
+                                               const ColumnString& search_strings,
                                                ColumnUInt8::Container& result) {
     DCHECK(vals.size() == search_strings.size());
     DCHECK(vals.size() == result.size());
@@ -250,7 +260,8 @@ Status FunctionLikeBase::constant_ends_with_fn_scalar(LikeSearchState* state, co
     return Status::OK();
 }
 
-Status FunctionLikeBase::vector_ends_with_fn(const ColumnString& vals, const ColumnString& search_strings,
+Status FunctionLikeBase::vector_ends_with_fn(const ColumnString& vals,
+                                             const ColumnString& search_strings,
                                              ColumnUInt8::Container& result) {
     DCHECK(vals.size() == search_strings.size());
     DCHECK(vals.size() == result.size());
@@ -280,7 +291,8 @@ Status FunctionLikeBase::constant_equals_fn_scalar(LikeSearchState* state, const
     return Status::OK();
 }
 
-Status FunctionLikeBase::vector_equals_fn(const ColumnString& vals, const ColumnString& search_strings,
+Status FunctionLikeBase::vector_equals_fn(const ColumnString& vals,
+                                          const ColumnString& search_strings,
                                           ColumnUInt8::Container& result) {
     DCHECK(vals.size() == search_strings.size());
     DCHECK(vals.size() == result.size());
@@ -318,7 +330,8 @@ Status FunctionLikeBase::constant_substring_fn_scalar(LikeSearchState* state, co
     return Status::OK();
 }
 
-Status FunctionLikeBase::vector_substring_fn(const ColumnString& vals, const ColumnString& search_strings,
+Status FunctionLikeBase::vector_substring_fn(const ColumnString& vals,
+                                             const ColumnString& search_strings,
                                              ColumnUInt8::Container& result) {
     DCHECK(vals.size() == search_strings.size());
     DCHECK(vals.size() == result.size());
@@ -489,8 +502,9 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     } else {
         const auto pattern_col = block.get_by_position(arguments[1]).column;
         if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
-            RETURN_IF_ERROR(vector_non_const(*values, *str_patterns, vec_res, state->scalar_function,
-                                             &state->search_state, input_rows_count));
+            RETURN_IF_ERROR(vector_non_const(*values, *str_patterns, vec_res,
+                                             state->scalar_function, &state->search_state,
+                                             input_rows_count));
         } else if (const auto* const_patterns =
                            check_and_get_column<ColumnConst>(pattern_col.get())) {
             const auto& pattern_val = const_patterns->get_data_at(0);
@@ -566,10 +580,8 @@ VLikeSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnStri
     size_t size = patterns.size();
 
     for (size_t i = 0; i < size; ++i) {
-        if (!allpass_state->_pattern_matched &&
-            !equal_state->_pattern_matched &&
-            !substring_state->_pattern_matched &&
-            !starts_with_state->_pattern_matched &&
+        if (!allpass_state->_pattern_matched && !equal_state->_pattern_matched &&
+            !substring_state->_pattern_matched && !starts_with_state->_pattern_matched &&
             !ends_with_state->_pattern_matched) {
             break;
         }
@@ -607,21 +619,23 @@ VLikeSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnStri
 }
 
 Status FunctionLikeBase::vector_non_const(const ColumnString& values, const ColumnString& patterns,
-                                          ColumnUInt8::Container& result, const ScalarLikeFn& function,
-                                          LikeSearchState* search_state, size_t input_rows_count) const {
+                                          ColumnUInt8::Container& result,
+                                          const ScalarLikeFn& function,
+                                          LikeSearchState* search_state,
+                                          size_t input_rows_count) const {
     VLikeSearchStateSPtr vector_search_state = pattern_type_recognition(patterns);
     if (vector_search_state == nullptr) {
         // pattern type recognition failed, use REGEXP case
         for (int i = 0; i < input_rows_count; i++) {
             const auto pattern_val = patterns.get_data_at(i);
             const auto value_val = values.get_data_at(i);
-            RETURN_IF_ERROR((function)(
-                    const_cast<vectorized::LikeSearchState*>(search_state), value_val,
-                    pattern_val, &result[i]));
+            RETURN_IF_ERROR((function)(const_cast<vectorized::LikeSearchState*>(search_state),
+                                       value_val, pattern_val, &result[i]));
         }
-        return Status::OK(); 
+        return Status::OK();
     }
-    const auto* search_strings = static_cast<const ColumnString*>(vector_search_state->_search_strings.get());
+    const auto* search_strings =
+            static_cast<const ColumnString*>(vector_search_state->_search_strings.get());
     return (vector_search_state->_vector_function)(values, *search_strings, result);
 }
 
