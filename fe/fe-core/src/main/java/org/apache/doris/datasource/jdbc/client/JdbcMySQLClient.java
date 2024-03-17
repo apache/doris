@@ -77,7 +77,7 @@ public class JdbcMySQLClient extends JdbcClient {
         } finally {
             close(conn);
         }
-        return databaseNames;
+        return jdbcLowerCaseMetaMatching.setDatabaseNameMapping(databaseNames);
     }
 
     @Override

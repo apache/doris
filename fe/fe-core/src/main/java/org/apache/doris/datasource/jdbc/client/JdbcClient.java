@@ -363,7 +363,7 @@ public abstract class JdbcClient {
         } finally {
             close(conn);
         }
-        return databaseNames;
+        return jdbcLowerCaseMetaMatching.setDatabaseNameMapping(databaseNames);
     }
 
     protected String[] getTableTypes() {
