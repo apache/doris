@@ -136,6 +136,11 @@ public abstract class ExternalCatalog
         return conf;
     }
 
+    // only for test
+    public void setInitialized() {
+        initialized = true;
+    }
+
     /**
      * set some default properties when creating catalog
      * @return list of database names in this catalog

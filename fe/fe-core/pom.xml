@@ -789,6 +789,10 @@ under the License.
             <groupId>io.trino</groupId>
             <artifactId>trino-main</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>concurrent</artifactId>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->
