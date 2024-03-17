@@ -587,7 +587,7 @@ Since 2.1.1, Doris supports [Proxy Protocol](https://www.haproxy.org/download/1.
 >
 > 3. After enable, the Proxy Protocol must be used to connect, otherwise the connection will fail.
 
-The following uses Ngnix as an example to introduce how to implement IP transparency.
+The following uses Nginx as an example to introduce how to implement IP transparency.
 
 1. Doris enables Proxy Protocol
 
@@ -597,7 +597,7 @@ The following uses Ngnix as an example to introduce how to implement IP transpar
     enable_proxy_protocol = true
     ```
 
-2. Ngnix enables Proxy Protocol
+2. Nginx enables Proxy Protocol
 
     ```
     events {

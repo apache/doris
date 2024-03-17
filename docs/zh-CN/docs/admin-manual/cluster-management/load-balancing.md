@@ -587,7 +587,7 @@ mysql> show databases;
 >
 > 3. 开启后，必须使用 Proxy Protocol 协议进行连接，否则连接失败。
 
-下面以 Ngnix 为例，介绍如何实现 IP 透传。
+下面以 Nginx 为例，介绍如何实现 IP 透传。
 
 1. Doris 开启 Proxy Protocol
 
@@ -597,7 +597,7 @@ mysql> show databases;
     enable_proxy_protocol = true
     ```
 
-2. Ngnix 开启 Proxy Protocol
+2. Nginx 开启 Proxy Protocol
 
     ```
     events {
