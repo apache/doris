@@ -125,6 +125,8 @@ public class LoadStmt extends DdlStmt {
 
     public static final String KEY_COMMENT = "comment";
 
+    public static final String KEY_CLOUD_CLUSTER = "cloud_cluster";
+
     public static final String KEY_ENCLOSE = "enclose";
 
     public static final String KEY_ESCAPE = "escape";
