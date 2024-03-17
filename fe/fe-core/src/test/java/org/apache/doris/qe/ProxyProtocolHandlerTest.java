@@ -21,8 +21,9 @@ import org.apache.doris.mysql.BytesChannel;
 import org.apache.doris.mysql.ProxyProtocolHandler;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import org.junit.Before;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -49,20 +50,15 @@ public class ProxyProtocolHandlerTest {
         }
     }
 
-    private ProxyProtocolHandler proxyProtocolHandler;
     private TestChannel testChannel;
-
-    @Before
-    public void setUp() {
-        proxyProtocolHandler = new ProxyProtocolHandler();
-    }
 
     @Test
     public void handleV1ProtocolWithValidData() throws IOException {
-        byte[] data = "PROXY TCP4 192.168.0.1 192.168.0.2 54321 12345\r\n".getBytes();
+        byte[] data = "PROXY TCP4 192.168.0.1 192.168.0.2 12345 54321\r\n".getBytes();
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
         assertNotNull(result);
+        assertFalse(result.isUnknown);
         assertEquals("192.168.0.1", result.sourceIP);
         assertEquals(12345, result.sourcePort);
         assertEquals("192.168.0.2", result.destIp);
@@ -75,10 +71,14 @@ public class ProxyProtocolHandlerTest {
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
         assertNotNull(result);
-        assertEquals("192.168.0.1", result.sourceIP);
-        assertEquals(12345, result.sourcePort);
-        assertEquals("192.168.0.2", result.destIp);
-        assertEquals(54321, result.destPort);
+        assertTrue(result.isUnknown);
+    }
+
+    @Test(expected = IOException.class)
+    public void handleV1ProtocolWithInvalidProtocol() throws IOException {
+        byte[] data = "PROXY TCP7 xxx\r\n".getBytes();
+        testChannel = new TestChannel(data);
+        ProxyProtocolHandler.handle(testChannel);
     }
 
     @Test(expected = IOException.class)
@@ -90,14 +90,41 @@ public class ProxyProtocolHandlerTest {
 
     @Test(expected = IOException.class)
     public void handleV1ProtocolWithIncompleteData() throws IOException {
-        byte[] data = "PROXY TCP4 192.168.0.1 12345 192.168.0.2".getBytes();
+        byte[] data = "PROXY TCP4 192.168.0.1 192.168.0.2 12345".getBytes();
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.handle(testChannel);
     }
 
     @Test(expected = IOException.class)
     public void handleV1ProtocolWithExtraData() throws IOException {
-        byte[] data = "PROXY TCP4 192.168.0.1 12345 192.168.0.2 54321 EXTRA DATA\r\n".getBytes();
+        byte[] data = "PROXY TCP4 192.168.0.1 192.168.0.2 12345 54321 EXTRA DATA\r\n".getBytes();
+        testChannel = new TestChannel(data);
+        ProxyProtocolHandler.handle(testChannel);
+    }
+
+    @Test
+    public void handleV1ProtocolWithValidIPv6Data() throws IOException {
+        byte[] data = "PROXY TCP6 2001:db8:0:1:1:1:1:1 2001:db8:0:1:1:1:1:2 12345 54321\r\n".getBytes();
+        testChannel = new TestChannel(data);
+        ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
+        assertNotNull(result);
+        assertFalse(result.isUnknown);
+        assertEquals("2001:db8:0:1:1:1:1:1", result.sourceIP);
+        assertEquals(12345, result.sourcePort);
+        assertEquals("2001:db8:0:1:1:1:1:2", result.destIp);
+        assertEquals(54321, result.destPort);
+    }
+
+    @Test(expected = IOException.class)
+    public void handleV1ProtocolWithInvalidIPv6Data() throws IOException {
+        byte[] data = "PROXY TCP6 2001:db8:0:1:1:1:1:1 2001:db8:0:1:1:1:1:2 12345 EXTRA DATA\r\n".getBytes();
+        testChannel = new TestChannel(data);
+        ProxyProtocolHandler.handle(testChannel);
+    }
+
+    @Test(expected = IOException.class)
+    public void handleV1ProtocolWithIncompleteIPv6Data() throws IOException {
+        byte[] data = "PROXY TCP6 2001:db8:0:1:1:1:1:1 2001:db8:0:1:1:1:1:2 12345".getBytes();
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.handle(testChannel);
     }

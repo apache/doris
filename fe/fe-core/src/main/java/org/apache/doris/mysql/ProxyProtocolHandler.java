@@ -35,10 +35,10 @@ public class ProxyProtocolHandler {
     private static final String TCP6 = "TCP6";
 
     public static class ProxyProtocolResult {
-        public String sourceIP;
-        public int sourcePort;
-        public String destIp;
-        public int destPort;
+        public String sourceIP = null;
+        public int sourcePort = -1;
+        public String destIp = null;
+        public int destPort = -1;
         public boolean isUnknown = false;
 
         @Override
