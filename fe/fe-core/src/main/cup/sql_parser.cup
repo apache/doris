@@ -45,6 +45,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -659,6 +660,7 @@ terminal String
     KW_VERBOSE,
     KW_VERSION,
     KW_VIEW,
+    KW_VIEWS,
     KW_WARNINGS,
     KW_WEEK,
     KW_WHEN,
@@ -3962,6 +3964,16 @@ show_param ::=
     | opt_full KW_TABLES from_or_in ident:ctl DOT ident:db opt_wild_where
     {:
         RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, parser.wild, parser.where);
+    :}
+    /* show views */
+    | opt_full KW_VIEWS opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, null, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
+    :}
+    /* show views */
+    | opt_full KW_VIEWS from_or_in ident:ctl DOT ident:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
     :}
     /* show table id */
     | KW_TABLE INTEGER_LITERAL:tableId
@@ -8046,6 +8058,8 @@ keyword ::=
     | KW_VERSION:id
     {: RESULT = id; :}
     | KW_VIEW:id
+    {: RESULT = id; :}
+    | KW_VIEWS:id
     {: RESULT = id; :}
     | KW_WARNINGS:id
     {: RESULT = id; :}
