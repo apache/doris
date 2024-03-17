@@ -74,7 +74,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         context.setConnectScheduler(connectScheduler);
 
                         if (Config.enable_proxy_protocol) {
-                            MysqlProto.proxyProtocal(context);
+                            ProxyProtocolHandler.handle(context);
                         }
 
                         // authenticate check failed.

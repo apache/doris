@@ -216,6 +216,32 @@ public class MysqlChannel {
         return readLen;
     }
 
+    /**
+     * Read N bytes from channel, N = dstBuf.remaining()
+     * @param dstBuf
+     * @return
+     */
+    protected int read(ByteBuffer dstBuf) {
+        int readLen = 0;
+        try {
+            while (dstBuf.remaining() != 0) {
+                int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf, context.getNetReadTimeout(),
+                        TimeUnit.SECONDS);
+                // return -1 when remote peer close the channel
+                if (ret == -1) {
+                    return 0;
+                }
+                readLen += ret;
+            }
+        } catch (IOException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Read channel exception, ignore.", e);
+            }
+            return 0;
+        }
+        return readLen;
+    }
+
     protected void decryptData(ByteBuffer dstBuf, boolean isHeader) throws SSLException {
         // after decrypt, we get a mysql packet with mysql header.
         if (!isSslMode || isHeader) {
