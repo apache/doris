@@ -29,6 +29,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -89,7 +93,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         Preconditions.checkArgument(keys.size() <= columns.size());
         int i;
         for (i = 0; i < keys.size(); ++i) {
-            partitionKey.keys.add(keys.get(i).getValue(columns.get(i).getType()));
+            Type keyType = columns.get(i).getType();
+            // If column type is datatime and key type is date, we should convert date to datetime.
+            if (keyType.isDatetime() || keyType.isDatetimeV2()){
+                Literal dateTimeLiteral = getDateTimeLiteral(keys.get(i).getStringValue(), keyType);
+                partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
+            } else {
+                partitionKey.keys.add(keys.get(i).getValue(keyType));
+            }
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -101,6 +112,15 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
         Preconditions.checkState(partitionKey.keys.size() == columns.size());
         return partitionKey;
+    }
+
+    private static Literal getDateTimeLiteral(String value, Type type) throws AnalysisException {
+        if (type.equals(Type.DATETIME)) {
+            return new DateTimeLiteral(value);
+        } else if (type.equals(Type.DATETIMEV2)) {
+            return new DateTimeV2Literal(value);
+        }
+        throw new AnalysisException("date convert to datetime failed.");
     }
 
     public static PartitionKey createListPartitionKeyWithTypes(List<PartitionValue> values, List<Type> types,
