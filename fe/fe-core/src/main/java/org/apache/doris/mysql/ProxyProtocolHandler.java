@@ -70,7 +70,7 @@ public class ProxyProtocolHandler {
         int sourcePort = -1;
         int destPort = -1;
         String protocol = null;
-        StringBuilder stringBuilder = new StringBuilder("PROXY ");
+        StringBuilder stringBuilder = new StringBuilder();
 
         // read last 5 bytes of "PROXY "
         ByteBuffer buffer = ByteBuffer.allocate(5);
