@@ -20,11 +20,13 @@ package org.apache.doris.mysql;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.mysql.ProxyProtocolHandler.ProxyProtocolResult;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.MysqlConnectProcessor;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.xnio.ChannelListener;
@@ -74,7 +76,9 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         context.setConnectScheduler(connectScheduler);
 
                         if (Config.enable_proxy_protocol) {
-                            ProxyProtocolHandler.handle(context);
+                            ProxyProtocolResult result = ProxyProtocolHandler.handle(context.getMysqlChannel());
+                            Preconditions.checkNotNull(result);
+                            context.getMysqlChannel().setRemoteAddr(result.sourceIP, result.sourcePort);
                         }
 
                         // authenticate check failed.

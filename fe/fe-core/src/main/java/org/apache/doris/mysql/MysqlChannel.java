@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -41,7 +42,7 @@ import javax.net.ssl.SSLException;
  * MySQL protocol will split one logical packet more than 16MB to many packets.
  * http://dev.mysql.com/doc/internals/en/sending-more-than-16mbyte.html
  */
-public class MysqlChannel {
+public class MysqlChannel implements BytesChannel {
     // logger for this class
     private static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
     // max length which one MySQL physical can hold, if one logical packet is bigger than this,
@@ -101,15 +102,19 @@ public class MysqlChannel {
         this.remoteHostPortString = "";
         this.remoteIp = "";
         this.conn = connection;
-        if (connection.getPeerAddress() instanceof InetSocketAddress) {
-            InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
-            remoteHostPortString = NetUtils
-                    .getHostPortInAccessibleFormat(address.getHostString(), address.getPort());
-            remoteIp = address.getAddress().getHostAddress();
-        } else {
-            // Reach here, what's it?
-            remoteHostPortString = connection.getPeerAddress().toString();
-            remoteIp = connection.getPeerAddress().toString();
+
+        // if proxy protocal is enabled, the remote address will be got from proxy protocal header.
+        if (!Config.enable_proxy_protocol) {
+            if (connection.getPeerAddress() instanceof InetSocketAddress) {
+                InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
+                remoteHostPortString = NetUtils
+                        .getHostPortInAccessibleFormat(address.getHostString(), address.getPort());
+                remoteIp = address.getAddress().getHostAddress();
+            } else {
+                // Reach here, what's it?
+                remoteHostPortString = connection.getPeerAddress().toString();
+                remoteIp = connection.getPeerAddress().toString();
+            }
         }
         this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
         this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
@@ -216,12 +221,8 @@ public class MysqlChannel {
         return readLen;
     }
 
-    /**
-     * Read N bytes from channel, N = dstBuf.remaining()
-     * @param dstBuf
-     * @return
-     */
-    protected int read(ByteBuffer dstBuf) {
+    @Override
+    public int read(ByteBuffer dstBuf) {
         int readLen = 0;
         try {
             while (dstBuf.remaining() != 0) {
@@ -604,4 +605,9 @@ public class MysqlChannel {
         }
     }
 
+    // for proxy protocal only
+    public void setRemoteAddr(String ip, int port) {
+        this.remoteIp = ip;
+        this.remoteHostPortString = NetUtils.getHostPortInAccessibleFormat(ip, port);
+    }
 }
