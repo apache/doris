@@ -78,6 +78,10 @@ public:
                     const VExprContextSPtrs& output_vexpr_ctxs, const std::string& schema,
                     bool output_object_data);
 
+    VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                    const VExprContextSPtrs& output_vexpr_ctxs, std::unique_ptr<orc::Type> schema,
+                    bool output_object_data, orc::CompressionKind compression);
+
     ~VOrcTransformer() = default;
 
     Status open() override;
@@ -99,7 +103,7 @@ private:
     doris::io::FileWriter* _file_writer = nullptr;
     std::unique_ptr<orc::OutputStream> _output_stream;
     std::unique_ptr<orc::WriterOptions> _write_options;
-    const std::string& _schema_str;
+    const std::string* _schema_str;
     std::unique_ptr<orc::Type> _schema;
     std::unique_ptr<orc::Writer> _writer;
 

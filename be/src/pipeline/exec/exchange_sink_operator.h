@@ -25,6 +25,7 @@
 #include "exchange_sink_buffer.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
+#include "vec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -67,6 +68,21 @@ private:
 class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
     using Base = PipelineXSinkLocalState<>;
+
+private:
+    class HashPartitionFunction {
+    public:
+        HashPartitionFunction(vectorized::PartitionerBase* partitioner)
+                : _partitioner(partitioner) {}
+
+        int get_partition(vectorized::Block* block, int position) {
+            uint32_t* partition_ids = (uint32_t*)_partitioner->get_channel_ids();
+            return partition_ids[position];
+        }
+
+    private:
+        vectorized::PartitionerBase* _partitioner;
+    };
 
 public:
     ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -131,6 +147,10 @@ public:
             channel_shared_ptrs;
     int current_channel_idx; // index of current channel to send to if _random == true
     bool only_local_exchange;
+
+    // for external table sink hash partition
+    std::unique_ptr<vectorized::ScaleWriterPartitioningExchanger<HashPartitionFunction>>
+            scale_writer_partitioning_exchanger;
 
 private:
     friend class ExchangeSinkOperatorX;
@@ -209,6 +229,9 @@ private:
     std::vector<vectorized::RowPartTabletIds> _row_part_tablet_ids;
     int64_t _number_input_rows = 0;
     TPartitionType::type _part_type;
+
+    // for external table sink hash partition
+    std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -274,6 +297,11 @@ private:
     const TTupleId& _tablet_sink_tuple_id;
     int64_t _tablet_sink_txn_id = -1;
     std::shared_ptr<ObjectPool> _pool;
+
+    // for external table sink random partition
+    // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
+    size_t _data_processed = 0;
+    int _writer_count = 1;
 };
 
 } // namespace pipeline
