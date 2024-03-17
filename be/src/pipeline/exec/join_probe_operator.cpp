@@ -83,9 +83,6 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
         vectorized::Block* origin_block, vectorized::Block* output_block, bool keep_origin) {
     auto& p = Base::_parent->template cast<typename Derived::Parent>();
 
-    if (p._is_nereids && p._is_outer_join) {
-        origin_block->erase_tail(origin_block->columns() - 2);
-    }
     SCOPED_TIMER(_build_output_block_timer);
     auto is_mem_reuse = output_block->mem_reuse();
     vectorized::MutableBlock mutable_block =

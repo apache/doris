@@ -111,6 +111,10 @@ void NestedLoopJoinProbeLocalState::_reset_with_next_probe_row() {
 
 void NestedLoopJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
+    if (p._is_nereids) {
+        LOG_WARNING("yxc test");
+        return;
+    }
     if (p._is_outer_join) {
         auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
         auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
