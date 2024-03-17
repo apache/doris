@@ -115,9 +115,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     }
 
     private static Literal getDateTimeLiteral(String value, Type type) throws AnalysisException {
-        if (type.equals(Type.DATETIME)) {
+        if (type.isDate()) {
             return new DateTimeLiteral(value);
-        } else if (type.equals(Type.DATETIMEV2)) {
+        } else if (type.isDatetimeV2()) {
             return new DateTimeV2Literal(value);
         }
         throw new AnalysisException("date convert to datetime failed.");
