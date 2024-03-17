@@ -306,7 +306,8 @@ public:
             if (offset > _offsets_pos) {
                 return Status::Corruption(
                         "file corruption: offsets pos beyonds data_size: {}, num_element: {}"
-                        ", offset_pos: {}, offset: {}", _data.size, _num_elems, _offsets_pos, offset);
+                        ", offset_pos: {}, offset: {}",
+                        _data.size, _num_elems, _offsets_pos, offset);
             }
             dict_word_info[i].data = data_begin + offset;
             offset_ptr += sizeof(uint32_t);
