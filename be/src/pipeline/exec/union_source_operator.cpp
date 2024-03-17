@@ -198,7 +198,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
-    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() <= state->batch_size();
+    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
          ++_const_expr_list_idx) {
         vectorized::Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
