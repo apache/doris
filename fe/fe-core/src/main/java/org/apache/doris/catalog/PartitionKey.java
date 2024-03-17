@@ -95,7 +95,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (i = 0; i < keys.size(); ++i) {
             Type keyType = columns.get(i).getType();
             // If column type is datatime and key type is date, we should convert date to datetime.
-            if (keyType.isDatetime() || keyType.isDatetimeV2()){
+            if (keyType.isDatetime() || keyType.isDatetimeV2()) {
                 Literal dateTimeLiteral = getDateTimeLiteral(keys.get(i).getStringValue(), keyType);
                 partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
             } else {
