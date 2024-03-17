@@ -25,11 +25,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 
 /**
  * sink visitor
@@ -64,6 +66,10 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(fileSink, context);
     }
 
+    default R visitLogicalTableSink(LogicalTableSink<? extends Plan> logicalTableSink, C context) {
+        return visitLogicalSink(logicalTableSink, context);
+    }
+
     default R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
         return visitLogicalSink(olapTableSink, context);
     }
@@ -83,6 +89,10 @@ public interface SinkVisitor<R, C> {
 
     default R visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, C context) {
         return visitPhysicalSink(fileSink, context);
+    }
+
+    default R visitPhysicalTableSink(PhysicalTableSink<? extends Plan> physicalTableSink, C context) {
+        return visitPhysicalSink(physicalTableSink, context);
     }
 
     default R visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, C context) {
