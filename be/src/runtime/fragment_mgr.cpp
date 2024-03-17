@@ -373,6 +373,24 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
 
+        if (!req.runtime_state->hive_partition_updates().empty()) {
+            params.__isset.hive_partition_updates = true;
+            params.hive_partition_updates.reserve(
+                    req.runtime_state->hive_partition_updates().size());
+            for (auto& hive_partition_update : req.runtime_state->hive_partition_updates()) {
+                params.hive_partition_updates.push_back(hive_partition_update);
+            }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->hive_partition_updates().empty()) {
+                    params.__isset.hive_partition_updates = true;
+                    params.hive_partition_updates.insert(params.hive_partition_updates.end(),
+                                                         rs->hive_partition_updates().begin(),
+                                                         rs->hive_partition_updates().end());
+                }
+            }
+        }
+
         // Send new errors to coordinator
         req.runtime_state->get_unreported_errors(&(params.error_log));
         params.__isset.error_log = (params.error_log.size() > 0);
