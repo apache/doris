@@ -453,6 +453,7 @@ suite("test_multi_partition") {
     assertEquals(result2.size(), 45)
     sql "drop table multi_par12"
 
+
     // create one table without datetime partition, but with date string
     sql """
         CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime ( 
