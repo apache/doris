@@ -60,14 +60,22 @@ static const re2::RE2 LIKE_STARTS_WITH_RE(R"((((\\%)|(\\_)|([^%_\\]))+)(?:%+))")
 static const re2::RE2 LIKE_EQUALS_RE("(((\\\\_)|([^%_]))+)");
 static const re2::RE2 LIKE_ALLPASS_RE("%+");
 
-struct VectorAllpassSearchState : public VectorLikeSearchState {
+struct VectorAllpassSearchState : public VectorPatternSearchState {
     VectorAllpassSearchState()
-            : VectorLikeSearchState(PatternType::ALLPASS, FunctionLikeBase::vector_allpass_fn) {}
+            : VectorPatternSearchState(FunctionLikeBase::vector_allpass_fn) {}
 
-    ~VectorAllpassSearchState() = default;
+    ~VectorAllpassSearchState() override = default;
 
-    void pattern_match(const std::string& pattern_str) override {
+    void like_pattern_match(const std::string& pattern_str) override {
         if (!pattern_str.empty() && RE2::FullMatch(pattern_str, LIKE_ALLPASS_RE)) {
+            _search_strings->insert_default();
+        } else {
+            _pattern_matched = false;
+        }
+    }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        if (RE2::FullMatch(pattern_str, ALLPASS_RE)) {
             _search_strings->insert_default();
         } else {
             _pattern_matched = false;
@@ -75,13 +83,13 @@ struct VectorAllpassSearchState : public VectorLikeSearchState {
     }
 };
 
-struct VectorEqualSearchState : public VectorLikeSearchState {
+struct VectorEqualSearchState : public VectorPatternSearchState {
     VectorEqualSearchState()
-            : VectorLikeSearchState(PatternType::EQUAL, FunctionLikeBase::vector_equals_fn) {}
+            : VectorPatternSearchState(FunctionLikeBase::vector_equals_fn) {}
 
-    ~VectorEqualSearchState() = default;
+    ~VectorEqualSearchState() override = default;
 
-    void pattern_match(const std::string& pattern_str) override {
+    void like_pattern_match(const std::string& pattern_str) override {
         std::string search_string;
         if (pattern_str.empty() || RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &search_string)) {
             FunctionLike::remove_escape_character(&search_string);
@@ -90,16 +98,25 @@ struct VectorEqualSearchState : public VectorLikeSearchState {
             _pattern_matched = false;
         }
     }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        std::string search_string;
+        if (RE2::FullMatch(pattern_str, EQUALS_RE, &search_string)) {
+            _search_strings->insert_data(search_string.c_str(), search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
 };
 
-struct VectorSubStringSearchState : public VectorLikeSearchState {
+struct VectorSubStringSearchState : public VectorPatternSearchState {
     VectorSubStringSearchState()
-            : VectorLikeSearchState(PatternType::SUBSTRING, FunctionLikeBase::vector_substring_fn) {
+            : VectorPatternSearchState(FunctionLikeBase::vector_substring_fn) {
     }
 
-    ~VectorSubStringSearchState() = default;
+    ~VectorSubStringSearchState() override = default;
 
-    void pattern_match(const std::string& pattern_str) override {
+    void like_pattern_match(const std::string& pattern_str) override {
         std::string search_string;
         if (RE2::FullMatch(pattern_str, LIKE_SUBSTRING_RE, &search_string)) {
             FunctionLike::remove_escape_character(&search_string);
@@ -108,16 +125,24 @@ struct VectorSubStringSearchState : public VectorLikeSearchState {
             _pattern_matched = false;
         }
     }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        std::string search_string;
+        if (RE2::FullMatch(pattern_str, SUBSTRING_RE, &search_string)) {
+            _search_strings->insert_data(search_string.c_str(), search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
 };
 
-struct VectorStartsWithSearchState : public VectorLikeSearchState {
+struct VectorStartsWithSearchState : public VectorPatternSearchState {
     VectorStartsWithSearchState()
-            : VectorLikeSearchState(PatternType::STARTS_WITH,
-                                    FunctionLikeBase::vector_starts_with_fn) {}
+            : VectorPatternSearchState(FunctionLikeBase::vector_starts_with_fn) {}
 
-    ~VectorStartsWithSearchState() = default;
+    ~VectorStartsWithSearchState() override = default;
 
-    void pattern_match(const std::string& pattern_str) override {
+    void like_pattern_match(const std::string& pattern_str) override {
         std::string search_string;
         if (RE2::FullMatch(pattern_str, LIKE_STARTS_WITH_RE, &search_string)) {
             FunctionLike::remove_escape_character(&search_string);
@@ -126,19 +151,37 @@ struct VectorStartsWithSearchState : public VectorLikeSearchState {
             _pattern_matched = false;
         }
     }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        std::string search_string;
+        if (RE2::FullMatch(pattern_str, STARTS_WITH_RE, &search_string)) {
+            _search_strings->insert_data(search_string.c_str(), search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
 };
 
-struct VectorEndsWithSearchState : public VectorLikeSearchState {
+struct VectorEndsWithSearchState : public VectorPatternSearchState {
     VectorEndsWithSearchState()
-            : VectorLikeSearchState(PatternType::ENDS_WITH, FunctionLikeBase::vector_ends_with_fn) {
+            : VectorPatternSearchState(FunctionLikeBase::vector_ends_with_fn) {
     }
 
-    ~VectorEndsWithSearchState() = default;
+    ~VectorEndsWithSearchState() override = default;
 
-    void pattern_match(const std::string& pattern_str) override {
+    void like_pattern_match(const std::string& pattern_str) override {
         std::string search_string;
         if (RE2::FullMatch(pattern_str, LIKE_ENDS_WITH_RE, &search_string)) {
             FunctionLike::remove_escape_character(&search_string);
+            _search_strings->insert_data(search_string.c_str(), search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        std::string search_string;
+        if (RE2::FullMatch(pattern_str, ENDS_WITH_RE, &search_string)) {
             _search_strings->insert_data(search_string.c_str(), search_string.size());
         } else {
             _pattern_matched = false;
@@ -502,9 +545,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     } else {
         const auto pattern_col = block.get_by_position(arguments[1]).column;
         if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
-            RETURN_IF_ERROR(vector_non_const(*values, *str_patterns, vec_res,
-                                             state->scalar_function, &state->search_state,
-                                             input_rows_count));
+            RETURN_IF_ERROR(vector_non_const(*values, *str_patterns, vec_res, state, input_rows_count));
         } else if (const auto* const_patterns =
                            check_and_get_column<ColumnConst>(pattern_col.get())) {
             const auto& pattern_val = const_patterns->get_data_at(0);
@@ -571,12 +612,13 @@ Status FunctionLikeBase::vector_const(const ColumnString& values, const StringRe
     return Status::OK();
 }
 
-VLikeSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnString& patterns) {
-    VLikeSearchStateSPtr allpass_state = std::make_shared<VectorAllpassSearchState>();
-    VLikeSearchStateSPtr equal_state = std::make_shared<VectorEqualSearchState>();
-    VLikeSearchStateSPtr substring_state = std::make_shared<VectorSubStringSearchState>();
-    VLikeSearchStateSPtr starts_with_state = std::make_shared<VectorStartsWithSearchState>();
-    VLikeSearchStateSPtr ends_with_state = std::make_shared<VectorEndsWithSearchState>();
+template <bool LIKE_PATTERN>
+VPatternSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnString& patterns) {
+    VPatternSearchStateSPtr allpass_state = std::make_shared<VectorAllpassSearchState>();
+    VPatternSearchStateSPtr equal_state = std::make_shared<VectorEqualSearchState>();
+    VPatternSearchStateSPtr substring_state = std::make_shared<VectorSubStringSearchState>();
+    VPatternSearchStateSPtr starts_with_state = std::make_shared<VectorStartsWithSearchState>();
+    VPatternSearchStateSPtr ends_with_state = std::make_shared<VectorEndsWithSearchState>();
     size_t size = patterns.size();
 
     for (size_t i = 0; i < size; ++i) {
@@ -587,19 +629,39 @@ VLikeSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnStri
         }
         std::string pattern_str = patterns.get_data_at(i).to_string();
         if (allpass_state->_pattern_matched) {
-            allpass_state->pattern_match(pattern_str);
+            if constexpr (LIKE_PATTERN) {
+                allpass_state->like_pattern_match(pattern_str);
+            } else {
+                allpass_state->regexp_pattern_match(pattern_str);
+            }
         }
         if (equal_state->_pattern_matched) {
-            equal_state->pattern_match(pattern_str);
+            if constexpr (LIKE_PATTERN) {
+                equal_state->like_pattern_match(pattern_str);
+            } else {
+                equal_state->regexp_pattern_match(pattern_str);
+            }
         }
         if (substring_state->_pattern_matched) {
-            substring_state->pattern_match(pattern_str);
+            if constexpr (LIKE_PATTERN) {
+                substring_state->like_pattern_match(pattern_str);
+            } else {
+                substring_state->regexp_pattern_match(pattern_str);
+            }
         }
         if (starts_with_state->_pattern_matched) {
-            starts_with_state->pattern_match(pattern_str);
+            if constexpr (LIKE_PATTERN) {
+                starts_with_state->like_pattern_match(pattern_str);
+            } else {
+                starts_with_state->regexp_pattern_match(pattern_str);
+            }
         }
         if (ends_with_state->_pattern_matched) {
-            ends_with_state->pattern_match(pattern_str);
+            if constexpr (LIKE_PATTERN) {
+                ends_with_state->like_pattern_match(pattern_str);
+            } else {
+                ends_with_state->regexp_pattern_match(pattern_str);
+            }
         }
     }
 
@@ -620,16 +682,19 @@ VLikeSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnStri
 
 Status FunctionLikeBase::vector_non_const(const ColumnString& values, const ColumnString& patterns,
                                           ColumnUInt8::Container& result,
-                                          const ScalarLikeFn& function,
-                                          LikeSearchState* search_state,
-                                          size_t input_rows_count) const {
-    VLikeSearchStateSPtr vector_search_state = pattern_type_recognition(patterns);
+                                          LikeState* state, size_t input_rows_count) const {
+    VPatternSearchStateSPtr vector_search_state;
+    if (state->is_like_pattern) {
+        vector_search_state = pattern_type_recognition<true>(patterns);
+    } else {
+        vector_search_state = pattern_type_recognition<false>(patterns);
+    }
     if (vector_search_state == nullptr) {
-        // pattern type recognition failed, use REGEXP case
-        for (int i = 0; i < input_rows_count; i++) {
+        // pattern type recognition failed, use default case
+        for (int i = 0; i < input_rows_count; ++i) {
             const auto pattern_val = patterns.get_data_at(i);
             const auto value_val = values.get_data_at(i);
-            RETURN_IF_ERROR((function)(const_cast<vectorized::LikeSearchState*>(search_state),
+            RETURN_IF_ERROR((state->scalar_function)(&state->search_state,
                                        value_val, pattern_val, &result[i]));
         }
         return Status::OK();
@@ -767,6 +832,7 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
     }
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
+    state->is_like_pattern = true;
     state->function = like_fn;
     state->scalar_function = like_fn_scalar;
     if (context->is_col_constant(1)) {
@@ -882,6 +948,7 @@ Status FunctionRegexp::open(FunctionContext* context, FunctionContext::FunctionS
     }
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
+    state->is_like_pattern = false;
     state->function = regexp_fn;
     state->scalar_function = regexp_fn_scalar;
     if (context->is_col_constant(1)) {
