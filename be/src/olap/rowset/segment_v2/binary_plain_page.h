@@ -295,7 +295,7 @@ public:
 
     Status get_dict_word_info(StringRef* dict_word_info) {
         if (UNLIKELY(_num_elems <= 0)) {
-            return;
+            return Status::OK();
         }
 
         char* data_begin = (char*)&_data[0];
@@ -318,6 +318,7 @@ public:
 
         dict_word_info[_num_elems - 1].size =
                 (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems - 1].data;
+        return Status::OK();
     }
 
 private:
