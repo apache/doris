@@ -45,4 +45,11 @@ void ObjLRUCache::erase(const ObjKey& key) {
     }
 }
 
+bool ObjLRUCache::exceed_prune_limit() {
+    // just return true to prune all cached obj.
+    // Because ObjLRUCache is counted with number, not memory.
+    // Simple prune all
+    return true;
+}
+
 } // namespace doris
