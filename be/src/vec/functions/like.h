@@ -172,7 +172,8 @@ protected:
                         LikeSearchState* search_state) const;
 
     Status vector_non_const(const ColumnString& values, const ColumnString& patterns,
-                            ColumnUInt8::Container& result, LikeState* state, size_t input_rows_count) const;
+                            ColumnUInt8::Container& result, LikeState* state,
+                            size_t input_rows_count) const;
 
     Status execute_substring(const ColumnString::Chars& values,
                              const ColumnString::Offsets& value_offsets,

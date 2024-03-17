@@ -61,8 +61,7 @@ static const re2::RE2 LIKE_EQUALS_RE("(((\\\\_)|([^%_]))+)");
 static const re2::RE2 LIKE_ALLPASS_RE("%+");
 
 struct VectorAllpassSearchState : public VectorPatternSearchState {
-    VectorAllpassSearchState()
-            : VectorPatternSearchState(FunctionLikeBase::vector_allpass_fn) {}
+    VectorAllpassSearchState() : VectorPatternSearchState(FunctionLikeBase::vector_allpass_fn) {}
 
     ~VectorAllpassSearchState() override = default;
 
@@ -84,8 +83,7 @@ struct VectorAllpassSearchState : public VectorPatternSearchState {
 };
 
 struct VectorEqualSearchState : public VectorPatternSearchState {
-    VectorEqualSearchState()
-            : VectorPatternSearchState(FunctionLikeBase::vector_equals_fn) {}
+    VectorEqualSearchState() : VectorPatternSearchState(FunctionLikeBase::vector_equals_fn) {}
 
     ~VectorEqualSearchState() override = default;
 
@@ -111,8 +109,7 @@ struct VectorEqualSearchState : public VectorPatternSearchState {
 
 struct VectorSubStringSearchState : public VectorPatternSearchState {
     VectorSubStringSearchState()
-            : VectorPatternSearchState(FunctionLikeBase::vector_substring_fn) {
-    }
+            : VectorPatternSearchState(FunctionLikeBase::vector_substring_fn) {}
 
     ~VectorSubStringSearchState() override = default;
 
@@ -139,7 +136,6 @@ struct VectorSubStringSearchState : public VectorPatternSearchState {
 struct VectorStartsWithSearchState : public VectorPatternSearchState {
     VectorStartsWithSearchState()
             : VectorPatternSearchState(FunctionLikeBase::vector_starts_with_fn) {}
-
     ~VectorStartsWithSearchState() override = default;
 
     void like_pattern_match(const std::string& pattern_str) override {
@@ -163,9 +159,7 @@ struct VectorStartsWithSearchState : public VectorPatternSearchState {
 };
 
 struct VectorEndsWithSearchState : public VectorPatternSearchState {
-    VectorEndsWithSearchState()
-            : VectorPatternSearchState(FunctionLikeBase::vector_ends_with_fn) {
-    }
+    VectorEndsWithSearchState() : VectorPatternSearchState(FunctionLikeBase::vector_ends_with_fn) {}
 
     ~VectorEndsWithSearchState() override = default;
 
@@ -545,7 +539,8 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     } else {
         const auto pattern_col = block.get_by_position(arguments[1]).column;
         if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
-            RETURN_IF_ERROR(vector_non_const(*values, *str_patterns, vec_res, state, input_rows_count));
+            RETURN_IF_ERROR(
+                    vector_non_const(*values, *str_patterns, vec_res, state, input_rows_count));
         } else if (const auto* const_patterns =
                            check_and_get_column<ColumnConst>(pattern_col.get())) {
             const auto& pattern_val = const_patterns->get_data_at(0);
@@ -681,8 +676,8 @@ VPatternSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnS
 }
 
 Status FunctionLikeBase::vector_non_const(const ColumnString& values, const ColumnString& patterns,
-                                          ColumnUInt8::Container& result,
-                                          LikeState* state, size_t input_rows_count) const {
+                                          ColumnUInt8::Container& result, LikeState* state,
+                                          size_t input_rows_count) const {
     VPatternSearchStateSPtr vector_search_state;
     if (state->is_like_pattern) {
         vector_search_state = pattern_type_recognition<true>(patterns);
@@ -694,8 +689,8 @@ Status FunctionLikeBase::vector_non_const(const ColumnString& values, const Colu
         for (int i = 0; i < input_rows_count; ++i) {
             const auto pattern_val = patterns.get_data_at(i);
             const auto value_val = values.get_data_at(i);
-            RETURN_IF_ERROR((state->scalar_function)(&state->search_state,
-                                       value_val, pattern_val, &result[i]));
+            RETURN_IF_ERROR((state->scalar_function)(&state->search_state, value_val, pattern_val,
+                                                     &result[i]));
         }
         return Status::OK();
     }
