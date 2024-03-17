@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -103,18 +102,17 @@ public class MysqlChannel implements BytesChannel {
         this.remoteIp = "";
         this.conn = connection;
 
-        // if proxy protocal is enabled, the remote address will be got from proxy protocal header.
-        if (!Config.enable_proxy_protocol) {
-            if (connection.getPeerAddress() instanceof InetSocketAddress) {
-                InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
-                remoteHostPortString = NetUtils
-                        .getHostPortInAccessibleFormat(address.getHostString(), address.getPort());
-                remoteIp = address.getAddress().getHostAddress();
-            } else {
-                // Reach here, what's it?
-                remoteHostPortString = connection.getPeerAddress().toString();
-                remoteIp = connection.getPeerAddress().toString();
-            }
+        // if proxy protocal is enabled, the remote address will be got from proxy protocal header
+        // and overwrite the original remote address.
+        if (connection.getPeerAddress() instanceof InetSocketAddress) {
+            InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
+            remoteHostPortString = NetUtils
+                    .getHostPortInAccessibleFormat(address.getHostString(), address.getPort());
+            remoteIp = address.getAddress().getHostAddress();
+        } else {
+            // Reach here, what's it?
+            remoteHostPortString = connection.getPeerAddress().toString();
+            remoteIp = connection.getPeerAddress().toString();
         }
         this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
         this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);

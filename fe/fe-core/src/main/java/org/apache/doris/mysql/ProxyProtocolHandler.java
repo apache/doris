@@ -17,19 +17,12 @@
 
 package org.apache.doris.mysql;
 
-import org.apache.doris.qe.ConnectContext;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 
 public class ProxyProtocolHandler {
     private static final Logger LOG = LogManager.getLogger(ProxyProtocolHandler.class);
@@ -46,6 +39,7 @@ public class ProxyProtocolHandler {
         public int sourcePort;
         public String destIp;
         public int destPort;
+        public boolean isUnknown = false;
 
         @Override
         public String toString() {
@@ -54,6 +48,7 @@ public class ProxyProtocolHandler {
                     ", sourcePort=" + sourcePort +
                     ", destIp='" + destIp + '\'' +
                     ", destPort=" + destPort +
+                    ", isUnknown=" + isUnknown +
                     '}';
         }
     }
@@ -67,10 +62,10 @@ public class ProxyProtocolHandler {
         }
         buffer.flip();
         byte firstByte = buffer.get();
-        if (firstByte == V2_HEADER[0]) {  // Could be Proxy Protocol V2
-            return handleV2(channel);
-        } else if ((char) firstByte == V1_HEADER[0]){ // Could be Proxy Protocol V1
+        if ((char) firstByte == V1_HEADER[0]) {
             return handleV1(channel);
+        } else if (firstByte == V2_HEADER[0]) {
+            return handleV2(channel);
         } else {
             throw new IOException("Invalid proxy protocol header in first bytes: " + firstByte + ".");
         }
@@ -92,13 +87,14 @@ public class ProxyProtocolHandler {
             throw new IOException("Invalid proxy protocol v1, expected \"PROXY \"");
         }
         byteCount += readLen;
-
+        StringBuilder debugInfo = new StringBuilder("PROXY ");
         // start reading
         buffer = ByteBuffer.allocate(1);
         channel.read(buffer);
         buffer.flip();
         while (buffer.hasRemaining()) {
             char c = (char) buffer.get();
+            debugInfo.append(c);
             if (parsingUnknown) {
                 // Found "PROXY UNKNOWN"
                 // ignore any other bytes until "\r\n"
@@ -106,12 +102,14 @@ public class ProxyProtocolHandler {
                     carriageFound = true;
                 } else if (c == '\n') {
                     if (!carriageFound) {
-                        throw new IOException("Invalid proxy protocol v1. '\\r' is not found before '\\n'");
+                        throw new ProtocolException("Invalid proxy protocol v1. '\\r' is not found before '\\n'",
+                                debugInfo.toString());
                     }
-                    break;
+                    result.isUnknown = true;
+                    return result;
                 } else if (carriageFound) {
-                    throw new IOException("Invalid proxy protocol v1. "
-                            + "'\\r' should follow with '\\n', but see: " + c + ".");
+                    throw new ProtocolException("Invalid proxy protocol v1. "
+                            + "'\\r' should follow with '\\n', but see: " + c + ".", debugInfo.toString());
                 }
             } else if (carriageFound) {
                 if (c == '\n') {
@@ -121,22 +119,23 @@ public class ProxyProtocolHandler {
                     }
                     return result;
                 } else {
-                    throw new IOException("Invalid proxy protocol v1. "
-                            + "'\\r' should follow with '\\n', but see: " + c + ".");
+                    throw new ProtocolException("Invalid proxy protocol v1. "
+                            + "'\\r' should follow with '\\n', but see: " + c + ".", debugInfo.toString());
                 }
             } else {
                 switch (c) {
                     case ' ':
                         if (result.sourcePort != -1 || stringBuilder.length() == 0) {
-                            throw new IOException("Invalid proxy protocol v1. expecting a '\\r' or a '\\n'");
+                            throw new ProtocolException("Invalid proxy protocol v1. expecting a '\\r' or a '\\n'",
+                                    debugInfo.toString());
                         } else if (protocol == null) {
                             protocol = stringBuilder.toString();
                             stringBuilder.setLength(0);
                             if (protocol.equals(UNKNOWN)) {
                                 parsingUnknown = true;
                             } else if (!protocol.equals(TCP4) && !protocol.equals(TCP6)) {
-                                throw new IOException("Invalid proxy protocol v1. expecting TCP4/TCP6/UNKNOWN."
-                                        + " See: " + protocol + ".");
+                                throw new ProtocolException("Invalid proxy protocol v1. expecting TCP4/TCP6/UNKNOWN."
+                                        + " See: " + protocol + ".", debugInfo.toString());
                             }
                         } else if (result.sourceIP == null) {
                             result.sourceIP = stringBuilder.toString();
@@ -150,7 +149,8 @@ public class ProxyProtocolHandler {
                         }
                         break;
                     case '\r':
-                        if (result.destPort == -1 && result.sourcePort != -1 && !carriageFound && stringBuilder.length() > 0) {
+                        if (result.destPort == -1 && result.sourcePort != -1
+                                && !carriageFound && stringBuilder.length() > 0) {
                             result.destPort = Integer.parseInt(stringBuilder.toString());
                             stringBuilder.setLength(0);
                             carriageFound = true;
@@ -160,28 +160,38 @@ public class ProxyProtocolHandler {
                                 carriageFound = true;
                             }
                         } else {
-                            throw new IOException("Invalid proxy protocol v1. Already see '\\r' but no valid info");
+                            throw new ProtocolException(
+                                    "Invalid proxy protocol v1. Already see '\\r' but no valid info",
+                                    debugInfo.toString());
                         }
                         break;
                     case '\n':
-                        throw new IOException("Invalid proxy protocol v1. '\\r' is not found before '\\n'");
+                        throw new ProtocolException("Invalid proxy protocol v1. '\\r' is not found before '\\n'",
+                                debugInfo.toString());
                     default:
                         stringBuilder.append(c);
                 }
             }
             byteCount++;
             if (byteCount == 107) {
-                throw new IOException("Invalid proxy protocol v1, max length(107) exceeds");
+                throw new ProtocolException("Invalid proxy protocol v1, max length(107) exceeds",
+                        debugInfo.toString());
             } else {
                 buffer.clear();
                 channel.read(buffer);
                 buffer.flip();
             }
         }
-        throw new IOException("Invalid proxy protocol v1, unexpected end of stream");
+        throw new ProtocolException("Invalid proxy protocol v1, unexpected end of stream", debugInfo.toString());
     }
 
     private static ProxyProtocolResult handleV2(BytesChannel channel) throws IOException {
         throw new IOException("proxy protocol v2 is not supported yet");
+    }
+
+    public static class ProtocolException extends IOException {
+        public ProtocolException(String message, String protocolStr) {
+            super(message + ": " + protocolStr);
+        }
     }
 }

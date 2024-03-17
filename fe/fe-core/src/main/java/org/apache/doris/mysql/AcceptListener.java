@@ -78,7 +78,9 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         if (Config.enable_proxy_protocol) {
                             ProxyProtocolResult result = ProxyProtocolHandler.handle(context.getMysqlChannel());
                             Preconditions.checkNotNull(result);
-                            context.getMysqlChannel().setRemoteAddr(result.sourceIP, result.sourcePort);
+                            if (!result.isUnknown) {
+                                context.getMysqlChannel().setRemoteAddr(result.sourceIP, result.sourcePort);
+                            }
                         }
 
                         // authenticate check failed.
