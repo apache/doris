@@ -470,10 +470,6 @@ OK, that's the end, you can use Mysql client, JDBC, etc. to connect to ProxySQL 
 
 ## Nginx TCP reverse proxy method
 
-### Overview
-
-Nginx can implement load balancing of HTTP and HTTPS protocols, as well as load balancing of TCP protocol. So, the question is, can the load balancing of the Apache Doris database be achieved through Nginx? The answer is: yes. Next, let's discuss how to use Nginx to achieve load balancing of Apache Doris.
-
 ### Environmental preparation
 
 **Note: Using Nginx to achieve load balancing of Apache Doris database, the premise is to build an Apache Doris environment. The IP and port of Apache Doris FE are as follows. Here I use one FE to demonstrate, multiple FEs only You need to add multiple FE IP addresses and ports in the configuration**
@@ -522,9 +518,9 @@ stream {
   upstream mysqld {
       hash $remote_addr consistent;
       server 172.31.7.119:9030 weight=1 max_fails=2 fail_timeout=60s;
-      ##注意这里如果是多个FE，加载这里就行了
+      ## Add other `server` entries if there are multi FE node
   }
-  ###这里是配置代理的端口，超时时间等
+  ### Configure the proxy
   server {
       listen 6030;
       proxy_connect_timeout 300s;
@@ -577,64 +573,72 @@ mysql> show databases;
 | test               |
 +--------------------+
 2 rows in set (0.00 sec)
-
-mysql> use test;
-Reading table information for completion of table and column names
-You can turn off this feature to get a quicker startup with -A
-
-Database changed
-mysql> show tables;
-+------------------+
-| Tables_in_test   |
-+------------------+
-| dwd_product_live |
-+------------------+
-1 row in set (0.00 sec)
-mysql> desc dwd_product_live;
-+-----------------+---------------+------+-------+---------+---------+
-| Field           | Type          | Null | Key   | Default | Extra   |
-+-----------------+---------------+------+-------+---------+---------+
-| dt              | DATE          | Yes  | true  | NULL    |         |
-| proId           | BIGINT        | Yes  | true  | NULL    |         |
-| authorId        | BIGINT        | Yes  | true  | NULL    |         |
-| roomId          | BIGINT        | Yes  | true  | NULL    |         |
-| proTitle        | VARCHAR(1024) | Yes  | false | NULL    | REPLACE |
-| proLogo         | VARCHAR(1024) | Yes  | false | NULL    | REPLACE |
-| shopId          | BIGINT        | Yes  | false | NULL    | REPLACE |
-| shopTitle       | VARCHAR(1024) | Yes  | false | NULL    | REPLACE |
-| profrom         | INT           | Yes  | false | NULL    | REPLACE |
-| proCategory     | BIGINT        | Yes  | false | NULL    | REPLACE |
-| proPrice        | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| couponPrice     | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| livePrice       | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| volume          | BIGINT        | Yes  | false | NULL    | REPLACE |
-| addedTime       | BIGINT        | Yes  | false | NULL    | REPLACE |
-| offTimeUnix     | BIGINT        | Yes  | false | NULL    | REPLACE |
-| offTime         | BIGINT        | Yes  | false | NULL    | REPLACE |
-| createTime      | BIGINT        | Yes  | false | NULL    | REPLACE |
-| createTimeUnix  | BIGINT        | Yes  | false | NULL    | REPLACE |
-| amount          | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| views           | BIGINT        | Yes  | false | NULL    | REPLACE |
-| commissionPrice | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| proCostPrice    | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| proCode         | VARCHAR(1024) | Yes  | false | NULL    | REPLACE |
-| proStatus       | INT           | Yes  | false | NULL    | REPLACE |
-| status          | INT           | Yes  | false | NULL    | REPLACE |
-| maxPrice        | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| liveView        | BIGINT        | Yes  | false | NULL    | REPLACE |
-| firstCategory   | BIGINT        | Yes  | false | NULL    | REPLACE |
-| secondCategory  | BIGINT        | Yes  | false | NULL    | REPLACE |
-| thirdCategory   | BIGINT        | Yes  | false | NULL    | REPLACE |
-| fourCategory    | BIGINT        | Yes  | false | NULL    | REPLACE |
-| minPrice        | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| liveVolume      | BIGINT        | Yes  | false | NULL    | REPLACE |
-| liveClick       | BIGINT        | Yes  | false | NULL    | REPLACE |
-| extensionId     | VARCHAR(128)  | Yes  | false | NULL    | REPLACE |
-| beginTime       | BIGINT        | Yes  | false | NULL    | REPLACE |
-| roomTitle       | TEXT          | Yes  | false | NULL    | REPLACE |
-| beginTimeUnix   | BIGINT        | Yes  | false | NULL    | REPLACE |
-| nickname        | TEXT          | Yes  | false | NULL    | REPLACE |
-+-----------------+---------------+------+-------+---------+---------+
-40 rows in set (0.06 sec)
 ```
+
+## IP Transparency
+
+自 2.1.1 版本开始，Doris 支持 [Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) 协议。利用这个协议，可以是实现负载均衡的 IP 透传，从而在经过负载均衡后，Doris 依然可以获取客户端的真实 IP，实现白名单等权限控制。
+Since 2.1.1, Doris supports [Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt). Using this protocol, IP transparency for load balancing can be achieved, so that after load balancing, Doris can still obtain the client's real IP and implement permission control such as whitelisting.
+
+> Note:
+>
+> 1. Only support Proxy Protocol V1。
+>
+> 2. Only supports and works on the MySQL protocol port, and does not support and affect other protocol ports such as HTTP and ADBC.
+>
+> 3. After enable, the Proxy Protocol must be used to connect, otherwise the connection will fail.
+
+The following uses Ngnix as an example to introduce how to implement IP transparency.
+
+1. Doris enables Proxy Protocol
+
+    Add config in FE's fe.conf:
+
+    ```
+    enable_proxy_protocol = true
+    ```
+
+2. Ngnix enables Proxy Protocol
+
+    ```
+    events {
+    worker_connections 1024;
+    }
+    stream {
+      upstream mysqld {
+          hash $remote_addr consistent;
+          server 172.31.7.119:9030 weight=1 max_fails=2 fail_timeout=60s;
+      }
+      server {
+          listen 6030;
+          proxy_connect_timeout 300s;
+          proxy_timeout 300s;
+          proxy_pass mysqld;
+          # Enable Proxy Protocol to the upstream server
+          proxy_protocol on;
+      }
+    }
+    ```
+
+3. Connect Doris through Nginx
+
+    ```
+    mysql -uroot -P6030 -h172.31.7.119
+    ```
+
+4. Verify
+
+    ```
+    mysql> show processlist;
+    +------------------+------+------+-------------------+---------------------+----------+------+---------+------+-------+-----------------------------------+------------------+
+    | CurrentConnected | Id   | User | Host              | LoginTime           | Catalog  | Db   | Command | Time | State | QueryId                           | Info             |
+    +------------------+------+------+-------------------+---------------------+----------+------+---------+------+-------+-----------------------------------+------------------+
+    | Yes              |    1 | root | 172.21.0.32:34390 | 2024-03-17 16:32:22 | internal |      | Query   |    0 | OK    | 82edc460d93f4e28-8bbed058a068e259 | show processlist |
+    +------------------+------+------+-------------------+---------------------+----------+------+---------+------+-------+-----------------------------------+------------------+
+    1 row in set (0.00 sec)
+    ```
+
+    If you see the real client IP in the `Host` column, the verification is successful. Otherwise, only the IP address of the proxy service will be visible.
+
+    At the same time, the real client IP will also be recorded in fe.audit.log.
 

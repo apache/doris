@@ -20,11 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.mysql.BytesChannel;
 import org.apache.doris.mysql.ProxyProtocolHandler;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.io.IOException;
 
@@ -57,12 +54,12 @@ public class ProxyProtocolHandlerTest {
         byte[] data = "PROXY TCP4 192.168.0.1 192.168.0.2 12345 54321\r\n".getBytes();
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
-        assertNotNull(result);
-        assertFalse(result.isUnknown);
-        assertEquals("192.168.0.1", result.sourceIP);
-        assertEquals(12345, result.sourcePort);
-        assertEquals("192.168.0.2", result.destIp);
-        assertEquals(54321, result.destPort);
+        Assertions.assertNotNull(result);
+        Assertions.assertFalse(result.isUnknown);
+        Assertions.assertEquals("192.168.0.1", result.sourceIP);
+        Assertions.assertEquals(12345, result.sourcePort);
+        Assertions.assertEquals("192.168.0.2", result.destIp);
+        Assertions.assertEquals(54321, result.destPort);
     }
 
     @Test
@@ -70,8 +67,8 @@ public class ProxyProtocolHandlerTest {
         byte[] data = "PROXY UNKNOWN xxxxxxxxxxxxxxxxxx\r\n".getBytes();
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
-        assertNotNull(result);
-        assertTrue(result.isUnknown);
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isUnknown);
     }
 
     @Test(expected = IOException.class)
@@ -107,12 +104,12 @@ public class ProxyProtocolHandlerTest {
         byte[] data = "PROXY TCP6 2001:db8:0:1:1:1:1:1 2001:db8:0:1:1:1:1:2 12345 54321\r\n".getBytes();
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
-        assertNotNull(result);
-        assertFalse(result.isUnknown);
-        assertEquals("2001:db8:0:1:1:1:1:1", result.sourceIP);
-        assertEquals(12345, result.sourcePort);
-        assertEquals("2001:db8:0:1:1:1:1:2", result.destIp);
-        assertEquals(54321, result.destPort);
+        Assertions.assertNotNull(result);
+        Assertions.assertFalse(result.isUnknown);
+        Assertions.assertEquals("2001:db8:0:1:1:1:1:1", result.sourceIP);
+        Assertions.assertEquals(12345, result.sourcePort);
+        Assertions.assertEquals("2001:db8:0:1:1:1:1:2", result.destIp);
+        Assertions.assertEquals(54321, result.destPort);
     }
 
     @Test(expected = IOException.class)

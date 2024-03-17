@@ -37,13 +37,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
-import javax.management.openmbean.InvalidOpenTypeException;
 
 // MySQL protocol util
 public class MysqlProto {
