@@ -274,6 +274,10 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     }
 }
 
+std::string RuntimeState::cancel_reason() const {
+    return _cancel_reason;
+}
+
 Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
     {
         std::lock_guard<std::mutex> l(_process_status_lock);

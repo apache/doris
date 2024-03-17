@@ -157,7 +157,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             _exec_status = Status::Cancelled(msg);
         }
-        _runtime_state->set_is_cancelled(true, msg);
+        _runtime_state->set_is_cancelled(msg);
         LOG_WARNING("Query {} instance {} cancelled, reason {}, message {}", print_id(_query_id),
                     print_id(_fragment_instance_id), PPlanFragmentCancelReason_Name(reason),
                     msg.substr(0, 50));
