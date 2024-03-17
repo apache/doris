@@ -1058,6 +1058,7 @@ public class PropertyAnalyzer {
         String storageVault = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT)) {
             storageVault = properties.get(PROPERTIES_STORAGE_VAULT);
+            properties.remove(PROPERTIES_STORAGE_VAULT);
         }
 
         return storageVault;
