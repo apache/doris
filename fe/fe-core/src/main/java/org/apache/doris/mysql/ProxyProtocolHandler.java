@@ -24,6 +24,20 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
+/**
+ * Proxy protocol handler.
+ * The proxy protocol is a simple protocol to pass client connection information to the server.
+ * It is used in some load balancers and proxies to pass the client's IP address and port to the server.
+ * The protocol is defined in https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
+ * The protocol has two versions: V1 and V2.
+ * V1 is a text-based protocol, and V2 is a binary protocol.
+ * This class only supports V1.
+ * The V1 protocol is a text-based protocol, and the header is "PROXY ".
+ * The protocol is defined as:
+ * PROXY TCP4[TCP6] <srcip> <dstip> <srcport> <dstport>\r\n
+ * or
+ * PROXY UNKNOWN xxxx\r\n
+ */
 public class ProxyProtocolHandler {
     private static final Logger LOG = LogManager.getLogger(ProxyProtocolHandler.class);
 
@@ -44,8 +58,8 @@ public class ProxyProtocolHandler {
 
         @Override
         public String toString() {
-            return "ProxyProtocolResult{" +
-                    "sourceIP='" + sourceIP + '\''
+            return "ProxyProtocolResult{"
+                    + "sourceIP='" + sourceIP + '\''
                     + ", sourcePort=" + sourcePort
                     + ", destIp='" + destIp + '\''
                     + ", destPort=" + destPort

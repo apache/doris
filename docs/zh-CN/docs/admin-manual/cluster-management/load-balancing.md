@@ -637,6 +637,6 @@ mysql> show databases;
     1 row in set (0.00 sec)
     ```
 
-    如果在 `Host` 列看到的真实的客服端 IP，则说明验证成功。否则，只能看到代理服务的 IP 地址。
+    如果在 `Host` 列看到的真实的客户端 IP，则说明验证成功。否则，只能看到代理服务的 IP 地址。
 
     同时，在 fe.audit.log 中也会记录真实的客户端 IP。

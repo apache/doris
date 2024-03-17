@@ -81,6 +81,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                             if (!result.isUnknown) {
                                 context.getMysqlChannel().setRemoteAddr(result.sourceIP, result.sourcePort);
                             }
+                            // ignore the UNKNOWN, and just use IP from MySQL protocol.
+                            // which is already set when creating MysqlChannel.
                         }
 
                         // authenticate check failed.

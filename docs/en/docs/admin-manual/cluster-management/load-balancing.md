@@ -577,7 +577,6 @@ mysql> show databases;
 
 ## IP Transparency
 
-自 2.1.1 版本开始，Doris 支持 [Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) 协议。利用这个协议，可以是实现负载均衡的 IP 透传，从而在经过负载均衡后，Doris 依然可以获取客户端的真实 IP，实现白名单等权限控制。
 Since 2.1.1, Doris supports [Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt). Using this protocol, IP transparency for load balancing can be achieved, so that after load balancing, Doris can still obtain the client's real IP and implement permission control such as whitelisting.
 
 > Note:
