@@ -1197,6 +1197,21 @@ DEFINE_mString(ca_cert_file_paths,
                "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
                "/etc/ssl/ca-bundle.pem");
 
+/** Table sink configurations(currently contains only external table types) **/
+// Minimum data processed to scale writers when non partition writing
+DEFINE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold,
+              "125829120"); // 120MB
+// Minimum data processed to start rebalancing in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_data_processed_threshold, "209715200"); // 200MB
+// Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold,
+              "209715200"); // 200MB
+// Maximum processed partition nums of per writer when partition writing
+DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
+
+/** Hive sink configurations **/
+DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
