@@ -304,8 +304,10 @@ public:
         for (uint32_t i = 0; i < _num_elems; ++i) {
             uint32_t offset = decode_fixed32_le((uint8_t*)offset_ptr);
             if (offset > _offsets_pos) {
-                return Status::Corruption("file corruption: offsets pos beyonds data_size: {}, num_element: {}"
-                                          ", offset_pos: {}, offset: {}", _data.size, _num_elems, _offsets_pos, offset);
+                return Status::Corruption(
+                        "file corruption: offsets pos beyonds data_size: {}, num_element: {}"
+                        ", offset_pos: {}, offset: {}",
+                        _data.size, _num_elems, _offsets_pos, offset);
             }
             dict_word_info[i].data = data_begin + offset;
             offset_ptr += sizeof(uint32_t);
