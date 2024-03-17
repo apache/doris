@@ -21,7 +21,6 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <cstdint>
 #include <memory>
 
@@ -130,17 +129,21 @@ Status VRowDistribution::_replace_overwriting_partition() {
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
 
-    std::vector<int64_t> request_part_ids;
-    request_part_ids.reserve(_partitions.size());
+    // only request for partitions not recorded for replacement
+    std::set<int64_t> id_deduper;
     for (const auto& part : _partitions) {
-        if (!_new_partition_ids.contains(part->id)) {
-            request_part_ids.push_back(part->id);
-        } // otherwise means replaced already.
+        if (_new_partition_ids.contains(part->id)) {
+            // this is a new partition. dont replace again.
+        } else {
+            // request for replacement
+            id_deduper.insert(part->id);
+        }
+    }
+    if (id_deduper.empty()) {
+        return Status::OK(); // no need to request
     }
     // de-duplicate. there's no check in FE
-    auto deduper = std::set(request_part_ids.begin(), request_part_ids.end());
-    request_part_ids.assign(deduper.begin(), deduper.end());
-
+    std::vector<int64_t> request_part_ids(id_deduper.begin(), id_deduper.end());
 
     request.__set_partition_ids(request_part_ids);
 

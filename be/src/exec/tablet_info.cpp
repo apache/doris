@@ -45,6 +45,8 @@
 #include "util/string_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+// NOLINTNEXTLINE(unused-includes)
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -397,6 +399,7 @@ Status VOlapTablePartitionParam::_create_partition_keys(const std::vector<TExprN
 Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartition& t_part,
                                                          VOlapTablePartition*& part_result) {
     DCHECK(part_result == nullptr);
+    // here we set the default value of partition bounds first! if it doesn't have some key, it will be -1.
     part_result = _obj_pool.add(new VOlapTablePartition(&_partition_block));
     part_result->id = t_part.id;
     part_result->is_mutable = t_part.is_mutable;
@@ -622,7 +625,18 @@ Status VOlapTablePartitionParam::replace_partitions(
     // init and add new partitions. insert into _partitions
     for (int i = 0; i < new_partitions.size(); i++) {
         const auto& t_part = new_partitions[i];
-        auto& old_part = _partitions[i];
+        // pair old_partition_ids and new_partitions one by one. TODO: sort to opt performance
+        VOlapTablePartition* old_part = nullptr;
+        auto old_part_id = old_partition_ids[i];
+        if (auto it = std::find_if(
+                    _partitions.begin(), _partitions.end(),
+                    [=](const VOlapTablePartition* lhs) { return lhs->id == old_part_id; });
+            it != _partitions.end()) {
+            old_part = *it;
+        } else {
+            return Status::InternalError("Cannot find old tablet {} in replacing", old_part_id);
+        }
+
         auto* part = _obj_pool.add(new VOlapTablePartition(&_partition_block));
         part->id = t_part.id;
         part->is_mutable = t_part.is_mutable;
@@ -662,6 +676,7 @@ Status VOlapTablePartitionParam::replace_partitions(
 
         // add new partitions with new id.
         _partitions.emplace_back(part);
+
         // replace items in _partition_maps
         if (_is_in_partition) {
             for (auto& in_key : part->in_keys) {

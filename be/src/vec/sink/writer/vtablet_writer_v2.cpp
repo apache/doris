@@ -24,6 +24,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <cstdint>
 #include <mutex>
 #include <ranges>
 #include <string>
@@ -632,10 +633,22 @@ Status VTabletWriterV2::close(Status exec_status) {
 Status VTabletWriterV2::_close_load(const Streams& streams) {
     auto node_id = streams[0]->dst_id();
     std::vector<PTabletID> tablets_to_commit;
+    std::vector<int64_t> partition_ids;
     for (auto [tablet_id, tablet] : _tablets_for_node[node_id]) {
         if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
+            if (VLOG_DEBUG_IS_ON) {
+                partition_ids.push_back(tablet.partition_id());
+            }
             tablets_to_commit.push_back(tablet);
         }
+    }
+    if (VLOG_DEBUG_IS_ON) {
+        std::string msg("close load partitions: ");
+        msg.reserve(partition_ids.size() * 7);
+        for (auto v : partition_ids) {
+            msg.append(std::to_string(v) + ", ");
+        }
+        LOG(WARNING) << msg;
     }
     for (const auto& stream : streams) {
         RETURN_IF_ERROR(stream->close_load(tablets_to_commit));

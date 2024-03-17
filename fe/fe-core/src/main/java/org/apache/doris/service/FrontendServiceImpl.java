@@ -3606,7 +3606,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             taskLock.lock();
             // we dont lock the table. other thread in this txn will be controled by taskLock.
-            // in this txn if we have already replaced. dont do it again, but acquire the recorded new partition directly.
+            // if we have already replaced. dont do it again, but acquire the recorded new partition directly.
             // if not by this txn, just let it fail naturally is ok.
             List<Long> replacedPartIds = overwriteManager.tryReplacePartitionIds(taskGroupId, partitionIds);
             // here if replacedPartIds still have null. this will throw exception.

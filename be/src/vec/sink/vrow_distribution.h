@@ -25,17 +25,14 @@
 
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "util/stopwatch.hpp"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"

@@ -40,7 +40,6 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -133,6 +132,7 @@ struct VOlapTablePartition {
     int64_t load_tablet_idx = -1;
 
     VOlapTablePartition(vectorized::Block* partition_block)
+            // the default value of partition bound is -1.
             : start_key {partition_block, -1}, end_key {partition_block, -1} {}
 };
 
@@ -172,6 +172,12 @@ public:
                                       VOlapTablePartition*& partition) const {
         auto it = _is_in_partition ? _partitions_map->find(std::tuple {block, row, true})
                                    : _partitions_map->upper_bound(std::tuple {block, row, true});
+        // enable if need
+        // LOG(WARNING) << "find row " << row << " of\n"
+        //              << block->dump_data() << "in:\n"
+        //              << _partition_block.dump_data()
+        //              << "result line row: " << std::get<1>(it->first);
+
         // for list partition it might result in default partition
         if (_is_in_partition) {
             partition = (it != _partitions_map->end()) ? it->second : _default_partition;
