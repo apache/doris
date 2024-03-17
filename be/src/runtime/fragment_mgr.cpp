@@ -577,12 +577,6 @@ void FragmentMgr::remove_pipeline_context(
             _query_ctx_map.erase(query_id);
         }
     }
-    {
-        std::lock_guard<std::mutex> plock(q_context->pipeline_lock);
-        if (q_context->fragment_id_to_pipeline_ctx.contains(f_context->get_fragment_id())) {
-            q_context->fragment_id_to_pipeline_ctx.erase(f_context->get_fragment_id());
-        }
-    }
 }
 
 template <typename Params>
@@ -839,11 +833,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 _pipeline_map.insert({ins_id, context});
             }
 
-            _cv.notify_all();
-        }
-        {
-            std::lock_guard<std::mutex> lock(query_ctx->pipeline_lock);
             query_ctx->fragment_id_to_pipeline_ctx.insert({params.fragment_id, context});
+            _cv.notify_all();
         }
 
         RETURN_IF_ERROR(context->submit());
@@ -1047,7 +1038,7 @@ void FragmentMgr::cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fr
     auto q_ctx = _query_ctx_map.find(query_id)->second;
     auto f_context = q_ctx->fragment_id_to_pipeline_ctx.find(fragment_id);
     if (f_context != q_ctx->fragment_id_to_pipeline_ctx.end()) {
-        f_context->second->cancel(reason, msg);
+        f_context->second.lock()->cancel(reason, msg);
     } else {
         LOG(WARNING) << "Could not find the pipeline query id:" << print_id(query_id)
                      << " fragment id:" << fragment_id << " to cancel";
@@ -1063,7 +1054,7 @@ bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
         const bool is_pipeline_x = ctx->second->enable_pipeline_x_exec();
         if (is_pipeline_x) {
             for (auto& [id, f_context] : ctx->second->fragment_id_to_pipeline_ctx) {
-                return f_context->is_canceled();
+                return f_context.lock()->is_canceled();
             }
         } else {
             for (auto itr : ctx->second->fragment_instance_ids) {

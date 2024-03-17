@@ -259,8 +259,7 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
     std::vector<TUniqueId> fragment_instance_ids;
-    std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
-    std::mutex pipeline_lock;
+    std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node

@@ -162,12 +162,11 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
 
     set_ready_to_execute(true);
     {
-        std::lock_guard<std::mutex> plock(pipeline_lock);
         for (auto& ctx : fragment_id_to_pipeline_ctx) {
             if (fragment_id == ctx.first) {
                 continue;
             }
-            ctx.second->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
+            ctx.second.lock()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
         }
     }
     return true;
