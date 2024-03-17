@@ -120,6 +120,10 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         final String storageVaultName = tbl.getTableProperty().getStorageVauldName();
         boolean storageVaultIdSet = false;
+        // We don't need to set the vault name if the table has no property
+        if (storageVaultName == null || storageVaultName.isEmpty()) {
+            storageVaultIdSet = true;
+        }
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
